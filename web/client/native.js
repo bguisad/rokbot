@@ -74,6 +74,19 @@ function download(name, mime, chunks) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+function clientDeviceId() {
+  const key = 'grokbot.clientDeviceId';
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing && /^[A-Za-z0-9._:@-]{1,128}$/.test(existing.trim())) return existing.trim();
+  } catch {}
+  let id = '';
+  try { id = `web-${crypto.randomUUID().slice(0, 16)}`; } catch {}
+  if (!id) id = `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  try { localStorage.setItem(key, id); } catch {}
+  return id;
+}
+
 const calls = {
   status: () => hostCall('/web/api/session', null, 'GET'),
   async pair({ server, key, edit }) {
@@ -83,7 +96,7 @@ const calls = {
       return { ok: false, error: text('网页版只连接提供这个网页的 Host。要换 Host，请打开那台 Host 的网页版。',
         'The web client connects only to the Host that serves this page. To use another Host, open its web client.') };
     if (edit || !key) return { ok: true };
-    await hostCall('/web/api/pair', { pairingKey: key, deviceName: deviceName() });
+    await hostCall('/web/api/pair', { pairingKey: key, deviceName: deviceName(), clientDeviceId: clientDeviceId() });
     location.assign('/web/');
     return { ok: true };
   },

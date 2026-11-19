@@ -836,4 +836,8 @@ export default {
   "web-bundle.json 缺少文件清单": "web-bundle.json has no file list",
   "网页版界面包的文件与清单不一致": "The files of the web client bundle do not match its list",
   "启用状态无效": "Invalid enabled state",
+  "清理重复设备": "Clean up duplicates",
+  "已清理 {0} 条重复设备记录": "Removed {0} duplicate device entries",
+  "已合并 {0} 条重复记录": "{0} duplicates merged",
+  "客户端设备 ID 无效": "Invalid client device ID",
 };

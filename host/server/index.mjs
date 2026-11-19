@@ -268,6 +268,15 @@ export async function createSelfHostServer(options = {}) {
     tickets.revoke(id);
     connections.revoke(id);
   }
+  async function cleanupPairedResult(result) {
+    if (result.reused) {
+      tickets.revoke(result.deviceId);
+      connections.revoke(result.deviceId);
+    }
+    for (const dupId of result.revokedDuplicateIds ?? []) {
+      await revokeDevice(dupId);
+    }
+  }
   /** Sign-in, sign-out and the bundle files of the web client (web-client.mjs); /web/login is a public page. */
   async function webRoutes(request, response, path, origin, url) {
     const method = request.method;
@@ -284,11 +293,12 @@ export async function createSelfHostServer(options = {}) {
       check(webClient.available, 404, "网页版未启用");
       limiter.check(`pair:${request.socket.remoteAddress}`, 6);
       limiter.check("pair:global", 60);
-      const { pairingKey, deviceName } = await jsonBody(request);
+      const { pairingKey, deviceName, clientDeviceId } = await jsonBody(request);
       const previous = webClient.browserDevice(request);
-      const result = await auth.pair({ pairingKey, deviceName }, { web: true });
+      const result = await auth.pair({ pairingKey, deviceName, clientDeviceId }, { web: true });
       // Signing in again replaces this browser's earlier device instead of leaving it behind.
-      if (previous) await revokeDevice(previous.device.id);
+      if (previous && previous.device.id !== result.deviceId) await revokeDevice(previous.device.id);
+      await cleanupPairedResult(result);
       response.setHeader("set-cookie", webClient.sessionCookie(result.token, origin));
       return sendJson(response, 201, { ok: true, deviceId: result.deviceId });
     }
@@ -518,12 +528,19 @@ export async function createSelfHostServer(options = {}) {
     if (method === "POST" && path === "/admin/api/web-client/open") {
       // Opens the web client in the administrator's own browser without a pairing code.
       check(webClient.available, 409, "请先上传并启用网页版");
-      const { deviceName } = await jsonBody(request);
+      const { deviceName, clientDeviceId } = await jsonBody(request);
       // A browser that is already signed in keeps its device instead of gaining another.
       if (webClient.browserDevice(request)) return sendJson(response, 200, { ok: true, url: "/web/" });
-      const result = await auth.addWebDevice(typeof deviceName === "string" && deviceName.trim() ? deviceName : "网页版");
+      const result = await auth.addWebDevice(
+        typeof deviceName === "string" && deviceName.trim() ? deviceName : "网页版",
+        { clientDeviceId },
+      );
+      await cleanupPairedResult(result);
       response.setHeader("set-cookie", webClient.sessionCookie(result.token, origin));
       return sendJson(response, 201, { ok: true, url: "/web/" });
+    }
+    if (method === "POST" && path === "/admin/api/devices/deduplicate") {
+      return sendJson(response, 200, { ok: true, ...(await push.deduplicateDevices({ revokeDevice })) });
     }
     const deviceName = /^\/admin\/api\/devices\/([a-f0-9-]{36})$/.exec(path);
     if (method === "PATCH" && deviceName) {
@@ -653,7 +670,16 @@ export async function createSelfHostServer(options = {}) {
         initialized: auth.initialized,
       });
     if (request.method === "POST" && path === "/connect/pair") {
-      return handleConnectPair({ request, response, origin, auth, federation, limiter });
+      return handleConnectPair({
+        request,
+        response,
+        origin,
+        auth,
+        federation,
+        limiter,
+        legacyBundleIdFor: id => push.bundleIdOf(id),
+        onPaired: cleanupPairedResult,
+      });
     }
     if (request.method === 'GET' && ['/local/notification-settings', '/local/notification-settings/events'].includes(path)) {
       const found = device(request); connections.track(found.id, response);
@@ -765,7 +791,20 @@ export async function createSelfHostServer(options = {}) {
     }
     if (["GET", "PUT"].includes(request.method) && path === "/local/device") {
       const found = device(request);
-      return sendJson(response, 200, request.method === "GET" ? push.get(found.id) : await push.register(found.id, await jsonBody(request)));
+      return sendJson(
+        response,
+        200,
+        request.method === "GET"
+          ? push.get(found.id)
+          : await push.register(found.id, await jsonBody(request), {
+              onSuperseded: ids => {
+                for (const id of ids) {
+                  tickets.revoke(id);
+                  connections.revoke(id);
+                }
+              },
+            }),
+      );
     }
     if (await handleUpdateProxy(request, response, path, url, { device, connections })) return;
     if (request.method === "POST" && path === "/local/device/push/test") {

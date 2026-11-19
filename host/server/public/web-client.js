@@ -1,6 +1,7 @@
 import { t, html } from './i18n.js';
 import { $, confirmAction, date } from './ui.js';
 import { icon } from './icons.js';
+import { persistentClientDeviceId } from './ids.js';
 
 const MiB = 1024 * 1024;
 
@@ -91,7 +92,10 @@ export function createWebClientPage({ api, toast, busy, refresh, copy }) {
     const opened = window.open('', '_blank');
     busy($('#web-client-open'), async () => {
       try {
-        const { url } = await api('/admin/api/web-client/open', { method: 'POST', body: { deviceName: deviceName() } });
+        const { url } = await api('/admin/api/web-client/open', {
+          method: 'POST',
+          body: { deviceName: deviceName(), clientDeviceId: persistentClientDeviceId('web') },
+        });
         if (opened) opened.location.href = url; else location.assign(url);
         await refresh();
       } catch (error) { opened?.close(); toast(error.message, true); }

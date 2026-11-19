@@ -1,5 +1,6 @@
 import { grokText } from './i18n.mjs';
 import { normalizePairingCode } from './pairing-code.mjs';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -62,20 +63,29 @@ function validDevice(record) {
     typeof record.token === 'string' && record.token.length >= 16 && !/[^!-~]/.test(record.token);
 }
 
+export function clientDeviceId() {
+  const digest = createHash('sha256')
+    .update(`${os.hostname()}:${os.userInfo().username}:${process.platform}:${process.arch}`)
+    .digest('hex')
+    .slice(0, 24);
+  return `desktop-${digest}`;
+}
+
 export async function pair(server, credential, fetcher = fetch, { tunneled = false, mode = 'code' } = {}) {
   server = normalizeServer(server);
   const byPassword = mode === 'password';
+  const id = clientDeviceId();
   let payload;
   if (byPassword) {
     if (typeof credential !== 'string' || credential.length === 0)
       throw new Error(grokText('请输入 Host 管理员密码。', 'Enter the Host admin password.'));
     if (credential.length > 128)
       throw new Error(grokText('管理员密码过长。', 'Admin password is too long.'));
-    payload = { password: credential, deviceName: os.hostname(), platform: 'desktop' };
+    payload = { password: credential, deviceName: os.hostname(), platform: 'desktop', clientDeviceId: id };
   } else {
     const pairingKey = normalizePairingCode(credential);
     if (!/^[A-Z0-9]{6}$/.test(pairingKey)) throw new Error(grokText('请输入 6 位配对码。', 'Enter a six-character pairing code.'));
-    payload = { pairingKey, deviceName: os.hostname(), platform: 'desktop' };
+    payload = { pairingKey, deviceName: os.hostname(), platform: 'desktop', clientDeviceId: id };
   }
   const response = await fetcher(`${server}/connect/pair`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

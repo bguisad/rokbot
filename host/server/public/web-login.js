@@ -3,6 +3,7 @@
 import { t, localize } from './i18n.js';
 import { $ } from './ui.js';
 import { createFace, lookAt, resetLook, blink } from './face.js';
+import { persistentClientDeviceId } from './ids.js';
 
 localize(document.body);
 const form = $('#web-form'), code = $('#web-code'), message = $('#web-message'), status = $('#web-status');
@@ -57,7 +58,11 @@ form.addEventListener('submit', async event => {
   $('.auth-talk').classList.add('pending');
   $('#web-submit').disabled = true;
   try {
-    await call('/web/api/pair', { pairingKey: code.value, deviceName: deviceName() });
+    await call('/web/api/pair', {
+      pairingKey: code.value,
+      deviceName: deviceName(),
+      clientDeviceId: persistentClientDeviceId('web'),
+    });
     // The click is the user gesture browsers require before asking about notifications.
     if (typeof Notification === 'function' && Notification.permission === 'default')
       await Promise.race([Notification.requestPermission().catch(() => {}), new Promise(resolve => setTimeout(resolve, 15000))]);

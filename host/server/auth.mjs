@@ -17,10 +17,21 @@ const publicDevice = ({
   id,
   name,
   platform,
+  clientDeviceId,
+  bundleId,
   createdAt,
   revokedAt,
   lastSeenAt,
-}) => ({ id, name, platform, createdAt, revokedAt, lastSeenAt });
+}) => ({
+  id,
+  name,
+  platform,
+  clientDeviceId: clientDeviceId ?? null,
+  bundleId: bundleId ?? null,
+  createdAt,
+  revokedAt,
+  lastSeenAt,
+});
 const normalizeKey = (value) =>
   typeof value === "string" ? value.replace(/[\s-]/g, "").toUpperCase() : "";
 const validDeviceName = (value) =>
@@ -29,6 +40,34 @@ const validDeviceName = (value) =>
     400,
     "设备名称需要 1–80 个字符",
   );
+const seenAtMs = (item) => {
+  const t = Date.parse(item.lastSeenAt ?? item.createdAt ?? 0);
+  return Number.isFinite(t) ? t : 0;
+};
+export function normalizeClientDeviceId(value) {
+  if (value === undefined || value === null || value === "") return null;
+  check(typeof value === "string", 400, "客户端设备 ID 无效");
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  check(
+    trimmed.length <= 128 && /^[A-Za-z0-9._:@-]+$/.test(trimmed),
+    400,
+    "客户端设备 ID 无效",
+  );
+  return trimmed;
+}
+export function normalizeBundleId(value) {
+  if (value === undefined || value === null || value === "") return null;
+  check(typeof value === "string", 400, "设备 Bundle ID 无效");
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  check(
+    trimmed.length <= 128 && /^[A-Za-z0-9._-]+$/.test(trimmed),
+    400,
+    "设备 Bundle ID 无效",
+  );
+  return trimmed;
+}
 export class Auth {
   constructor(
     dataDir,
@@ -141,8 +180,21 @@ export class Auth {
    * Pairs a client with a one-time code or administrator password. `web` is set only by the Host's
    * own web client sign-in; clients pairing through /connect/pair are desktops, Android phones or iOS devices.
    */
-  async pair({ pairingKey, password, deviceName, platform, clientKind }, { web = false } = {}) {
+  async pair(
+    {
+      pairingKey,
+      password,
+      deviceName,
+      platform,
+      clientKind,
+      clientDeviceId,
+      bundleId,
+    },
+    { web = false, legacyBundleIdFor = null } = {},
+  ) {
     validDeviceName(deviceName);
+    const normalizedClientDeviceId = normalizeClientDeviceId(clientDeviceId);
+    const normalizedBundleId = normalizeBundleId(bundleId);
     if (!web) check(
       ["desktop", "ios"].includes(platform),
       400,
@@ -162,44 +214,152 @@ export class Auth {
       );
     }
     const kind = web ? "web" : platform === "desktop" && clientKind === "android" ? "android" : platform;
-    return this.addDevice(deviceName, kind, state => {
-      if (hasPassword) return () => {};
-      const index = state.pairing.findIndex(
-        (item) =>
-          item.hash === hash(normalizeKey(pairingKey)) &&
-          item.expiresAt > Date.now(),
-      );
-      check(index >= 0, 401, "配对码无效、已使用或已过期");
-      return () => state.pairing.splice(index, 1);
-    });
+    return this.addDevice(
+      deviceName,
+      kind,
+      state => {
+        if (hasPassword) return () => {};
+        const index = state.pairing.findIndex(
+          (item) =>
+            item.hash === hash(normalizeKey(pairingKey)) &&
+            item.expiresAt > Date.now(),
+        );
+        check(index >= 0, 401, "配对码无效、已使用或已过期");
+        return () => state.pairing.splice(index, 1);
+      },
+      {
+        clientDeviceId: normalizedClientDeviceId,
+        bundleId: normalizedBundleId,
+        legacyBundleIdFor,
+      },
+    );
   }
   /** A browser opened from the signed-in admin page; the administrator needs no pairing code. */
-  async addWebDevice(deviceName) {
-    return this.addDevice(deviceName, "web", () => () => {});
+  async addWebDevice(deviceName, { clientDeviceId = null } = {}) {
+    const normalizedClientDeviceId = normalizeClientDeviceId(clientDeviceId);
+    return this.addDevice(deviceName, "web", () => () => {}, {
+      clientDeviceId: normalizedClientDeviceId,
+    });
   }
-  async addDevice(deviceName, platform, authorize) {
+  async addDevice(
+    deviceName,
+    platform,
+    authorize,
+    { clientDeviceId = null, bundleId = null, legacyBundleIdFor = null } = {},
+  ) {
     validDeviceName(deviceName);
+    const trimmedName = deviceName.trim();
     const token = secret();
-    const id = randomUUID();
+    const generatedId = randomUUID();
+    let finalId = generatedId;
+    let reused = false;
+    const revokedDuplicateIds = [];
     await this.store.mutate((state) => {
       const consume = authorize(state);
-      check(
-        state.devices.filter((item) => !item.revokedAt).length < 100,
-        409,
-        "设备数量已达上限，请先撤销不用的设备",
-      );
-      consume();
-      state.devices.push({
-        id,
-        name: deviceName.trim(),
-        platform,
-        hash: hash(token),
-        createdAt: new Date().toISOString(),
-        revokedAt: null,
-        lastSeenAt: new Date().toISOString(),
-      });
+      const now = new Date().toISOString();
+      let matches = [];
+      if (clientDeviceId) {
+        const nameLower = trimmedName.toLowerCase();
+        const byId = new Map();
+        for (const item of state.devices) {
+          if (item.revokedAt || item.platform !== platform) continue;
+          if (item.clientDeviceId === clientDeviceId) {
+            byId.set(item.id, item);
+          } else if (
+            bundleId &&
+            !item.clientDeviceId &&
+            (item.bundleId ?? legacyBundleIdFor?.(item.id) ?? null) === bundleId &&
+            typeof item.name === "string" &&
+            item.name.trim().toLowerCase() === nameLower
+          ) {
+            byId.set(item.id, item);
+          }
+        }
+        matches = [...byId.values()].sort(
+          (a, b) => seenAtMs(b) - seenAtMs(a),
+        );
+      }
+      if (matches.length > 0) {
+        const primary = matches[0];
+        primary.name = trimmedName;
+        primary.hash = hash(token);
+        primary.clientDeviceId = clientDeviceId;
+        if (bundleId) primary.bundleId = bundleId;
+        primary.lastSeenAt = now;
+        finalId = primary.id;
+        reused = true;
+        for (const dup of matches.slice(1)) {
+          dup.revokedAt ??= now;
+          revokedDuplicateIds.push(dup.id);
+        }
+        consume();
+      } else {
+        check(
+          state.devices.filter((item) => !item.revokedAt).length < 100,
+          409,
+          "设备数量已达上限，请先撤销不用的设备",
+        );
+        consume();
+        state.devices.push({
+          id: generatedId,
+          name: trimmedName,
+          platform,
+          clientDeviceId,
+          bundleId,
+          hash: hash(token),
+          createdAt: now,
+          revokedAt: null,
+          lastSeenAt: now,
+        });
+      }
     });
-    return { deviceId: id, token };
+    return { deviceId: finalId, token, reused, revokedDuplicateIds };
+  }
+  async bindClientIdentity(
+    id,
+    {
+      clientDeviceId = null,
+      bundleId = null,
+      legacyName = null,
+      legacyBundleIdFor = null,
+    } = {},
+  ) {
+    const normalizedClientDeviceId = normalizeClientDeviceId(clientDeviceId);
+    const normalizedBundleId = normalizeBundleId(bundleId);
+    const revokedDuplicateIds = [];
+    if (!normalizedClientDeviceId && !normalizedBundleId) {
+      return { revokedDuplicateIds };
+    }
+    await this.store.mutate((state) => {
+      const current = state.devices.find((item) => item.id === id && !item.revokedAt);
+      if (!current) return;
+      if (normalizedClientDeviceId) current.clientDeviceId = normalizedClientDeviceId;
+      if (normalizedBundleId) current.bundleId = normalizedBundleId;
+      const effectiveBundleId = current.bundleId ?? legacyBundleIdFor?.(current.id) ?? null;
+      const nameLower = typeof (legacyName ?? current.name) === "string"
+        ? (legacyName ?? current.name).trim().toLowerCase()
+        : "";
+      const now = new Date().toISOString();
+      for (const other of state.devices) {
+        if (other.id === id || other.revokedAt || other.platform !== current.platform) continue;
+        const sameClientId = Boolean(
+          normalizedClientDeviceId && other.clientDeviceId === normalizedClientDeviceId,
+        );
+        const sameLegacyIdentity = Boolean(
+          !other.clientDeviceId &&
+          effectiveBundleId &&
+          nameLower &&
+          (other.bundleId ?? legacyBundleIdFor?.(other.id) ?? null) === effectiveBundleId &&
+          typeof other.name === "string" &&
+          other.name.trim().toLowerCase() === nameLower,
+        );
+        if (sameClientId || sameLegacyIdentity) {
+          other.revokedAt ??= now;
+          revokedDuplicateIds.push(other.id);
+        }
+      }
+    });
+    return { revokedDuplicateIds };
   }
   authenticate(token) {
     if (typeof token !== "string") return null;
@@ -242,7 +402,16 @@ export class Auth {
   }
 }
 
-export async function handleConnectPair({ request, response, origin, auth, federation, limiter }) {
+export async function handleConnectPair({
+  request,
+  response,
+  origin,
+  auth,
+  federation,
+  limiter,
+  legacyBundleIdFor = null,
+  onPaired = null,
+}) {
   check(federation.role() === 'primary', 403, 'Connect to the primary Host');
   limiter.check(`pair:${request.socket.remoteAddress}`, 6);
   limiter.check("pair:global", 60);
@@ -251,9 +420,13 @@ export async function handleConnectPair({ request, response, origin, auth, feder
     limiter.check(`pair-password:${request.socket.remoteAddress}`, 5);
     limiter.check("pair-password:global", 20);
   }
-  const result = await auth.pair(body);
+  const result = await auth.pair(body, { legacyBundleIdFor });
+  if (onPaired) {
+    await onPaired(result);
+  }
   return sendJson(response, 201, {
-    ...result,
+    deviceId: result.deviceId,
+    token: result.token,
     gatewayUrl: origin,
     notificationUrl: `${origin}/notifications/events`,
   });

@@ -14,3 +14,16 @@ export function clientId(prefix = 'item', cryptoImpl = globalThis.crypto) {
   sequence += 1;
   return `${prefix}-${Date.now().toString(36)}${sequence.toString(36)}`;
 }
+
+export function persistentClientDeviceId(prefix = 'web', storage = globalThis.localStorage) {
+  const key = 'grokbot.clientDeviceId';
+  try {
+    const existing = storage?.getItem?.(key);
+    if (typeof existing === 'string' && existing.trim() && /^[A-Za-z0-9._:@-]{1,128}$/.test(existing.trim())) {
+      return existing.trim();
+    }
+  } catch {}
+  const fresh = clientId(prefix);
+  try { storage?.setItem?.(key, fresh); } catch {}
+  return fresh;
+}

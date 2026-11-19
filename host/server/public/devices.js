@@ -19,7 +19,7 @@ export function createDevices(context) {
     <section id="pairing-panel" class="section" hidden><div class="section-head"><h2 class="section-title">配对码</h2></div><div class="card">
       <div class="row"><span class="row-copy"><span id="pairing-value" class="pairing-value" data-private></span><span id="pairing-expiry" class="row-hint"></span></span><button id="copy-key" class="btn" type="button">复制</button></div>
     </div></section>
-    <section class="section"><div class="section-head"><h2 class="section-title">已配对设备</h2><span id="device-badge" class="badge">0 台</span></div><div id="device-list" class="card"></div></section>
+    <section class="section"><div class="section-head"><h2 class="section-title">已配对设备</h2><div class="section-actions"><button id="deduplicate-devices" class="btn btn-sm" type="button" hidden>清理重复设备</button><span id="device-badge" class="badge">0 台</span></div></div><div id="device-list" class="card"></div></section>
     <section class="section"><div class="section-head"><h2 class="section-title">测试通知</h2></div><div class="card">
       <label class="row"><span class="row-copy"><span class="row-title">目标会话</span><span class="row-hint">打开通知后进入此会话</span></span><select id="device-test-agent"></select></label>
       <div class="row"><span class="row-copy"><span class="row-title">在线通知</span><span class="row-hint">发送给已连接的客户端</span></span><button id="test-notification" class="btn" type="button" disabled>发送测试</button></div>
@@ -65,10 +65,40 @@ export function createDevices(context) {
     webhook: 'Webhook',
     fcm: 'Firebase FCM',
   };
+  function deviceGroupKey(device) {
+    if (device.clientDeviceId) return `cid:${device.platform}:${device.clientDeviceId}`;
+    if (device.bundleId) return `legacy:${device.platform}:${device.bundleId}:${String(device.name ?? '').trim().toLowerCase()}`;
+    return `id:${device.id}`;
+  }
+  function deviceTimestamp(device) {
+    const t = Date.parse(device.lastSeenAt ?? device.createdAt ?? 0);
+    return Number.isFinite(t) ? t : 0;
+  }
+  function groupActiveDevices(list) {
+    const groups = new Map();
+    for (const d of list) {
+      const key = deviceGroupKey(d);
+      let entry = groups.get(key);
+      if (!entry) {
+        entry = [];
+        groups.set(key, entry);
+      }
+      entry.push(d);
+    }
+    const merged = [];
+    for (const entry of groups.values()) {
+      entry.sort((a, b) => deviceTimestamp(b) - deviceTimestamp(a));
+      const primary = { ...entry[0], _duplicateIds: entry.slice(1).map(item => item.id) };
+      merged.push(primary);
+    }
+    merged.sort((a, b) => deviceTimestamp(b) - deviceTimestamp(a));
+    return merged;
+  }
   function deviceRow(device) {
     const notice = device.push || {}, label = t(kinds[device.kind] || kinds[device.platform] || '设备');
     const providerLabel = providerLabels[notice.provider] || t('在线通知');
     const badges = [badge(providerLabel)];
+    if (device._duplicateIds?.length) badges.push(badge(t('已合并 {0} 条重复记录', device._duplicateIds.length)));
     if (notice.provider !== 'bark' && notice.provider !== 'webhook' && (notice.provider !== 'none' || device.platform === 'android' || device.platform === 'ios'))
       badges.push(badge(t('权限：{0}', t(permissions[notice.authorization] || notice.authorization || '尚未报告')), notice.authorization === 'denied' ? 'warn' : ''));
     if (device.platform === 'ios' && notice.provider !== 'bark' && notice.capable === false) badges.push(badge(t('未提供 APNs 权限'), 'warn'));
@@ -81,8 +111,9 @@ export function createDevices(context) {
         : notice.pushHost
           ? t('推送服务：{0}', notice.pushHost)
           : null;
-    const meta = [t('{0}{1} · 最近连接 {2}', label, device.appVersion ? ` · ${device.appVersion}` : '', date(device.lastSeenAt)), device.bundleId,
-      hostLine,
+    const identityLine = device.clientDeviceId ? `ID: ${device.clientDeviceId}` : `ID: ${device.id.slice(0, 8)}`;
+    const meta = [t('{0}{1} · 最近连接 {2}', label, device.appVersion ? ` · ${device.appVersion}` : '', date(device.lastSeenAt)),
+      device.bundleId, identityLine, hostLine,
       notice.lastAttemptAt && t('最近尝试 {0}{1}', date(notice.lastAttemptAt), notice.lastDeliveredAt ? t(' · 服务接收 {0}', date(notice.lastDeliveredAt)) : '')];
     const actions = [];
     if (device.revokedAt) actions.push(badge(t('已撤销 · {0}', date(device.revokedAt))));
@@ -106,7 +137,10 @@ export function createDevices(context) {
         }) },
         { label: t('撤销设备'), danger: true, run: trigger => operate(trigger, device, async () => {
           if (!await confirmAction({ title: t('撤销设备连接？'), message: t('“{0}”的现有连接和推送会停用。再次使用时，需要新的配对码。', device.name), action: t('撤销连接') })) return;
-          await api(`/admin/api/devices/${device.id}/revoke`, { method: 'POST' });
+          const allIds = [device.id, ...(device._duplicateIds || [])];
+          for (const targetId of allIds) {
+            await api(`/admin/api/devices/${targetId}/revoke`, { method: 'POST' });
+          }
           toast(t('设备连接与推送已撤销'));
         }) },
       ]));
@@ -126,8 +160,13 @@ export function createDevices(context) {
   }
   function render() {
     agentOptions();
-    const active = devices.filter(device => !device.revokedAt).reverse(), revoked = devices.filter(device => device.revokedAt).reverse();
+    const rawActive = devices.filter(device => !device.revokedAt);
+    const active = groupActiveDevices(rawActive);
+    const duplicateCount = rawActive.length - active.length;
+    const revoked = devices.filter(device => device.revokedAt).reverse();
     $('#device-badge').textContent = t('{0} 台', active.length);
+    const dedupBtn = $('#deduplicate-devices');
+    if (dedupBtn) dedupBtn.hidden = duplicateCount <= 0;
     const rows = active.map(deviceRow);
     if (!active.length) rows.push(empty(t('还没有连接的设备'), t('创建配对码，在客户端输入服务地址和配对码。')));
     if (revoked.length) {
@@ -139,6 +178,13 @@ export function createDevices(context) {
     $('#device-list').replaceChildren(...rows);
   }
   $('#device-test-agent').addEventListener('change', render);
+  $('#deduplicate-devices')?.addEventListener('click', () => busy($('#deduplicate-devices'), async () => {
+    try {
+      const result = await api('/admin/api/devices/deduplicate', { method: 'POST' });
+      toast(t('已清理 {0} 条重复设备记录', result.removed ?? 0));
+      await refresh();
+    } catch (error) { toast(error.message, true); }
+  }));
   $('#copy-key').addEventListener('click', () => copy(pairingKey));
   $('#create-key').addEventListener('click', () => busy($('#create-key'), async () => {
     try {

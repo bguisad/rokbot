@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { JsonStore } from './storage.mjs';
 import { check } from './security.mjs';
+import { normalizeClientDeviceId } from './auth.mjs';
 import { PushConfig, parseBarkLink, parseNtfyUrl, parsePushEndpoint, validTopic, DEFAULT_BARK_ICON_URL } from './push-config.mjs';
 import { PushError, PushTransports } from './push-transports.mjs';
 
@@ -42,7 +43,8 @@ export class PushService {
       provider === 'apns' && Boolean(value.token);
     return { ...device, deviceId: device.id, name: value.displayName || value.name || device.name,
       kind: ['android', 'web'].includes(device.platform) ? device.platform : value.kind ?? (device.platform === 'ios' ? 'iphone' : 'mac'),
-      bundleId: value.bundleId ?? null, appVersion: value.appVersion ?? null,
+      clientDeviceId: device.clientDeviceId ?? null,
+      bundleId: value.bundleId ?? device.bundleId ?? null, appVersion: value.appVersion ?? null,
       push: { provider, capable, authorization, environment, foreground: this.isForeground(device.id), enabled: enabled && !device.revokedAt,
         barkHost: value.bark?.host ?? null,
         ntfyHost: value.ntfy?.host ?? null,
@@ -76,14 +78,23 @@ export class PushService {
       if (!streams.size) this.foregroundStreams.delete(deviceId);
     });
   }
-  async register(deviceId, input) {
-    check(this.auth.device(deviceId), 401, '设备凭证无效');
+  bundleIdOf(deviceId) {
+    return this.store.value.devices[deviceId]?.bundleId ?? this.auth.device(deviceId)?.bundleId ?? null;
+  }
+  async register(deviceId, input, { onSuperseded = null } = {}) {
+    const authDevice = this.auth.device(deviceId);
+    check(authDevice, 401, '设备凭证无效');
     check(input && typeof input === 'object' && !Array.isArray(input), 400, '设备配置无效');
     if (input.foreground !== undefined) check(typeof input.foreground === 'boolean', 400, '应用前台状态无效');
     // Presence is process-local and expires; it must not survive a Host restart.
     if (Object.keys(input).length === 1 && input.foreground !== undefined) {
       this.setForeground(deviceId, input.foreground); return this.get(deviceId);
     }
+    const normalizedClientDeviceId = input.clientDeviceId !== undefined
+      ? normalizeClientDeviceId(input.clientDeviceId)
+      : null;
+    let effectiveBundleId = null;
+    let effectiveName = authDevice.name ?? '';
     await this.store.mutate(state => {
       const previous = state.devices[deviceId] ?? { provider: 'none', enabled: true };
       const next = { ...previous };
@@ -98,6 +109,9 @@ export class PushService {
       }
       if (input.bundleId !== undefined) {
         check(validTopic(input.bundleId), 400, '设备 Bundle ID 无效'); next.bundleId = input.bundleId;
+      }
+      if (normalizedClientDeviceId) {
+        next.clientDeviceId = normalizedClientDeviceId;
       }
       if (input.appVersion !== undefined) {
         check(typeof input.appVersion === 'string' && input.appVersion.length <= 80, 400, '应用版本无效'); next.appVersion = input.appVersion;
@@ -199,10 +213,55 @@ export class PushService {
         if (!next.enabled) for (const job of state.jobs)
           if (job.deviceId === deviceId && job.status === 'queued') job.status = 'cancelled';
       }
+      effectiveBundleId = next.bundleId ?? null;
+      effectiveName = next.name ?? next.displayName ?? authDevice.name ?? '';
       state.devices[deviceId] = next;
     });
+    if (typeof this.auth.bindClientIdentity === 'function' && (normalizedClientDeviceId || effectiveBundleId)) {
+      const { revokedDuplicateIds } = await this.auth.bindClientIdentity(deviceId, {
+        clientDeviceId: normalizedClientDeviceId,
+        bundleId: effectiveBundleId,
+        legacyName: effectiveName,
+        legacyBundleIdFor: id => this.bundleIdOf(id),
+      });
+      if (revokedDuplicateIds.length > 0) {
+        for (const dupId of revokedDuplicateIds) await this.revoke(dupId);
+        if (onSuperseded) await onSuperseded(revokedDuplicateIds);
+      }
+    }
     if (input.foreground !== undefined) this.setForeground(deviceId, input.foreground);
     return this.get(deviceId);
+  }
+  async deduplicateDevices({ revokeDevice }) {
+    const active = this.devices().filter(d => !d.revokedAt);
+    const groups = new Map();
+    for (const d of active) {
+      const key = d.clientDeviceId
+        ? `cid:${d.platform}:${d.clientDeviceId}`
+        : d.bundleId
+          ? `legacy:${d.platform}:${d.bundleId}:${String(d.name ?? '').trim().toLowerCase()}`
+          : `id:${d.id}`;
+      let list = groups.get(key);
+      if (!list) {
+        list = [];
+        groups.set(key, list);
+      }
+      list.push(d);
+    }
+    const removedIds = [];
+    const seenAt = d => {
+      const t = Date.parse(d.lastSeenAt ?? d.createdAt ?? 0);
+      return Number.isFinite(t) ? t : 0;
+    };
+    for (const list of groups.values()) {
+      if (list.length <= 1) continue;
+      list.sort((a, b) => seenAt(b) - seenAt(a));
+      for (const dup of list.slice(1)) {
+        await revokeDevice(dup.id);
+        removedIds.push(dup.id);
+      }
+    }
+    return { removed: removedIds.length, removedIds };
   }
   async rename(deviceId, name) {
     check(this.auth.device(deviceId), 404, '设备不存在');
