@@ -2,9 +2,17 @@
 
 [English](README.en.md)
 
-为 Grok Bot 1.16.0（23152）arm64 砸壳 IPA 注入补丁。主程序和三个扩展都必须是解密过的，需要 Python 3.10+。本仓库不提供任何原版或修改过的 IPA，请自己准备。
+为 Grok Bot `1.16.0`（`23152`）arm64 砸壳 IPA 注入补丁。主程序和三个扩展都必须是解密过的，需要 Python 3.9+。本仓库不提供任何原版或修改过的 IPA，请自己准备。
 
 完整的部署步骤见[部署手册](../docs/AI-INSTALL.md#client-packages)，实现原理见[技术文档](../docs/ARCHITECTURE.md#ios-客户端)。
+
+## 版本锁定说明（`1.16.0` / `23152`）
+
+尽管 App Store 上游已发布更高版本（如 `1.26.0`），本补丁仍锁定 `1.16.0 (23152)`：
+
+- App Store 官方包受 FairPlay 加密保护，无法自动化拉取或解密。
+- `ios/recipes/ios/manifest.json` 与 `ios/patchers/ios/extensions.py` 校验了 `1.16.0 (23152)` 对应的 `nativeTextSha256`、`hbcSha256`（`hbcVersion: 98`）、三个扩展的 `__text` 摘要、`Widgets.appex` 的 arm64 指令偏移以及 `.gbp.gz` Hermes 字节补丁。
+- 通信接口已同步兼容新版 Host（`clientDeviceId` 设备去重、管理员密码配对、连接器全部 21 个 RPC、应用内模型配置与更新清单）。
 
 ## 使用
 
@@ -15,25 +23,39 @@ python3 release/patch-ios.py \
   --bundle-id dev.rokbot.local
 ```
 
-输出 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib` 和 `extension-signing.json`。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码。
+输出 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib` 和 `extension-signing.json`。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码（或切换为**管理员密码**配对）。
 
 推送用 APNs 或 Bark，在 Host 管理页配置。实时通话在 App 设置中开启。
 
-## 签名
+## 签名与免费 Apple ID 限制
 
 补丁默认保留 Widgets、Share 和 NotificationService 三个扩展。签名工具要为以下四个目标配置描述文件：
 
 | 目标 | Bundle ID |
 | --- | --- |
-| 主应用 | 传入 `--bundle-id` 的值 |
+| 主应用 | 传入 `--bundle-id` 的值（默认 `dev.rokbot.local`） |
 | Widgets | `<主应用 ID>.widgets` |
 | Share | `<主应用 ID>.share` |
 | NotificationService | `<主应用 ID>.NotificationService` |
 
-- 四个目标使用同一个 App Group，默认是 `group.<主应用 ID>`，可以用 `--app-group` 指定。
-- 共享钥匙串组是 `<AppIdentifierPrefix>.<主应用 ID>.shared`。把它加进四个目标的签名 entitlement，并把各目标 Info.plist 的 `SandKeychainAccessGroups` 设为包含这个组的数组。
-- 生成的 `extension-signing.json` 列出了上面这些配置。
+- **免费 7 天 Apple ID（3 个 App ID 上限）**：免费个人签名账号同时最多注册 3 个 App ID，无法为全部 4 个目标签名；如无需扩展，请追加 `--remove-extensions` 仅保留主应用。
+- **付费开发者账号（4 个目标）**：四个目标使用同一个 App Group（默认 `group.<主应用 ID>`，可用 `--app-group` 指定）；共享钥匙串组为 `<AppIdentifierPrefix>.<主应用 ID>.shared`，需加入四个目标的签名 entitlement，并将各目标 `Info.plist` 的 `SandKeychainAccessGroups` 设为包含该组的数组（`extension-signing.json` 已列出完整配置）。
 - 安装包带 APNs 权限时用 APNs，推送凭证在 Host 里配置；没有 APNs 权限时，在 App 的通知设置里填写 Bark 链接。
+- **设备去重（`clientDeviceId`）**：使用相同 `CFBundleIdentifier` 重签升级或退出重连时，App 会在 Keychain（`dev.rokbot.local.<bundleId>` / `client-device-id`）与 `NSUserDefaults` 中保留同一个 `clientDeviceId`，并在配对与 `/local/device` 上报时自动绑定旧记录，避免 Host 产生重复设备。
+
+## 应用内模型配置（`RBModels`）
+
+- 首次配对或启动恢复后，App 会查询 Host 的 `GET /local/status`。若 `needsModel` 为真，会弹出非阻塞引导提示，引导进入**模型配置**界面。
+- 也可随时点击已连接页面的**模型配置**按钮打开，支持查看/新增/编辑/切换模型服务（`openai`、`openai-responses`、`anthropic`）、模型档案（含 `POST /local/model/catalog` 拉取远端模型列表与推理强度/上下文窗口）、以及发送真实测试请求（`POST /local/model/test`，125 秒超时）。
+- 留空已保存服务的 API Key 字段会自动保留 Host 既有密钥；若当前设备未通过管理员密码配对且 Host 返回 `403`，App 会弹窗要求临时输入管理员密码（仅存内存，通过 `X-RokBot-Admin-Password` 提交，不写入本地持久化存储）。
+
+## 应用内更新与 iOS 沙盒约束（`RBUpdater`）
+
+受 iOS 沙盒机制与代码签名限制，App **无法在运行时静默自我替换二进制或应用增量补丁**（`patch-app.py` 也会禁用原版 `Expo.plist` 的 OTA 热更新以保证主包一致性）。已连接页面的**检查更新**（以及每 6 小时节流的后台检查）会请求 Host 的 `GET /local/updates/ios.json`（`rokbot-ios-update/v1`），比对版本与 Build 号、校验 `bundleId`、展示大小与 SHA-256，并提供以下安装方式：
+
+1. **OTA 一键安装（`itms-services://`）**：由系统守护进程 `itunesstored` 在 RokBot 沙盒外执行，要求 `manifest.plist` 为受信任的 **`https://` 非回环地址**（无法通过 Tailcat `127.0.0.1` 访问），且安装包的 `CFBundleIdentifier` 与签名描述文件（Ad-Hoc / 企业 / 开发者证书）必须与本机签名兼容。
+2. **AltStore / SideStore（`altstore://`、`sidestore://`）**：跳转到已安装的 AltStore 或 SideStore 添加源并使用用户自己的 Apple 凭证重签安装。
+3. **下载 IPA 并分享（TrollStore / Sideloadly / 文件）**：通过 `NSURLSessionDownloadTask` 流式下载 `.ipa`（支持 Tailcat 隧道与仅同源携带 `Bearer` 鉴权），在本地完成字节长度与分块 `CC_SHA256` 校验后，拉起系统分享面板交给 TrollStore、AltStore、爱思或文件 App 完成签名安装。
 
 ## 许可与支持
 

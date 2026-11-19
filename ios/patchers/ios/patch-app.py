@@ -47,7 +47,7 @@ def apply_app_icons(app, info, icon_dir):
                 stale.unlink()
     for src, dst in sources:
         shutil.copy2(src, dst)
-    for key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFile'):
+    for key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFiles~ipad', 'CFBundleIconFile'):
         info.pop(key, None)
     info['CFBundleIcons'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['RokBotAppIcon60x60']}}
     info['CFBundleIcons~ipad'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['RokBotAppIcon60x60', 'RokBotAppIcon76x76', 'RokBotAppIcon83.5x83.5']}}
@@ -167,11 +167,21 @@ def main():
     for dirname in ['_CodeSignature','SC_Info']:
         for pth in sorted(app.rglob(dirname),reverse=True):shutil.rmtree(pth)
     for pth in app.rglob('embedded.mobileprovision'):pth.unlink()
-    info=original.copy();info['CFBundleIdentifier']=a.bundle_id;info['CFBundleDisplayName']=a.display_name
+    info=original.copy();info['CFBundleIdentifier']=a.bundle_id;info['CFBundleName']=a.display_name;info['CFBundleDisplayName']=a.display_name
     # The exported arm64 slice is CPU-compatible with newer iPhones. Remove only
     # the App Store thinning allowlist in the derivative; runtime assets are verified on device.
     info.pop('UISupportedDevices',None)
     info['CFBundleURLTypes']=[{'CFBundleURLSchemes':['rokbot-local','rblocal','rblocal-ios'],'CFBundleURLName':a.bundle_id}]
+    schemes=[]
+    raw_schemes=info.get('LSApplicationQueriesSchemes')
+    if isinstance(raw_schemes,list):
+        for scheme in raw_schemes:
+            if isinstance(scheme,str) and scheme and scheme not in schemes:
+                schemes.append(scheme)
+    for scheme in ('altstore','sidestore','itms-services'):
+        if scheme not in schemes:
+            schemes.append(scheme)
+    info['LSApplicationQueriesSchemes']=schemes
     info['SandAppGroupIdentifier']=group
     info.pop('GrokBotPresenceAppGroup',None)
     apply_app_icons(app,info,a.icon_dir or default_icon_dir())

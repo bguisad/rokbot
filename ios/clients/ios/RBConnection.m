@@ -1,4 +1,7 @@
 #import "RBConnection.h"
+#import "RBDeviceIdentity.h"
+#import "RBModels.h"
+#import "RBUpdater.h"
 #import "RBNetwork.h"
 #import "RBNetworkScanner.h"
 #import "RBHTTP.h"
@@ -9,6 +12,18 @@
 #import "RBLocalize.h"
 #import "RBAppIntents.h"
 #import <Security/Security.h>
+
+static NSString *RBConnAsString(id value) {
+  return [value isKindOfClass:NSString.class] ? (NSString *)value : nil;
+}
+
+static BOOL RBConnBoolValue(id value, BOOL fallback) {
+  if ([value isKindOfClass:NSNumber.class])
+    return [(NSNumber *)value boolValue];
+  if ([value isKindOfClass:NSString.class])
+    return [(NSString *)value boolValue];
+  return fallback;
+}
 
 static NSString *const RBURLKey = @"RokBotLocal.serverURL";
 static NSString *RBService(void) {
@@ -56,6 +71,7 @@ static UIViewController *RBTop(void) {
 }
 @interface RBPairController : UIViewController <NSURLSessionTaskDelegate>
 @property(nonatomic, strong) UITextField *address;
+@property(nonatomic, strong) UISegmentedControl *authMode;
 @property(nonatomic, strong) UITextField *key;
 @property(nonatomic, strong) UILabel *status;
 @property(nonatomic, strong) UIButton *connect;
@@ -115,6 +131,9 @@ static UIViewController *RBTop(void) {
 - (void)disconnect {
   RBNetworkClear();
   RBClearProfileCache();
+  RBClearModelOnboardingState();
+  // Keep client-device-id and RokBotLocal.clientDeviceId across disconnect so
+  // re-pairing reuses the same Host device slot without creating duplicates.
   SecItemDelete((__bridge CFDictionaryRef)RBKeychainQuery());
   [NSUserDefaults.standardUserDefaults removeObjectForKey:RBURLKey];
   [NSUserDefaults.standardUserDefaults removeObjectForKey:@"RokBotLocal.deviceId"];
@@ -178,7 +197,7 @@ static UIViewController *RBTop(void) {
 - (void)updateNetworkState {
   if (self.editingConnection || !RBConnection.shared.deviceToken.length) return;
   if (!RBNetworkEnabled()) { self.networkLabel.text = RBL(@"已连接", @"Connected"); return; }
-  self.networkLabel.text = [RBNetworkStatus()[@"healthy"] boolValue]
+  self.networkLabel.text = RBConnBoolValue(RBNetworkStatus()[@"healthy"], NO)
     ? RBL(@"已连接 · Tailcat", @"Connected · Tailcat")
     : RBL(@"正在重新连接 · Tailcat", @"Reconnecting · Tailcat");
 }
@@ -242,6 +261,28 @@ static UIViewController *RBTop(void) {
       [row.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-20]
     ]];
     [stack addArrangedSubview:card];
+    UIButton *modelsButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *modelsConfig = UIButtonConfiguration.tintedButtonConfiguration;
+    modelsConfig.title = RBL(@"模型配置", @"Model Config");
+    modelsConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    modelsConfig.baseForegroundColor = UIColor.labelColor;
+    modelsConfig.baseBackgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    modelsButton.configuration = modelsConfig;
+    modelsButton.accessibilityIdentifier = @"rokbot.host.models";
+    [modelsButton.heightAnchor constraintEqualToConstant:50].active = YES;
+    [modelsButton addTarget:self action:@selector(openModels) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:modelsButton];
+    UIButton *updatesButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *updatesConfig = UIButtonConfiguration.tintedButtonConfiguration;
+    updatesConfig.title = RBL(@"检查更新", @"Check for Updates");
+    updatesConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    updatesConfig.baseForegroundColor = UIColor.labelColor;
+    updatesConfig.baseBackgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    updatesButton.configuration = updatesConfig;
+    updatesButton.accessibilityIdentifier = @"rokbot.host.updates";
+    [updatesButton.heightAnchor constraintEqualToConstant:50].active = YES;
+    [updatesButton addTarget:self action:@selector(openUpdater) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:updatesButton];
     UIButton *edit = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *editConfig = UIButtonConfiguration.tintedButtonConfiguration;
     editConfig.title = RBL(@"编辑连接", @"Edit connection"); editConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
@@ -279,12 +320,20 @@ static UIViewController *RBTop(void) {
   [stack addArrangedSubview:networkRow];
   [self networkChanged];
   self.address.accessibilityIdentifier = @"rokbot.host.address";
-  self.key = [self field:RBL(@"配对码", @"Pairing code") secure:YES];
+  self.authMode = [[UISegmentedControl alloc] initWithItems:@[
+    RBL(@"配对码", @"Pairing Code"),
+    RBL(@"管理员密码", @"Admin Password")
+  ]];
+  self.authMode.selectedSegmentIndex = 0;
+  self.authMode.accessibilityIdentifier = @"rokbot.host.auth-mode";
+  self.authMode.hidden = self.editingConnection;
+  [self.authMode addTarget:self action:@selector(authModeChanged) forControlEvents:UIControlEventValueChanged];
+  self.key = [self field:RBL(@"配对码", @"Pairing code") secure:NO];
   self.key.accessibilityIdentifier = @"rokbot.host.pairing-key";
-  self.key.secureTextEntry = NO; self.key.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+  self.key.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
   self.key.font = [UIFont monospacedSystemFontOfSize:20 weight:UIFontWeightMedium];
   self.key.textContentType = UITextContentTypeOneTimeCode;
-  UIStackView *fields = [[UIStackView alloc] initWithArrangedSubviews:@[self.address,self.key]];
+  UIStackView *fields = [[UIStackView alloc] initWithArrangedSubviews:@[self.address, self.authMode, self.key]];
   fields.axis = UILayoutConstraintAxisVertical; fields.spacing = 12;
   self.key.hidden = self.editingConnection;
   [stack addArrangedSubview:fields];
@@ -299,6 +348,25 @@ static UIViewController *RBTop(void) {
   [stack addArrangedSubview:self.connect];
   self.status = [self label:@"" size:13 weight:UIFontWeightRegular];
   self.status.textColor = UIColor.secondaryLabelColor; [stack addArrangedSubview:self.status];
+}
+- (void)openModels { RBShowModelsFrom(self); }
+- (void)openUpdater { RBShowUpdaterFrom(self); }
+- (void)authModeChanged {
+  BOOL passwordMode = (self.authMode.selectedSegmentIndex == 1);
+  self.key.text = @"";
+  if (passwordMode) {
+    self.key.placeholder = RBL(@"管理员密码", @"Admin password");
+    self.key.secureTextEntry = YES;
+    self.key.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.key.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    self.key.textContentType = UITextContentTypePassword;
+  } else {
+    self.key.placeholder = RBL(@"配对码", @"Pairing code");
+    self.key.secureTextEntry = NO;
+    self.key.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+    self.key.font = [UIFont monospacedSystemFontOfSize:20 weight:UIFontWeightMedium];
+    self.key.textContentType = UITextContentTypeOneTimeCode;
+  }
 }
 - (void)scanConnection {
   RBPresentNetworkScanner(self, ^(NSString *address) { self.address.text = address; self.tailcat.on = YES; [self networkChanged]; });
@@ -326,10 +394,21 @@ static UIViewController *RBTop(void) {
   request.timeoutInterval = 35;
   [request setValue:[@"Bearer " stringByAppendingString:RBConnection.shared.deviceToken] forHTTPHeaderField:@"Authorization"];
   [[RBHTTPSession() dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    NSDictionary *result = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
       if (self.cancelled) return;
       NSInteger code = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
-      if (error || code != 200) { [self fail:RBL(@"无法验证此 Host 的设备凭据。", @"Could not verify this device with the Host.")]; return; }
+      NSDictionary *dict = [result isKindOfClass:NSDictionary.class] ? result : nil;
+      BOOL disconnectedFlag = dict != nil && !RBConnBoolValue(dict[@"connected"], YES);
+      if (error || code != 200 || disconnectedFlag) {
+        NSString *errMsg = RBConnAsString(dict[@"error"]);
+        [self fail:errMsg.length ? errMsg : RBL(@"无法验证此 Host 的设备凭据。", @"Could not verify this device with the Host.")];
+        return;
+      }
+      NSString *deviceId = RBConnAsString(dict[@"deviceId"]);
+      if (deviceId.length) {
+        [NSUserDefaults.standardUserDefaults setObject:deviceId forKey:@"RokBotLocal.deviceId"];
+      }
       NSURL *bundle = [RBHermes writeGateway:base token:RBConnection.shared.deviceToken resources:RBConnection.shared.resourcesURL error:nil];
       if (!bundle || !RBNetworkCommit()) { [self fail:RBL(@"无法保存连接。", @"Could not save connection.")]; return; }
       [NSUserDefaults.standardUserDefaults setObject:RBNetworkAddress() forKey:RBURLKey];
@@ -345,10 +424,14 @@ static UIViewController *RBTop(void) {
   NSString *base = RBNetworkPrepare(address, self.tailcat.on, &networkError);
   if (!base) { [self fail:networkError.localizedDescription]; return; }
   if (self.editingConnection) { [self updateConnection:base]; return; }
-  NSString *key = [self.key.text
-      stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+  BOOL passwordMode = (self.authMode.selectedSegmentIndex == 1);
+  NSString *rawKey = self.key.text ?: @"";
+  NSString *key = passwordMode
+      ? rawKey
+      : [rawKey stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
   if (!key.length) {
-    [self fail:RBL(@"请输入配对码。", @"Enter a pairing code.")];
+    [self fail:passwordMode ? RBL(@"请输入管理员密码。", @"Enter the admin password.")
+                            : RBL(@"请输入配对码。", @"Enter a pairing code.")];
     return;
   }
   self.connect.enabled = NO;
@@ -359,13 +442,19 @@ static UIViewController *RBTop(void) {
   request.HTTPMethod = @"POST";
   request.timeoutInterval = 20;
   [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-  request.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{
-    @"pairingKey" : key,
-    @"deviceName" : UIDevice.currentDevice.name,
-    @"platform" : @"ios"
-  }
-                                                     options:0
-                                                       error:nil];
+  NSMutableDictionary *pairBody = [@{
+    @"deviceName" : UIDevice.currentDevice.name ?: @"iPhone",
+    @"platform" : @"ios",
+    @"clientDeviceId" : RBClientDeviceId()
+  } mutableCopy];
+  NSString *bundleId = NSBundle.mainBundle.bundleIdentifier;
+  if (bundleId.length)
+    pairBody[@"bundleId"] = bundleId;
+  if (passwordMode)
+    pairBody[@"password"] = key;
+  else
+    pairBody[@"pairingKey"] = key;
+  request.HTTPBody = [NSJSONSerialization dataWithJSONObject:pairBody options:0 error:nil];
   NSURLSessionConfiguration *sessionConfig =
       NSURLSessionConfiguration.ephemeralSessionConfiguration;
   NSURLSession *session = [NSURLSession sessionWithConfiguration:sessionConfig
@@ -388,18 +477,37 @@ static UIViewController *RBTop(void) {
                     return;
                   }
                   if (status != 200 && status != 201) {
-                    [strong fail:status == 401 ? RBL(@"配对码无效或已过期。", @"Pairing code is invalid or expired.")
-                                               : RBL(@"配对失败，请重试。", @"Pairing failed. Try again.")];
+                    NSString *serverError =
+                        ([result isKindOfClass:NSDictionary.class] &&
+                         [result[@"error"] isKindOfClass:NSString.class] &&
+                         [result[@"error"] length])
+                            ? result[@"error"]
+                            : nil;
+                    if (serverError) {
+                      [strong fail:serverError];
+                    } else if (status == 401) {
+                      [strong fail:passwordMode
+                                       ? RBL(@"管理员密码不正确。", @"Admin password is incorrect.")
+                                       : RBL(@"配对码无效或已过期。", @"Pairing code is invalid or expired.")];
+                    } else if (status == 403) {
+                      [strong fail:RBL(@"当前设备无权配对。", @"Pairing was denied by Host.")];
+                    } else if (status == 409) {
+                      [strong fail:RBL(@"Host 尚未完成初始化设置。", @"Host is not initialized yet.")];
+                    } else if (status == 429) {
+                      [strong fail:RBL(@"尝试次数过多，请稍后重试。", @"Too many attempts. Try again later.")];
+                    } else {
+                      [strong fail:RBL(@"配对失败，请重试。", @"Pairing failed. Try again.")];
+                    }
                     return;
                   }
                   if (![result isKindOfClass:NSDictionary.class]) {
                     [strong fail:RBL(@"Host 返回无效配置。", @"Host returned an invalid configuration.")];
                     return;
                   }
-                  NSString *token =
-                      [result[@"token"] isKindOfClass:NSString.class] ? result[@"token"] : nil;
+                  NSString *token = RBConnAsString(result[@"token"]);
+                  NSString *gatewayStr = RBConnAsString(result[@"gatewayUrl"]) ?: @"";
                   NSURLComponents *gateway =
-                      [NSURLComponents componentsWithString:result[@"gatewayUrl"] ?: @""];
+                      [NSURLComponents componentsWithString:gatewayStr];
                   if (!token.length || (!strong.tailcat.on && ![gateway.URL.absoluteString isEqual:base])) {
                     [strong fail:RBL(@"Host 配置不匹配。", @"Host configuration does not match.")];
                     return;
@@ -418,7 +526,7 @@ static UIViewController *RBTop(void) {
                     return;
                   }
                   [NSUserDefaults.standardUserDefaults setObject:RBNetworkAddress() forKey:RBURLKey];
-                  [NSUserDefaults.standardUserDefaults setObject:result[@"deviceId"] ?: @""
+                  [NSUserDefaults.standardUserDefaults setObject:RBConnAsString(result[@"deviceId"]) ?: @""
                                                           forKey:@"RokBotLocal.deviceId"];
                   RBConnection.shared.serverURL = base;
                   RBConnection.shared.deviceToken = token;

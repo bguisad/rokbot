@@ -1,12 +1,29 @@
 #import "RBLocalize.h"
 #import "RBPush.h"
 #import "RBConnection.h"
+#import "RBDeviceIdentity.h"
 #import "RBHTTP.h"
 #import "RBDiagnostics.h"
 #import <Security/Security.h>
 #import <UserNotifications/UserNotifications.h>
 #import <dlfcn.h>
 #import <objc/runtime.h>
+
+static NSString *RBPushAsString(id value) {
+  return [value isKindOfClass:NSString.class] ? (NSString *)value : nil;
+}
+
+static NSDictionary *RBPushAsDict(id value) {
+  return [value isKindOfClass:NSDictionary.class] ? (NSDictionary *)value : nil;
+}
+
+static BOOL RBPushBoolValue(id value, BOOL fallback) {
+  if ([value isKindOfClass:NSNumber.class])
+    return [(NSNumber *)value boolValue];
+  if ([value isKindOfClass:NSString.class])
+    return [(NSString *)value boolValue];
+  return fallback;
+}
 
 static NSString *RBAPNsToken;
 static NSString *RBRegistrationError;
@@ -83,23 +100,30 @@ static void RBDeviceRequest(NSString *method, NSDictionary *body,
   }
   [[RBHTTPSession() dataTaskWithRequest:r completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
     NSDictionary *value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    NSInteger status = ((NSHTTPURLResponse *)response).statusCode;
-    if (!error && (status < 200 || status >= 300 || ![value isKindOfClass:NSDictionary.class]))
+    NSDictionary *dict = RBPushAsDict(value);
+    NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
+                           ? ((NSHTTPURLResponse *)response).statusCode
+                           : 0;
+    if (!error && (status < 200 || status >= 300 || !dict))
       error = [NSError errorWithDomain:@"RokBotDevice" code:status userInfo:nil];
-    RBPushDiagnostic(@"request", @{@"method":method,@"status":@(status),@"errorDomain":error.domain ?: @"",@"errorCode":@(error.code),@"responseError":[value[@"error"] isKindOfClass:NSString.class] ? value[@"error"] : @""});
+    NSString *respErr = RBPushAsString(dict[@"error"]) ?: @"";
+    RBPushDiagnostic(@"request", @{@"method":method,@"status":@(status),@"errorDomain":error.domain ?: @"",@"errorCode":@(error.code),@"responseError":respErr});
     dispatch_async(dispatch_get_main_queue(), ^{
       if (![base isEqual:RBConnection.shared.serverURL] || ![token isEqual:RBConnection.shared.deviceToken]) return;
-      if (!error && [value[@"push"] isKindOfClass:NSDictionary.class]) {
+      NSDictionary *push = RBPushAsDict(dict[@"push"]);
+      if (!error && push) {
         // Persist only display state, never push tokens, URLs, or JSON nulls.
-        RBDevicePushState = @{@"provider":value[@"push"][@"provider"] ?: @"none",
-                              @"configured":[value[@"push"][@"configured"] boolValue] ? @YES : @NO,
-                              @"enabled":[value[@"push"][@"enabled"] boolValue] ? @YES : @NO,
-                              @"authorization":value[@"push"][@"authorization"] ?: @"notDetermined"};
+        NSString *provider = RBPushAsString(push[@"provider"]);
+        NSString *authorization = RBPushAsString(push[@"authorization"]);
+        RBDevicePushState = @{@"provider":provider.length ? provider : @"none",
+                              @"configured":RBPushBoolValue(push[@"configured"], NO) ? @YES : @NO,
+                              @"enabled":RBPushBoolValue(push[@"enabled"], NO) ? @YES : @NO,
+                              @"authorization":authorization.length ? authorization : @"notDetermined"};
         RBDevicePushStateIdentity = RBPushStateKey();
         [NSUserDefaults.standardUserDefaults setObject:RBDevicePushState forKey:RBPushStateKey()];
         [NSNotificationCenter.defaultCenter postNotificationName:@"RokBotPushStateChanged" object:nil];
       }
-      if (done) done(value, error);
+      if (done) done(dict, error);
     });
   }] resume];
 }
@@ -110,6 +134,7 @@ static void RBReportDevice(UNNotificationSettings *settings) {
     @"name": UIDevice.currentDevice.name,
     @"kind": UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? @"ipad" : @"iphone",
     @"bundleId": NSBundle.mainBundle.bundleIdentifier,
+    @"clientDeviceId": RBClientDeviceId(),
     @"appVersion": [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"",
     // Objective-C comparison expressions box as NSNumber(int), which JSON
     // encodes as 0/1. The Host correctly requires a JSON boolean here.
@@ -155,12 +180,14 @@ static BOOL RBClaimNotification(NSString *identity) {
 }
 void RBReceiveLocalNotification(NSDictionary *n) {
   dispatch_async(dispatch_get_main_queue(), ^{
-    NSString *identity = n[@"notificationId"] ?: n[@"id"];
-    if (![identity isKindOfClass:NSString.class] || !RBClaimNotification(identity)) return;
+    NSDictionary *dict = RBPushAsDict(n);
+    if (!dict) return;
+    NSString *identity = RBPushAsString(dict[@"notificationId"]) ?: RBPushAsString(dict[@"id"]);
+    if (!identity.length || !RBClaimNotification(identity)) return;
     // The original PushPayload.foregroundBehavior suppresses task-completion
     // banners. Conversation state continues through the existing Gateway stream.
     // Keep receipts/deduplication without adding a separate completion UI.
-    RBDiagnosticsEvent(@"notification.foregroundReceipt", @{ @"agentId": n[@"agentId"] ?: @"" });
+    RBDiagnosticsEvent(@"notification.foregroundReceipt", @{ @"agentId": RBPushAsString(dict[@"agentId"]) ?: @"" });
   });
 }
 @interface RBPushDelegate : NSObject <UNUserNotificationCenterDelegate>
@@ -361,7 +388,9 @@ BOOL RBReplacePushView(UIView *view) {
       [control addTarget:RBPushEntry.class action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
     }
     if (state && control.enabled)
-      control.on = [state[@"enabled"] boolValue] && [@[@"authorized", @"provisional", @"ephemeral"] containsObject:state[@"authorization"]];
+      control.on = RBPushBoolValue(state[@"enabled"], NO) &&
+                   [@[@"authorized", @"provisional", @"ephemeral"]
+                       containsObject:RBPushAsString(state[@"authorization"]) ?: @""];
     return YES;
   }
   UIView *row = control.superview;
@@ -387,7 +416,8 @@ BOOL RBReplacePushView(UIView *view) {
   }
   control.hidden = YES;
   entry.frame = rowFrame; entry.layer.zPosition = 1000; [row bringSubviewToFront:entry];
-  BOOL configured = [state[@"provider"] isEqual:@"bark"] && [state[@"configured"] boolValue];
+  BOOL configured = [RBPushAsString(state[@"provider"]) isEqualToString:@"bark"] &&
+                    RBPushBoolValue(state[@"configured"], NO);
   entry.stateLabel.text = configured ? RBL(@"Bark 已配置", @"Bark configured") : RBL(@"Bark 未配置", @"Bark not configured");
   entry.stateLabel.frame = CGRectMake(entry.bounds.size.width - 204, (entry.bounds.size.height - 22) / 2, 160, 22);
   entry.chevron.frame = CGRectMake(entry.bounds.size.width - 34, (entry.bounds.size.height - 16) / 2, 10, 16);
@@ -415,7 +445,8 @@ void RBPushRefresh(void) {
       } else if (![NSUserDefaults.standardUserDefaults boolForKey:RBPromptKey()]) {
         RBDeviceRequest(@"GET", nil, ^(NSDictionary *value, NSError *error) {
           if (error) return;
-          if ([value[@"push"][@"configured"] boolValue])
+          NSDictionary *push = RBPushAsDict(RBPushAsDict(value)[@"push"]);
+          if (RBPushBoolValue(push[@"configured"], NO))
             [NSUserDefaults.standardUserDefaults setBool:YES forKey:RBPromptKey()];
           else RBShowBark();
         });

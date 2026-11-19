@@ -14,17 +14,24 @@ static NSSet *RBConnectorMethods(void) {
     @"ListMarketplacePlugins", @"ListPrivateMarketplacePlugins", @"ListMarketplaces", @"GetEffectiveUserPlugins",
     @"GetAvailableMcpServers", @"ListSandMcpTools", @"ValidateMcpOAuthTokens",
     @"InstallUserPlugin", @"UninstallUserPlugin", @"UpdateUserPlugin", @"UpdateUserPluginVariables",
+    @"UpdateUserPluginInstall",
     @"RenameMcpOAuthAccount", @"DeleteMcpOAuthAccount", @"CheckHttpMcpStatus",
-    @"CompleteMcpOAuth", @"GetPluginDetails", @"GetGrokBotMcpToolPermissions",
-    @"SetGrokBotMcpToolPermissions"
+    @"CompleteMcpOAuth", @"GetPluginDetails", @"GetTeamPluginPopularity",
+    @"GetGrokBotMcpToolPermissions", @"SetGrokBotMcpToolPermissions",
+    @"ListPublicGrokBotMarketplaceListings"
   ]]; }); return methods;
 }
 static NSString *RBConnectorMethod(NSURLRequest *request) {
+  if (![request.HTTPMethod isEqual:@"POST"]) return nil;
   NSString *path = request.URL.path;
-  NSRange service = [path rangeOfString:@"/aiserver.v1.DashboardService/"];
-  if (service.location == NSNotFound || ![request.HTTPMethod isEqual:@"POST"]) return nil;
-  NSString *method = [path substringFromIndex:NSMaxRange(service)];
-  return [RBConnectorMethods() containsObject:method] ? method : nil;
+  for (NSString *prefix in @[@"/aiserver.v1.DashboardService/", @"/aiserver.v1.GrokBotService/"]) {
+    NSRange service = [path rangeOfString:prefix];
+    if (service.location != NSNotFound) {
+      NSString *method = [path substringFromIndex:NSMaxRange(service)];
+      return [RBConnectorMethods() containsObject:method] ? method : nil;
+    }
+  }
+  return nil;
 }
 @interface RBConnectorProtocol : NSURLProtocol
 @property(nonatomic,strong) NSURLSessionDataTask *task;
@@ -36,10 +43,32 @@ static NSString *RBConnectorMethod(NSURLRequest *request) {
 }
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request { return request; }
 - (void)startLoading {
+  NSData *body = self.request.HTTPBody;
+  if (!body && self.request.HTTPBodyStream) {
+    NSInputStream *stream = self.request.HTTPBodyStream;
+    NSMutableData *collected = [NSMutableData new];
+    uint8_t buffer[8192]; NSInteger count;
+    [stream open];
+    while ((count = [stream read:buffer maxLength:sizeof(buffer)]) > 0) {
+      if (collected.length + (NSUInteger)count > 1024 * 1024) {
+        [stream close];
+        [self.client URLProtocol:self didFailWithError:[NSError errorWithDomain:@"RokBotConnectors" code:413 userInfo:@{NSLocalizedDescriptionKey: @"Request body is too large."}]];
+        return;
+      }
+      [collected appendBytes:buffer length:(NSUInteger)count];
+    }
+    [stream close];
+    if (count < 0) {
+      [self.client URLProtocol:self didFailWithError:[NSError errorWithDomain:@"RokBotConnectors" code:400 userInfo:@{NSLocalizedDescriptionKey: @"Could not read request body."}]];
+      return;
+    }
+    body = collected;
+  }
   NSString *method = RBConnectorMethod(self.request);
   NSString *path = [@"/local/mobile-rpc/" stringByAppendingString:method];
   NSMutableURLRequest *request = [self.request mutableCopy];
   request.URL = [NSURL URLWithString:[RBConnection.shared.serverURL stringByAppendingString:path]];
+  request.HTTPBody = body ?: [@"{}" dataUsingEncoding:NSUTF8StringEncoding];
   request.allHTTPHeaderFields = @{ @"Content-Type": @"application/json", @"Accept": @"application/json",
     @"Authorization": [@"Bearer " stringByAppendingString:RBConnection.shared.deviceToken] };
   request.timeoutInterval = 30;

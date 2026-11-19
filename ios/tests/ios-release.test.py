@@ -1,9 +1,11 @@
 """Release CLI failure paths, using only temporary synthetic input (no Xcode or device)."""
 from pathlib import Path
+import hashlib
 import json
 import os
 import plistlib
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -16,6 +18,9 @@ PATCHER = Path(__file__).resolve().parents[1] / 'release' / 'patch-ios.py'
 APP_PATCHER = PATCHER.parents[1] / 'patchers' / 'ios' / 'patch-app.py'
 MANIFEST = PATCHER.parents[1] / 'recipes' / 'ios' / 'manifest.json'
 ICON_DIR = PATCHER.parents[2] / 'assets' / 'logo' / 'ios'
+LOGO_MANIFEST = PATCHER.parents[2] / 'assets' / 'logo' / 'manifest.json'
+IOS_ROOT = PATCHER.parents[1]
+REPO_ROOT = PATCHER.parents[2]
 
 
 def synthetic_arm64_macho():
@@ -195,6 +200,263 @@ class ReleaseOutput(unittest.TestCase):
 
         injected_exe = (patched_app / 'Demo').read_bytes()
         self.assertIn(b'@executable_path/Frameworks/RokBotLocal.dylib\0', injected_exe)
+
+    def test_patch_app_icon_manifest_integrity_and_missing_icon_failure(self):
+        logo_manifest = json.loads(LOGO_MANIFEST.read_text(encoding='utf-8'))
+        ios_icons = logo_manifest.get('ios') or []
+        self.assertEqual(len(ios_icons), 5)
+        for entry in ios_icons:
+            icon_path = REPO_ROOT / entry['path']
+            self.assertTrue(icon_path.is_file(), f'Missing icon: {icon_path}')
+            data = icon_path.read_bytes()
+            self.assertEqual(hashlib.sha256(data).hexdigest(), entry['sha256'])
+            self.assertEqual(data[:8], b'\x89PNG\r\n\x1a\n')
+            width, height, bit_depth, color_type = struct.unpack('>IIBB', data[16:26])
+            self.assertEqual((width, height), (entry['width'], entry['height']))
+            self.assertEqual(bit_depth, 8)
+            self.assertEqual(color_type, 2)  # RGB without alpha channel
+            self.assertFalse(entry['hasAlpha'])
+
+        pins = json.loads(MANIFEST.read_text(encoding='utf-8'))
+        source_app = self.root / 'Demo.app'
+        source_app.mkdir()
+        (source_app / 'Info.plist').write_bytes(plistlib.dumps({
+            'CFBundleIdentifier': 'co.anysphere.sand',
+            'CFBundleShortVersionString': pins['version'],
+            'CFBundleVersion': pins['build'],
+            'CFBundleExecutable': 'Demo',
+        }))
+        (source_app / 'Expo.plist').write_bytes(plistlib.dumps({'EXUpdatesEnabled': True}))
+        (source_app / 'Demo').write_bytes(synthetic_arm64_macho())
+        dylib = self.root / 'RokBotLocal.dylib'
+        dylib.write_bytes(b'synthetic-dylib')
+        resources = self.root / 'resources'
+        resources.mkdir()
+        (resources / 'gateway-template.hbc').write_bytes(b'gateway-hbc')
+        (resources / 'unpaired.hbc').write_bytes(b'unpaired-hbc')
+
+        broken_icons = self.root / 'broken-icons'
+        broken_icons.mkdir()
+        for src in ICON_DIR.glob('*.png'):
+            if src.name != 'AppIcon-180.png':
+                shutil.copy2(src, broken_icons / src.name)
+
+        result = subprocess.run(
+            [sys.executable, '-B', str(APP_PATCHER),
+             '--source', str(source_app), '--output', str(self.output),
+             '--dylib', str(dylib), '--resources', str(resources),
+             '--icon-dir', str(broken_icons), '--unsigned', '--remove-extensions'],
+            capture_output=True, encoding='utf-8',
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing RokBot AppIcon asset', result.stderr)
+        self.assertFalse((self.output / 'RokBot-Local-resignable.ipa').exists())
+
+    def test_patch_app_info_plist_clears_legacy_ipad_icons_sets_bundle_name_and_updater_schemes(self):
+        pins = json.loads(MANIFEST.read_text(encoding='utf-8'))
+        source_app = self.root / 'Demo.app'
+        source_app.mkdir()
+        (source_app / 'Info.plist').write_bytes(plistlib.dumps({
+            'CFBundleIdentifier': 'co.anysphere.sand',
+            'CFBundleShortVersionString': pins['version'],
+            'CFBundleVersion': pins['build'],
+            'CFBundleExecutable': 'Demo',
+            'CFBundleName': 'GrokBotOld',
+            'CFBundleDisplayName': 'Grok Bot',
+            'CFBundleIconName': 'AppIcon',
+            'CFBundleIconFiles': ['AppIcon60x60'],
+            'CFBundleIconFiles~ipad': ['AppIcon76x76'],
+            'CFBundleIconFile': 'AppIcon.png',
+            'CFBundleIcons': {
+                'CFBundlePrimaryIcon': {'CFBundleIconName': 'AppIcon', 'CFBundleIconFiles': ['AppIcon60x60']},
+                'CFBundleAlternateIcons': {'Alt': {'CFBundleIconFiles': ['AltIcon']}},
+            },
+            'LSApplicationQueriesSchemes': ['custom-scheme', 'altstore', 'custom-scheme'],
+        }))
+        (source_app / 'Expo.plist').write_bytes(plistlib.dumps({'EXUpdatesEnabled': True}))
+        (source_app / 'Demo').write_bytes(synthetic_arm64_macho())
+        dylib = self.root / 'RokBotLocal.dylib'
+        dylib.write_bytes(b'synthetic-dylib')
+        resources = self.root / 'resources'
+        resources.mkdir()
+        (resources / 'gateway-template.hbc').write_bytes(b'gateway-hbc')
+        (resources / 'unpaired.hbc').write_bytes(b'unpaired-hbc')
+
+        result = subprocess.run(
+            [sys.executable, '-B', str(APP_PATCHER),
+             '--source', str(source_app), '--output', str(self.output),
+             '--dylib', str(dylib), '--resources', str(resources),
+             '--unsigned', '--remove-extensions'],
+            capture_output=True, encoding='utf-8',
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        info = plistlib.loads((self.output / 'Payload' / 'Demo.app' / 'Info.plist').read_bytes())
+        for legacy_key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFiles~ipad', 'CFBundleIconFile'):
+            self.assertNotIn(legacy_key, info)
+        self.assertNotIn('CFBundleAlternateIcons', info['CFBundleIcons'])
+        self.assertNotIn('CFBundleIconName', info['CFBundleIcons']['CFBundlePrimaryIcon'])
+        self.assertEqual(info['CFBundleName'], 'RokBot')
+        self.assertEqual(info['CFBundleDisplayName'], 'RokBot')
+        self.assertEqual(info['LSApplicationQueriesSchemes'], ['custom-scheme', 'altstore', 'sidestore', 'itms-services'])
+
+    def test_patch_app_ignores_non_list_application_queries_schemes(self):
+        pins = json.loads(MANIFEST.read_text(encoding='utf-8'))
+        source_app = self.root / 'Demo.app'
+        source_app.mkdir()
+        (source_app / 'Info.plist').write_bytes(plistlib.dumps({
+            'CFBundleIdentifier': 'co.anysphere.sand',
+            'CFBundleShortVersionString': pins['version'],
+            'CFBundleVersion': pins['build'],
+            'CFBundleExecutable': 'Demo',
+            'LSApplicationQueriesSchemes': 'fb',
+        }))
+        (source_app / 'Expo.plist').write_bytes(plistlib.dumps({'EXUpdatesEnabled': True}))
+        (source_app / 'Demo').write_bytes(synthetic_arm64_macho())
+        dylib = self.root / 'RokBotLocal.dylib'
+        dylib.write_bytes(b'synthetic-dylib')
+        resources = self.root / 'resources'
+        resources.mkdir()
+        (resources / 'gateway-template.hbc').write_bytes(b'gateway-hbc')
+        (resources / 'unpaired.hbc').write_bytes(b'unpaired-hbc')
+
+        result = subprocess.run(
+            [sys.executable, '-B', str(APP_PATCHER),
+             '--source', str(source_app), '--output', str(self.output),
+             '--dylib', str(dylib), '--resources', str(resources),
+             '--unsigned', '--remove-extensions'],
+            capture_output=True, encoding='utf-8',
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        info = plistlib.loads((self.output / 'Payload' / 'Demo.app' / 'Info.plist').read_bytes())
+        self.assertEqual(info['LSApplicationQueriesSchemes'], ['altstore', 'sidestore', 'itms-services'])
+
+    def test_dylib_binary_is_executable_thin_arm64_and_matches_manifest_pin(self):
+        dylib = IOS_ROOT / 'bin' / 'RokBotLocal.dylib'
+        self.assertTrue(dylib.is_file())
+        self.assertEqual(stat.S_IMODE(dylib.stat().st_mode), 0o755)
+        data = dylib.read_bytes()
+        pins = json.loads(MANIFEST.read_text(encoding='utf-8'))
+        self.assertEqual(hashlib.sha256(data).hexdigest(), pins['dylibSha256'])
+
+        magic, cputype, _, filetype, ncmds, sizeofcmds, _, _ = struct.unpack_from('<IIIIIIII', data, 0)
+        self.assertEqual(magic, 0xfeedfacf)
+        self.assertEqual(cputype, 0x100000c)  # arm64
+        self.assertEqual(filetype, 6)  # MH_DYLIB
+        offset = 32
+        end = 32 + sizeofcmds
+        self.assertLessEqual(end, len(data))
+        for _ in range(ncmds):
+            cmd, cmdsize = struct.unpack_from('<II', data, offset)
+            if cmd in (0x21, 0x2c):  # LC_ENCRYPTION_INFO / LC_ENCRYPTION_INFO_64
+                cryptid = struct.unpack_from('<I', data, offset + 16)[0]
+                self.assertEqual(cryptid, 0)
+            offset += cmdsize
+        self.assertEqual(offset, end)
+
+    def test_all_ios_client_sources_wired_into_build_py_and_iphoneos_syntax(self):
+        build_py = (IOS_ROOT / 'clients' / 'ios' / 'build.py').read_text(encoding='utf-8')
+        sources = sorted((IOS_ROOT / 'clients' / 'ios').glob('*.m'))
+        self.assertGreater(len(sources), 0)
+        for src in sources:
+            self.assertIn(src.name, build_py, f'{src.name} missing from ios/clients/ios/build.py')
+
+        if sys.platform == 'darwin' and shutil.which('xcrun'):
+            sdk_proc = subprocess.run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'],
+                                      capture_output=True, text=True, timeout=10)
+            if sdk_proc.returncode == 0:
+                sdk = sdk_proc.stdout.strip()
+                cmd = [
+                    'xcrun', '--sdk', 'iphoneos', 'clang', '-arch', 'arm64', '-isysroot', sdk,
+                    '-miphoneos-version-min=15.1', '-fobjc-arc', '-fblocks', '-O2',
+                    '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
+                    '-Wno-deprecated-declarations', '-Wno-nullability-completeness',
+                    '-DROKBOT_VOICE_AEC3=1', '-fsyntax-only',
+                ] + [str(s) for s in sources]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_compiled_objc_client_helpers_runtime(self):
+        helper_test = IOS_ROOT / 'tests' / 'ios-client-helpers.test.m'
+        self.assertTrue(helper_test.is_file())
+        with tempfile.TemporaryDirectory(prefix='rokbot-objc-helpers-', dir=self.root) as work:
+            exe = Path(work) / 'helpers-test'
+            compile_res = subprocess.run([
+                'clang', '-fobjc-arc', '-fblocks', '-Wall', '-Wextra', '-Werror',
+                '-Wno-unused-parameter', '-Wno-deprecated-declarations', '-Wno-nullability-completeness',
+                '-framework', 'Foundation', '-framework', 'Security',
+                str(helper_test), '-o', str(exe),
+            ], capture_output=True, text=True, cwd=IOS_ROOT, timeout=30)
+            self.assertEqual(compile_res.returncode, 0, compile_res.stderr)
+            run_res = subprocess.run([str(exe)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(run_res.returncode, 0, run_res.stderr + run_res.stdout)
+            self.assertIn('PASS: RBDeviceIdentity', run_res.stdout)
+            self.assertIn('PASS: RBModels', run_res.stdout)
+            self.assertIn('PASS: RBUpdater', run_res.stdout)
+
+    def test_ios_client_device_id_models_updater_and_docs_contracts(self):
+        conn = (IOS_ROOT / 'clients' / 'ios' / 'RBConnection.m').read_text(encoding='utf-8')
+        self.assertIn('RBClientDeviceId()', conn)
+        self.assertIn('@"bundleId"', conn)
+        self.assertIn('@"password"', conn)
+        self.assertIn('@"pairingKey"', conn)
+        self.assertIn('rokbot.host.models', conn)
+        self.assertIn('rokbot.host.updates', conn)
+        self.assertIn('RBShowModelsFrom(self)', conn)
+        self.assertIn('RBShowUpdaterFrom(self)', conn)
+        self.assertIn('RBConnBoolValue', conn)
+        self.assertIn('RBConnAsString', conn)
+        self.assertNotIn('[result[@"connected"] boolValue]', conn)
+        disconnect_section = conn.split('- (void)disconnect {', 1)[1].split('@end', 1)[0]
+        disconnect_code = '\n'.join(
+            line for line in disconnect_section.splitlines()
+            if not line.lstrip().startswith('//')
+        )
+        self.assertNotIn('client-device-id', disconnect_code)
+        self.assertNotIn('RokBotLocal.clientDeviceId', disconnect_code)
+
+        push = (IOS_ROOT / 'clients' / 'ios' / 'RBPush.m').read_text(encoding='utf-8')
+        self.assertIn('@"clientDeviceId": RBClientDeviceId()', push)
+        self.assertIn('RBPushBoolValue', push)
+        self.assertIn('RBPushAsString', push)
+        self.assertIn('RBPushAsDict', push)
+        self.assertNotIn('[value[@"push"][@"configured"] boolValue]', push)
+        self.assertNotIn('[value[@"push"][@"enabled"] boolValue]', push)
+
+        connectors = (IOS_ROOT / 'clients' / 'ios' / 'RBConnectors.m').read_text(encoding='utf-8')
+        for method in ('UpdateUserPluginInstall', 'GetTeamPluginPopularity', 'ListPublicGrokBotMarketplaceListings'):
+            self.assertIn(method, connectors)
+        self.assertIn('/aiserver.v1.DashboardService/', connectors)
+        self.assertIn('/aiserver.v1.GrokBotService/', connectors)
+        self.assertIn('HTTPBodyStream', connectors)
+
+        models = (IOS_ROOT / 'clients' / 'ios' / 'RBModels.m').read_text(encoding='utf-8')
+        for token in ('/local/status', '/local/model', '/local/model/catalog', '/local/model/test',
+                      'X-RokBot-Admin-Password', 'RBHTTPSession()', 'needsModel',
+                      'autoPromptOn403:NO', 'progress.presentingViewController',
+                      'transitionCoordinator', '[timer invalidate]',
+                      '[top isKindOfClass:UIAlertController.class]'):
+            self.assertIn(token, models)
+
+        updater = (IOS_ROOT / 'clients' / 'ios' / 'RBUpdater.m').read_text(encoding='utf-8')
+        for token in ('/local/updates/ios.json', 'rokbot-ios-update/v1', 'itms-services://',
+                      '@"altstore"', '@"sidestore"', '://source?url=%@',
+                      'CC_SHA256', 'UIActivityViewController', 'RBHTTPSession()',
+                      'finishTasksAndInvalidate', 'viewDidDisappear:',
+                      'CGRectGetMidY(self.view.bounds)',
+                      '[currentTop isKindOfClass:UIAlertController.class]'):
+            self.assertIn(token, updater)
+
+        bootstrap = (IOS_ROOT / 'clients' / 'ios' / 'RBBootstrap.m').read_text(encoding='utf-8')
+        self.assertIn('RBCheckModelOnboardingIfNeeded()', bootstrap)
+        self.assertIn('RBCheckUpdatesInBackgroundIfNeeded()', bootstrap)
+
+        for doc_name in ('README.md', 'README.en.md'):
+            doc = (IOS_ROOT / doc_name).read_text(encoding='utf-8')
+            for term in ('1.16.0', '23152', '--remove-extensions', 'itms-services',
+                         'AltStore', 'SideStore', 'RBModels', 'RBUpdater', 'clientDeviceId'):
+                self.assertIn(term, doc, f'{term} missing from ios/{doc_name}')
 
 
 if __name__ == '__main__':

@@ -9,6 +9,8 @@
 #import "RBDeepLinks.h"
 #import "RBDiagnostics.h"
 #import "RBLocalize.h"
+#import "RBModels.h"
+#import "RBUpdater.h"
 #import "RBUsage.h"
 #import "RBNetwork.h"
 #import <dlfcn.h>
@@ -281,7 +283,10 @@ __attribute__((constructor)) static void RBInitialize(void) {
         [[RBNotifications shared] start];
         RBPushSetForeground(UIApplication.sharedApplication.applicationState == UIApplicationStateActive);
         RBRefreshProfile();
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ RBPushRefresh(); });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+          RBPushRefresh();
+          RBCheckModelOnboardingIfNeeded();
+        });
       };
       RBConnection.shared.didDisconnect = ^{
         [[RBNotifications shared] stop];
@@ -299,6 +304,7 @@ __attribute__((constructor)) static void RBInitialize(void) {
                         RBPushSetForeground(YES);
                         RBRefreshProfile();
                         RBPushRefresh();
+                        RBCheckUpdatesInBackgroundIfNeeded();
                       }];
       [center addObserverForName:UIApplicationDidEnterBackgroundNotification
                           object:nil
@@ -307,7 +313,7 @@ __attribute__((constructor)) static void RBInitialize(void) {
                         [[RBNotifications shared] stop];
                         RBPushSetForeground(NO);
                       }];
-      for (NSString *name in @[@"RokBotProfileChanged", @"RokBotPushStateChanged"])
+      for (NSString *name in @[@"RokBotProfileChanged", @"RokBotPushStateChanged", @"RokBotModelConfigChanged"])
         [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { [RBInterface refresh]; }];
       [NSTimer scheduledTimerWithTimeInterval:25 repeats:YES block:^(NSTimer *timer) {
         if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) RBPushSetForeground(YES);
@@ -325,6 +331,10 @@ __attribute__((constructor)) static void RBInitialize(void) {
           [[RBNotifications shared] start];
           RBRefreshProfile();
           RBPushRefresh();
+          dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            RBCheckModelOnboardingIfNeeded();
+            RBCheckUpdatesInBackgroundIfNeeded();
+          });
         }
       });
     });
