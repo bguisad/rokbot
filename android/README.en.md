@@ -1,0 +1,95 @@
+# RokBot Native Android Official APK Patcher (`android/`)
+
+[中文文档](README.md)
+
+This directory provides an **Official Android React Native `.apk` / `.xapk` / `.apks` Patcher** (`ai.x.grok.bot` / `co.anysphere.sand` `1.16.0`, build `1075`) with 1:1 `ios/` (`GBBootstrap.m` + `patch-app.py`) parity: it preserves the official RN UI and interactions (Bot List, Chat, Markdown, Voice UI, Connectors, Search, Settings, Skills) with zero homemade primary UI or floating toolbar hijack, and injects only the lightweight native companion runtime (Companion DEX, 16KB-aligned Tailcat `.so` libraries, Hermes bytepatching, OkHttp/WebSocket/Telemetry interception, foreground SSE notifications, deep-link normalization, Share Sheet target, and the 6 `ios/`-parity native modal sheets).
+
+> Intended strictly for non-commercial, authorized self-hosted deployment and development. Never commit pairing codes, passwords, private tokens, or personal Host addresses.
+
+## Key Capabilities
+
+- **Split XAPK/APKS Merging & Google Play Pairip Neutralization**
+  - **Universal Split Merger (`xapk.mjs` & `arsc.mjs`)**: Pure Node.js unpacker for Play Store `.xapk` / `.apks` / `.apk` archives; strips `libpairipcore.so`, merges the base APK with `arm64-v8a` native libraries and density/locale `resources.arsc` splits, and writes a single 16KB-aligned v2/v3-signed APK (default `android/output/rokbot-android-patched.apk`).
+  - **Pairip Anti-Tamper Neutralization (`pairip-dex.mjs`, `pairip-elf.mjs`, `PairipVmBridge`, `GrokBotAppComponentFactory`)**: Neutralizes Pairip DEX signature/license checks and dispatches `VMRunner` calls cleanly, patches ELF `DT_NEEDED libpairipcore.so`, `DT_INIT` trampolines, `ExecuteProgram` relocations, and pinned `.data` sections, and strips Pairip/Play-split manifest metadata.
+- **Secure Pairing & Multi-Transport Connectivity (`PairingActivity`)**
+  - Direct `http://` / `https://` URLs, **Pairing Code / Admin Password** segmented toggle, **LAN / mDNS (`_grokbot._tcp.`) Host auto-discovery**, and built-in **Tailcat encrypted tunneling (`tailcat://connect/...`)**.
+  - Bundles `arm64-v8a` `libgroktailcat.so` + `libgroktailcatjni.so` injected with strict **16KB page alignment** (`0xd935` ZIP extra-field padding) for Android 15/16 compatibility, complete with network-change listeners and automatic health recovery.
+  - Seals device credentials and Tailcat node identity inside **Android Keystore (`AES/GCM/NoPadding`)**.
+- **Exact `src/ios` `GBBootstrap` Native Surface Alignment (Zero Homemade Primary UI or Floating Pills)**
+  - Retains the official RN `MainActivity` launcher and official Bots/Chat/Voice/Connectors UI, hooking only the 6 `GBBootstrap.m` surfaces:
+    1. **Connection / Login (`PairingActivity`)**: Official-aligned Connect UI matching `connect.html` and `GBConnection.m`.
+    2. **Profile (`ProfileActivity`)**: Edits self-hosted Host profile and rewrites `dev-gateway@localhost` labels in the RN tree to the connected Host label.
+    3. **Notifications (`PushSettingsActivity`)**: Test push and UnifiedPush / ntfy / Webhook / FCM configuration.
+    4. **Bot Library (`LibraryActivity`)**: `NetworkInterceptor` / `R8OkHttpInterceptor` tracks active `agentId` across `/api/openAgentWindowed`, `/api/getAgentTranscriptTail`, `/api/getAgentTranscript`, and `/api/sendPrompt` (`GBObserveRequest` parity) for file upload, download preview, and deletion.
+    5. **Bot Computers (`ComputersActivity` & `ComputerViewerActivity`)**: Queries `/api/getForeverBoxStatus`, boots `/api/ensureForeverBox`, and streams interactive noVNC via loopback proxy.
+    6. **Usage (`UsageActivity`)**: Displays daily token and Host usage summary.
+- **Notifications, Deep Links, Share Target & Hermes Bytecode Layer**
+  - **Background Notifications (`NotificationService` & `PushManager`)**: Foreground-service SSE listener (`/notifications/events`) with 256-entry deduplication ring, UnifiedPush / ntfy / Webhook / FCM support, and deep-link normalization (`grokbot-local://agent/<id>` -> `grokbot://app/v1/chat?id=<id>` delivered back to the official launcher `MainActivity`, matching `GBDeepLinks.m`).
+  - **Transport & Telemetry (`R8OkHttpHook`, `R8OkHttpInterceptor`, `LegacyOkHttpHook`, `NetworkInterceptor` & `VoiceManager`)**: Hooks R8-minified OkHttp (`t8.f` / `Ae.k`) and legacy `OkHttpClientProvider`; blocks Sentry, Braze, AppsFlyer, Statsig, and `/aiserver.v1.AnalyticsService/*`; translates STT dictation (`/aiserver.v1.AiService/TranscribeAudio` -> `/local/audio/transcriptions`), voice session minting (`/aiserver.v1.GrokBotService/MintSandVoiceCallSecret` -> `/local/voice/session`), `/local/app-intents/*`, `/local/mobile-rpc/*`, and SkillSheet publication (`https://grokbot.local/skill-publication`); provides 24kHz PCM + hardware `AcousticEchoCanceler` / `NoiseSuppressor` support.
+  - **Hermes Layer (`HermesPatcher` & `hermes.mjs`)**: Applies `recipes/*.gbp.gz` bytepatches when matching pinned HBC SHA-256, bundles `assets/recipes/{unpaired.hbc,gateway-template.hbc,gateway-template.json}` (plus `assets/recipes/pairip-strings.json` when VMRunner is hooked), disables Expo Updates, and hooks `ReactNativeHost` and New-Arch `ReactHost`.
+  - **Android Share Sheet Target (`ShareTargetActivity`)**: Accepts `ACTION_SEND` / `ACTION_SEND_MULTIPLE` (text, images, files), uploads via chunked transfer to the selected Bot, and routes back to chat via normalized deep link.
+
+## Layout
+
+```text
+android/
+├── bin/
+│   ├── classes2.dex                   # Compiled native companion DEX (injected at next sequential slot, e.g. classes6.dex in 1.16.0)
+│   ├── grokbot-native-base.apk        # Minimal RN patcher test target APK
+│   └── jniLibs/arm64-v8a/             # Precompiled arm64-v8a Tailcat Go mobile JNI libraries
+├── companion/                         # Native Java companion source, compile-stubs, build.sh
+├── patchers/                          # Pure Node AXML, ARSC, XAPK/APKS merger, Pairip DEX/ELF neutralizer, DEX/JNI, Hermes/bytepatch, 16KB ZIP align, v2/v3 APK signer
+├── recipes/                           # Pinned 1.16.0 (1075) manifest, .gbp.gz Hermes bytepatches, and Pairip ELF/string recipes
+├── release/                           # CLI patcher (patch-android.mjs and Python wrapper patch-android.py)
+├── test-target/                       # Minimal RN fixture APK builder
+├── tests/ & adversarial/              # Unit, adversarial, MockHost, and live emulator E2E suites
+└── output/                            # Default signed APK output directory (rokbot-android-patched.apk & patch-report.json)
+```
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js `>= 20` (sufficient to run `patch-android.mjs` standalone)
+- Optional (only needed when rebuilding `companion/build.sh`, `test-target/build-base.sh`, or running JVM/emulator tests):
+  - JDK 17+ (`javac`, `jar`)
+  - Android SDK (`platforms/android-36/android.jar`, `build-tools` `d8`/`aapt2`/`apksigner`, and `platform-tools/adb`)
+
+### Patch an Official Android React Native APK / XAPK (`ios/` Parity)
+
+```bash
+# Optional: recompile classes2.dex if you modified companion/ sources
+bash android/companion/build.sh
+
+# Patch official 1.16.0 .xapk / .apks / .apk -> android/output/rokbot-android-patched.apk
+node android/release/patch-android.mjs \
+  --input-apk /path/to/grok-bot-1.16.0.xapk \
+  --output-apk android/output/rokbot-android-patched.apk \
+  --force
+```
+
+Key CLI options:
+
+- `--input-apk <path>` (aliases `--input`, `--apk`): Official RN `.xapk` / `.apks` / `.apk` (`ai.x.grok.bot` / `co.anysphere.sand` `1.16.0`)
+- `--output-apk <path>` (alias `--output`): Destination 16KB-aligned, v2/v3-signed APK path (required unless `--verify-only`; every patch run writes `patch-report.json` alongside it)
+- `--package-name <id>` (alias `--bundle-id`): Override Android `package` / `applicationId` while preserving original `MainActivity` FQCN and rewriting `provider` authorities & custom permissions
+- `--host <url>`: Preconfigure Host URL (`http://...`, `https://...`, or `tailcat://connect/<node>?port=<port>`)
+- `--pairing-code <code>` (alias `--pairing-key`): Preconfigure 6-character pairing code (uppercase alphanumeric excluding `I`/`O`/`1`/`0`)
+- `--keystore <path>`: Persistent JSON signing identity path (default `~/.grokbot-local/android-signing.json`; refuses `android/`)
+- `--force-hbc`: Force HBC offset splicing even when bundle SHA-256 differs from recipe pin
+- `--unsigned`: Output 16KB-aligned unsigned APK
+- `--verify-only`: Validate input archive and recipe pins without writing output
+- `--force`: Overwrite existing output APK
+- `--verbose`: Print full JSON patch report to stdout
+- `-h` / `--help`: Show CLI help
+
+## Verification
+
+```bash
+node android/tests/runner.mjs
+node android/adversarial/run-adversarial.mjs
+node --test android/patchers/patcher.test.mjs \
+  android/tests/adversarial-cli-multidex.test.mjs
+# Live emulator E2E (defaults to android/output/rokbot-android-patched.apk, package ai.x.grok.bot; override via PATCHED_APK / TARGET_PKG; uses dumpsys activity top + screencap -p for RN MainActivity and bounded uiautomator dump for native companion modals)
+ANDROID_SERIAL=emulator-5554 node android/tests/emulator-e2e.mjs
+```

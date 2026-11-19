@@ -1,0 +1,68 @@
+{
+  "schema": "grokbot-android-native/v1",
+  "packageName": "ai.x.grok.bot",
+  "supportedPackages": [
+    "ai.x.grok.bot",
+    "co.anysphere.sand"
+  ],
+  "version": "1.16.0",
+  "build": "1075",
+  "architecture": "arm64-v8a",
+  "tailcatLibs": [
+    "lib/arm64-v8a/libgroktailcat.so",
+    "lib/arm64-v8a/libgroktailcatjni.so"
+  ],
+  "hbcVersion": 98,
+  "hbcSha256": "3adbca71c42c9e39199c22ce9cc9c3d4dc168e45452c6e75c7a9ee9c00d2c632",
+  "companionDexSha256": "bafe281d287fc40b4bbe42fce05dc02a0182b29654be7f9ecb2242deddb1df69",
+  "bundleSize": 22390840,
+  "compatibility": {
+    "minSdk": 28,
+    "targetSdk": 34,
+    "cleartextTraffic": true,
+    "pageAlignment": 16384,
+    "signingSchemes": [
+      "v2",
+      "v3"
+    ]
+  },
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+  ],
+  "components": {
+    "applicationName": "dev.grokbot.nativeapp.GrokBotApplication",
+    "activities": [
+      {
+        "name": "dev.grokbot.nativeapp.PairingActivity",
+        "exported": true,
+        "theme": "@android:style/Theme.Material.Light.NoActionBar"
+      }
+    ],
+    "services": [
+      {
+        "name": "dev.grokbot.nativeapp.NotificationService",
+        "exported": false,
+        "foregroundServiceType": "dataSync"
+      }
+    ]
+  },
+  "resources": [
+    {
+      "target": "assets/unpaired.hbc",
+      "patch": "unpaired.hbc.gbp.gz"
+    },
+    {
+      "target": "assets/gateway-template.hbc",
+      "patch": "gateway-template.hbc.gbp.gz"
+    },
+    {
+      "target": "assets/gateway-template.json",
+      "patch": "gateway-template.json.gbp.gz"
+    }
+  ]
+}

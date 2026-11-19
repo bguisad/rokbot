@@ -1,0 +1,172 @@
+ProkBot Plus
+Copyright (c) 2026 ProkBot Plus contributors
+
+ProkBot Plus is a modified version of ProkBot.
+
+  Upstream project : ProkBot
+  Upstream source  : https://gitee.com/ahaduoduoduo/ProkBot
+  Based on         : release v2026.11.05, commit 3e9fe8c
+  Upstream license : ProkBot Noncommercial License 1.0 (see LICENSE)
+  Upstream notice  : Copyright (c) 2026 ProkBot contributors
+
+As the upstream license requires, ProkBot Plus keeps that license unchanged,
+is distributed for noncommercial purposes only, and identifies its
+modifications below. The noncommercial conditions also apply to everything
+ProkBot Plus adds; none of it is offered under terms that allow commercial use.
+CHANGELOG.md lists the changes by release.
+
+Modifications made in ProkBot Plus (2026-11-07 to 2026-11-19)
+--------------------------------------------------------------
+
+1. Windows x64 client (new)
+   - windows/: patcher, recipes, per-user installer source (Go), prebuilt
+     grokbot-tailcat.exe and installer stub, tests. The patcher builds from
+     the official Windows 1.1.0 installer by default and from 0.71.2 as a
+     fallback; inputs.mjs recognizes an input by size and SHA-256.
+   - windows/tools/desktop-recipes/: generator, anchored edit list and the
+     project code appended to original modules, producing the 1.1.0 recipes
+     from the user's own installer. The 0.71.2 recipes are ported from the
+     macOS recipes (windows/tools/port-desktop-recipes.mjs).
+   - windows/patchers/desktop/original.mjs: extraction of the official
+     installer, shared with the Android and web client builders.
+   - The installer tracks the files it owns, supports side-by-side migration
+     of legacy installs and preserves occupied Start menu and URL entries.
+
+2. Shared desktop client (mac/clients/desktop/)
+   - Cross-platform changes shared by the macOS and Windows clients:
+     platform.mjs, main.mjs, connection.mjs, settings.mjs, sounds.mjs,
+     connect.css, native-provider.mjs, codex-bridge.mjs, codex-process.mjs,
+     local-exec.mjs (UTF-8 command output on Windows) and attachments.mjs
+     (POSIX Host image paths).
+   - The 1.1.0 interfaces: per-edge RPC registration and window visibility
+     events (main.mjs, local-services.mjs), dictation through the Host
+     (dictation.mjs), search mapping (gateway.mjs) and startup defaults.
+   - Connection lifecycle and reconnect fixes; on HTTP 401 the client checks
+     /connect/status before disconnecting (gateway.mjs); settings survive
+     failed saves and a damaged profile is kept under another name
+     (client-persistence.mjs); the saved theme applies before first paint.
+   - workspace.css and workspace-keys.cjs: wide reply tables, dialog send
+     shortcuts and empty catalog-search dismissal, shared with Android.
+   - host/runtime/host-computers.mjs, native-desktop.mjs, codex-prompt.mjs and
+     host/server/desktop-capabilities.mjs: the Host recognizes Windows
+     computers and withholds desktop execution from phones and browsers.
+
+3. Android client (new)
+   - android/shell/: Android shell app (Kotlin, no third-party libraries):
+     loopback gateway to the paired Host, Keystore-encrypted credential,
+     pairing, background notifications, file picking and saving, back gesture.
+     android/dist/grokbot-android-shell.apk is its prebuilt release build.
+   - android/client/: bridge that runs the original desktop interface in the
+     Android WebView in place of Electron's main process and preloads, the
+     computer view frame with fresh tickets, a phone layout after the official
+     phone app, an anchor positioning fallback, compatibility functions for
+     older WebView builds (compat.js) and the connection page.
+   - android/patchers/: builds the APK from the user's own official Windows
+     installer (1.1.0 by default, 0.71.2 as a fallback), signs it with
+     APK Signature Scheme v2 using a key created for the user, and applies a
+     few verified changes to the original interface (renderer-patches.mjs).
+
+4. Web client (new)
+   - web/patchers/: builds a web client bundle from the user's own official
+     Windows installer with the Windows recipes and the Android interface
+     patches (patch.mjs), and installs it on the user's own Host through the
+     admin API (upload.mjs). The bundle is never committed or published.
+   - web/client/: browser start-up data, the browser stand-in for the Android
+     shell's native calls, back navigation, keyboard, theme and notification
+     handling, and browser styles.
+   - host/server/web-client.mjs (new) and changes to index.mjs, auth.mjs,
+     proxy.mjs and push-service.mjs: bundle verification, atomic install,
+     serving only to signed-in browsers, the web device platform, cookie
+     sign-in bound to the Host origin and a request header, admin routes, and
+     the computer view bridge injected into noVNC pages. host/server/public/:
+     sign-in page (web-login.*) and the admin Web client page (web-client.js).
+   - android/client/: a Safari ResizeObserver shim (compat.js) and deep links
+     that wait for the Bot list (bridge.js), shared with Android.
+
+5. Model API formats and routing
+   - New Anthropic Messages and OpenAI Responses adapters next to OpenAI Chat:
+     host/runtime/anthropic-messages.mjs, openai-responses.mjs,
+     openai-chat.mjs, model-common.mjs (new); model-session.mjs,
+     model-policy.mjs, model-router.mjs, model-errors.mjs,
+     model-observation.mjs, config.mjs, host/server/models.mjs, index.mjs,
+     public/model.js, public/locales-en.js and public/ids.js (changed or new).
+   - "minimal" reasoning effort, reasoning provenance tags, optional-parameter
+     fallback, bounded error bodies, incremental SSE parsing, connection tests
+     and auto review for all three formats. OpenAI Chat accepts either
+     completion marker and tool calls after "stop"; empty tool arguments mean
+     {} only for tools without required parameters. Malformed function calls
+     are omitted from replay and rejected before they are persisted.
+   - Per-Bot model routes and profiles with ordered fallbacks
+     (host/runtime/model-routing.mjs, contributed through pull request #2),
+     the rewritten model page, guarded manual summarization
+     (host-summarize.mjs), threshold compaction and rejection of malformed
+     provider function names (model-rejection-guard.mjs).
+
+6. Auto review, web and image tools
+   - Auto review retries once on a malformed classification and logs failures
+     (host/runtime/host-auto-review.mjs).
+   - Native web tools fall back to automatic tool choice when a model rejects a
+     forced tool call; parallel searches succeed when one call succeeds
+     (host/runtime/web-services.mjs).
+   - Aspect ratios are mapped to image sizes, and reference images use the
+     image edits endpoint (host/server/media-providers.mjs, media-http.mjs,
+     media-settings.mjs, host/runtime/media-services.mjs).
+
+7. Message order and reliability
+   - Messages from one model response are delivered in the order the model
+     wrote them; IDs reused by concurrent responses run unordered
+     (host/runtime/reliability/tool-order.mjs (new), tool-journal.mjs).
+   - An immediate resend of an acknowledged plain-text delivery stops before
+     another send. A failed post-turn memory request no longer stops the Host.
+   - The Host patch build verifies each prepared reliability file against its
+     protected manifest; the Harness turn-run recipe passes the Bot ID to the
+     main and summarization sessions.
+
+8. Linux deployment, ARM64, backup and recovery
+   - host/deploy.py and host/release/: one operator entry point for checks,
+     setup, start, update, backup and recovery; build before stopping
+     services; validated Compose mounts; exact-image recovery into new volumes
+     (backup.py), including Docker 29 with Compose 2.40.
+   - ARM64 Host build path, locked ARM runtime dependencies
+     (host/release/arm-runtime/), ARM64 Tailcat and platform checks
+     (platforms.py). The original desktop is unchanged and stays amd64.
+   - build-docker.py accepts Docker 29's containerd image identities;
+     host/network/build-tailcat.py builds the Windows target; the Dockerfiles
+     set the executable bit on Tailcat; streamed, verified Host patch output.
+   - host/bench/: whole-machine resource sampling and comparison.
+
+9. Admin tools: host/tools/host-admin.mjs (new) and admin page status and
+   CLI error handling.
+
+10. Release engineering: ci/ (input checks, homepage version tables, official
+    channel snapshots, release packaging and verification of nested ZIP, APK
+    and gzip content, inactive workflow templates).
+
+11. Tests: host/tests/, windows/tests/, android/tests/, web/tests/ (new),
+    and mac/tests/ additions.
+
+12. Documentation: README, docs/AI-INSTALL, docs/ARCHITECTURE (also covering
+    the upstream DETAILS.md, TODO.md and install notes, and the maintenance
+    notes), module READMEs (host and ios also cover the upstream DEPLOYMENT,
+    PLUGINS and SIGNING notes), AGENTS.md, CHANGELOG, CONTRIBUTING, SECURITY,
+    GitHub issue and pull request templates, and demo screenshots. Unused
+    files were removed (host/source-files.json, an unreferenced plugin
+    example, an outdated Android browser test and old screenshots).
+
+Third-party components
+----------------------
+
+Third-party components keep their own licenses. See host/THIRD_PARTY,
+mac/THIRD_PARTY, ios/THIRD_PARTY and mac/patchers/desktop/node_modules.
+android/shell/gradle/wrapper/ contains the Gradle Wrapper, and the prebuilt
+Android shell includes parts of the Kotlin standard library; both are
+licensed under the Apache License 2.0.
+
+Original Grok Bot programs
+--------------------------
+
+This repository contains no Grok Bot program files. The patch tools download
+the official programs on the user's own machine, verify their hashes and patch
+them there. Generated clients and web client bundles are not distributed.
+Grok, Grok Bot and related names and marks belong to their respective owners.
+ProkBot Plus is not affiliated with or endorsed by them.

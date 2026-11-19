@@ -1,0 +1,38 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Downloaded official inputs & generated build outputs
+inputs/
+output/
+*.noindex/
+.cache/
+
+# Official packages, patched artifacts, signing keys & secrets
+*.ipa
+*.apk
+*.xapk
+*.apks
+*.aab
+*.app/
+*.dmg
+*.gbdelta
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+android-signing.json
+!android/bin/grokbot-native-base.apk
+
+# Local environment & private notes
+.env
+.env.*
+!.env.example
+/接入信息.md
+/接入信息.txt
+
+# Local test dependencies (Docker image installs its own)
+host/server/node_modules/
+android/companion/build/
+android/test-target/build/
