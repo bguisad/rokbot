@@ -248,7 +248,7 @@ func browseForInstallFolder(owner uintptr, current string) string {
 		}
 		return 0
 	})
-	titlePtr, _ := syscall.UTF16PtrFromString(text("选择 Grok Bot Local 安装目录", "Choose Grok Bot Local installation folder"))
+	titlePtr, _ := syscall.UTF16PtrFromString(text("选择 RokBot Local 安装目录", "Choose RokBot Local installation folder"))
 	displayBuf := make([]uint16, 32768)
 	bi := browseInfoW{
 		hwndOwner:      owner,
@@ -398,7 +398,7 @@ func (w *wizardState) handleInstallDone() {
 		w.setControlsEnabled(true)
 		w.postProgress(0, text("安装未完成", "Installation did not finish"))
 		if errors.Is(err, errInUse) {
-			tell(text("Grok Bot Local 正在运行，请先退出。", errInUse.Error()), mbIconError)
+			tell(text("RokBot Local 正在运行，请先退出。", errInUse.Error()), mbIconError)
 		} else {
 			tell(text("操作未完成：", "The operation did not finish: ")+err.Error(), mbIconError)
 		}
@@ -416,7 +416,7 @@ func (w *wizardState) handleInstallDone() {
 			"Side-by-side installation complete. Quit the other version, then open:\n%s\nExisting pairing and settings are shared."), filepath.Join(finalDir, exeName)), mbOK|mbIconInfo)
 		return
 	}
-	if ask(text("安装完成。现在打开 Grok Bot Local？", "Installation complete. Open Grok Bot Local now?"), mbIconInfo) {
+	if ask(text("安装完成。现在打开 RokBot Local？", "Installation complete. Open RokBot Local now?"), mbIconInfo) {
 		command := exec.Command(filepath.Join(finalDir, exeName))
 		command.Dir = finalDir
 		command.Start()
@@ -509,9 +509,12 @@ func runInstallWizard(self, initialDir, version string, shell shellIntegration, 
 		return res
 	})
 
-	className, _ := syscall.UTF16PtrFromString("GrokBotLocalSetupWizard")
+	className, _ := syscall.UTF16PtrFromString("RokBotLocalSetupWizard")
 	cursor, _, _ := loadCursorW.Call(0, idcArrow)
-	icon, _, _ := loadIconW.Call(0, idiApplication)
+	icon, _, _ := loadIconW.Call(hInstance, 1)
+	if icon == 0 {
+		icon, _, _ = loadIconW.Call(0, idiApplication)
+	}
 	wc := wndClassExW{
 		cbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
 		lpfnWndProc:   wndProc,
@@ -690,7 +693,7 @@ func showAsyncProgress(message string) *asyncProgress {
 		})
 
 		hInstance, _, _ := getModuleHandleW.Call(0)
-		className, _ := syscall.UTF16PtrFromString("GrokBotLocalProgressWindow")
+		className, _ := syscall.UTF16PtrFromString("RokBotLocalProgressWindow")
 		wc := wndClassExW{
 			cbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
 			lpfnWndProc:   wndProc,

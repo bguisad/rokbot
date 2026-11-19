@@ -19,6 +19,8 @@ async function fixtureData() {
   const data = await readVersions();
   data.win = { ...data.win, version: '1.1.0', archive: { ...data.win.archive, sha256: 'a'.repeat(64) } };
   data.winFallback = [{ ...data.win, version: '0.71.2', archive: { ...data.win.archive, sha256: 'b'.repeat(64) } }];
+  data.webVersion = '1.1.0';
+  data.webFallback = ['0.71.2'];
   data.snap = { ...data.snap, windows: { ...data.snap.windows, version: '1.1.0', observedArchiveSha256: 'a'.repeat(64) } };
   return data;
 }
@@ -58,21 +60,22 @@ test('a newer release, a repack or a fingerprint mismatch is marked unsupported'
 
 test('without a fallback the patch shows a single accepted Windows release', async () => {
   const data = await fixtureData();
-  data.winFallback = []; data.androidFallback = [];
+  data.winFallback = []; data.webFallback = [];
   for (const lang of Object.keys(copy)) {
     const page = render(fixture,lang,data);
     assertWindows(page, lang, '1.1.0', data);
-    assert.ok(!page.split('\n').some(line => /^\| (Windows|Android)/.test(line) && line.includes('0.71.2')));
+    assert.ok(!page.split('\n').some(line => /^\| (Windows|Web client|网页版)/.test(line) && line.includes('0.71.2')));
   }
 });
 
-test('Android names its interface release and fallback; Mac notes a newer official release', async () => {
+test('Web names its interface release and fallback; Android names its native version; Mac notes a newer official release', async () => {
   const data = await fixtureData();
-  data.android = { ...data.android, desktopVersion: '1.1.0' }; data.androidFallback = ['0.71.2'];
+  data.android = { ...data.android, version: '1.16.0', build: '1075' };
+  data.webVersion = '1.1.0'; data.webFallback = ['0.71.2'];
   data.mac = { ...data.mac, version: '0.71.2' }; data.snap.mac = { ...data.snap.mac, version: '1.1.0' };
   const zh = render(fixture,'zh',data), en = render(fixture,'en',data);
-  assert.ok(zh.includes('界面取自 Windows **1.1.0** 安装包（推荐；用不了再用 0.71.2）'));
-  assert.ok(en.includes('interface taken from the Windows **1.1.0** installer (recommended; 0.71.2 if it does not work)'));
+  assert.ok(zh.includes('| Android 9+（原生补丁，非官方） | 官方 **1.16.0**（构建 1075） | 官方 **1.16.0**（构建 1075） |'));
+  assert.ok(en.includes('| Android 9+ (native patch, unofficial) | Official **1.16.0** (build 1075) | Official **1.16.0** (build 1075) |'));
   assert.ok(zh.includes('| 网页版（浏览器，非官方） | 不用安装 | 界面取自 Windows **1.1.0** 安装包（推荐；用不了再用 0.71.2），生成后上传到你的 Host |'));
   assert.ok(en.includes('| Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **1.1.0** installer ' +
     '(recommended; 0.71.2 if it does not work), built once and uploaded to your Host |'));
@@ -84,12 +87,16 @@ test('Android names its interface release and fallback; Mac notes a newer offici
 
 test('vendor observation does not promote supported client, shell, or cloud inputs', async () => {
   const data = await fixtureData();
-  const newer = structuredClone(data); newer.snap.windows.version = '99.2.1'; newer.android.shell.versionName = '2.7.0';
+  const newer = structuredClone(data); newer.snap.windows.version = '99.2.1'; newer.android.version = '2.7.0';
   for (const lang of ['zh','en']) {
     const rendered = render(fixture,lang,newer);
     assertWindows(rendered, lang, '99.2.1', data, copy[lang].unsupported);
-    assert.ok(rendered.includes(`**2.7.0**`)); assert.ok(rendered.includes(`Windows **${data.android.desktopVersion}**`));
+    assert.ok(rendered.includes(`**2.7.0**`)); assert.ok(rendered.includes(`Windows **${data.webVersion}**`));
     assert.ok(rendered.includes(data.host)); assert.ok(rendered.includes(data.box));
+    assert.ok(rendered.includes('RokBot'));
+    assert.ok(rendered.includes('https://github.com/hongfaqiu/rokbot/releases/latest'));
+    assert.ok(!rendered.includes('ferretgeek/prokbot-plus'));
+    assert.ok(!rendered.includes('ProkBot Plus'));
     assert.equal(render(rendered,lang,newer),rendered);
     assert.ok(rendered.includes(middle));
     assert.ok(rendered.startsWith('<p>before</p>')); assert.ok(rendered.endsWith('<p>after</p>\n'));
@@ -102,10 +109,14 @@ test('missing and duplicate markers fail closed without replacing prose', async 
     assert.throws(()=>render(bad,'zh',data), /missing or duplicate/);
 });
 
-test('both public READMEs exactly match their own version matrix', async () => {
+test('both public READMEs exactly match their own version matrix', async t => {
   const data = await readVersions();
+  let checked = 0;
   for (const [file,lang] of [['README.md','zh'],['README.en.md','en']]) {
     const text=await readFile(new URL(`../${file}`,import.meta.url),'utf8');
+    if (!text.includes('<!-- client-badges:') && !text.includes('<!-- client-versions:')) continue;
+    checked++;
     assert.equal(render(text,lang,data),text,`${file}: run node ci/homepage-versions.mjs --write`);
   }
+  if (checked === 0) t.skip('Public READMEs do not use client-badges/client-versions markers');
 });

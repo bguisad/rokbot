@@ -1,13 +1,13 @@
 import { readFile } from 'node:fs/promises';
 
 /** Small adapter between paired desktop channels and the original Host grants. */
-export async function createNativeDesktop({ permission, enabled = () => true, request, base = process.env.GROKBOT_NATIVE_DESKTOP_URL } = {}) {
+export async function createNativeDesktop({ permission, enabled = () => true, request, base = process.env.ROKBOT_NATIVE_DESKTOP_URL ?? process.env.GROKBOT_NATIVE_DESKTOP_URL } = {}) {
   if (!request) {
     if (!base) return { list: async () => [], call: async () => { throw new Error('Native desktop unavailable'); } };
     const url = new URL(base);
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.username || url.password || url.search || url.hash)
       throw new Error('Native desktop service requires an authenticated loopback endpoint');
-    const token = (await readFile(process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
+    const token = (await readFile(process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
     request = async (method, body, signal) => {
       const response = await fetch(`${base.replace(/\/$/, '')}/${method}`, { method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

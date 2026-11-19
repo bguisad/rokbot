@@ -103,7 +103,7 @@ func snapshot(t *testing.T, dir string) map[string]string {
 
 func (s *sandbox) payload(t *testing.T, version string, extras map[string]string) {
 	t.Helper()
-	files := map[string]string{exeName: "synthetic client " + version, markerName: `{"appUserModelId":"dev.grokbot.local"}`}
+	files := map[string]string{exeName: "synthetic client " + version, markerName: `{"appUserModelId":"dev.rokbot.local"}`}
 	maps.Copy(files, extras)
 	var body bytes.Buffer
 	z := zip.NewWriter(&body)
@@ -147,7 +147,7 @@ func (s *sandbox) clean(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, file := range files {
-		if strings.HasPrefix(file.Name(), ".grokbot-") {
+		if strings.HasPrefix(file.Name(), ".rokbot-") {
 			t.Fatalf("leaked transaction file: %s", file.Name())
 		}
 	}
@@ -305,7 +305,7 @@ func TestNativeFailedRollbackRetainsBothVersions(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "recovery files retained") || contents(t, filepath.Join(s.dir, exeName)) != "concurrent change" {
 		t.Fatalf("rollback conflict: %v", err)
 	}
-	matches, err := filepath.Glob(filepath.Join(s.root, ".grokbot-transaction-*", "previous", exeName))
+	matches, err := filepath.Glob(filepath.Join(s.root, ".rokbot-transaction-*", "previous", exeName))
 	if err != nil || len(matches) != 1 || contents(t, matches[0]) != "synthetic client 1" {
 		t.Fatal("previous file not retained for recovery")
 	}
@@ -368,8 +368,8 @@ func TestNativeJunctionsAreNotInstallLocations(t *testing.T) {
 	link := filepath.Join(s.root, "alias")
 	// Directory junctions do not require symlink privileges; both ends are in
 	// the verified disposable root. No registry or shell integration is invoked.
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path $env:GB_TEST_LINK -Target $env:GB_TEST_TARGET | Out-Null`)
-	cmd.Env = append(os.Environ(), "GB_TEST_LINK="+link, "GB_TEST_TARGET="+s.dir)
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path $env:RB_TEST_LINK -Target $env:RB_TEST_TARGET | Out-Null`)
+	cmd.Env = append(os.Environ(), "RB_TEST_LINK="+link, "RB_TEST_TARGET="+s.dir)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create test junction: %v: %s", err, output)
 	}

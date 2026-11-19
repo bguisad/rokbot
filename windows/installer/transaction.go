@@ -330,7 +330,7 @@ func transactInstallation(dir string, prepare func(string) error, integrate func
 		return err
 	}
 	key := sha256.Sum256([]byte(strings.ToLower(filepath.Base(dir))))
-	lockPath := filepath.Join(parent, fmt.Sprintf(".grokbot-%x.lock", key[:12]))
+	lockPath := filepath.Join(parent, fmt.Sprintf(".rokbot-%x.lock", key[:12]))
 	const deleteOnClose = 0x04000000
 	lock, err := syscall.CreateFile(winPath(lockPath), syscall.GENERIC_WRITE, 0, nil, syscall.CREATE_NEW, deleteOnClose, 0)
 	if err != nil {
@@ -340,7 +340,7 @@ func transactInstallation(dir string, prepare func(string) error, integrate func
 	if err := tx.pins.pin(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	tx.work, err = os.MkdirTemp(parent, ".grokbot-transaction-*")
+	tx.work, err = os.MkdirTemp(parent, ".rokbot-transaction-*")
 	if err != nil {
 		return err
 	}

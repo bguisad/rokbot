@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 import { normalizePairingCode } from './pairing-code.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
@@ -8,8 +8,8 @@ import { TailcatProcess, tailcatLink } from '../shared/tailcat-process.mjs';
 
 export function credentialUnavailableText() {
   return process.platform === 'darwin'
-    ? grokText('请解锁 macOS 钥匙串。', 'Unlock your macOS keychain.')
-    : grokText('系统凭据加密不可用，请确认已登录 Windows 账户。', 'System credential encryption is unavailable. Sign in to your Windows account.');
+    ? rokText('请解锁 macOS 钥匙串。', 'Unlock your macOS keychain.')
+    : rokText('系统凭据加密不可用，请确认已登录 Windows 账户。', 'System credential encryption is unavailable. Sign in to your Windows account.');
 }
 
 export async function openTransport(address, enabled, { identity, binary } = {}) {
@@ -32,8 +32,8 @@ export async function restoreConnection(store, binary, open = openTransport) {
     return { config: { ...config, ...transport }, transport, connectionError: '' };
   } catch {
     return { config, transport: null, connectionError: config
-      ? grokText('无法打开已保存的连接，请重新连接。', 'Could not open the saved connection. Reconnect to try again.')
-      : grokText('无法读取设备凭证，请重新配对。', 'Could not read device credentials. Pair again.') };
+      ? rokText('无法打开已保存的连接，请重新连接。', 'Could not open the saved connection. Reconnect to try again.')
+      : rokText('无法读取设备凭证，请重新配对。', 'Could not read device credentials. Pair again.') };
   }
 }
 
@@ -46,7 +46,7 @@ export function normalizeServer(input) {
   const url = new URL(String(input).trim());
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
       (url.pathname !== '/' && url.pathname !== '') || url.search || url.hash)
-    throw new Error(grokText('请输入 Host 的 http:// 或 https:// 地址。', 'Enter the Host http:// or https:// address.'));
+    throw new Error(rokText('请输入 Host 的 http:// 或 https:// 地址。', 'Enter the Host http:// or https:// address.'));
   return url.origin;
 }
 
@@ -78,13 +78,13 @@ export async function pair(server, credential, fetcher = fetch, { tunneled = fal
   let payload;
   if (byPassword) {
     if (typeof credential !== 'string' || credential.length === 0)
-      throw new Error(grokText('请输入 Host 管理员密码。', 'Enter the Host admin password.'));
+      throw new Error(rokText('请输入 Host 管理员密码。', 'Enter the Host admin password.'));
     if (credential.length > 128)
-      throw new Error(grokText('管理员密码过长。', 'Admin password is too long.'));
+      throw new Error(rokText('管理员密码过长。', 'Admin password is too long.'));
     payload = { password: credential, deviceName: os.hostname(), platform: 'desktop', clientDeviceId: id };
   } else {
     const pairingKey = normalizePairingCode(credential);
-    if (!/^[A-Z0-9]{6}$/.test(pairingKey)) throw new Error(grokText('请输入 6 位配对码。', 'Enter a six-character pairing code.'));
+    if (!/^[A-Z0-9]{6}$/.test(pairingKey)) throw new Error(rokText('请输入 6 位配对码。', 'Enter a six-character pairing code.'));
     payload = { pairingKey, deviceName: os.hostname(), platform: 'desktop', clientDeviceId: id };
   }
   const response = await fetcher(`${server}/connect/pair`, {
@@ -96,21 +96,21 @@ export async function pair(server, credential, fetcher = fetch, { tunneled = fal
   if (!response.ok) {
     if (response.status === 401) {
       throw new Error(byPassword
-        ? grokText('管理员密码不正确。', 'Admin password is incorrect.')
-        : grokText('配对码 无效或已过期。', 'Pairing code is invalid or expired.'));
+        ? rokText('管理员密码不正确。', 'Admin password is incorrect.')
+        : rokText('配对码 无效或已过期。', 'Pairing code is invalid or expired.'));
     }
     if (response.status === 429) {
-      throw new Error(grokText('尝试次数过多，请稍后重试。', 'Too many attempts. Try again later.'));
+      throw new Error(rokText('尝试次数过多，请稍后重试。', 'Too many attempts. Try again later.'));
     }
     if (response.status === 409 && typeof result?.error === 'string' && result.error) {
       throw new Error(result.error);
     }
-    throw new Error(grokText(`连接失败（HTTP ${response.status}）。`, `Connection failed (HTTP ${response.status}).`));
+    throw new Error(rokText(`连接失败（HTTP ${response.status}）。`, `Connection failed (HTTP ${response.status}).`));
   }
   if (!validDevice(result))
-    throw new Error(grokText('Host 返回的设备凭证无效。', 'Host returned invalid device credentials.'));
+    throw new Error(rokText('Host 返回的设备凭证无效。', 'Host returned invalid device credentials.'));
   if (!tunneled && normalizeServer(result.gatewayUrl) !== server)
-    throw new Error(grokText('Host 返回了不同的服务地址。', 'Host returned a different server address.'));
+    throw new Error(rokText('Host 返回了不同的服务地址。', 'Host returned a different server address.'));
   return { server, deviceId: result.deviceId, token: result.token };
 }
 
@@ -121,7 +121,7 @@ export async function verifyDevice(server, { token, deviceId }, fetcher = fetch)
     const status = await response.json().catch(() => null);
     if (typeof deviceId === 'string' && status?.deviceId === deviceId) return;
   } else await response.body?.cancel();
-  throw new Error(grokText('无法验证此 Host 的设备凭据。', 'Could not verify this device with the Host.'));
+  throw new Error(rokText('无法验证此 Host 的设备凭据。', 'Could not verify this device with the Host.'));
 }
 
 export function credentialStore(profile, safeStorage) {
@@ -139,7 +139,7 @@ export function credentialStore(profile, safeStorage) {
       catch (error) { if (error.code === 'ENOENT') return null; throw error; }
       available();
       const device = { deviceId: record.deviceId, token: safeStorage.decryptString(Buffer.from(record.encryptedToken, 'base64')) };
-      if (!validDevice(device)) throw new Error(grokText('保存的设备凭证无效。', 'Saved device credentials are invalid.'));
+      if (!validDevice(device)) throw new Error(rokText('保存的设备凭证无效。', 'Saved device credentials are invalid.'));
       const network = record.encryptedNetwork ? JSON.parse(safeStorage.decryptString(Buffer.from(record.encryptedNetwork, 'base64'))) : null;
       return { ...device, server: network?.tailcat ? '' : normalizeServer(record.server),
         address: network?.tailcat ? tailcatLink(network.address) : normalizeServer(record.server),

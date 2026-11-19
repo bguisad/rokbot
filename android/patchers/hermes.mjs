@@ -11,7 +11,8 @@ const RECIPES_DIR = path.resolve(__dirname, '../recipes');
 
 export const HBC_VERSION = 98;
 export const HBC_MAGIC = 0x1f060603; // or byte sequence [0x1f, 0x06, 0x06, 0x03] / 0x1f48031f008858
-const BYTEPATCH_SCHEMA = 'grokbot-bytepatch/v1';
+const BYTEPATCH_SCHEMA = 'rokbot-bytepatch/v1';
+const SUPPORTED_BYTEPATCH_SCHEMAS = new Set([BYTEPATCH_SCHEMA, 'grokbot-bytepatch/v1']);
 const BYTEPATCH_MAX_BYTES = 512 * 1024 * 1024;
 
 function sha256Hex(buf) {
@@ -25,7 +26,7 @@ export function loadBytepatchRecipe(gzPath) {
 }
 
 export function applyBytepatch(sourceBuffer, recipe) {
-  if (!recipe || recipe.schema !== BYTEPATCH_SCHEMA) {
+  if (!recipe || !SUPPORTED_BYTEPATCH_SCHEMAS.has(recipe.schema)) {
     throw new Error('Unsupported bytepatch schema');
   }
   if (!Buffer.isBuffer(sourceBuffer) || sourceBuffer.length !== recipe.sourceBytes || sha256Hex(sourceBuffer) !== recipe.sourceSha256) {
@@ -205,7 +206,7 @@ export function synthesizeHermesBytecode(templateBundle, meta, url, token = '') 
 /**
  * Patches Hermes bundle safely: checks recipe SHA-256 pin and buffer bounds before splicing.
  * When patching an unpinned/dummy or mismatched APK build without force=true, leaves the HBC untouched
- * so the native companion (`assets/grokbot-preconfig.json` + `NetworkInterceptor`) handles Host routing safely.
+ * so the native companion (`assets/rokbot-preconfig.json` + `NetworkInterceptor`) handles Host routing safely.
  */
 export function patchHermesBundleSafely(bundleBuffer, { host, pairingCode, token, meta, recipesDir = RECIPES_DIR, force = false } = {}) {
   const metadata = meta || loadGatewayTemplateMetadata();

@@ -8,7 +8,7 @@ const localized = (value, max, label) => typeof value === 'string' ? { en: textF
   Object.fromEntries(['en', 'zh-CN'].map(locale => [locale, textField(value?.[locale] ?? value?.en ?? value?.['zh-CN'], max, label)]));
 
 export function validatePlugin(input) {
-  check(input?.schemaVersion === 1 && ['grokbot-plugin', 'grokbot-app'].includes(input.kind), 400, 'Unsupported plugin format');
+  check(input?.schemaVersion === 1 && ['rokbot-plugin', 'rokbot-app', 'grokbot-plugin', 'grokbot-app'].includes(input.kind), 400, 'Unsupported plugin format');
   const id = packageId(input.id), files = validateFiles(input.files), paths = new Map(files.map(file => [file.path, file]));
   check(!['executor', 'preview', 'import', 'app-builder'].includes(id), 400, 'Reserved plugin ID');
   const version = textField(input.version, 80, 'plugin version');
@@ -60,7 +60,7 @@ export function validatePlugin(input) {
   const keys = new Set();
   const fields = configuration.map(field => {
     check(/^[A-Z][A-Z0-9_]{0,63}$/.test(field.key) && !keys.has(field.key) &&
-      !/^(NODE_|LD_|DYLD_|GROKBOT_|PATH$|HOME$|SHELL$)/.test(field.key), 400, 'Invalid configuration key'); keys.add(field.key);
+      !/^(NODE_|LD_|DYLD_|ROKBOT_|GROKBOT_|PATH$|HOME$|SHELL$)/.test(field.key), 400, 'Invalid configuration key'); keys.add(field.key);
     return { key: field.key, name: localized(field.name ?? field.key, 100, 'configuration label'),
       secret: field.secret === true, required: field.required === true };
   });
@@ -82,7 +82,7 @@ export function validatePlugin(input) {
     configuration: fields, skills: bundled, files };
 }
 
-export const pluginDigest = pkg => digest(JSON.stringify({ ...pkg, kind: 'grokbot-app' }));
+export const pluginDigest = pkg => digest(JSON.stringify({ ...pkg, kind: 'rokbot-app' }));
 export function bundledSkills(pkg, enabled) {
   return pkg.skills.map(skill => {
     const prefix = posix.dirname(skill.path), pathPrefix = prefix === '.' ? '' : prefix + '/';

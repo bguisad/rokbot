@@ -66,8 +66,8 @@ test('Windows 0.71.2 recipe 009 preserves Android pinned target hash while patch
   const recipe = JSON.parse(gunzipSync(await readFile(path.join(win0712RecipesDir, '009.gbp.gz'))).toString('utf8'));
   assert.equal(recipe.targetSha256, 'a5423ee6ba0b931a43e8e1d59c36f669ddf8b787242e5080193ef46562cc44e5');
 
-  const dir0712 = await mkdtemp(path.join(os.tmpdir(), 'grokbot-win-ui-0712-'));
-  const dir110 = await mkdtemp(path.join(os.tmpdir(), 'grokbot-win-ui-110-'));
+  const dir0712 = await mkdtemp(path.join(os.tmpdir(), 'rokbot-win-ui-0712-'));
+  const dir110 = await mkdtemp(path.join(os.tmpdir(), 'rokbot-win-ui-110-'));
   try {
     const assets0712 = path.join(dir0712, 'dist/renderer/assets');
     await mkdir(assets0712, { recursive: true });

@@ -25,7 +25,7 @@ export async function unpackOriginal(source, temporary, supported) {
 async function extractSevenZip(archive, work) {
   const windows = process.platform === 'win32';
   const systemTar = windows ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : null;
-  const sevenZip = [process.env.GROKBOT_7Z, windows ? path.join(process.env.ProgramFiles ?? 'C:\\Program Files', '7-Zip', '7z.exe') : null]
+  const sevenZip = [process.env.ROKBOT_7Z, windows ? path.join(process.env.ProgramFiles ?? 'C:\\Program Files', '7-Zip', '7z.exe') : null]
     .filter(Boolean).find(candidate => existsSync(candidate));
   const attempts = [
     ...(systemTar && existsSync(systemTar) ? [[systemTar, 'tar']] : []),
@@ -43,6 +43,6 @@ async function extractSevenZip(archive, work) {
     catch { await rm(directory, { recursive: true, force: true }); }
   }
   throw new Error(windows
-    ? '无法解压原版程序包。请使用 Windows 11，或安装 7-Zip 后重试（也可设置 GROKBOT_7Z 指向 7z.exe）。'
-    : '无法解压原版程序包。请安装 7-Zip（7zz/7z）或 libarchive 的 bsdtar 后重试，也可设置 GROKBOT_7Z。');
+    ? '无法解压原版程序包。请使用 Windows 11，或安装 7-Zip 后重试（也可设置 ROKBOT_7Z 指向 7z.exe）。'
+    : '无法解压原版程序包。请安装 7-Zip（7zz/7z）或 libarchive 的 bsdtar 后重试，也可设置 ROKBOT_7Z。');
 }

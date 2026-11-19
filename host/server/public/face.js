@@ -1,6 +1,6 @@
 import { node } from './ui.js';
 
-// Grok Bot faces: a shaded blob with two slanted eye slits, tinted with a Sand hue per Bot.
+// RokBot faces: a sculpted visor blob with two slanted asymmetric eye slits, tinted with a Sand hue per Bot.
 const hues = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'magenta', 'brown'];
 const hash = value => [...String(value)].reduce((sum, char) => (sum * 31 + char.codePointAt(0)) >>> 0, 7);
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;

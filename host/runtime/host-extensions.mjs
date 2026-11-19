@@ -104,12 +104,13 @@ export function createExtensionStarter(library, modelConfig) {
     mcp: context => startLocalHostMcp(context, library, { nativeEnabled: () => capabilities.get().macComputer,
       permission: () => apis.get('local-tool-permission') }),
     'auto-review': context => startLocalAutoReview(context, library, modelConfig),
-    ...(process.env.GROKBOT_NOTIFICATION_URL
+    ...(process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL
       ? { notifications: context => startLocalNotifications(context, library) } : {}),
   };
   return async ({ host }) => {
-    capabilities = await createLocalCapabilities(process.env.GROKBOT_DATA_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state');
-    services = await createLocalServiceRuntime(process.env.GROKBOT_DATA_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state');
+    const extensionDir = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
+    capabilities = await createLocalCapabilities(extensionDir);
+    services = await createLocalServiceRuntime(extensionDir);
     const startExtension = async (extension, context) => {
       host.log(`starting extension ${extension.id}`);
       if (extension.id === 'memory') return startLocalMemory(context, extension, capabilities);

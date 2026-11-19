@@ -21,7 +21,7 @@ import (
 // This entry point exists only in the Go test executable, never in the shipped
 // stub. The installed copy and its worker inherit the same confined shell hooks.
 func TestMain(m *testing.M) {
-	if root := os.Getenv("PROKBOT_INSTALLER_FIXTURE_ROOT"); root != "" {
+	if root := os.Getenv("ROKBOT_INSTALLER_FIXTURE_ROOT"); root != "" {
 		if err := fixtureCLI(root); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -41,7 +41,7 @@ func fixtureCLI(root string) error {
 		return err
 	}
 	token, err := os.ReadFile(filepath.Join(root, "fixture-token"))
-	if err != nil || len(token) == 0 || string(token) != os.Getenv("PROKBOT_INSTALLER_FIXTURE_TOKEN") || !strings.EqualFold(os.TempDir(), workerDir) {
+	if err != nil || len(token) == 0 || string(token) != os.Getenv("ROKBOT_INSTALLER_FIXTURE_TOKEN") || !strings.EqualFold(os.TempDir(), workerDir) {
 		return fmt.Errorf("invalid disposable CLI fixture")
 	}
 	self, err := os.Executable()
@@ -98,7 +98,7 @@ func TestNativeCLISilentInstallUpgradeAndWorkerUninstall(t *testing.T) {
 		cmd := exec.CommandContext(ctx, exe, args...)
 		cmd.Dir = s.root
 		cmd.Env = append(os.Environ(), "TMP="+workerDir, "TEMP="+workerDir,
-			"PROKBOT_INSTALLER_FIXTURE_ROOT="+s.root, "PROKBOT_INSTALLER_FIXTURE_TOKEN="+token)
+			"ROKBOT_INSTALLER_FIXTURE_ROOT="+s.root, "ROKBOT_INSTALLER_FIXTURE_TOKEN="+token)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("fixture CLI: %v: %s", err, output)
 		}

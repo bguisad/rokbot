@@ -4,8 +4,10 @@ import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
 
-export const DELTA_SCHEMA = 'grokbot-delta/v1';
-export const DELTA_MAGIC = Buffer.from('GBD1', 'ascii');
+export const DELTA_SCHEMA = 'rokbot-delta/v1';
+export const DELTA_MAGIC = Buffer.from('RBD1', 'ascii');
+const LEGACY_DELTA_MAGIC = Buffer.from('GBD1', 'ascii');
+const isValidDeltaMagic = magic => magic.equals(DELTA_MAGIC) || magic.equals(LEGACY_DELTA_MAGIC);
 export const DEFAULT_MAX_DELTA_TARGET_BYTES = 512 * 1024 * 1024;
 
 const OP_END = 0x00;
@@ -191,7 +193,7 @@ export function createDeltaBuffer(source, target) {
 export function applyDeltaBuffer(source, compressedDelta) {
   const raw = gunzipSync(compressedDelta);
   let pos = 0;
-  if (raw.length < 4 + 32 + 1 + 32 + 1 + 1 || !raw.subarray(0, 4).equals(DELTA_MAGIC)) {
+  if (raw.length < 4 + 32 + 1 + 32 + 1 + 1 || !isValidDeltaMagic(raw.subarray(0, 4))) {
     throw new Error('Invalid delta header magic');
   }
   pos += 4;
@@ -356,7 +358,7 @@ export async function applyDeltaFile(
 
         if (!headerParsed) {
           if (buf.length < 4 + 32 + 1) break;
-          if (!buf.subarray(0, 4).equals(DELTA_MAGIC)) throw new Error('Invalid delta magic');
+          if (!isValidDeltaMagic(buf.subarray(0, 4))) throw new Error('Invalid delta magic');
           const headerSourceSha = buf.subarray(4, 36).toString('hex');
           const sDec = decodeUleb128(buf, 36);
           if (!sDec) break;
@@ -474,8 +476,8 @@ export async function readAsarHeaderInfo(asarPath) {
   }
 }
 
-export const ANDROID_DELTAS_SCHEMA = 'grokbot-android-deltas/v1';
-export const DESKTOP_DELTAS_SCHEMA = 'grokbot-desktop-deltas/v1';
+export const ANDROID_DELTAS_SCHEMA = 'rokbot-android-deltas/v1';
+export const DESKTOP_DELTAS_SCHEMA = 'rokbot-desktop-deltas/v1';
 
 export function canonicalAndroidDeltasPayload(manifest) {
   const deltas = Array.isArray(manifest?.deltas) ? manifest.deltas : [];

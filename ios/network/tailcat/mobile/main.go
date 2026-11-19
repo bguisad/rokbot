@@ -6,7 +6,7 @@ package main
 import "C"
 import (
 	"encoding/json"
-	"grokbot.local/tunnel/core"
+	"rokbot.local/tunnel/core"
 	"sync"
 	"unsafe"
 )
@@ -15,11 +15,11 @@ var mu sync.Mutex
 var sessions = map[int]*core.Tunnel{}
 var nextID int
 
-//export GBTailcatIdentity
-func GBTailcatIdentity() *C.char { return C.CString(core.NewIdentity()) }
+//export RBTailcatIdentity
+func RBTailcatIdentity() *C.char { return C.CString(core.NewIdentity()) }
 
-//export GBTailcatStart
-func GBTailcatStart(raw *C.char) *C.char {
+//export RBTailcatStart
+func RBTailcatStart(raw *C.char) *C.char {
 	var config core.Config
 	if json.Unmarshal([]byte(C.GoString(raw)), &config) != nil || config.Mode != "forward" {
 		return C.CString(`{"error":"invalid configuration"}`)
@@ -37,8 +37,8 @@ func GBTailcatStart(raw *C.char) *C.char {
 	return C.CString(string(value))
 }
 
-//export GBTailcatStatus
-func GBTailcatStatus(id C.int) *C.char {
+//export RBTailcatStatus
+func RBTailcatStatus(id C.int) *C.char {
 	mu.Lock()
 	t := sessions[int(id)]
 	mu.Unlock()
@@ -49,8 +49,8 @@ func GBTailcatStatus(id C.int) *C.char {
 	return C.CString(string(value))
 }
 
-//export GBTailcatStop
-func GBTailcatStop(id C.int) {
+//export RBTailcatStop
+func RBTailcatStop(id C.int) {
 	mu.Lock()
 	t := sessions[int(id)]
 	delete(sessions, int(id))
@@ -61,6 +61,6 @@ func GBTailcatStop(id C.int) {
 	}
 }
 
-//export GBTailcatFree
-func GBTailcatFree(p *C.char) { C.free(unsafe.Pointer(p)) }
+//export RBTailcatFree
+func RBTailcatFree(p *C.char) { C.free(unsafe.Pointer(p)) }
 func main()                   {}

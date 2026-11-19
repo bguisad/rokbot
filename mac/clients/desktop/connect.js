@@ -1,4 +1,4 @@
-import { grokText as text } from './i18n.mjs';
+import { rokText as text } from './i18n.mjs';
 import { normalizePairingCode } from './pairing-code.mjs';
 const server = document.querySelector('#server');
 const tailcat = document.querySelector('#tailcat');
@@ -15,8 +15,8 @@ let saved = null;
 let authMode = 'code';
 const canRetry = () => Boolean(saved && server.value === saved.server && tailcat.checked === saved.tailcat);
 document.documentElement.lang = /^zh/i.test(window.connection.locale) ? 'zh-CN' : 'en';
-document.title = text('连接 Grok Bot', 'Connect Grok Bot');
-document.querySelector('h1').textContent = text('连接你的 Grok Bot', 'Connect your Grok Bot');
+document.title = text('连接 RokBot', 'Connect RokBot');
+document.querySelector('h1').textContent = text('连接你的 RokBot', 'Connect your RokBot');
 document.querySelector('[for=server]').textContent = text('Host 地址', 'Host address');
 document.querySelector('[for=key]').textContent = text('配对码', 'Pairing code');
 document.querySelector('[for=password]').textContent = text('管理员密码', 'Admin password');

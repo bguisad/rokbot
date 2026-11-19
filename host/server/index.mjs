@@ -51,7 +51,6 @@ import { deleteAgentsWithLibrary } from "./host-api.mjs";
 import { Notifications } from "./notifications.mjs";
 import { NotificationSettings } from './notification-settings.mjs';
 import { PushService } from "./push-service.mjs";
-import { DEFAULT_BARK_ICON_URL } from "./push-config.mjs";
 import { Connectors, connectorApiMethods, mobileConnectorMethods } from "./connectors.mjs";
 import { attachmentDataUrl } from "./attachments.mjs";
 import { DeviceConnections, proxyHttp, proxyWebSocket } from "./proxy.mjs";
@@ -79,7 +78,7 @@ const assetTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "te
 const pages = new Map([["/", "index.html"], ["/admin", "index.html"], ["/connectors/result", "connector-result.html"], ["/web/login", "web-login.html"]]);
 // Admin assets are served from a fixed listing taken at startup.
 const publicAssets = new Set(readdirSync(publicDir).filter((name) => [".js", ".css", ".svg"].includes(extname(name))));
-const adminCookie = "grokbot_admin";
+const adminCookie = "rokbot_admin";
 const bootAt = new Date().toISOString();
 function endpoint(value) {
   const url = new URL(value);
@@ -109,16 +108,18 @@ function isDirectLoopback(request) {
   return /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/.test(host);
 }
 export async function createSelfHostServer(options = {}) {
+  // Primary ROKBOT_* env vars with GROKBOT_* fallback for smooth .env migration.
   const dataDir = resolve(
-    options.dataDir ?? process.env.GROKBOT_DATA_DIR ?? "/data",
+    options.dataDir ?? process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? "/data",
   );
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const hostUrl = endpoint(
     options.hostUrl ??
+      process.env.ROKBOT_INTERNAL_HOST_URL ??
       process.env.GROKBOT_INTERNAL_HOST_URL ??
       "http://127.0.0.1:1340",
   );
-  const publicUrl = options.publicUrl ?? process.env.GROKBOT_PUBLIC_URL;
+  const publicUrl = options.publicUrl ?? process.env.ROKBOT_PUBLIC_URL ?? process.env.GROKBOT_PUBLIC_URL;
   const canonical = publicUrl ? endpoint(publicUrl).origin : null;
   const requestOrigin = (request) =>
     originFor(request, network.isIngress(request) || isDirectLoopback(request) ? "" : canonical);
@@ -126,15 +127,17 @@ export async function createSelfHostServer(options = {}) {
     resolveWebhookOrigin({ canonical, requestOrigin: origin, isIngress: network.isIngress(request) });
   const hostDataDir = resolve(
     options.hostDataDir ??
+      process.env.ROKBOT_HOST_DATA_DIR ??
       process.env.GROKBOT_HOST_DATA_DIR ??
       join(dataDir, "host-data"),
   );
   const attachmentUrlRoot =
     options.attachmentUrlRoot ??
+    process.env.ROKBOT_ATTACHMENT_URL_ROOT ??
     process.env.GROKBOT_ATTACHMENT_URL_ROOT ??
     hostDataDir;
   const tokenFile =
-    options.tokenFile ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
+    options.tokenFile ?? process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
   const internalToken =
     options.internalToken ??
     (tokenFile ? (await readFile(tokenFile, "utf8")).trim() : null);
@@ -142,10 +145,11 @@ export async function createSelfHostServer(options = {}) {
     throw new Error("Invalid internal Host credential");
   const targets = {
     desktop: endpoint(
-      options.vncUrl ?? process.env.GROKBOT_VNC_URL ?? "http://127.0.0.1:6080",
+      options.vncUrl ?? process.env.ROKBOT_VNC_URL ?? process.env.GROKBOT_VNC_URL ?? "http://127.0.0.1:6080",
     ),
     fork: endpoint(
       options.forkVncUrl ??
+        process.env.ROKBOT_FORK_VNC_URL ??
         process.env.GROKBOT_FORK_VNC_URL ??
         "http://127.0.0.1:6081",
     ),
@@ -153,7 +157,7 @@ export async function createSelfHostServer(options = {}) {
   const auth = await new Auth(dataDir, options.authOptions).load();
   const webClient = await new WebClient(dataDir, { auth }).load();
   const models = new Models(dataDir, {
-    filename: options.modelFile ?? process.env.GROKBOT_MODEL_ENV,
+    filename: options.modelFile ?? process.env.ROKBOT_MODEL_ENV ?? process.env.GROKBOT_MODEL_ENV,
   });
   const library = await new Library(dataDir).load();
   const speech = await new Speech(dataDir).load();
@@ -200,7 +204,7 @@ export async function createSelfHostServer(options = {}) {
   function device(request) {
     check(federation.role() === 'primary', 403, 'Connect to the primary Host');
     // The web client signs in with a cookie instead of a bearer token (web-client.mjs).
-    const browser = webClient.deviceToken(request, request.grokbotOrigin);
+    const browser = webClient.deviceToken(request, request.rokbotOrigin);
     const found = auth.authenticate(browser ?? bearer(request));
     check(found && (!browser || found.platform === "web"), 401, "设备凭证无效，请重新配对");
     void auth.touch(found.id).catch(() => {});
@@ -233,7 +237,7 @@ export async function createSelfHostServer(options = {}) {
     } else {
       ticket =
         url.searchParams.get("ticket") ??
-        cookie(request, `grokbot_vnc_${route.slot}`);
+        cookie(request, `rokbot_vnc_${route.slot}`);
       const value = tickets.validate(ticket, route.slot);
       check(value, 401, "桌面访问票据已失效，请重新打开电脑预览");
       found = { id: value.deviceId };
@@ -259,7 +263,7 @@ export async function createSelfHostServer(options = {}) {
       path: `${route.path}${url.search}`,
       ...(execution ?? {}),
       deviceId: found.id,
-      ticketCookie: `grokbot_vnc_${route.slot}=${ticket}; Path=/vnc/${route.slot}/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(tickets.ttlMs / 1000)}${origin.startsWith("https:") ? "; Secure" : ""}`,
+      ticketCookie: `rokbot_vnc_${route.slot}=${ticket}; Path=/vnc/${route.slot}/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(tickets.ttlMs / 1000)}${origin.startsWith("https:") ? "; Secure" : ""}`,
     };
   }
   async function revokeDevice(id) {
@@ -280,7 +284,7 @@ export async function createSelfHostServer(options = {}) {
   /** Sign-in, sign-out and the bundle files of the web client (web-client.mjs); /web/login is a public page. */
   async function webRoutes(request, response, path, origin, url) {
     const method = request.method;
-    const fromPage = () => check(request.headers["x-grokbot-web"] === "1" &&
+    const fromPage = () => check(request.headers["x-rokbot-web"] === "1" &&
       (!request.headers.origin || request.headers.origin === origin), 403, "请从网页版登录页操作");
     if (method === "GET" && path === "/web/api/session") {
       const signedIn = webClient.browserDevice(request), status = webClient.status();
@@ -312,7 +316,7 @@ export async function createSelfHostServer(options = {}) {
     if (method === "GET" && path === "/web/manifest.webmanifest") {
       check(webClient.available, 404, "网页版未启用");
       response.writeHead(200, { "content-type": "application/manifest+json; charset=utf-8" });
-      return response.end(JSON.stringify(webManifest()));
+      return response.end(JSON.stringify(webManifest(webClient)));
     }
     if (["GET", "HEAD"].includes(method) && (path === "/web" || path === "/web/")) {
       response.writeHead(302, { location: `${webClient.browserDevice(request) ? "/web/renderer/index.html" : "/web/login"}${url.search}` });
@@ -457,7 +461,7 @@ export async function createSelfHostServer(options = {}) {
         publicUrl: origin,
         model,
         host: { ...host, waitingForExecutionNode: !host.connected &&
-          process.env.GROKBOT_REQUIRE_EXECUTION_NODE === '1' && !executionNode.store.value.config.enabled },
+          (process.env.ROKBOT_REQUIRE_EXECUTION_NODE ?? process.env.GROKBOT_REQUIRE_EXECUTION_NODE) === '1' && !executionNode.store.value.config.enabled },
         devices: push.devices(),
         pairingKeys: auth.pairingKeys(),
         webClient: webClient.status(),
@@ -510,7 +514,7 @@ export async function createSelfHostServer(options = {}) {
       check(!agent.isRunning, 409, 'Bot 正在运行，请在任务结束后再压缩');
       limiter.check(`manual-summary:${summarize[1]}`, 4, 10 * 60_000);
       const result = await internalHostClient(hostUrl, internalToken)('localApplicationRpc', {
-        action: 'grokbot.manual-summary', agentId: summarize[1],
+        action: 'rokbot.manual-summary', agentId: summarize[1],
       });
       return sendJson(response, 200, { ...result, message: '上下文已压缩' });
     }
@@ -575,7 +579,7 @@ export async function createSelfHostServer(options = {}) {
       const { item } = await notifications.publish({
         type: "test",
         agentId: body.agentId,
-        title: "Grok Bot 通知测试",
+        title: "RokBot 通知测试",
         body: "通知已从你的 Host 发送。点击后返回对应会话。",
       });
       return sendJson(response, 201, item);
@@ -595,8 +599,9 @@ export async function createSelfHostServer(options = {}) {
     );
     const path = request.url.split("?")[0];
     const origin = requestOrigin(request);
+    delete request.headers['x-rokbot-tailcat-ingress'];
     delete request.headers['x-grokbot-tailcat-ingress'];
-    request.grokbotOrigin = origin;
+    request.rokbotOrigin = origin;
     const url = new URL(request.url, origin);
     if (path.startsWith("/admin/api/"))
       return adminRoutes(request, response, path, origin);
@@ -754,10 +759,10 @@ export async function createSelfHostServer(options = {}) {
     }
     if (path.startsWith("/vnc/")) {
       check(["GET", "HEAD"].includes(request.method), 405, "不支持的请求方法");
-      // The web client's computer view runs the bridge the Android shell injects (android/client/vnc-bridge.js).
-      const script = /^\/vnc\/(desktop|fork)\/__grokbot-(vnc-bridge|vnc-preload)\.js$/.exec(path);
+      // The web client's computer view runs the noVNC bridge (web/client/vnc-bridge.js).
+      const script = /^\/vnc\/(desktop|fork)\/__rokbot-(vnc-bridge|vnc-preload)\.js$/.exec(path);
       if (script) {
-        const value = tickets.validate(cookie(request, `grokbot_vnc_${script[1]}`), script[1]);
+        const value = tickets.validate(cookie(request, `rokbot_vnc_${script[1]}`), script[1]);
         check(value && webClient.available && auth.device(value.deviceId)?.platform === "web", 401, "桌面访问票据已失效，请重新打开电脑预览");
         const body = await webClient.vncScript(script[2], origin);
         response.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cross-origin-resource-policy": "same-origin" });
@@ -812,7 +817,7 @@ export async function createSelfHostServer(options = {}) {
       limiter.check(`local-push-test:${found.id}`, 10);
       const body = await jsonBody(request);
       if (body.agentId) await verifyAgent(body.agentId);
-      return sendJson(response, 200, await push.test(found.id, body.agentId || "grokbot-test", { bypassForeground: body.bypassForeground !== false }));
+      return sendJson(response, 200, await push.test(found.id, body.agentId || "rokbot-test", { bypassForeground: body.bypassForeground !== false }));
     }
     if (request.method === "GET" && path === "/local/computers") {
       device(request);
@@ -894,7 +899,7 @@ export async function createSelfHostServer(options = {}) {
       const found = device(request);
       connections.track(found.id, response);
       if (path.endsWith("/events")) {
-        if (["ios", "android"].includes(found.platform) && request.headers["x-grokbot-foreground"] === "1")
+        if (["ios", "android"].includes(found.platform) && request.headers["x-rokbot-foreground"] === "1")
           push.trackForegroundStream(found.id, response);
         return notifications.subscribe(request, response);
       }
@@ -943,9 +948,14 @@ export async function createSelfHostServer(options = {}) {
         rewrite: (value) => rewriteSharingUrls(tickets.rewrite(value, found.id, origin), origin),
       });
     }
-    if (request.method === 'GET' && path === '/grok-bot-icon.png') {
-      response.writeHead(302, { location: DEFAULT_BARK_ICON_URL, 'cache-control': 'public, max-age=86400' });
-      return response.end();
+    if (["GET", "HEAD"].includes(request.method) && path === "/rokbot-icon.png") {
+      const bytes = await readFile(join(publicDir, "rokbot-icon.png"));
+      response.writeHead(200, {
+        "content-type": "image/png",
+        "content-length": bytes.length,
+        "cache-control": "public, max-age=86400",
+      });
+      return response.end(request.method === "HEAD" ? undefined : bytes);
     }
     const asset = pages.get(path) ?? (publicAssets.has(path.slice(1)) ? path.slice(1) : null);
     if (asset && request.method === "GET") {
@@ -987,8 +997,9 @@ export async function createSelfHostServer(options = {}) {
         "Invalid upgrade",
       );
       const origin = requestOrigin(request);
+      delete request.headers['x-rokbot-tailcat-ingress'];
       delete request.headers['x-grokbot-tailcat-ingress'];
-      request.grokbotOrigin = origin;
+      request.rokbotOrigin = origin;
       const url = new URL(request.url, origin);
       check(federation.role() === 'primary', 403, 'Connect to the primary Host');
       if (url.pathname === '/local/voice/realtime') return voice.upgrade(request, socket, head);
@@ -1029,8 +1040,8 @@ export async function createSelfHostServer(options = {}) {
     webClient,
     dataDir,
     async start(
-      port = Number(process.env.GROKBOT_PORT ?? 8000),
-      bind = process.env.GROKBOT_BIND ?? "0.0.0.0",
+      port = Number(process.env.ROKBOT_PORT ?? process.env.GROKBOT_PORT ?? 8000),
+      bind = process.env.ROKBOT_BIND ?? process.env.GROKBOT_BIND ?? "0.0.0.0",
     ) {
       await new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -1085,7 +1096,7 @@ if (
     const address = await app.start();
     console.log(
       JSON.stringify({
-        service: "grokbot-selfhost",
+        service: "rokbot-selfhost",
         port: address.port,
         initialized: app.auth.initialized,
         ...(app.auth.initialized

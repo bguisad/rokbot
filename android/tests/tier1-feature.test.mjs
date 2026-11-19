@@ -72,7 +72,7 @@ export async function runTier1Tests(host) {
   });
 
   test('F1.3: CLI prepares temporary isolated staging directory', () => {
-    const tmpDir = path.join('/tmp', `grokbot-test-staging-${Date.now()}`);
+    const tmpDir = path.join('/tmp', `rokbot-test-staging-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     assert.ok(fs.existsSync(tmpDir));
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -114,7 +114,7 @@ export async function runTier1Tests(host) {
     const validManifest = {
       packageName: 'ai.x.grok.bot',
       usesCleartextTraffic: true,
-      activities: [{ name: 'dev.grokbot.nativeapp.PairingActivity' }],
+      activities: [{ name: 'dev.rokbot.nativeapp.PairingActivity' }],
       permissions: [
         'android.permission.INTERNET',
         'android.permission.RECORD_AUDIO',
@@ -131,7 +131,7 @@ export async function runTier1Tests(host) {
     const manifest = {
       packageName: 'ai.x.grok.bot',
       usesCleartextTraffic: false,
-      activities: [{ name: 'dev.grokbot.nativeapp.PairingActivity' }],
+      activities: [{ name: 'dev.rokbot.nativeapp.PairingActivity' }],
       permissions: ['android.permission.INTERNET']
     };
     const res = AxmlManifestEmulator.validate(manifest);
@@ -155,7 +155,7 @@ export async function runTier1Tests(host) {
     const manifest = {
       packageName: 'ai.x.grok.bot',
       usesCleartextTraffic: true,
-      activities: [{ name: 'dev.grokbot.nativeapp.PairingActivity' }],
+      activities: [{ name: 'dev.rokbot.nativeapp.PairingActivity' }],
       permissions: ['android.permission.INTERNET']
     };
     const res = AxmlManifestEmulator.validate(manifest);
@@ -203,7 +203,7 @@ export async function runTier1Tests(host) {
   test('F3.5: Clean build preserves native companion assets and bin fixtures', () => {
     const binDir = path.join(REPO_ROOT, 'android/bin');
     assert.ok(fs.existsSync(path.join(binDir, 'classes2.dex')));
-    assert.ok(fs.existsSync(path.join(binDir, 'grokbot-native-base.apk')));
+    assert.ok(fs.existsSync(path.join(binDir, 'rokbot-native-base.apk')));
   });
 
   // ==========================================
@@ -297,16 +297,16 @@ export async function runTier1Tests(host) {
   test('F5.3: Gateway URL encrypted and stored under dedicated alias', () => {
     const ks = new AndroidKeystoreEmulator();
     const url = 'https://host.example.com:8000';
-    const enc = ks.encrypt('grokbot_gateway_url', url);
-    const dec = ks.decrypt('grokbot_gateway_url', enc.iv, enc.ciphertext, enc.authTag);
+    const enc = ks.encrypt('rokbot_gateway_url', url);
+    const dec = ks.decrypt('rokbot_gateway_url', enc.iv, enc.ciphertext, enc.authTag);
     assert.equal(dec, url);
   });
 
   test('F5.4: Device ID UUID persisted and retrieved from Keystore', () => {
     const ks = new AndroidKeystoreEmulator();
     const deviceId = crypto.randomUUID();
-    const enc = ks.encrypt('grokbot_device_id', deviceId);
-    const dec = ks.decrypt('grokbot_device_id', enc.iv, enc.ciphertext, enc.authTag);
+    const enc = ks.encrypt('rokbot_device_id', deviceId);
+    const dec = ks.decrypt('rokbot_device_id', enc.iv, enc.ciphertext, enc.authTag);
     assert.equal(dec, deviceId);
   });
 
@@ -336,12 +336,12 @@ export async function runTier1Tests(host) {
     assert.equal(res.status, 200);
   });
 
-  test('F6.3: Interceptor appends x-grokbot-client: android-native/1.16.0 header', async () => {
+  test('F6.3: Interceptor appends x-rokbot-client: android-native/1.16.0 header', async () => {
     const device = await pairTestDevice('F6-Device-3');
     const interceptor = new OkHttpInterceptorEmulator({ gatewayUrl: BASE_URL, token: device.token });
     await interceptor.intercept('https://api.x.ai/connect/status');
     const lastLog = host.requestLogs[host.requestLogs.length - 1];
-    assert.equal(lastLog.headers['x-grokbot-client'], 'android-native/1.16.0');
+    assert.equal(lastLog.headers['x-rokbot-client'], 'android-native/1.16.0');
   });
 
   test('F6.4: Interceptor preserves query parameters during URL rewriting', async () => {
@@ -509,7 +509,7 @@ export async function runTier1Tests(host) {
       body: JSON.stringify({
         agentId: 'agent-default',
         clientNonce: nonce,
-        prompt: 'Hello GrokBot!'
+        prompt: 'Hello RokBot!'
       })
     });
     assert.equal(res.status, 200);
@@ -630,7 +630,7 @@ export async function runTier1Tests(host) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        push: { provider: 'ntfy', ntfyUrl: 'https://ntfy.sh/grokbot-test' }
+        push: { provider: 'ntfy', ntfyUrl: 'https://ntfy.sh/rokbot-test' }
       })
     });
     assert.equal(res.status, 200);
@@ -675,11 +675,11 @@ export async function runTier1Tests(host) {
   // ==========================================
   // F12: In-App Foreground Event Stream (5 tests)
   // ==========================================
-  test('F12.1: Client establishes SSE to GET /notifications/events with x-grokbot-foreground: 1', async () => {
+  test('F12.1: Client establishes SSE to GET /notifications/events with x-rokbot-foreground: 1', async () => {
     const device = await pairTestDevice('F12-Device-1');
     const sse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse.connect();
     assert.ok(host.foregroundDevices.has(device.deviceId));
@@ -690,7 +690,7 @@ export async function runTier1Tests(host) {
     const device = await pairTestDevice('F12-Device-2');
     const sse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse.connect();
 
@@ -709,7 +709,7 @@ export async function runTier1Tests(host) {
     const device = await pairTestDevice('F12-Device-3');
     const sse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse.connect();
 
@@ -739,7 +739,7 @@ export async function runTier1Tests(host) {
     const device = await pairTestDevice('F12-Device-5');
     const sse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse.connect();
     assert.ok(host.foregroundDevices.has(device.deviceId));
@@ -781,12 +781,12 @@ export async function runTier1Tests(host) {
     assert.equal(channel.importance, 4);
   });
 
-  test('F13.3: Client parses deep link grokbot-local://agent/<agentId>', () => {
+  test('F13.3: Client parses deep link rokbot-local://agent/<agentId>', () => {
     const parseDeepLink = uri => {
-      const match = /^grokbot-local:\/\/agent\/([A-Za-z0-9_-]+)$/.exec(uri);
+      const match = /^rokbot-local:\/\/agent\/([A-Za-z0-9_-]+)$/.exec(uri);
       return match ? { target: 'agent', agentId: match[1] } : null;
     };
-    const parsed = parseDeepLink('grokbot-local://agent/agent-coding');
+    const parsed = parseDeepLink('rokbot-local://agent/agent-coding');
     assert.equal(parsed.target, 'agent');
     assert.equal(parsed.agentId, 'agent-coding');
   });

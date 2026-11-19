@@ -23,8 +23,8 @@ export async function createSounds(profile, payload) {
       // Windows has no command-line player; the system SoundPlayer reads the path from the environment.
       const child = process.platform === 'win32'
         ? spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
-          '(New-Object System.Media.SoundPlayer $env:GROKBOT_SOUND_FILE).PlaySync()'],
-          { stdio: 'ignore', windowsHide: true, env: { ...process.env, GROKBOT_SOUND_FILE: file } })
+          '(New-Object System.Media.SoundPlayer $env:ROKBOT_SOUND_FILE).PlaySync()'],
+          { stdio: 'ignore', windowsHide: true, env: { ...process.env, ROKBOT_SOUND_FILE: file } })
         : spawn('/usr/bin/afplay', [file], { stdio: 'ignore' });
       children.add(child); child.once('exit', () => children.delete(child)); child.once('error', () => children.delete(child));
     },

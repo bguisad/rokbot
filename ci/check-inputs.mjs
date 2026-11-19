@@ -5,9 +5,9 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, relative } from 'node:path';
 import { inspectRecipe } from './recipe-pin.mjs';
-import { windowsInputs, windowsReleases } from '../windows/patchers/desktop/inputs.mjs';
-import { readZip } from '../android/patchers/apk.mjs';
-import { verifyShellVersion } from '../android/patchers/shell-version.mjs';
+import { windowsReleases } from '../windows/patchers/desktop/inputs.mjs';
+import { readZip, entryBytes } from '../android/patchers/signing.mjs';
+import { extractManifestInfo } from '../android/patchers/manifest.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bytes = file => readFile(join(root, file));
@@ -42,7 +42,7 @@ assert.ok(builder.includes("'--build-arg', f'RUNTIME_IMAGE={runtime_image}'") &&
   'Host builder must explicitly pass the runtime chosen for its platform and mode');
 for (const file of ['compose.yaml', 'compose.execution.yaml']) {
   const compose = (await bytes(`host/release/${file}`)).toString();
-  assert.ok(compose.includes('${GROKBOT_BOX_IMAGE:-' + host.box.localTag + '}'), `stale desktop tag in ${file}`);
+  assert.ok(compose.includes('${ROKBOT_BOX_IMAGE:-') && compose.includes(':-' + host.box.localTag + '}'), `stale desktop tag in ${file}`);
   assert.ok(compose.split('\n  box:\n')[1]?.includes(`platform: ${host.box.platform}`), `wrong desktop platform in ${file}`);
 }
 const versions = { host: host.archive.version, desktop: `${host.box.localTag} (${host.box.platform})` };
@@ -74,18 +74,17 @@ for (const { directory, supported } of (await windowsReleases()).slice(1)) {
   windowsFallback.push(supported.version);
 }
 versions.windowsFallback = windowsFallback;
-const android = await json('android/patchers/supported.json');
-for (const build of [android, ...(android.fallback ?? [])]) {
-  const dir = relative(root, (await windowsInputs(build.desktopVersion)).directory).replaceAll('\\', '/');
-  const { original, pins } = desktopPins[dir] ?? (desktopPins[dir] = await checkDesktop(dir));
-  const where = `Android interface ${build.desktopVersion}`;
-  assert.equal(pins.get('dist/renderer/index.html')?.output, build.rendererIndexSha256, `${where}: stale renderer index`);
-  assert.equal(pins.get('dist/electron-preload/preload.cjs')?.output ?? original.preloadSha256, build.preloadSha256, `${where}: stale preload`);
-  assert.match(build.vncPreloadSha256, /^[0-9a-f]{64}$/);
-}
-assert.equal(await sha(android.shell.path), android.shell.sha256, 'Android shell digest mismatch');
-const shell = verifyShellVersion(readZip(await bytes(android.shell.path)).entries, android.shell);
+const android = await json('android/recipes/manifest.json');
+await checkRecipes('android/recipes', android.resources, 'patch', android.hbcSha256);
+assert.equal(await sha('android/bin/classes2.dex'), android.companionDexSha256, 'Android companion DEX digest mismatch');
+assert.equal(await sha('android/bin/rokbot-native-base.apk'), android.baseApkSha256, 'Android base APK digest mismatch');
+const androidBase = readZip(await bytes('android/bin/rokbot-native-base.apk'));
+const androidManifest = androidBase.entries.find(entry => entry.name === 'AndroidManifest.xml');
+assert.ok(androidManifest, 'Android base APK missing AndroidManifest.xml');
+const androidBaseInfo = extractManifestInfo(entryBytes(androidManifest));
+assert.equal(androidBaseInfo.versionName, android.version, 'Android base APK version mismatch');
+assert.ok((android.supportedPackages ?? [android.packageName]).includes(androidBaseInfo.packageName), 'Android base APK package mismatch');
 const ios = await json('ios/recipes/ios/manifest.json');
 await checkRecipes('ios/recipes/ios', ios.resources, 'patch', ios.hbcSha256);
-assert.equal(await sha('ios/bin/GrokBotLocal.dylib'), ios.dylibSha256, 'iOS injected library digest mismatch');
-console.log(JSON.stringify({ ...versions, androidShell: `${shell.versionName} (${shell.versionCode})`, androidRenderer: [android.desktopVersion, ...(android.fallback ?? []).map(item => item.desktopVersion)].join(', '), ios: `${ios.version} (${ios.build})` }, null, 2));
+assert.equal(await sha('ios/bin/RokBotLocal.dylib'), ios.dylibSha256, 'iOS injected library digest mismatch');
+console.log(JSON.stringify({ ...versions, android: `${android.version} (${android.build})`, ios: `${ios.version} (${ios.build})` }, null, 2));

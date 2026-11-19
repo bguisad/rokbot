@@ -1,0 +1,1458 @@
+/* Android adjustments for the original desktop interface. */
+html.rokbot-android {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  /* XVF is the official phone app's typeface; the desktop interface ships it as well. */
+  --cursor-font-family-sans: 'XVF', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Minimize, maximize and close belong to desktop windows; Android has its own navigation. */
+html.rokbot-android .sand-window-controls {
+  display: none !important;
+}
+
+/* Hardware acceleration is an Electron switch; the WebView always draws with the GPU. */
+html.rokbot-android :is(#sand-setting-hardware-acceleration, #sand-setting-hardware-acceleration-restart) {
+  display: none !important;
+}
+/* Android supports Tailcat via its built-in tunnel; keep the desktop Host dialog toggle visible. */
+/* The Bot cannot run commands on the phone, so there is nothing to allow under "This computer". */
+html.rokbot-android .sand-settings-panel section:has(#sand-setting-local-execution) {
+  display: none !important;
+}
+
+/* Settings: on a phone the section list becomes a row of tabs above the content. */
+@media (max-width: 700px) {
+  html.rokbot-android .sand-settings-layout {
+    flex-direction: column !important;
+  }
+  html.rokbot-android .sand-settings-nav {
+    flex-direction: row !important;
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    overflow-x: auto;
+    gap: 4px;
+    padding: 12px 52px 8px 12px !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  }
+  html.rokbot-android .sand-settings-nav__item {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    white-space: nowrap;
+  }
+  html.rokbot-android .sand-settings-panel {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+}
+
+/* Conversation details (Bot settings, computer, files): a side column on wide screens,
+   a full-screen layer on phones (the width check is relaxed in renderer-patches.mjs). */
+html.rokbot-android .sand-info-pane__window-controls-divider {
+  display: none !important;
+}
+html.rokbot-android .sand-info-pane__top {
+  padding-right: 12px !important;
+}
+@media (max-width: 791px) {
+  html.rokbot-android .sand-chat {
+    --sand-chat-min-width: 0px;
+    min-width: 0 !important;
+  }
+  html.rokbot-android .sand-agents-sidebar {
+    --sand-sidebar-width: 240px;
+    min-width: 0 !important;
+  }
+  html.rokbot-android .sand-info-pane[data-open="true"] {
+    --sand-info-pane-width: 100vw !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    z-index: 60;
+    background: var(--cursor-bg-elevated, #1f1f1f);
+  }
+  html.rokbot-android .sand-info-pane[data-open="true"] > .sand-info-pane__inner {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+  /* The computer view is a sibling of the pane, laid over the pane's preview frame; it has to
+     stay above the pane once the pane is a layer. It passes taps through unless it is opened. */
+  html.rokbot-android .sand-info-pane[data-open="true"] ~ div:has(> * > .sand-box-vnc-pool) {
+    z-index: 61;
+  }
+  /* "Open computer" shows the large view (stage) over the conversation; the pane layer
+     steps aside until the stage is closed. */
+  html.rokbot-android.rokbot-computer-stage .sand-info-pane[data-open="true"] {
+    visibility: hidden !important;
+  }
+}
+
+/* Electron <webview> stand-in for the Bot computer view (see client/webview.js). */
+webview {
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+webview > iframe.rokbot-webview-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: transparent;
+  /* Taps reach the view only while the interface lets the user control it (it switches
+     the webview's pointer-events, which the frame inherits). */
+}
+
+/* ---- Phones (html.rokbot-phone, set by layout.js below 600 px) -----------------------------
+   Laid out like the official phone app: the Bot list and a conversation are two
+   screens that slide over each other, with round floating buttons on top and message bubbles.
+   Colours and sizes follow the official app's palette (paper, floating buttons, bubbles).
+   Details and settings open as full screens, other dialogs and menus as sheets from the bottom. */
+
+html.rokbot-phone {
+  --rokbot-paper: rgb(20, 20, 20);
+  --rokbot-chrome: rgb(30, 30, 30);
+  --rokbot-glass: #2c2c2e;
+  --rokbot-glass-stroke: rgba(252, 252, 252, 0.15);
+  --rokbot-glass-shadow: 0 4px 22px rgba(0, 0, 0, 0.07), 0 0 0 0.5px var(--rokbot-glass-stroke);
+  --rokbot-label: #fff;
+  --rokbot-label-2: rgba(235, 235, 245, 0.6);
+  --rokbot-label-3: rgba(235, 235, 245, 0.3);
+  --rokbot-fill: rgba(120, 120, 128, 0.32);
+  --rokbot-fill-3: rgba(118, 118, 128, 0.24);
+  --rokbot-bubble-user: #5c5c5c;
+  --rokbot-bubble-bot: rgba(247, 234, 234, 0.055);
+  --rokbot-scrim: rgba(0, 0, 0, 0.28);
+  --rokbot-back-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 5l-7 7 7 7'/%3E%3C/svg%3E");
+  --rokbot-close-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E");
+  --rokbot-chevron-down-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  /* Bubbles of the original interface, in the official phone app's colours and sizes. */
+  --sand-transcript-bubble-user-fill: var(--rokbot-bubble-user);
+  --sand-transcript-bubble-user-text: #fff;
+  --sand-transcript-bubble-agent-fill: var(--rokbot-bubble-bot);
+  --sand-transcript-prose-bubble-radius: 20px;
+  --sand-transcript-prose-block-padding: 9px;
+  --sand-transcript-prose-one-line-height: 40px;
+}
+html.rokbot-phone[data-theme*="light"] {
+  --rokbot-paper: rgb(252, 252, 252);
+  --rokbot-chrome: rgb(247, 247, 247);
+  --rokbot-glass: #fff;
+  --rokbot-glass-stroke: rgba(20, 20, 20, 0.086);
+  --rokbot-label: #000;
+  --rokbot-label-2: rgba(60, 60, 67, 0.6);
+  --rokbot-label-3: rgba(60, 60, 67, 0.3);
+  --rokbot-fill: rgba(120, 120, 128, 0.16);
+  --rokbot-fill-3: rgba(118, 118, 128, 0.12);
+  --rokbot-bubble-user: #0b0b0b;
+  --rokbot-bubble-bot: rgba(16, 16, 0, 0.043);
+  --rokbot-scrim: rgba(0, 0, 0, 0.19);
+}
+html.rokbot-phone,
+html.rokbot-phone body {
+  overscroll-behavior: none;
+  overflow-x: hidden !important;
+  max-width: 100vw !important;
+}
+html.rokbot-phone #root,
+html.rokbot-phone #root > * {
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+html.rokbot-phone .sand-agents-sidebar,
+html.rokbot-phone .sand-toolbar,
+html.rokbot-phone .sand-info-pane__top,
+html.rokbot-phone .ui-menu,
+html.rokbot-phone button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The system bars take their colour from here (bridge.js). */
+html.rokbot-phone #root > * {
+  background: var(--rokbot-paper) !important;
+}
+
+/* Round floating buttons: back, the account, search, and new Bot. */
+html.rokbot-phone :is(.rokbot-nav-back, .sand-agents-sidebar__new-actions .sand-kit-icon-button:not(.sand-agents-sidebar__search),
+  .sand-agents-sidebar__footer button[aria-haspopup="menu"], .sand-chat-header__controls .sand-kit-icon-button) {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  padding: 0 !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone :is(.rokbot-nav-back, .sand-agents-sidebar__new-actions .sand-kit-icon-button:not(.sand-agents-sidebar__search),
+  .sand-agents-sidebar__footer button[aria-haspopup="menu"], .sand-chat-header__controls .sand-kit-icon-button):active {
+  opacity: 0.7;
+}
+
+html.rokbot-phone .sand-agents-sidebar,
+html.rokbot-phone .sand-chat {
+  position: fixed !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  overflow: hidden !important;
+  flex: none !important;
+  background: var(--rokbot-paper) !important;
+  transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s;
+}
+html.rokbot-phone .sand-agents-sidebar {
+  z-index: 1;
+  border: 0 !important;
+}
+html.rokbot-phone .sand-chat {
+  z-index: 2;
+}
+html.rokbot-phone.rokbot-view-list .sand-chat {
+  transform: translateX(100%);
+  visibility: hidden;
+  pointer-events: none !important;
+  transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s 260ms;
+}
+html.rokbot-phone.rokbot-view-chat .sand-agents-sidebar {
+  transform: translateX(-30%);
+  visibility: hidden;
+  pointer-events: none !important;
+  transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s 260ms;
+}
+html.rokbot-phone .sand-sidebar-resize-handle,
+html.rokbot-phone .sand-info-pane__resize-handle {
+  display: none !important;
+}
+
+/* Bot list: top-left account, top-right + button, bottom-left Connect apps button, and bottom
+   full-width Search pill (matching official phone screenshots). */
+html.rokbot-phone .sand-agents-sidebar__header {
+  height: 56px !important;
+  min-height: 56px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+}
+html.rokbot-phone .sand-agents-sidebar__new-actions {
+  gap: 8px !important;
+}
+html.rokbot-phone .sand-agents-sidebar__new-actions .sand-kit-icon {
+  transform: scale(1.15);
+}
+html.rokbot-phone .sand-agents-sidebar__footer {
+  position: static !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: visible !important;
+  background: none !important;
+}
+html.rokbot-phone .sand-agents-sidebar__footer > * {
+  width: auto !important;
+  padding: 0 !important;
+}
+html.rokbot-phone .sand-agents-sidebar__footer button[aria-haspopup="menu"] {
+  position: fixed !important;
+  z-index: 4 !important;
+  top: 6px !important;
+  left: 12px !important;
+}
+html.rokbot-phone .sand-agents-sidebar__footer button:not([aria-haspopup="menu"]):not(#\#):not(#\#):not(#\#):not(#\#) {
+  position: fixed !important;
+  z-index: 4 !important;
+  left: 12px !important;
+  bottom: 12px !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone .sand-agents-sidebar__footer button:not([aria-haspopup="menu"]) > :first-child:not(#\#):not(#\#):not(#\#):not(#\#) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  max-width: 22px !important;
+  height: 22px !important;
+  opacity: 1 !important;
+  overflow: visible !important;
+  margin: 0 !important;
+}
+html.rokbot-phone .sand-agents-sidebar__footer button:not([aria-haspopup="menu"]) > :nth-child(n+2) {
+  display: none !important;
+}
+html.rokbot-phone button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):not(#\#) {
+  position: fixed !important;
+  z-index: 4 !important;
+  left: 64px !important;
+  right: 12px !important;
+  bottom: 12px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 44px !important;
+  padding: 0 16px !important;
+  gap: 8px !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+  color: var(--rokbot-label-2) !important;
+}
+html.rokbot-phone button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):not(#\#) .sand-kit-icon {
+  transform: scale(1.05);
+  flex: none !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):not(#\#)::after {
+  content: attr(aria-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--rokbot-label-2);
+}
+html.rokbot-phone .sand-agents-sidebar__footer button[aria-haspopup="menu"] .sand-kit-base-avatar {
+  width: 44px !important;
+  height: 44px !important;
+  font-size: 17px !important;
+}
+html.rokbot-phone .sand-agents-sidebar__footer button[aria-haspopup="menu"] .sand-kit-base-avatar > * {
+  width: 100% !important;
+  height: 100% !important;
+}
+html.rokbot-phone .sand-agents-list__rows {
+  padding: 4px 12px 76px !important;
+}
+html.rokbot-phone button.sand-agents-more-unreads:not(#\#):not(#\#):not(#\#):not(#\#) {
+  position: absolute !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 5 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 0 14px 0 16px !important;
+  gap: 6px !important;
+  border-radius: 9999px !important;
+  background-color: #1677ff !important;
+  color: #fff !important;
+  font-size: 15px !important;
+  line-height: 20px !important;
+  font-weight: 500 !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16) !important;
+}
+html.rokbot-phone button.sand-agents-more-unreads:not([data-direction="above"]):not(#\#):not(#\#):not(#\#):not(#\#) {
+  top: auto !important;
+  bottom: 68px !important;
+}
+html.rokbot-phone button.sand-agents-more-unreads[data-direction="above"]:not(#\#):not(#\#):not(#\#):not(#\#) {
+  top: 10px !important;
+  bottom: auto !important;
+}
+html.rokbot-phone button.sand-agents-more-unreads[data-rokbot-label]::before {
+  content: attr(data-rokbot-label);
+  white-space: nowrap;
+}
+html.rokbot-phone button.sand-agents-more-unreads[data-rokbot-label] > :nth-child(2) {
+  display: none !important;
+}
+html.rokbot-phone button.sand-agents-more-unreads > :first-child {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  flex: none !important;
+}
+html.rokbot-phone button.sand-agents-more-unreads > :first-child > * {
+  display: none !important;
+}
+html.rokbot-phone button.sand-agents-more-unreads > :first-child::after {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: var(--rokbot-chevron-down-icon) center / 16px no-repeat;
+  mask: var(--rokbot-chevron-down-icon) center / 16px no-repeat;
+}
+html.rokbot-phone button.sand-agents-more-unreads[data-direction="above"] > :first-child::after {
+  transform: rotate(180deg);
+}
+html.rokbot-phone .sand-agent-item {
+  min-height: 0 !important;
+  padding: 14px 8px !important;
+  gap: 14px !important;
+  border-radius: 10px !important;
+}
+html.rokbot-phone .sand-agent-item[data-active="true"]:not([aria-pressed="true"], [aria-selected="true"]) {
+  background: transparent !important;
+}
+html.rokbot-phone .sand-agent-item:active {
+  background: var(--rokbot-fill) !important;
+}
+html.rokbot-phone .sand-agent-item__avatar,
+html.rokbot-phone .sand-agent-item__avatar-disc,
+html.rokbot-phone .sand-agent-item__avatar .sand-grok-bot-mark,
+html.rokbot-phone .sand-agent-item__avatar .sand-grok-bot-mark > span {
+  width: 48px !important;
+  height: 48px !important;
+}
+html.rokbot-phone .sand-agent-item__body {
+  gap: 4px !important;
+}
+html.rokbot-phone .sand-agent-item__name {
+  font-size: 17px !important;
+  line-height: 22px !important;
+  font-weight: 500 !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone .sand-agent-item__preview {
+  font-size: 15px !important;
+  line-height: 19px !important;
+  color: var(--rokbot-label-2) !important;
+}
+/* When the Bot was last active (added by renderer-patches.mjs). */
+html.rokbot-phone .sand-agent-item__time {
+  flex: none;
+  margin-left: auto !important;
+  padding-left: 8px;
+  font-size: 15px !important;
+  line-height: 19px !important;
+  color: var(--rokbot-label-2) !important;
+}
+/* Pinned Bots: large avatars with the name below, three to a row. */
+html.rokbot-phone .sand-pinned-grid__tiles {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  padding: 4px 0 12px !important;
+}
+html.rokbot-phone .sand-pinned-grid__tile {
+  flex: 0 0 33.333% !important;
+  width: 33.333% !important;
+  min-width: 0 !important;
+}
+html.rokbot-phone .sand-pinned-grid .sand-agent-item {
+  padding: 8px !important;
+  gap: 6px !important;
+}
+html.rokbot-phone .sand-pinned-grid :is(.sand-agent-item__avatar, .sand-agent-item__avatar-disc,
+  .sand-agent-item__avatar .sand-grok-bot-mark, .sand-agent-item__avatar .sand-grok-bot-mark > span) {
+  width: 80px !important;
+  height: 80px !important;
+}
+html.rokbot-phone .sand-pinned-grid .sand-agent-item__caption {
+  font-size: 15px !important;
+  line-height: 19px !important;
+  color: var(--rokbot-label-2) !important;
+}
+
+/* Conversation: a round back button (added by layout.js) and the Bot's name in a pill float
+   over the messages; the composer is a round add button next to a pill-shaped field. */
+html.rokbot-phone .sand-toolbar {
+  height: 64px !important;
+  border: 0 !important;
+  background: linear-gradient(var(--rokbot-paper) 70%, color-mix(in srgb, var(--rokbot-paper) 0%, transparent)) !important;
+  pointer-events: none;
+}
+html.rokbot-phone .sand-toolbar :is(button, [role="button"], a) {
+  pointer-events: auto;
+}
+html.rokbot-phone .sand-toolbar > div {
+  height: 56px !important;
+  padding: 0 12px 0 64px !important;
+  border: 0 !important;
+}
+html.rokbot-phone .sand-chat-header:not(#\#):not(#\#):not(#\#):not(#\#) {
+  width: 100% !important;
+  height: 56px !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  justify-content: stretch !important;
+  gap: 8px !important;
+}
+html.rokbot-phone .sand-chat-header__identity-row {
+  grid-column: 1 !important;
+  justify-content: flex-start !important;
+  min-width: 0;
+}
+html.rokbot-phone .sand-chat-header__controls {
+  grid-column: 2 !important;
+  gap: 8px !important;
+}
+html.rokbot-phone .sand-chat-header__identity {
+  height: 44px !important;
+  max-width: calc(100vw - 128px) !important;
+  gap: 8px !important;
+  padding: 0 14px 0 6px !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+}
+html.rokbot-phone .sand-chat-header__identity::before {
+  background: transparent !important;
+}
+html.rokbot-phone .sand-chat-header__identity:active {
+  opacity: 0.7;
+}
+html.rokbot-phone .sand-chat-header__identity > :not(.sand-chat-header__avatar, .sand-chat-header__title) {
+  display: none !important;
+}
+html.rokbot-phone .sand-chat-header__avatar,
+html.rokbot-phone .sand-chat-header__avatar > * {
+  width: 32px !important;
+  height: 32px !important;
+}
+html.rokbot-phone .sand-chat-header__title {
+  font-size: 17px !important;
+  line-height: 22px !important;
+  font-weight: 500 !important;
+  color: var(--rokbot-label) !important;
+}
+.rokbot-nav-back {
+  display: none;
+}
+html.rokbot-phone .rokbot-nav-back {
+  position: absolute;
+  z-index: 4;
+  top: 6px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+html.rokbot-phone .sand-virtual-transcript {
+  overflow-x: clip !important;
+  overscroll-behavior-x: contain;
+  max-width: 100% !important;
+}
+html.rokbot-phone .sand-virtual-transcript:not(#\#):not(#\#):not(#\#):not(#\#) {
+  padding-inline: 12px !important;
+}
+html.rokbot-phone .sand-virtual-transcript__inner,
+html.rokbot-phone .sand-transcript-row,
+html.rokbot-phone .sand-row-content,
+html.rokbot-phone .sand-message-block,
+html.rokbot-phone .sand-message {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+html.rokbot-phone .sand-virtual-transcript {
+  touch-action: pan-y;
+}
+html.rokbot-phone .sand-virtual-transcript[data-peeking] .sand-row-content:not(.sand-b3owv9) {
+  transform: translate3d(calc(-1 * var(--sand-inline-sign, 1) * var(--sand-ts-peek, 0px)), 0, 0);
+  will-change: transform;
+}
+html.rokbot-phone .sand-transcript-row {
+  position: relative;
+}
+html.rokbot-phone .sand-message-action-anchor {
+  touch-action: pan-y;
+  transition: translate 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: translate;
+}
+html.rokbot-phone .sand-message-action-anchor.rokbot-swipe-dragging {
+  transition: none !important;
+  translate: var(--rokbot-swipe-drag, 0px) 0 !important;
+}
+html.rokbot-phone.rokbot-swipe-probing .sand-message-hover-actions {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+html.rokbot-phone .rokbot-swipe-reply-badge {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: var(--rokbot-fill-3);
+  color: var(--rokbot-label-2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  z-index: 4;
+  transition: opacity 180ms ease, transform 180ms ease, background-color 140ms ease, color 140ms ease;
+}
+html.rokbot-phone .rokbot-swipe-reply-badge.rokbot-swipe-reply-badge--active {
+  transition: background-color 140ms ease, color 140ms ease;
+}
+html.rokbot-phone .rokbot-swipe-reply-badge.rokbot-swipe-reply-badge--ready {
+  background: var(--cursor-text-primary, #1c1c1c);
+  color: #fff;
+}
+html.rokbot-phone .sand-message-action-anchor[data-role]:not(#\#):not(#\#):not(#\#):not(#\#) {
+  max-width: calc(100% - 28px) !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+html.rokbot-phone .sand-message-action-anchor[data-role] .sand-message:not(#\#):not(#\#):not(#\#):not(#\#) {
+  max-width: 100% !important;
+  padding: 10px 14px !important;
+}
+html.rokbot-phone .sand-message-prose {
+  font-size: 17px !important;
+  line-height: 22px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere;
+}
+html.rokbot-phone .sand-message-prose :is(p, li, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, div):not(#\#):not(#\#):not(#\#):not(#\#) {
+  max-width: 100% !important;
+}
+html.rokbot-phone .sand-message-prose :is(p, li, code, a) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+html.rokbot-phone .sand-message-prose :is(pre, .ui-default-code) {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+html.rokbot-phone .sand-message-prose > div:has(> table),
+html.rokbot-phone .sand-message-prose .katex-display {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+html.rokbot-phone .sand-transcript-time-separator {
+  font-size: 13px !important;
+  line-height: 16px !important;
+  color: var(--rokbot-label-2) !important;
+}
+html.rokbot-phone .sand-prompt-shell {
+  min-height: 44px;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+}
+html.rokbot-phone .sand-prompt-shell:is(:not([data-expanded]), [data-expanded="false"]) .sand-prompt-pad {
+  padding-left: 48px !important;
+  padding-right: 88px !important;
+}
+html.rokbot-phone .sand-prompt-shell:is(:not([data-expanded]), [data-expanded="false"]):not(:has(.sand-prompt-mic:not([inert]))):not(:has(.sand-prompt-voice-chip)) .sand-prompt-pad,
+html.rokbot-phone .sand-prompt-shell:is(:not([data-expanded]), [data-expanded="false"]):has(.sand-prompt-ghost-mic-seat.sand-nalus7):not(:has(.sand-prompt-voice-chip)) .sand-prompt-pad {
+  padding-right: 48px !important;
+}
+html.rokbot-phone .sand-prompt-shell[data-expanded]:not([data-expanded="false"]) .sand-prompt-pad {
+  padding: 10px 16px 46px 16px !important;
+}
+html.rokbot-phone .sand-prompt-form textarea,
+html.rokbot-phone .sand-prompt-form [contenteditable="true"] {
+  font-size: 17px !important;
+  line-height: 22px !important;
+}
+html.rokbot-phone .sand-prompt-field p.is-editor-empty::before {
+  color: var(--rokbot-label-3) !important;
+}
+html.rokbot-phone .sand-prompt-shell[data-expanded]:not([data-expanded="false"]) .sand-prompt-actions-row {
+  height: 32px !important;
+  bottom: 8px !important;
+}
+html.rokbot-phone .sand-prompt-actions-trailing {
+  margin-left: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+html.rokbot-phone .sand-prompt-ghost-mic-seat {
+  height: 32px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+html.rokbot-phone .sand-prompt-ghost-mic-seat:not(.sand-nalus7):not(:has(.sand-prompt-mic[inert])) {
+  width: 32px !important;
+  margin-inline-end: 6px !important;
+  overflow: visible !important;
+}
+html.rokbot-phone :is(.sand-prompt-attach, .sand-prompt-send, .sand-prompt-mic, .sand-prompt-voice-send, .sand-prompt-voice-chip button) {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  border-radius: 16px !important;
+}
+html.rokbot-phone .sand-prompt-attach {
+  border: 0 !important;
+  padding: 0 !important;
+  background: var(--rokbot-fill-3) !important;
+  box-shadow: none !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone .sand-prompt-attach:active {
+  opacity: 0.7;
+}
+html.rokbot-phone .sand-prompt-attach .ui-icon {
+  transform: scale(1.15);
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone .sand-prompt-mic {
+  border: 0 !important;
+  background: var(--rokbot-fill-3) !important;
+  box-shadow: none !important;
+  color: var(--rokbot-label) !important;
+}
+/* With nothing typed the round button records a voice message: grey, as in the official app. */
+html.rokbot-phone .sand-prompt-shell:has(.sand-prompt-field > p.is-editor-empty:only-child) .sand-prompt-send[type="button"] {
+  background: var(--rokbot-fill-3) !important;
+}
+html.rokbot-phone .sand-prompt-shell:has(.sand-prompt-field > p.is-editor-empty:only-child) .sand-prompt-send[type="button"] .ui-icon {
+  color: var(--rokbot-label) !important;
+}
+
+/* Details: a round back button on the left and the Bot's name as the title (layout.js copies it). */
+html.rokbot-phone .sand-info-pane[data-open="true"] {
+  background: var(--rokbot-paper) !important;
+}
+html.rokbot-phone .sand-info-pane__top {
+  height: 56px !important;
+  min-height: 56px !important;
+  padding: 0 16px !important;
+  border: 0 !important;
+}
+html.rokbot-phone .sand-info-pane__top[data-rokbot-title]::before {
+  content: attr(data-rokbot-title);
+  position: absolute;
+  left: 72px;
+  right: 104px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--cursor-text-primary);
+}
+html.rokbot-phone .sand-info-pane__subpage-title {
+  position: static !important;
+  transform: none !important;
+  translate: none !important;
+  margin: 0 auto 0 12px !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+}
+html.rokbot-phone .sand-info-pane__actions,
+html.rokbot-phone .sand-info-pane__back {
+  gap: 8px !important;
+}
+html.rokbot-phone .sand-info-pane__actions .sand-kit-icon-button,
+html.rokbot-phone .sand-info-pane__back .sand-kit-icon-button {
+  width: 44px !important;
+  height: 44px !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone .sand-info-pane__top:not(:has(.sand-info-pane__back)) .sand-info-pane__actions > .sand-kit-icon-button:last-child {
+  position: absolute !important;
+  left: 16px;
+  top: 6px;
+}
+html.rokbot-phone .sand-info-pane__top:not(:has(.sand-info-pane__back)) .sand-info-pane__actions > .sand-kit-icon-button:last-child,
+html.rokbot-phone .sand-info-pane__back .sand-kit-icon-button,
+html.rokbot-phone :is(.sand-settings-panel__close, .sand-settings-panel > .sand-kit-icon-button:first-child) {
+  border-radius: 22px !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone .sand-info-pane__top:has(.sand-info-pane__back) .sand-info-pane__actions > .sand-kit-icon-button:last-child {
+  display: none !important;
+}
+html.rokbot-phone .sand-info-pane__top:not(:has(.sand-info-pane__back)) .sand-info-pane__actions > .sand-kit-icon-button:last-child > *,
+html.rokbot-phone .sand-info-pane__back .sand-kit-icon-button > * {
+  display: none !important;
+}
+html.rokbot-phone .sand-info-pane__top:not(:has(.sand-info-pane__back)) .sand-info-pane__actions > .sand-kit-icon-button:last-child::after,
+html.rokbot-phone .sand-info-pane__back .sand-kit-icon-button::after {
+  content: "";
+  width: 24px;
+  height: 24px;
+  background: currentColor;
+  -webkit-mask: var(--rokbot-back-icon) center / 24px no-repeat;
+  mask: var(--rokbot-back-icon) center / 24px no-repeat;
+}
+
+/* Settings, connected apps and search fill the screen. */
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):is(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)) {
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  transform: none !important;
+  translate: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--rokbot-paper) !important;
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):is(:has(.sand-settings-layout), :has(.sand-plugins-layout)) > *,
+html.rokbot-phone .ui-dialog.sand-command-palette > .ui-scroll-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none !important;
+  height: auto !important;
+}
+/* The search field is a round floating field, like the official app's search bars. */
+html.rokbot-phone .ui-dialog.sand-command-palette > :first-child {
+  flex: none !important;
+  box-sizing: border-box;
+  height: 44px;
+  margin: 6px 16px 8px;
+  padding: 0 16px !important;
+  gap: 4px;
+  align-items: center !important;
+  border: 0 !important;
+  border-radius: 22px;
+  background: var(--rokbot-glass);
+  box-shadow: var(--rokbot-glass-shadow);
+}
+html.rokbot-phone .ui-dialog.sand-command-palette > :first-child input {
+  font-size: 17px !important;
+}
+/* 1.1.0 nests the field row two levels inside the popup. */
+html.rokbot-phone [data-component="base-dialog-popup"].sand-command-palette > div > div > div:first-child:has(> input) {
+  box-sizing: border-box;
+  width: auto !important;
+  height: 44px;
+  margin: 6px 16px 8px !important;
+  padding: 0 16px !important;
+  gap: 4px;
+  align-items: center !important;
+  border: 0 !important;
+  border-radius: 22px;
+  background: var(--rokbot-glass);
+  box-shadow: var(--rokbot-glass-shadow);
+}
+html.rokbot-phone [data-component="base-dialog-popup"].sand-command-palette > div > div > div:first-child > input {
+  font-size: 17px !important;
+}
+html.rokbot-phone .sand-settings-layout {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+}
+html.rokbot-phone .sand-settings-nav {
+  min-height: 56px;
+  align-items: center !important;
+  padding: 6px 12px 6px 72px !important;
+  border: 0 !important;
+}
+html.rokbot-phone .sand-settings-nav__item {
+  min-height: 40px !important;
+  padding: 0 14px !important;
+  font-size: 15px !important;
+}
+/* The selected tab already names the section. 1.1.0 wraps the title in a div. */
+html.rokbot-phone .sand-settings-pane-header > h2,
+html.rokbot-phone .sand-settings-pane-header > div > h2 {
+  display: none !important;
+}
+html.rokbot-phone .sand-settings-pane-header:not(:has(> :not(h2) > *)),
+html.rokbot-phone .sand-settings-pane-header:has(> div > h2):not(:has(button, input, select, a)) {
+  display: none !important;
+}
+html.rokbot-phone .sand-settings-pane-header {
+  padding: 8px 4px 0 !important;
+  min-height: 0 !important;
+}
+/* The close button becomes a back arrow at the start of the tab row. */
+html.rokbot-phone .sand-settings-panel {
+  position: static !important;
+}
+html.rokbot-phone :is(.sand-settings-panel__close, .sand-settings-panel > .sand-kit-icon-button:first-child) {
+  position: absolute !important;
+  top: 6px !important;
+  left: 16px !important;
+  right: auto !important;
+  width: 44px !important;
+  height: 44px !important;
+}
+html.rokbot-phone :is(.sand-settings-panel__close, .sand-settings-panel > .sand-kit-icon-button:first-child) > * {
+  display: none !important;
+}
+html.rokbot-phone :is(.sand-settings-panel__close, .sand-settings-panel > .sand-kit-icon-button:first-child)::after {
+  content: "";
+  width: 24px;
+  height: 24px;
+  background: currentColor;
+  -webkit-mask: var(--rokbot-back-icon) center / 24px no-repeat;
+  mask: var(--rokbot-back-icon) center / 24px no-repeat;
+}
+html.rokbot-phone .sand-settings-panel__body {
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+}
+html.rokbot-phone .sand-settings-panel__body .sand-settings-pane {
+  padding: 8px 0 28px !important;
+}
+/* Connected apps: a round back button at the top left, full-height scrollable catalog below. */
+html.rokbot-phone .sand-plugins-layout {
+  position: relative !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: var(--rokbot-paper) !important;
+}
+html.rokbot-phone .sand-plugins-layout > div {
+  height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+html.rokbot-phone .sand-plugins-layout > div:not(:has(.sand-plugins)):not(:has(button, input, a, p, h1, h2, h3, [role])) {
+  display: none !important;
+}
+html.rokbot-phone .sand-plugins-layout .sand-plugins {
+  height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: var(--rokbot-paper) !important;
+}
+html.rokbot-phone .sand-plugins > :first-child {
+  height: auto !important;
+  min-height: 56px !important;
+  flex: none !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+html.rokbot-phone .sand-plugins > :first-child > * > * {
+  padding-left: 68px !important;
+  padding-right: 12px !important;
+}
+html.rokbot-phone .sand-plugins > :nth-child(2) {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+html.rokbot-phone .sand-plugins .sand-settings-pane {
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}
+html.rokbot-phone .sand-plugins-layout > div > div {
+  background: transparent !important;
+}
+html.rokbot-phone .sand-plugins-layout > div > div > div {
+  background: transparent !important;
+}
+html.rokbot-phone .sand-plugins-layout > .sand-kit-icon-button {
+  top: 6px !important;
+  left: 12px !important;
+  right: auto !important;
+  z-index: 6 !important;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 22px !important;
+  background: var(--rokbot-glass) !important;
+  box-shadow: var(--rokbot-glass-shadow) !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone .sand-plugins-layout > .sand-kit-icon-button > * {
+  display: none !important;
+}
+html.rokbot-phone .sand-plugins-layout > .sand-kit-icon-button::after {
+  content: "";
+  width: 24px;
+  height: 24px;
+  background: currentColor;
+  -webkit-mask: var(--rokbot-back-icon) center / 24px no-repeat;
+  mask: var(--rokbot-back-icon) center / 24px no-repeat;
+}
+
+/* Large computer view: a black screen of its own; as in the official app, a round close button
+   at the top left leaves it. */
+html.rokbot-phone .sand-computer-fullscreen {
+  background: #000 !important;
+}
+html.rokbot-phone .sand-computer-stage > :not(.sand-computer-stage__frame) {
+  background: transparent !important;
+}
+html.rokbot-phone .sand-computer-top-bar {
+  height: 56px !important;
+  min-height: 56px !important;
+  justify-content: flex-start !important;
+  padding: 0 16px !important;
+  background: transparent !important;
+}
+html.rokbot-phone .sand-computer-top-bar__actions {
+  order: -1;
+}
+html.rokbot-phone .sand-computer-top-bar__actions .sand-kit-icon-button {
+  width: 44px !important;
+  height: 44px !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #fff !important;
+}
+html.rokbot-phone .sand-computer-top-bar__actions .sand-kit-icon-button:last-child > * {
+  display: none !important;
+}
+html.rokbot-phone .sand-computer-top-bar__actions .sand-kit-icon-button:last-child::after {
+  content: "";
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+  -webkit-mask: var(--rokbot-close-icon) center / 22px no-repeat;
+  mask: var(--rokbot-close-icon) center / 22px no-repeat;
+}
+
+/* Image viewer: black, the picture as wide as the screen, close on the left and save on the right. */
+html.rokbot-phone .sand-media-viewer {
+  background: #000 !important;
+}
+html.rokbot-phone .sand-media-viewer__media-cell {
+  align-self: stretch !important;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  width: 100% !important;
+  min-height: 0;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+html.rokbot-phone .sand-media-viewer__image {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  margin: 0 !important;
+}
+html.rokbot-phone .sand-media-viewer__top-bar {
+  left: 16px !important;
+  right: 16px !important;
+  top: 6px !important;
+  transform: none !important;
+  display: flex !important;
+  justify-content: space-between !important;
+}
+html.rokbot-phone .sand-media-viewer__top-bar > .sand-kit-icon-button {
+  width: 44px !important;
+  height: 44px !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+}
+html.rokbot-phone .sand-media-viewer__top-bar > .sand-kit-icon-button:last-child {
+  order: -1;
+}
+
+/* Other dialogs are sheets from the bottom, as in the official app: a round close button on the
+   left with the title next to it, and wide round buttons at the bottom. 0.71.2 marks dialogs with
+   .ui-dialog, 1.1.0 with data-component="base-dialog-popup". */
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):not(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)) {
+  top: auto !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  max-height: calc(100% - 40px) !important;
+  transform: none !important;
+  border: 0 !important;
+  border-radius: 28px 28px 0 0 !important;
+  background: var(--rokbot-chrome) !important;
+  animation: rokbot-sheet-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):not(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)) > :is(.ui-dialog-close, [data-component="base-dialog-close"], .sand-kit-icon-button:first-child) {
+  top: 14px !important;
+  left: 16px !important;
+  right: auto !important;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 22px !important;
+  background: var(--rokbot-fill-3) !important;
+  color: var(--rokbot-label) !important;
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):not(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)) > :is(.ui-dialog-close, [data-component="base-dialog-close"], .sand-kit-icon-button:first-child) .ui-icon {
+  transform: scale(1.3);
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):not(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)):has(> :is(.ui-dialog-close, [data-component="base-dialog-close"], .sand-kit-icon-button:first-child)) > div:has(> h2) {
+  height: auto !important;
+  min-height: 72px !important;
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  padding: 0 16px 0 72px !important;
+  border: 0 !important;
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):not(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)) > div:has(> h2) > h2 {
+  font-size: 17px !important;
+  line-height: 22px !important;
+  font-weight: 500 !important;
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):not(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)) > div:last-child:has(> button) {
+  gap: 8px !important;
+  padding: 12px 16px 16px !important;
+  border: 0 !important;
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]):not(.sand-command-palette, :has(.sand-settings-layout), :has(.sand-plugins-layout)) > div:last-child:has(> button) > button {
+  flex: 1 1 0;
+  min-height: 50px !important;
+  border-radius: 25px !important;
+  font-size: 17px !important;
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]) > div:last-child:has(> button) > button[data-variant="primary"] {
+  border: 0 !important;
+  background: var(--rokbot-label) !important;
+  color: var(--rokbot-paper) !important;
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"]) > div:last-child:has(> button) > button[data-variant="primary"]:disabled {
+  opacity: 0.35;
+}
+/* Confirmations: the question on top, two wide round buttons below. */
+html.rokbot-phone .sand-alert-dialog > div:first-child {
+  gap: 6px !important;
+  padding: 24px 20px 4px !important;
+}
+html.rokbot-phone .sand-alert-dialog .sand-dialog__title {
+  font-size: 17px !important;
+  line-height: 22px !important;
+  font-weight: 600 !important;
+}
+html.rokbot-phone .sand-alert-dialog .sand-dialog__description {
+  font-size: 15px !important;
+  line-height: 20px !important;
+}
+html.rokbot-phone .sand-alert-dialog > div:last-child {
+  padding: 16px !important;
+}
+html.rokbot-phone .sand-alert-dialog > div:last-child > div {
+  gap: 8px !important;
+}
+html.rokbot-phone .sand-alert-dialog > div:last-child button {
+  flex: 1 1 0;
+  min-height: 50px !important;
+  border-radius: 25px !important;
+  font-size: 17px !important;
+}
+/* New Bot: a large name field in a grey box and a single "Create" button. */
+html.rokbot-phone .sand-create-bot-dialog > div:last-child > button[data-variant="secondary"] {
+  display: none !important;
+}
+/* 1.1.0 dropped the content class; the name field sits two levels inside the popup. */
+html.rokbot-phone .sand-create-bot-dialog .ui-dialog-content input,
+html.rokbot-phone .sand-create-bot-dialog[data-component="base-dialog-popup"] > div > div > input {
+  height: 56px !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  background: var(--rokbot-fill-3) !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+  font-size: 20px !important;
+  font-weight: 600 !important;
+  text-align: center;
+  color: var(--rokbot-label) !important;
+}
+
+/* Menus (account, Bot actions, choices) and dialogs: keep popups above backdrops and closed shields inert. */
+html.rokbot-phone [data-base-ui-portal]:has([data-closed]) > :is([data-component="menu-backdrop"], [data-component="base-dialog-backdrop"], [data-component="base-alert-dialog-backdrop"], [inert]),
+html.rokbot-phone :is([data-component="menu-backdrop"], [data-component="base-dialog-backdrop"], [data-component="base-alert-dialog-backdrop"], .ui-menu__backdrop)[data-closed],
+html.rokbot-phone :is([data-component="menu-positioner"], [data-component="select-positioner"])[data-closed] {
+  pointer-events: none !important;
+  display: none !important;
+}
+html.rokbot-phone :is([data-component="base-dialog-backdrop"], [data-component="base-alert-dialog-backdrop"], .ui-dialog__backdrop):not(#\#):not(#\#):not(#\#):not(#\#) {
+  z-index: 10010 !important;
+}
+html.rokbot-phone :is([data-component="base-dialog-viewport"], [data-component="base-alert-dialog-viewport"]):not(#\#):not(#\#):not(#\#):not(#\#) {
+  z-index: 10020 !important;
+}
+html.rokbot-phone .ui-menu:not(.ui-menu--virtualized) {
+  position: fixed !important;
+  z-index: 10035 !important;
+  top: auto !important;
+  bottom: 8px !important;
+  left: 8px !important;
+  right: 8px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: 70% !important;
+  transform: none !important;
+  animation: rokbot-sheet-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* Context menus and choice lists of the base components (the Bot actions on a long press,
+   the theme in settings). */
+html.rokbot-phone :is([data-component="menu-positioner"], [data-component="select-positioner"]):not(#\#):not(#\#):not(#\#):not(#\#) {
+  z-index: 10035 !important;
+  top: auto !important;
+  bottom: 8px !important;
+  left: 8px !important;
+  right: 8px !important;
+  width: auto !important;
+  transform: none !important;
+  box-shadow: 0 0 0 100vmax var(--rokbot-scrim);
+  border-radius: 18px;
+}
+html.rokbot-phone :is([data-component="menu-popup"], [data-component="select-popup"]) {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: 70vh;
+  overflow: auto;
+  border-radius: 18px !important;
+  padding: 6px !important;
+  animation: rokbot-sheet-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html.rokbot-phone :is(.ui-dialog, [data-component="base-dialog-popup"], [data-component="base-alert-dialog-popup"], [role="dialog"], [role="alertdialog"]):not(#\#):not(#\#):not(#\#):not(#\#) {
+  z-index: 10025 !important;
+}
+html.rokbot-phone :is([data-component="menu-popup"] [role^="menuitem"], [data-component="select-popup"] [role="option"]) {
+  min-height: 48px !important;
+  font-size: 16px !important;
+}
+html.rokbot-phone [data-component="menu-popup"] .ui-icon {
+  transform: scale(1.25);
+}
+html.rokbot-phone .ui-menu .ui-icon {
+  transform: scale(1.25);
+}
+html.rokbot-phone :is(.ui-menu__backdrop, [data-component="menu-backdrop"]):not(#\#):not(#\#):not(#\#):not(#\#) {
+  z-index: 10029 !important;
+  background: var(--rokbot-scrim) !important;
+}
+html.rokbot-phone .ui-menu__row,
+html.rokbot-phone .ui-menu__submenu-trigger,
+html.rokbot-phone .ui-menu__toggle-row {
+  min-height: 48px !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 6px 12px !important;
+  font-size: 16px !important;
+}
+@keyframes rokbot-sheet-in {
+  from { translate: 0 24px; opacity: 0; }
+  to { translate: 0 0; opacity: 1; }
+}
+
+/* Official phone Bot details hub: hides upstream Overview/Settings body while active so only
+   the hub cards appear; clicking a row switches to Overview/Settings/Library with back to hub. */
+html.rokbot-phone.rokbot-bot-profile-open .sand-info-pane[data-open="true"] > .sand-info-pane__inner > :not(.rokbot-bot-profile),
+html.rokbot-phone.rokbot-bot-profile-open .sand-info-pane[data-open="true"] ~ div:has(> * > .sand-box-vnc-pool) {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+html.rokbot-phone.rokbot-subpage-routines .sand-info-pane__section-content :is(.sand-computer-preview, .sand-agent-settings) {
+  display: none !important;
+}
+html.rokbot-phone.rokbot-subpage-computer .sand-info-pane__section-content :is(.sand-computer-preview ~ *, .sand-agent-settings) {
+  display: none !important;
+}
+html.rokbot-phone .rokbot-bot-profile {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--rokbot-chrome);
+  padding: 0 14px 28px;
+}
+html.rokbot-phone .rokbot-bot-profile[hidden] {
+  display: none !important;
+}
+html.rokbot-phone .rokbot-bot-profile__topbar {
+  height: 56px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+html.rokbot-phone .rokbot-bot-profile__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+html.rokbot-phone .rokbot-bot-profile__icon-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border: 0;
+  border-radius: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--rokbot-glass);
+  box-shadow: var(--rokbot-glass-shadow);
+  color: var(--rokbot-label);
+}
+html.rokbot-phone .rokbot-bot-profile__icon-btn:active {
+  opacity: 0.7;
+}
+html.rokbot-phone .rokbot-bot-profile__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 16px 24px;
+  gap: 12px;
+}
+html.rokbot-phone .rokbot-bot-profile__avatar {
+  width: 88px;
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+html.rokbot-phone .rokbot-bot-profile__avatar > *,
+html.rokbot-phone .rokbot-bot-profile__avatar .sand-kit-base-avatar,
+html.rokbot-phone .rokbot-bot-profile__avatar img {
+  width: 88px !important;
+  height: 88px !important;
+}
+html.rokbot-phone .rokbot-bot-profile__name {
+  margin: 0;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  color: var(--rokbot-label);
+  text-align: center;
+}
+html.rokbot-phone .rokbot-bot-profile__edit {
+  height: 36px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--rokbot-fill-3);
+  color: var(--rokbot-label);
+  font-size: 15px;
+  font-weight: 500;
+}
+html.rokbot-phone .rokbot-bot-profile__edit:active {
+  opacity: 0.7;
+}
+html.rokbot-phone .rokbot-bot-profile__card {
+  border-radius: 20px;
+  background: var(--rokbot-glass);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 0 0 0.5px var(--rokbot-glass-stroke);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+html.rokbot-phone .rokbot-bot-profile__row {
+  width: 100%;
+  min-height: 54px;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--rokbot-label);
+  font-size: 16px;
+  text-align: left;
+  position: relative;
+}
+html.rokbot-phone .rokbot-bot-profile__row:active {
+  background: var(--rokbot-fill-3);
+}
+html.rokbot-phone .rokbot-bot-profile__row + .rokbot-bot-profile__row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50px;
+  right: 16px;
+  height: 0.5px;
+  background: var(--rokbot-glass-stroke);
+}
+html.rokbot-phone .rokbot-bot-profile__row-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+html.rokbot-phone .rokbot-bot-profile__row-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rokbot-label-2);
+  flex: none;
+}
+html.rokbot-phone .rokbot-bot-profile__row-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--rokbot-label-2);
+  font-size: 15px;
+  flex: none;
+}
+html.rokbot-phone .rokbot-bot-profile__switch {
+  position: relative;
+  width: 50px;
+  height: 30px;
+  border: 0;
+  border-radius: 15px;
+  padding: 2px;
+  background: var(--rokbot-fill);
+  transition: background-color 180ms ease;
+  flex: none;
+}
+html.rokbot-phone .rokbot-bot-profile__switch[aria-checked="true"] {
+  background: #6c4ce6;
+}
+html.rokbot-phone .rokbot-bot-profile__switch-thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 180ms ease;
+}
+html.rokbot-phone .rokbot-bot-profile__switch[aria-checked="true"] .rokbot-bot-profile__switch-thumb {
+  transform: translateX(20px);
+}
+html.rokbot-phone .rokbot-bot-profile__caption {
+  padding: 0 16px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--rokbot-label-2);
+}

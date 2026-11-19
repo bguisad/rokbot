@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="${SCRIPT_DIR}/../bin"
-OUT_APK="${1:-${BIN_DIR}/grokbot-native-base.apk}"
-BUILD_TMP="/tmp/grokbot-test-target-$$"
+OUT_APK="${1:-${BIN_DIR}/rokbot-native-base.apk}"
+BUILD_TMP="/tmp/rokbot-test-target-$$"
 
 SDK_ROOT="${ANDROID_HOME:-/Users/lianqishi/Library/Android/sdk}"
 if [ ! -d "${SDK_ROOT}" ] && [ -d "/Volumes/ORICO/android/sdk" ]; then

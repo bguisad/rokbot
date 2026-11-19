@@ -151,7 +151,7 @@ export class MockHostServer {
     this.computers = [
       {
         id: 'comp-main',
-        label: 'grokbot-box-1',
+        label: 'rokbot-box-1',
         connected: true,
         platform: 'linux-arm64',
         updatedAtMs: Date.now(),
@@ -559,7 +559,7 @@ export class MockHostServer {
     // CORS Headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-grokbot-foreground, x-sand-slim-avatars, Last-Event-ID');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-rokbot-foreground, x-sand-slim-avatars, Last-Event-ID');
     if (method === 'OPTIONS') {
       res.writeHead(204);
       return res.end();
@@ -1193,9 +1193,9 @@ export class MockHostServer {
         type: 'test',
         agentId: 'agent-default',
         title: 'Push Test',
-        body: 'Push delivery test from GrokBot Host',
+        body: 'Push delivery test from RokBot Host',
         createdAt: new Date().toISOString(),
-        deepLink: 'grokbot-local://agent/agent-default'
+        deepLink: 'rokbot-local://agent/agent-default'
       };
 
       this.notificationHistory.push(notificationItem);
@@ -1226,7 +1226,7 @@ export class MockHostServer {
 
     // Notifications Event Stream: GET /notifications/events
     if (pathname === '/notifications/events' && method === 'GET') {
-      const isForeground = req.headers['x-grokbot-foreground'] === '1';
+      const isForeground = req.headers['x-rokbot-foreground'] === '1';
       if (isForeground) {
         this.foregroundDevices.add(device.deviceId);
       }

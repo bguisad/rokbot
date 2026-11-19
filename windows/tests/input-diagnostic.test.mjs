@@ -18,7 +18,7 @@ const MISMATCH = '官方安装包摘要不匹配。';
 
 async function disposable(t) {
   const base = await fs.realpath(tmpdir());
-  const root = await fs.mkdtemp(path.join(base, 'grokbot-input-diagnostic-'));
+  const root = await fs.mkdtemp(path.join(base, 'rokbot-input-diagnostic-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -122,7 +122,7 @@ test('an unknown explicit installer is explained in both languages without any f
 test('the Windows CLI explains an unknown installer and leaves the output untouched',
   { skip: process.platform !== 'win32' }, async t => {
     const root = await disposable(t), output = path.join(root, 'output'), source = path.join(root, 'Grok_Bot_1.1.0_Setup.exe');
-    const keep = 'GrokBotLocal-1.1.0-x64.patch.json';
+    const keep = 'RokBotLocal-1.1.0-x64.patch.json';
     await fs.mkdir(output);
     await fs.writeFile(path.join(output, keep), 'previous build');
     await fs.writeFile(source, Buffer.alloc(4096, 'x'));

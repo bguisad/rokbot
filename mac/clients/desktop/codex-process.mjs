@@ -106,7 +106,7 @@ export class CodexProcess {
     });
   }
   async initialize() {
-    await this.request('initialize', { clientInfo: { name: 'grokbot_local', title: 'Grok Bot', version: '1.0.0' } });
+    await this.request('initialize', { clientInfo: { name: 'rokbot_local', title: 'RokBot', version: '1.0.0' } });
     this.send({ method: 'initialized', params: {} });
   }
   respond(id, result) { this.send({ id, result }); }

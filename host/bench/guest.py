@@ -70,7 +70,7 @@ def counters(path):
 def private_key(path, pattern):
     value = read(path)
     require(re.fullmatch(pattern, value) and value.replace('-', '').strip('0'), 'Missing guest identity')
-    return hashlib.sha256(('prokbot-bench/v1:' + value).encode()).hexdigest()
+    return hashlib.sha256(('rokbot-bench/v1:' + value).encode()).hexdigest()
 
 
 def cpu_stat(proc):

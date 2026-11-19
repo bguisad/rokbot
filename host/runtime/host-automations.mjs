@@ -59,7 +59,7 @@ function definitionRemoved(claim) {
  * The optional clock/directory arguments exist for deterministic isolated tests.
  */
 export async function decorateLocalHostAutomations(context, library, originalApi, {
-  stateDirectory = process.env.GROKBOT_STATE_DIR ?? '/research/state',
+  stateDirectory = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state',
   clock = realClock,
 } = {}) {
   const claimsPath = join(stateDirectory, 'local-automation-claims.json');

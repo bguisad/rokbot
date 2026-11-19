@@ -25,7 +25,7 @@ import { runPatchPipeline } from '../release/patch-android.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const FIXTURE_APK = path.join(REPO_ROOT, 'android/bin/grokbot-native-base.apk');
+const FIXTURE_APK = path.join(REPO_ROOT, 'android/bin/rokbot-native-base.apk');
 
 test('AXML: parse and round-trip serialize AndroidManifest.xml', () => {
   const apkBytes = fs.readFileSync(FIXTURE_APK);
@@ -49,8 +49,8 @@ test('AXML: patchManifest injects usesCleartextTraffic, PairingActivity, Notific
   const originalBytes = entryBytes(entries.find(e => e.name === 'AndroidManifest.xml'));
 
   const patched = patchManifest(originalBytes, {
-    pairingActivity: 'dev.grokbot.nativeapp.PairingActivity',
-    notificationService: 'dev.grokbot.nativeapp.NotificationService',
+    pairingActivity: 'dev.rokbot.nativeapp.PairingActivity',
+    notificationService: 'dev.rokbot.nativeapp.NotificationService',
     permissions: [
       'android.permission.INTERNET',
       'android.permission.ACCESS_NETWORK_STATE',
@@ -73,13 +73,13 @@ test('AXML: patchManifest injects usesCleartextTraffic, PairingActivity, Notific
 
   // Verify PairingActivity
   const hasPairing = app.children.some(
-    c => c.name === 'activity' && c.attributes.some(a => a.name === 'name' && a.value === 'dev.grokbot.nativeapp.PairingActivity')
+    c => c.name === 'activity' && c.attributes.some(a => a.name === 'name' && a.value === 'dev.rokbot.nativeapp.PairingActivity')
   );
   assert.ok(hasPairing, 'PairingActivity must be registered');
 
   // Verify NotificationService
   const hasNotif = app.children.some(
-    c => c.name === 'service' && c.attributes.some(a => a.name === 'name' && a.value === 'dev.grokbot.nativeapp.NotificationService')
+    c => c.name === 'service' && c.attributes.some(a => a.name === 'name' && a.value === 'dev.rokbot.nativeapp.NotificationService')
   );
   assert.ok(hasNotif, 'NotificationService must be registered');
 
@@ -177,7 +177,7 @@ test('Signing: createSigningIdentity supports RSA 2048 and signApk produces vali
 });
 
 test('Pipeline: runPatchPipeline end-to-end creates patched APK and patch-report.json', async () => {
-  const tmpOut = path.join(os.tmpdir(), `grokbot-test-out-${Date.now()}.apk`);
+  const tmpOut = path.join(os.tmpdir(), `rokbot-test-out-${Date.now()}.apk`);
   try {
     const report = await runPatchPipeline({
       inputApk: FIXTURE_APK,
@@ -216,8 +216,8 @@ test('Pipeline: runPatchPipeline accurately sets bundlePatched: true when assets
   entries.push(createEntry('assets/index.android.bundle', dummyBundle, { store: false }));
   const inputWithBundle = writeZip(entries);
 
-  const tmpIn = path.join(os.tmpdir(), `grokbot-bundle-in-${Date.now()}.apk`);
-  const tmpOut = path.join(os.tmpdir(), `grokbot-bundle-out-${Date.now()}.apk`);
+  const tmpIn = path.join(os.tmpdir(), `rokbot-bundle-in-${Date.now()}.apk`);
+  const tmpOut = path.join(os.tmpdir(), `rokbot-bundle-out-${Date.now()}.apk`);
   try {
     fs.writeFileSync(tmpIn, inputWithBundle);
     const report = await runPatchPipeline({

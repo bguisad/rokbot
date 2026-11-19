@@ -10,9 +10,11 @@ function catalogCapacity(value) {
   return Number.isSafeInteger(value) && value > 0 && value <= 100_000_000 ? value : undefined;
 }
 
+const MAX_AUTO_SUMMARY_THRESHOLD = 160_000;
+
 function summaryThreshold(contextWindowTokens) {
   if (contextWindowTokens < 2) return 0;
-  return Math.max(1, Math.floor(contextWindowTokens * 0.75 / 1_000) * 1_000);
+  return Math.min(MAX_AUTO_SUMMARY_THRESHOLD, Math.max(1, Math.floor(contextWindowTokens * 0.75 / 1_000) * 1_000));
 }
 
 /** Recommended compaction settings for a model chosen from a provider catalog. */

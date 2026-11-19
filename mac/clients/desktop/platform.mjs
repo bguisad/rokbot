@@ -7,8 +7,22 @@ import { linkSync, lstatSync, mkdtempSync, rmdirSync, unlinkSync } from 'node:fs
 import { lstat, readFile } from 'node:fs/promises';
 
 export const isWindows = process.platform === 'win32';
-export const APP_USER_MODEL_ID = 'dev.grokbot.local';
-export const SHORTCUT_NAME = 'Grok Bot Local.lnk';
+export const APP_USER_MODEL_ID = 'dev.rokbot.local';
+export const SHORTCUT_NAME = 'RokBot Local.lnk';
+
+export function resolveDesktopProfile({ env = process.env, appDataDir }) {
+  const debugPort = typeof env.ROKBOT_LOCAL_DEBUG_PORT === 'string' && env.ROKBOT_LOCAL_DEBUG_PORT.trim()
+    ? env.ROKBOT_LOCAL_DEBUG_PORT.trim()
+    : '';
+  const testProfile = typeof env.ROKBOT_LOCAL_TEST_PROFILE === 'string' && env.ROKBOT_LOCAL_TEST_PROFILE.trim()
+    ? env.ROKBOT_LOCAL_TEST_PROFILE.trim()
+    : '';
+  const isolatedProfile = Boolean(debugPort && testProfile);
+  const profile = isolatedProfile
+    ? path.resolve(testProfile)
+    : path.join(appDataDir, 'RokBot Local');
+  return { isolatedProfile, profile, debugPort };
+}
 
 // Values of the original Windows client: 52 px chrome minus its divider, and the
 // modal dimming layers used while a sheet covers the window.
@@ -75,7 +89,7 @@ export function windowHandlers(win, background, { platform = process.platform, w
 export async function canRegisterDesktopIntegration({ isolatedProfile, platform = process.platform, execPath = process.execPath }) {
   if (isolatedProfile) return false;
   if (platform !== 'win32') return true;
-  const directory = path.dirname(execPath), file = path.join(directory, '.grokbot-installation.json');
+  const directory = path.dirname(execPath), file = path.join(directory, '.rokbot-installation.json');
   let stat;
   try { stat = await lstat(file); }
   catch (error) { return error.code === 'ENOENT'; } // Portable build: no installer receipt.
@@ -100,10 +114,10 @@ export function ensureStartMenuShortcut({ app, shell, execPath = process.execPat
     if (!shell.writeShortcutLink(link, 'update', { appUserModelId: APP_USER_MODEL_ID })) throw new Error('Could not update the Start menu shortcut');
     return true;
   }
-  const options = { target: execPath, cwd: path.dirname(execPath), description: 'Grok Bot Local',
+  const options = { target: execPath, cwd: path.dirname(execPath), description: 'RokBot Local',
     icon: execPath, iconIndex: 0, appUserModelId: APP_USER_MODEL_ID };
   // Electron's create mode overwrites. Publish the finished link only if the destination is still free.
-  const stage = mkdtempSync(path.join(path.dirname(link), '.grokbot-link-')), pending = path.join(stage, SHORTCUT_NAME);
+  const stage = mkdtempSync(path.join(path.dirname(link), '.rokbot-link-')), pending = path.join(stage, SHORTCUT_NAME);
   try {
     if (!shell.writeShortcutLink(pending, 'create', options)) throw new Error('Could not create the Start menu shortcut');
     try { linkSync(pending, link); } catch (error) { if (error.code === 'EEXIST') return false; throw error; }
@@ -116,9 +130,9 @@ export function ensureStartMenuShortcut({ app, shell, execPath = process.execPat
 
 export function createTray({ Tray, Menu, nativeImage, clientRoot, show, quit, text }) {
   const tray = new Tray(nativeImage.createFromPath(path.join(clientRoot, 'icon.ico')));
-  tray.setToolTip('Grok Bot');
+  tray.setToolTip('RokBot');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: text('打开 Grok Bot', 'Open Grok Bot'), click: show },
+    { label: text('打开 RokBot', 'Open RokBot'), click: show },
     { type: 'separator' },
     { label: text('退出', 'Quit'), click: quit },
   ]));
@@ -127,5 +141,16 @@ export function createTray({ Tray, Menu, nativeImage, clientRoot, show, quit, te
 }
 
 export function initialLink(argv) {
-  return argv.find(value => typeof value === 'string' && value.startsWith('grokbot-local:')) ?? null;
+  return argv.find(value => typeof value === 'string' && value.startsWith('rokbot-local:'))
+    ?? argv.find(value => typeof value === 'string' && value.startsWith('grokbot-local:'))
+    ?? null;
+}
+
+export function agentFromLink(link) {
+  try {
+    if (typeof link !== 'string' || !/^rokbot-local:\/\/agent\/[a-zA-Z0-9_-]{1,128}$/.test(link)) return null;
+    const url = new URL(link);
+    if (url.protocol !== 'rokbot-local:' || url.hostname !== 'agent' || url.search || url.hash) return null;
+    return decodeURIComponent(url.pathname.slice(1));
+  } catch { return null; }
 }

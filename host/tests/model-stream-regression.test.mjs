@@ -494,7 +494,7 @@ test('a model-specific fallback does not disable options for another selected mo
 
 test('a rejected output option does not discard valid replay or move a tool screenshot', async t => {
   const messages = [...history, { role: 'assistant', content: [
-    { type: 'reasoning', text: 'fixture', signature: 'synthetic-item', providerOptions: { grokbot: { format: 'openai-responses', model: 'fixture' } } },
+    { type: 'reasoning', text: 'fixture', signature: 'synthetic-item', providerOptions: { rokbot: { format: 'openai-responses', model: 'fixture' } } },
     { type: 'tool-call', toolCallId: 'old', toolName: 'record', args: { value: 1 } },
   ] }, { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'old', result: 'fixture',
     experimental_content: [{ type: 'image', data: 'AA==', mimeType: 'image/png' }] }] }];

@@ -1,7 +1,9 @@
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -17,6 +19,10 @@ import platforms
 spec = importlib.util.spec_from_file_location('builder', HOST / 'release/build-docker.py')
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
+
+patch_spec = importlib.util.spec_from_file_location('patch_host', HOST / 'release/patch-host.py')
+patch_host = importlib.util.module_from_spec(patch_spec)
+patch_spec.loader.exec_module(patch_host)
 
 
 class DeploymentTests(unittest.TestCase):
@@ -59,12 +65,68 @@ class DeploymentTests(unittest.TestCase):
     def test_init_once_and_mode(self):
         self.invoke('--host-only', '--project', 'mybot', 'init', '--listen', '::1', '--public-url', 'http://[::1]:18080')
         env = (self.home / '.env').read_text()
-        self.assertIn('GROKBOT_LISTEN_ADDRESS=[::1]', env)
+        self.assertIn('ROKBOT_LISTEN_ADDRESS=[::1]', env)
+        self.assertIn('ROKBOT_MODE=remote', env)
+        self.assertIn('ROKBOT_PROJECT=mybot', env)
         with self.assertRaisesRegex(ValueError, 'never overwrites'): self.invoke('init')
         self.assertEqual(env, (self.home / '.env').read_text())
         with patch.object(deploy, 'run') as run: self.invoke('status')
         self.assertIn('mybot', run.call_args.args[0]); self.assertIn(str(deploy.RELEASE / 'compose.host.yaml'), run.call_args.args[0])
         with self.assertRaisesRegex(ValueError, 'Project name conflicts'): self.invoke('--project', 'other', 'status')
+
+    def test_legacy_prokbot_env_markers_and_default_project(self):
+        (self.home / '.env').write_text('PROKBOT_MODE=remote\nPROKBOT_PROJECT=legacyproj\n', encoding='utf-8')
+        with patch.object(deploy, 'run') as run:
+            self.invoke('status')
+        cmd = run.call_args.args[0]
+        self.assertIn('legacyproj', cmd)
+        self.assertIn(str(deploy.RELEASE / 'compose.host.yaml'), cmd)
+        empty_home = self.home / 'empty'
+        empty_home.mkdir()
+        parsed = SimpleNamespace(host_only=False, project=None)
+        deploy.instance_settings(parsed, empty_home)
+        self.assertEqual(parsed.project, 'rokbot')
+
+    def test_compose_default_machine_id_is_empty_with_legacy_fallback(self):
+        compose_text = (HOST / 'release/compose.yaml').read_text(encoding='utf-8')
+        self.assertIn('ROKBOT_DEFAULT_MACHINE_ID: ${ROKBOT_DEFAULT_MACHINE_ID:-${GROKBOT_DEFAULT_MACHINE_ID:-}}', compose_text)
+        self.assertIn('name: rokbot', compose_text)
+
+    def test_host_archive_url_mirror_override_enforces_sha256(self):
+        bad_bytes = b'not-the-pinned-host-archive'
+        class FakeResponse(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        for env_key in ('ROKBOT_HOST_ARCHIVE_URL', 'GROKBOT_HOST_ARCHIVE_URL'):
+            with self.subTest(env_key=env_key), \
+                 patch.dict(os.environ, {env_key: 'https://mirror.example.invalid/host.tgz'}, clear=False), \
+                 patch.object(sys, 'argv', ['build', '--host-only']), \
+                 patch.object(builder, 'docker_platform', return_value='linux/amd64'), \
+                 patch.object(builder, 'check_box_execution'), \
+                 patch.object(builder, 'prepare_box', return_value=builder.BOX_ID), \
+                 patch.object(builder.urllib.request, 'urlopen', return_value=FakeResponse(bad_bytes)) as urlopen:
+                with self.assertRaisesRegex(ValueError, 'SHA-256'):
+                    builder.main()
+                self.assertEqual(urlopen.call_args.args[0], 'https://mirror.example.invalid/host.tgz')
+        with patch.dict(os.environ, {'ROKBOT_HOST_ARCHIVE_URL': 'https://mirror.example.invalid/host.tgz'}, clear=False), \
+             patch.object(sys, 'argv', ['patch', '--output', str(self.home / 'patched')]), \
+             patch.object(patch_host.urllib.request, 'urlopen', return_value=FakeResponse(bad_bytes)) as urlopen:
+            with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch'):
+                patch_host.main()
+            self.assertEqual(urlopen.call_args.args[0], 'https://mirror.example.invalid/host.tgz')
+
+    def test_box_image_mirror_override_enforces_identity(self):
+        mirror = 'ghcr.io/hongfaqiu/rokbot/box:pinned'
+        with patch.dict(os.environ, {'ROKBOT_BOX_IMAGE': mirror}, clear=False), \
+             patch.object(builder, 'image_id', side_effect=lambda ref: builder.BOX_ID if ref == mirror else None), \
+             patch.object(builder, 'run') as run:
+            self.assertEqual(builder.prepare_box(None), builder.BOX_ID)
+            run.assert_called_once_with('docker', 'tag', mirror, builder.BOX_TAG)
+        with patch.dict(os.environ, {'GROKBOT_BOX_IMAGE': 'mirror.invalid/bad:tag'}, clear=False), \
+             patch.object(builder, 'image_id', side_effect=lambda ref: 'sha256:' + 'f' * 64 if ref == 'mirror.invalid/bad:tag' else None), \
+             patch.object(builder, 'run'):
+            with self.assertRaisesRegex(ValueError, 'Unsupported Box image identity'):
+                builder.prepare_box(None)
 
     def test_invalid_url_writes_nothing(self):
         for url in ['http://bot/path', 'http://user@bot', 'https://bot:65536', 'http://bot?key=x', 'https://bot:0']:
@@ -108,9 +170,9 @@ class ComposeMountTests(unittest.TestCase):
             self.assertEqual(cmd, self.dc + ['config', '--format', 'json'])
             self.assertTrue(kwargs['capture'])
             env = kwargs['env']
-            self.assertEqual(env['PROKBOT_EXISTING_VOLUMES'], 'true' if existing else 'false')
+            self.assertEqual(env['ROKBOT_EXISTING_VOLUMES'], 'true' if existing else 'false')
             for service, image in (pinned or {}).items():
-                self.assertEqual(env['GROKBOT_' + service.upper() + '_IMAGE'], image)
+                self.assertEqual(env['ROKBOT_' + service.upper() + '_IMAGE'], image)
             return SimpleNamespace(stdout=json.dumps(config))
 
         with patch.object(deploy, 'run', side_effect=read) as run, \

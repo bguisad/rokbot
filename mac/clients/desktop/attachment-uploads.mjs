@@ -3,7 +3,7 @@ import { mkdir, open, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 
 const CHUNK_BYTES = 4 * 1024 * 1024;
 const FILE_LIMIT = 25 * 1024 * 1024;
@@ -58,7 +58,7 @@ export function createAttachmentUploads({ profile, command, onProgress = () => {
   }
   function upload({ agentId, path: source, filename }, cancel, progress) {
     return withStaged(source, async (input, size) => {
-      if (sizeFailure(size, filename)) throw new Error(grokText('附件为空或超过大小限制。', 'The attachment is empty or too large.'));
+      if (sizeFailure(size, filename)) throw new Error(rokText('附件为空或超过大小限制。', 'The attachment is empty or too large.'));
       const uploadId = randomUUID();
       const bytes = Buffer.alloc(Math.min(CHUNK_BYTES, size));
       let offset = 0;
@@ -77,7 +77,7 @@ export function createAttachmentUploads({ profile, command, onProgress = () => {
         }
         if (offset < size) progress(offset / size);
       }
-      throw new Error(grokText('附件上传未完成，请重试。', 'The attachment upload did not complete. Try again.'));
+      throw new Error(rokText('附件上传未完成，请重试。', 'The attachment upload did not complete. Try again.'));
     });
   }
   const handlers = {

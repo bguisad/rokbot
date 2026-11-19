@@ -11,7 +11,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '../../..');
+const REPO_ROOT = path.resolve(__dirname, '../..');
 
 export async function runTier4Tests(host) {
   const tests = [];
@@ -41,12 +41,12 @@ export async function runTier4Tests(host) {
 
     // 2. Persist credentials securely in Android Keystore
     const ks = new AndroidKeystoreEmulator();
-    const encToken = ks.encrypt('grokbot_device_token', creds.token);
-    const encGateway = ks.encrypt('grokbot_gateway_url', creds.gatewayUrl);
+    const encToken = ks.encrypt('rokbot_device_token', creds.token);
+    const encGateway = ks.encrypt('rokbot_gateway_url', creds.gatewayUrl);
 
     // 3. App initializes with decrypted credentials
-    const token = ks.decrypt('grokbot_device_token', encToken.iv, encToken.ciphertext, encToken.authTag);
-    const gateway = ks.decrypt('grokbot_gateway_url', encGateway.iv, encGateway.ciphertext, encGateway.authTag);
+    const token = ks.decrypt('rokbot_device_token', encToken.iv, encToken.ciphertext, encToken.authTag);
+    const gateway = ks.decrypt('rokbot_gateway_url', encGateway.iv, encGateway.ciphertext, encGateway.authTag);
 
     // 4. Fetch available bots
     const listRes = await fetch(`${gateway}/api/listAgents`, {
@@ -234,7 +234,7 @@ export async function runTier4Tests(host) {
     // 2. Client is initially in foreground
     const fgSse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await fgSse.connect();
     assert.ok(host.foregroundDevices.has(deviceId));
@@ -257,7 +257,7 @@ export async function runTier4Tests(host) {
     const deliveredNotif = host.notificationHistory.find(n => n.id === pushResult.notificationId);
     assert.ok(deliveredNotif);
     const deepLink = deliveredNotif.deepLink;
-    const match = /^grokbot-local:\/\/agent\/([A-Za-z0-9_-]+)$/.exec(deepLink);
+    const match = /^rokbot-local:\/\/agent\/([A-Za-z0-9_-]+)$/.exec(deepLink);
     assert.ok(match);
     const targetAgentId = match[1];
 
@@ -283,7 +283,7 @@ export async function runTier4Tests(host) {
     const { token } = await pairRes.json();
 
     // 2. Upload reference PDF into Bot Library
-    const docContent = 'GrokBot Native Android Client Reference Manual Specification';
+    const docContent = 'RokBot Native Android Client Reference Manual Specification';
     const uploadRes = await fetch(`${BASE_URL}/local/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },

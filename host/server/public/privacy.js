@@ -4,7 +4,7 @@ import { icon } from './icons.js';
 export function setupPrivacy() {
   const button = document.querySelector('#privacy-toggle');
   let hidden = false;
-  try { hidden = sessionStorage.getItem('grokbot-private-hidden') === '1'; } catch {}
+  try { hidden = sessionStorage.getItem('rokbot-private-hidden') === '1'; } catch {}
   const apply = () => {
     document.documentElement.dataset.privateHidden = String(hidden);
     button.innerHTML = icon(hidden ? 'eyeOff' : 'eye');
@@ -13,7 +13,7 @@ export function setupPrivacy() {
   };
   button.addEventListener('click', () => {
     hidden = !hidden;
-    try { sessionStorage.setItem('grokbot-private-hidden', hidden ? '1' : '0'); } catch {}
+    try { sessionStorage.setItem('rokbot-private-hidden', hidden ? '1' : '0'); } catch {}
     apply();
   });
   apply();

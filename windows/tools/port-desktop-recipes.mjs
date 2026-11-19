@@ -140,7 +140,7 @@ function windowsText(text) {
   return text;
 }
 
-const temporary = await mkdtemp(path.join(os.tmpdir(), 'grokbot-port-'));
+const temporary = await mkdtemp(path.join(os.tmpdir(), 'rokbot-port-'));
 try {
   const mac = await unpacked(path.resolve(arg('--mac')), temporary, 'mac');
   const win = await unpacked(path.resolve(arg('--win')), temporary, 'win');

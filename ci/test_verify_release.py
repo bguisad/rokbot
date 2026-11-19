@@ -1,4 +1,4 @@
-"""Synthetic-only, single-process regression tests. No files besides source are opened."""
+"""Single-process regression tests for verify-release.py (synthetic + real-repo manifest/JNI checks)."""
 
 import contextlib
 import gzip
@@ -14,6 +14,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('verify_release', Path(__file__).with_name('verify-release.py'))
 v = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v)
@@ -32,8 +33,16 @@ def record(name, data):
     return hashlib.sha256(data).hexdigest().encode() + b'  ' + name.encode() + b'\n'
 
 
-def manifest(apk, path=v.SHELL):
-    return json.dumps({'shell': {'path': path, 'sha256': hashlib.sha256(apk).hexdigest()}}).encode()
+def manifest(apk, **overrides):
+    doc = {
+        'schema': 'rokbot-android-native/v1',
+        'packageName': 'ai.x.grok.bot',
+        'version': '1.16.0',
+        'build': '1075',
+        'baseApkSha256': hashlib.sha256(apk).hexdigest(),
+    }
+    doc.update(overrides)
+    return json.dumps(doc).encode()
 
 
 def signed_layout(apk):
@@ -103,6 +112,8 @@ class Cases(unittest.TestCase):
 
     def test_private_and_client_policy(self):
         categories = {'private-path': ['.GiT/config', '.cache/a', '.ssh/', 'operator-private/log', '.env.local',
+                                      '.rokbot-local/android-signing.json', '.rokbot/state',
+                                      '.grokbot-local/android-signing.json', '.grokbot/state',
                                       'team/access-notes.md', 'ssh-access/readme.md', '\u670d\u52a1\u5668\u8bbf\u95ee.txt',
                                       'AuthKey_TEST.p8', 'android-signing.json', 'id_ed25519',
                                       '\u63a5\u5165\u4fe1\u606f.txt', '\u5c40\u57df\u7f51\u5c0f\u4e3b\u673a/demo.txt'],
@@ -156,7 +167,17 @@ class Cases(unittest.TestCase):
         other = pack([('AndroidManifest.xml', b'a different fake shell')])
         self.bad('shell-digest', pack([(v.SHELL, other), (v.MANIFEST, manifest(other))]), pin=pin)
         self.bad('shell-manifest', pack([(v.SHELL, apk), (v.MANIFEST, manifest(other))]), pin=pin)
-        self.bad('shell-manifest', pack(pair), pin=manifest(apk, 'elsewhere.apk'), index=0)
+        for bad_pin in (
+            json.dumps({'schema': 'rokbot-android-native/v1'}).encode(),
+            json.dumps({'shell': {'path': v.SHELL, 'sha256': hashlib.sha256(apk).hexdigest()}}).encode(),
+            manifest(apk, baseApkSha256=123),
+            manifest(apk, baseApkSha256='A' * 64),
+            manifest(apk, baseApkSha256='0' * 63),
+            b'{"baseApkSha256":"' + b'0' * 64 + b'","baseApkSha256":"' + b'0' * 64 + b'"}',
+            b'[]',
+            b'{bad-json',
+        ):
+            self.bad('shell-manifest', pack(pair), pin=bad_pin, index=0)
         self.bad('apk', pack([('prefix/' + v.SHELL, apk)]), pin=pin)
         self.bad('apk', pack([(v.SHELL.upper(), apk)]), pin=pin)
         self.bad('apk', pack([('nested.zip', pack(pair))]), pin=pin)
@@ -164,16 +185,44 @@ class Cases(unittest.TestCase):
         self.bad('apk', pack([('disguised', apk)]), pin=pin)
 
     def test_helpers_are_pinned_not_name_exemptions(self):
-        helper = 'windows/dist/installer/grokbot-setup-stub.exe'
-        data = b'MZfixture'
-        pins = record(helper, data)
-        self.ok(pack([(helper, data)]), helpers=pins)
-        self.bad('helper-digest', pack([(helper, data)]))
-        self.bad('helper-digest', pack([(helper, data + b'portable payload')]), helpers=pins)
-        self.bad('client-program', pack([('nested', pack([(helper, data)]))]), helpers=pins)
-        self.bad('sensitive-bytes', pack([(helper, data)]), helpers=pins, rules=b'MZfixture')
+        for helper, payload in (
+            ('windows/dist/installer/rokbot-setup-stub.exe', b'MZfixture'),
+            ('host/bin/rokbot-tailcat', b'\x7fELFfixture-host-tailcat'),
+            ('ios/bin/RokBotLocal.dylib', b'\xcf\xfa\xed\xfefixture-ios-dylib'),
+        ):
+            pins = record(helper, payload)
+            self.ok(pack([(helper, payload)]), helpers=pins)
+            self.bad('helper-digest', pack([(helper, payload)]))
+            self.bad('helper-digest', pack([(helper, payload + b'tamper')]), helpers=pins)
+            self.bad('client-program', pack([('nested', pack([(helper, payload)]))]), helpers=pins)
+        self.bad('sensitive-bytes', pack([('windows/dist/installer/rokbot-setup-stub.exe', b'MZfixture')]),
+                 helpers=record('windows/dist/installer/rokbot-setup-stub.exe', b'MZfixture'), rules=b'MZfixture')
+        for jni in ('android/bin/jniLibs/arm64-v8a/libgroktailcat.so', 'android/bin/jniLibs/arm64-v8a/libgroktailcatjni.so'):
+            elf = b'\x7fELFfixture-' + jni.encode()
+            jni_pins = record(jni, elf)
+            self.ok(pack([(jni, elf)]), helpers=jni_pins)
+            self.bad('helper-digest', pack([(jni, elf)]))
+            self.bad('helper-digest', pack([(jni, elf + b'tamper')]), helpers=jni_pins)
+            self.bad('client-program', pack([('nested', pack([(jni, elf)]))]), helpers=jni_pins)
         audio = 'ios/clients/ios/audio-processing/libfixture.a'
         self.ok(pack([(audio, b'!<arch>\n')]), helpers=record(audio, b'!<arch>\n'))
+
+    def test_real_repository_manifest_and_jni_helpers(self):
+        manifest_bytes = (REPO_ROOT / v.MANIFEST).read_bytes()
+        apk_bytes = (REPO_ROOT / v.SHELL).read_bytes()
+        self.assertEqual(v.pin(manifest_bytes), hashlib.sha256(apk_bytes).hexdigest())
+        jni_paths = (
+            'android/bin/jniLibs/arm64-v8a/libgroktailcat.so',
+            'android/bin/jniLibs/arm64-v8a/libgroktailcatjni.so',
+        )
+        entries = [(v.MANIFEST, manifest_bytes), (v.SHELL, apk_bytes)]
+        helper_pins = bytearray()
+        for rel in jni_paths:
+            self.assertIn(rel, v.HELPERS)
+            raw = (REPO_ROOT / rel).read_bytes()
+            entries.append((rel, raw))
+            helper_pins.extend(record(rel, raw))
+        self.ok(pack(entries, method=zipfile.ZIP_STORED), pin=manifest_bytes, helpers=bytes(helper_pins))
 
     def test_exact_caps(self):
         payload = b'x' * 2048

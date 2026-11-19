@@ -14,15 +14,17 @@ function publicOrigin(configured, fallbackOrigin) {
 }
 
 /** A claimed event enters the original event-automation runtime, never the user-send API. */
-export async function startLocalWebhooks(context, { call, interval = 1500, directory = process.env.GROKBOT_DATA_DIR } = {}) {
+export async function startLocalWebhooks(context, { call, interval = 1500, directory = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR } = {}) {
   let baseOrigin = 'http://127.0.0.1:8000';
   if (!call) {
-    if (!process.env.GROKBOT_NOTIFICATION_URL || !process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE) {
+    const notificationUrl = process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
+    const tokenFile = process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
+    if (!notificationUrl || !tokenFile) {
       return { suspend() {}, resume() {}, async close() {} };
     }
-    const base = new URL(process.env.GROKBOT_NOTIFICATION_URL);
+    const base = new URL(notificationUrl);
     baseOrigin = base.origin;
-    const token = (await readFile(process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
+    const token = (await readFile(tokenFile, 'utf8')).trim();
     call = async (channel, method, body) => {
       const response = await fetch(new URL(`/internal/${channel}/${method}`, base), {
         method: 'POST', redirect: 'error',
@@ -60,7 +62,7 @@ export async function startLocalWebhooks(context, { call, interval = 1500, direc
     const result = await transcript.runServerAutomationForEvent({
       agentId: hook.agentId, automation, runUuid: event.runUuid,
       event: {
-        source: 'webhook', headers: { 'x-grokbot-event-id': event.eventId }, bodyDigest: event.digest,
+        source: 'webhook', headers: { 'x-rokbot-event-id': event.eventId }, bodyDigest: event.digest,
         body: event.body, context: `${hook.name}${event.type ? `: ${event.type}` : ''}`, timestampMs: event.receivedAt,
       },
     });
@@ -142,7 +144,7 @@ export async function startLocalWebhooks(context, { call, interval = 1500, direc
     const credential = await call('automation-webhooks', 'credential', {
       agentId, localId, createdAt: automation.createdAt,
     });
-    const origin = publicOrigin(process.env.GROKBOT_PUBLIC_URL, baseOrigin);
+    const origin = publicOrigin(process.env.ROKBOT_PUBLIC_URL ?? process.env.GROKBOT_PUBLIC_URL, baseOrigin);
     return { url: `${origin}/automations/webhook/${credential.automationId}`, key: credential.key };
   }
 

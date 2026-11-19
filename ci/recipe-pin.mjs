@@ -10,7 +10,7 @@ export function inspectRecipe(buffer, label, entry, sourcePin) {
     assert.equal(createHash('sha256').update(buffer).digest('hex'), entry.sha256, `wrong recipe bytes: ${label}`);
   }
   const r = JSON.parse(gunzipSync(buffer, { maxOutputLength: 64 * 1024 * 1024 }));
-  assert.equal(r.schema, 'grokbot-bytepatch/v1', label);
+  assert.ok(['rokbot-bytepatch/v1', 'grokbot-bytepatch/v1'].includes(r.schema), label);
   for (const field of ['sourceSha256', 'targetSha256']) assert.match(r[field], fingerprint, label);
   for (const field of ['sourceBytes', 'targetBytes']) assert.ok(Number.isSafeInteger(r[field]) && r[field] >= 0, label);
   if (sourcePin !== undefined) assert.equal(r.sourceSha256, sourcePin, `stale source pin: ${label}`);

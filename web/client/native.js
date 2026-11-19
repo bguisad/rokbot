@@ -1,10 +1,9 @@
-// The web client's stand-in for android/client/native.js. In the Android app these calls go
-// to the shell; here the page is served by the Host itself, so each one is a browser feature
-// or a call to the Host's /web/api. The exports match the Android module, which the bridge,
-// gateway and services import unchanged.
-export const boot = globalThis.__grokbotAndroidBoot ?? {};
+// The web client's browser native layer (stand-in for the mobile shell layer). The page is served
+// by the Host itself, so each call is a browser feature or a call to the Host's /web/api. The
+// exports are imported directly by bridge.js, gateway.js, and services.js in web/client/.
+export const boot = globalThis.__rokbotAndroidBoot ?? {};
 
-const SETTINGS = 'grokbot-web:settings', PERSISTENCE = 'grokbot-web:persistence';
+const SETTINGS = 'rokbot-web:settings', PERSISTENCE = 'rokbot-web:persistence';
 const SETTING_KEYS = new Set(['theme', 'language', 'realtimeVoice', 'botColor', 'spellCheck', 'timeZone', 'backgroundNotifications']);
 const AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const chinese = () => /^zh/i.test(document.documentElement.lang || boot.locale || navigator.language || '');
@@ -19,7 +18,7 @@ function readStore(key) {
 function writeStore(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); return true; }
   // Private browsing or a full quota: keep the state for this page only.
-  catch (error) { console.warn('[grokbot-web] could not save', key, error?.name ?? error); return false; }
+  catch (error) { console.warn('[rokbot-web] could not save', key, error?.name ?? error); return false; }
 }
 
 const settings = { ...(boot.settings ?? {}) };
@@ -33,7 +32,7 @@ export const webState = { viewingAgent: '' };
 async function hostCall(path, body, method = 'POST') {
   const response = await fetch(path, {
     method, credentials: 'same-origin', cache: 'no-store', redirect: 'error',
-    headers: { 'content-type': 'application/json', 'x-grokbot-web': '1' },
+    headers: { 'content-type': 'application/json', 'x-rokbot-web': '1' },
     ...(method === 'GET' ? {} : { body: JSON.stringify(body ?? {}) }),
   });
   const value = await response.json().catch(() => null);
@@ -75,10 +74,15 @@ function download(name, mime, chunks) {
 }
 
 function clientDeviceId() {
-  const key = 'grokbot.clientDeviceId';
+  const key = 'rokbot.clientDeviceId';
+  const legacyKey = 'grokbot.clientDeviceId';
   try {
-    const existing = localStorage.getItem(key);
-    if (existing && /^[A-Za-z0-9._:@-]{1,128}$/.test(existing.trim())) return existing.trim();
+    const existing = localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
+    if (existing && /^[A-Za-z0-9._:@-]{1,128}$/.test(existing.trim())) {
+      const normalized = existing.trim();
+      if (!localStorage.getItem(key)) localStorage.setItem(key, normalized);
+      return normalized;
+    }
   } catch {}
   let id = '';
   try { id = `web-${crypto.randomUUID().slice(0, 16)}`; } catch {}
@@ -167,7 +171,7 @@ const calls = {
     return { ok: true };
   },
   log({ message }) {
-    console.info('[grokbot-web]', String(message).slice(0, 4000));
+    console.info('[rokbot-web]', String(message).slice(0, 4000));
     return { ok: true };
   },
 };
@@ -190,7 +194,7 @@ export async function native(name, body = {}, { binary } = {}) {
 export function log(...parts) {
   const message = parts.map(part => part instanceof Error ? `${part.name}: ${part.message}` :
     typeof part === 'string' ? part : JSON.stringify(part)).join(' ');
-  console.info('[grokbot-web]', message.slice(0, 4000));
+  console.info('[rokbot-web]', message.slice(0, 4000));
 }
 
 export function toBase64(input) {

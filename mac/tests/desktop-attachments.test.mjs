@@ -13,7 +13,7 @@ const chunk = 4 * 1024 * 1024;
 const unexpected = () => { throw new Error('Unexpected Host request for a local draft'); };
 
 async function fixture(t, command = unexpected, onProgress) {
-  const profile = await mkdtemp(path.join(tmpdir(), 'prokbot-attachment-'));
+  const profile = await mkdtemp(path.join(tmpdir(), 'rokbot-attachment-'));
   t.after(() => rm(profile, { recursive: true, force: true }));
   const uploads = createAttachmentUploads({ profile, command, onProgress });
   const staging = path.join(profile, 'attachment-staging');

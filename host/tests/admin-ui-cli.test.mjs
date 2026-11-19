@@ -30,14 +30,20 @@ async function demo(t, reply = {}) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const env = { ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    GROKBOT_URL: `http://127.0.0.1:${server.address().port}`, GROKBOT_ADMIN_PASSWORD: 'demo-only-password',
-    GROKBOT_SETUP_KEY: 'demo-only', MODEL_API_KEY: 'demo-only' };
-  const run = async args => {
+    ROKBOT_URL: `http://127.0.0.1:${server.address().port}`, ROKBOT_ADMIN_PASSWORD: 'demo-only-password',
+    ROKBOT_SETUP_KEY: 'demo-only', MODEL_API_KEY: 'demo-only' };
+  const run = async (args, envOverride = {}) => {
     calls.length = 0;
-    try { return { code: 0, ...await exec(process.execPath, [cli, ...args], { env, timeout: 8000 }) }; }
+    try { return { code: 0, ...await exec(process.execPath, [cli, ...args], { env: { ...env, ...envOverride }, timeout: 8000 }) }; }
     catch (error) { if (!Number.isInteger(error.code)) throw error; return error; }
   };
-  return { calls, run };
+  const runWithOnly = async (args, customEnv) => {
+    calls.length = 0;
+    const base = process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {};
+    try { return { code: 0, ...await exec(process.execPath, [cli, ...args], { env: { ...base, ...customEnv }, timeout: 8000 }) }; }
+    catch (error) { if (!Number.isInteger(error.code)) throw error; return error; }
+  };
+  return { calls, run, runWithOnly, url: `http://127.0.0.1:${server.address().port}` };
 }
 
 test('malformed admin options fail before login, tests or mutations', async t => {
@@ -97,4 +103,14 @@ test('CLI never prints proxy pages or saves after a non-JSON model test', async 
       assert.ok(!calls.some(call => call.method === 'PUT'));
     });
   }
+});
+
+test('admin CLI supports legacy GROKBOT_* env vars as migration fallbacks', async t => {
+  const { calls, runWithOnly, url } = await demo(t);
+  const result = await runWithOnly(['status'], {
+    GROKBOT_URL: url,
+    GROKBOT_ADMIN_PASSWORD: 'demo-only-password',
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(calls.map(call => call.path), ['login', 'status']);
 });

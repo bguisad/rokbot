@@ -4,7 +4,7 @@ export function createProfile({ request, window, auth, server, onChange }) {
   auth.email = '';
   const apply = value => {
     current = { displayName: value.displayName, avatarDataUrl: value.avatarDataUrl ?? null,
-      hostName: value.hostName || 'Grok Bot Host' };
+      hostName: value.hostName || 'RokBot Host' };
     const next = JSON.stringify([current, value.updatedAt]);
     if (next === last) return { ...auth };
     last = next; avatar = value.avatarDataUrl ?? null;

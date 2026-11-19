@@ -1,3 +1,3 @@
-module grokbot.local/installer
+module rokbot.local/installer
 
 go 1.24

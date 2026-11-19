@@ -18,7 +18,7 @@ import (
 // Run only in a disposable Windows VM/runner, with TMP and TEMP set to private
 // scratch before go test. The real stub has no shell mocks; /D= does not isolate HKCU.
 func TestNativeStubLegacyMigrationFromInstallDirectory(t *testing.T) {
-	if os.Getenv("PROKBOT_INSTALLER_DISPOSABLE_WINDOWS") != "1" {
+	if os.Getenv("ROKBOT_INSTALLER_DISPOSABLE_WINDOWS") != "1" {
 		t.Skip("requires an explicitly disposable Windows environment")
 	}
 	s := disposable(t)

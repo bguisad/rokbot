@@ -151,7 +151,7 @@ test('Legacy devices (no clientDeviceId) match by (platform, bundleId, name), wh
 });
 
 test('PUT /local/device bindClientIdentity & deduplicateDevices clean up historical duplicates', async t => {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-dedup-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-dedup-'));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const auth = await new Auth(dataDir).load();
   await auth.setup(auth.setupKey, 'Pass123456');
@@ -159,10 +159,10 @@ test('PUT /local/device bindClientIdentity & deduplicateDevices clean up histori
   t.after(() => { push.closed = true; clearTimeout(push.timer); });
 
   const old1 = await auth.pair({ password: 'Pass123456', deviceName: 'OPPO Find X9', platform: 'desktop', clientKind: 'android' });
-  await push.register(old1.deviceId, { kind: 'desktop', clientKind: 'android', bundleId: 'dev.grokbot.local' });
+  await push.register(old1.deviceId, { kind: 'desktop', clientKind: 'android', bundleId: 'dev.rokbot.local' });
   const old2 = await auth.pair({ password: 'Pass123456', deviceName: 'OPPO Find X9', platform: 'desktop', clientKind: 'android' });
   await push.store.mutate(state => {
-    state.devices[old2.deviceId] = { bundleId: 'dev.grokbot.local', provider: 'none', enabled: true };
+    state.devices[old2.deviceId] = { bundleId: 'dev.rokbot.local', provider: 'none', enabled: true };
   });
 
   // Explicit deduplicateDevices removes duplicate active legacy entry and leaves 1
@@ -177,7 +177,7 @@ test('PUT /local/device bindClientIdentity & deduplicateDevices clean up histori
 });
 
 test('HTTP routes integration: /connect/pair, /connect/status, PUT /local/device, POST /admin/api/devices/deduplicate, and web pair', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-dedup-srv-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-dedup-srv-'));
   const auth = new Auth(dir);
   await auth.load();
   const push = new PushService(dir, auth);
@@ -326,8 +326,8 @@ test('HTTP routes integration: /connect/pair, /connect/status, PUT /local/device
   const dA = await auth.pair({ password: 'Pass123456', deviceName: 'Legacy Phone', platform: 'desktop', clientKind: 'android' });
   const dB = await auth.pair({ password: 'Pass123456', deviceName: 'Legacy Phone', platform: 'desktop', clientKind: 'android' });
   await push.store.mutate(state => {
-    state.devices[dA.deviceId] = { bundleId: 'dev.grokbot.local', provider: 'none', enabled: true };
-    state.devices[dB.deviceId] = { bundleId: 'dev.grokbot.local', provider: 'none', enabled: true };
+    state.devices[dA.deviceId] = { bundleId: 'dev.rokbot.local', provider: 'none', enabled: true };
+    state.devices[dB.deviceId] = { bundleId: 'dev.rokbot.local', provider: 'none', enabled: true };
   });
 
   const dedupRes = await fetch(`${origin}/admin/api/devices/deduplicate`, {

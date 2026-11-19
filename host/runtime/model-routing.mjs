@@ -4,7 +4,7 @@ import { validateContextPolicy } from './context-policy.mjs';
 import { EFFORTS, effortLevels } from './model-policy.mjs';
 
 export const API_FORMATS = Object.freeze(['openai', 'openai-responses', 'anthropic']);
-export const MODEL_ROUTING_ENV = 'GROKBOT_MODEL_ROUTING';
+export const MODEL_ROUTING_ENV = 'ROKBOT_MODEL_ROUTING';
 
 const MAX_PROVIDERS = 32;
 const MAX_PROFILES = 128;

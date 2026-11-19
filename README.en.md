@@ -1,17 +1,17 @@
 # RokBot
 
-**Self-hosted Grok Bot server with your own models, committed to native official client patching across platforms.**
+**Self-hosted RokBot server with your own models, committed to native official client patching across platforms.**
 
-[简体中文](README.md) · **English**
+[简体中文](README.md) · **English** · [Rebranding & Compatibility](docs/REBRAND_COMPAT.md)
 
 ---
 
 ## Overview
 
-RokBot is a self-hosted Grok Bot runtime and native client patching toolkit:
+RokBot is a self-hosted AI assistant runtime and official native client patching toolkit:
 
 - **Native Clients First (No WebView Wrapper)**: Drops the legacy Android WebView wrapper that embedded the Windows UI. Instead, `android/` directly patches the official React Native + Hermes Android `.xapk` / `.apks` / `.apk`, preserving the authentic native interface and interactions.
-- **Enhanced Self-Hosted Host**: Supports Anthropic Messages, OpenAI Responses, and OpenAI Chat APIs, per-Bot model routing, reliable context compaction, admin-password pairing, multi-machine local execution, and deterministic default machine pinning (`GROKBOT_DEFAULT_MACHINE_ID`).
+- **Enhanced Self-Hosted Host**: Supports Anthropic Messages, OpenAI Responses, and OpenAI Chat APIs, per-Bot model routing, reliable context compaction, admin-password pairing, multi-machine local execution, and deterministic default machine pinning (`ROKBOT_DEFAULT_MACHINE_ID`).
 - **Clean Distribution**: Contains no official binaries, pre-patched APKs/IPAs, or private keys. Every client and Host image is assembled locally from verified official packages.
 
 ---
@@ -35,13 +35,20 @@ RokBot starts fresh as an independent repository focused on **native official cl
 | [`android/`](android/) | **Native React Native Android patcher** (Split XAPK merger, Pairip neutralization, Hermes bytecode patches, Companion DEX, 16KB-aligned Tailcat `.so`, 6 native modals) | Official Android `1.16.0` (build `1075`) |
 | [`windows/`](windows/) | Windows x64 client patcher & installer | Official Windows `1.1.0` (also `0.71.2`) |
 | [`mac/`](mac/) | macOS Apple Silicon client patcher | Official macOS `0.71.2` |
-| [`ios/`](ios/) | iOS arm64 decrypted IPA patcher (`GBBootstrap`) | Official iOS `1.16.0` (build `23152`) |
+| [`ios/`](ios/) | iOS arm64 decrypted IPA patcher (native dylib injection) | Official iOS `1.16.0` (build `23152`) |
 | [`web/`](web/) | Browser web client bundler & uploader | UI from Windows `1.1.0` |
-| [`docs/`](docs/) | Deployment guide & architecture documentation | — |
+| [`docs/`](docs/) | Deployment guide, architecture docs, and [rebranding compatibility registry](docs/REBRAND_COMPAT.md) | — |
 
 ---
 
 ## Quick Start
+
+Repository: <https://github.com/hongfaqiu/rokbot>
+
+```bash
+git clone https://github.com/hongfaqiu/rokbot.git
+cd rokbot
+```
 
 ### 1. Deploy the Self-Hosted Host
 
@@ -49,7 +56,7 @@ See [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md) and [`host/README.en.md`](h
 
 - Build Host image: `python3 host/release/build-docker.py --host-archive <sand-host-bundle.tgz>`
 - Start services: `docker compose -f host/release/compose.yaml up -d`
-- Pin a default local-exec computer when multiple desktops are attached via `GROKBOT_DEFAULT_MACHINE_ID`.
+- Pin a default local-exec computer when multiple desktops are attached via `ROKBOT_DEFAULT_MACHINE_ID`.
 
 ### 2. Patch the Native Android Client
 

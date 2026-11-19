@@ -5,17 +5,18 @@ import { internalCredential } from "./credentials.mjs";
 
 export async function checkDeploymentHealth(env = process.env) {
   try {
+    // Primary ROKBOT_* env vars with GROKBOT_* fallback for smooth .env migration.
     const response = await fetch(
-      `http://127.0.0.1:${env.GROKBOT_PORT || 8000}/healthz`,
+      `http://127.0.0.1:${env.ROKBOT_PORT || env.GROKBOT_PORT || 8000}/healthz`,
       {
         signal: AbortSignal.timeout(1500),
         redirect: "error",
       },
     );
     if (!response.ok || !(await response.json()).ok) return false;
-    const data = env.GROKBOT_DATA_DIR ?? "/data";
+    const data = env.ROKBOT_DATA_DIR ?? env.GROKBOT_DATA_DIR ?? "/data";
     const model = await readFile(
-      env.GROKBOT_MODEL_ENV ?? join(data, "model.env"),
+      env.ROKBOT_MODEL_ENV ?? env.GROKBOT_MODEL_ENV ?? join(data, "model.env"),
       "utf8",
     ).catch((error) => {
       if (error.code === "ENOENT") return "";
@@ -29,7 +30,7 @@ export async function checkDeploymentHealth(env = process.env) {
     )
       return true;
     // HostSupervisor intentionally waits for the execution node on split installations.
-    if (env.GROKBOT_REQUIRE_EXECUTION_NODE === '1') {
+    if ((env.ROKBOT_REQUIRE_EXECUTION_NODE ?? env.GROKBOT_REQUIRE_EXECUTION_NODE) === '1') {
       const state = await readFile(join(data, 'execution-node.json'), 'utf8').catch(error => {
         if (error.code === 'ENOENT') return null;
         throw error;
@@ -40,12 +41,12 @@ export async function checkDeploymentHealth(env = process.env) {
       if (!saved.config.enabled) return true;
     }
     const token = await internalCredential(
-      env.GROKBOT_INTERNAL_HOST_TOKEN_FILE ?? join(data, "internal-host-token"),
+      env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? env.GROKBOT_INTERNAL_HOST_TOKEN_FILE ?? join(data, "internal-host-token"),
     );
     const host = await fetch(
       new URL(
         "/health",
-        env.GROKBOT_INTERNAL_HOST_URL ?? "http://127.0.0.1:1340",
+        env.ROKBOT_INTERNAL_HOST_URL ?? env.GROKBOT_INTERNAL_HOST_URL ?? "http://127.0.0.1:1340",
       ),
       {
         headers: { authorization: `Bearer ${token}` },

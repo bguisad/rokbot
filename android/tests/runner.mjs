@@ -17,7 +17,7 @@ const DIM = '\x1b[2m';
 
 async function main() {
   console.log(`\n${BOLD}${CYAN}======================================================================${RESET}`);
-  console.log(`${BOLD}${CYAN}   GrokBot Native Android Client Patch — E2E Test Suite Runner       ${RESET}`);
+  console.log(`${BOLD}${CYAN}   RokBot Native Android Client Patch — E2E Test Suite Runner        ${RESET}`);
   console.log(`${BOLD}${CYAN}======================================================================${RESET}\n`);
 
   const host = new MockHostServer({

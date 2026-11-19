@@ -37,7 +37,7 @@ test('Android foreground stream suppresses pushes until stream closes or foregro
   await push.register(deviceId, {
     kind: 'desktop',
     clientKind: 'android',
-    bundleId: 'dev.grokbot.local',
+    bundleId: 'dev.rokbot.local',
     appVersion: '1.2.0',
     authorization: 'granted',
     push: { provider: 'unifiedpush', endpoint: 'https://push.example/up/endpoint-1' },
@@ -51,7 +51,7 @@ test('Android foreground stream suppresses pushes until stream closes or foregro
 
   const item1 = {
     id: 'n-fg-1', type: 'message', agentId: 'bot-1', title: 'Hi', body: 'Foreground message',
-    createdAt: new Date(Date.now() + 1000).toISOString(), deepLink: 'grokbot-local://agent/bot-1',
+    createdAt: new Date(Date.now() + 1000).toISOString(), deepLink: 'rokbot-local://agent/bot-1',
   };
   await push.enqueue(item1);
   await push.flush();
@@ -61,7 +61,7 @@ test('Android foreground stream suppresses pushes until stream closes or foregro
   assert.equal(push.isForeground(deviceId), false);
   const item2 = {
     id: 'n-bg-1', type: 'message', agentId: 'bot-1', title: '回复来了', body: 'Background reply',
-    createdAt: new Date(Date.now() + 2000).toISOString(), deepLink: 'grokbot-local://agent/bot-1',
+    createdAt: new Date(Date.now() + 2000).toISOString(), deepLink: 'rokbot-local://agent/bot-1',
   };
   await push.enqueue(item2);
   await push.flush();
@@ -100,36 +100,36 @@ test('UnifiedPush 410 invalidates stale endpoint and ntfy/webhook deliver cleanl
   await push.register(d2, {
     kind: 'android',
     authorization: 'granted',
-    push: { provider: 'ntfy', ntfyUrl: 'https://ntfy.example/sub/grokbot-topic', ntfyToken: 'tk_demo_123' },
+    push: { provider: 'ntfy', ntfyUrl: 'https://ntfy.example/sub/rokbot-topic', ntfyToken: 'tk_demo_123' },
   });
   const r2 = await push.test(d2, 'bot-2');
   assert.equal(r2.ok, true);
   const ntfyCall = deliveries.find(d => d.url === 'https://ntfy.example/sub');
   assert.ok(ntfyCall);
   assert.equal(ntfyCall.headers.authorization, 'Bearer tk_demo_123');
-  assert.equal(JSON.parse(ntfyCall.body).topic, 'grokbot-topic');
+  assert.equal(JSON.parse(ntfyCall.body).topic, 'rokbot-topic');
 
   const { pairingKey: k3 } = await auth.createPairing();
   const { deviceId: d3 } = await auth.pair({ platform: 'desktop', deviceName: 'WH', clientKind: 'android', pairingKey: k3 });
   await push.register(d3, {
     kind: 'android',
     authorization: 'granted',
-    push: { provider: 'webhook', webhookUrl: 'https://hooks.example/grok', webhookSecret: 'sec_99' },
+    push: { provider: 'webhook', webhookUrl: 'https://hooks.example/rokbot', webhookSecret: 'sec_99' },
   });
   const r3 = await push.test(d3, 'bot-3');
   assert.equal(r3.ok, true);
-  const whCall = deliveries.find(d => d.url === 'https://hooks.example/grok');
+  const whCall = deliveries.find(d => d.url === 'https://hooks.example/rokbot');
   assert.ok(whCall);
   assert.equal(whCall.headers.authorization, 'Bearer sec_99');
   const expectedSig = `sha256=${createHmac('sha256', 'sec_99').update(whCall.body).digest('hex')}`;
-  assert.equal(whCall.headers['x-grokbot-signature-256'], expectedSig);
+  assert.equal(whCall.headers['x-rokbot-signature-256'], expectedSig);
 });
 
 test('FCM HTTP v1 exchanges service account JWT, caches access token, and handles UNREGISTERED', async () => {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const sa = JSON.stringify({
-    project_id: 'grok-demo-123',
-    client_email: 'fcm-sender@grok-demo-123.iam.gserviceaccount.com',
+    project_id: 'rok-demo-123',
+    client_email: 'fcm-sender@rok-demo-123.iam.gserviceaccount.com',
     private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
   });
 
@@ -148,13 +148,13 @@ test('FCM HTTP v1 exchanges service account JWT, caches access token, and handle
           error: { code: 404, status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] },
         }), { status: 404 });
       }
-      return new Response(JSON.stringify({ name: 'projects/grok-demo-123/messages/m1' }), { status: 200 });
+      return new Response(JSON.stringify({ name: 'projects/rok-demo-123/messages/m1' }), { status: 200 });
     },
   });
 
   const saved = await push.config.save({ fcm: { enabled: true, serviceAccount: sa } });
   assert.equal(saved.fcm.ready, true);
-  assert.equal(saved.fcm.projectId, 'grok-demo-123');
+  assert.equal(saved.fcm.projectId, 'rok-demo-123');
   assert.equal(saved.fcm.privateKey, undefined);
 
   const { pairingKey } = await auth.createPairing();
@@ -174,7 +174,7 @@ test('FCM HTTP v1 exchanges service account JWT, caches access token, and handle
 
   await push.enqueue({
     id: 'attn-1', type: 'attention', agentId: 'bot-1', title: '需要确认', body: 'Approve action',
-    createdAt: new Date(Date.now() + 2000).toISOString(), deepLink: 'grokbot-local://agent/bot-1',
+    createdAt: new Date(Date.now() + 2000).toISOString(), deepLink: 'rokbot-local://agent/bot-1',
   });
   await push.flush();
   assert.equal(fcmCalls.length, 2);
@@ -196,7 +196,7 @@ test('PushTransports blocks delivery-time DNS rebinding and private resolved IPs
     title: 'Hello',
     body: 'Body',
     createdAt: new Date().toISOString(),
-    deepLink: 'grokbot-local://agent/bot-1',
+    deepLink: 'rokbot-local://agent/bot-1',
   };
 
   for (const resolved of [
@@ -288,7 +288,7 @@ test('PushTransports real pinned-IP transport pins resolved public IPs, rejects 
     title: 'Pinned',
     body: 'Hello',
     createdAt: new Date().toISOString(),
-    deepLink: 'grokbot-local://agent/bot-1',
+    deepLink: 'rokbot-local://agent/bot-1',
   };
 
   const requests = [];

@@ -246,16 +246,17 @@ export function explicitEffort(effort) {
 
 /**
  * Reasoning produced here is tagged with its API format and model. cursor.* mirrors the
- * original Harness convention (it summarizes and replays by modelName); grokbot.* lets
+ * original Harness convention (it summarizes and replays by modelName); rokbot.* lets
  * each format replay only reasoning it can read.
  */
 export function reasoningProviderOptions({ format, model, providerId, summarized = false, itemId, emptyThinking = false }) {
   return { cursor: { modelName: model, ...(summarized ? { isAlreadySummarizedThinking: true } : {}) },
-    grokbot: { format, model, ...(providerId ? { providerId } : {}), ...(itemId ? { itemId } : {}), ...(emptyThinking ? { emptyThinking: true } : {}) } };
+    rokbot: { format, model, ...(providerId ? { providerId } : {}), ...(itemId ? { itemId } : {}), ...(emptyThinking ? { emptyThinking: true } : {}) } };
 }
 
 export function reasoningOrigin(part) {
-  const own = part.providerOptions?.grokbot ?? part.experimental_providerMetadata?.grokbot;
+  const own = part.providerOptions?.rokbot ?? part.experimental_providerMetadata?.rokbot
+    ?? part.providerOptions?.grokbot ?? part.experimental_providerMetadata?.grokbot;
   const cursor = part.providerOptions?.cursor ?? part.experimental_providerMetadata?.cursor;
   return { format: own?.format, model: own?.model ?? cursor?.modelName, providerId: own?.providerId, itemId: own?.itemId,
     summarized: cursor?.isAlreadySummarizedThinking === true, phase: own?.phase, emptyThinking: own?.emptyThinking === true };

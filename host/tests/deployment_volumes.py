@@ -18,7 +18,7 @@ import deploy
 import backup
 
 PROJECT = 'demo'
-HOST_TAG = 'grokbot-host:local'
+HOST_TAG = 'rokbot-host:local'
 BOX_TAG = deploy.BOX['localTag']
 OLD = 'sha256:' + '1' * 64
 NEW = 'sha256:' + '2' * 64
@@ -171,8 +171,9 @@ class Engine:
             project = cmd[cmd.index('-p')+1]
             modes = ('host',) if any(str(p).endswith('compose.host.yaml') for p in cmd) else ('host', 'box')
             env = kw.get('env') or {}
-            external = env.get('PROKBOT_EXISTING_VOLUMES') == 'true'
-            refs = {'host': env.get('GROKBOT_HOST_IMAGE', HOST_TAG), 'box': env.get('GROKBOT_BOX_IMAGE', BOX_TAG)}
+            external = (env.get('ROKBOT_EXISTING_VOLUMES') or env.get('PROKBOT_EXISTING_VOLUMES')) == 'true'
+            refs = {'host': env.get('ROKBOT_HOST_IMAGE') or env.get('GROKBOT_HOST_IMAGE', HOST_TAG),
+                    'box': env.get('ROKBOT_BOX_IMAGE') or env.get('GROKBOT_BOX_IMAGE', BOX_TAG)}
             if 'config' in cmd:
                 return json.dumps({'services': {s: {'image': refs[s],
                     'volumes': [{'type': 'volume', 'source': n, 'target': t} for n, t in MOUNTS[s].items()]} for s in modes},
@@ -448,7 +449,20 @@ class VolumeTests(unittest.TestCase):
         self.assertEqual((recovered / 'payload').read_bytes(), b'last acknowledged write')
         self.assertFalse((recovered / 'partial-migration').exists())
         self.assertTrue((data / 'partial-migration').exists(), 'do not overwrite the live volume to roll back')
-        self.assertIn(OLD, [v for k, v in self.e.images.items() if k.startswith('prokbot-recovery:')])
+        self.assertIn(OLD, [v for k, v in self.e.images.items() if k.startswith('rokbot-recovery:')])
+
+    def test_restore_accepts_legacy_grokbot_volumes_manifest_schema(self):
+        self.invoke('init')
+        self.e.stack()
+        backup_dir = self.home / 'legacy-backup'
+        backup.backup(PROJECT, backup_dir, HOST_TAG)
+        manifest_path = backup_dir / 'manifest.json'
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        self.assertEqual(manifest['schema'], 'rokbot-volumes/v1')
+        manifest['schema'] = 'grokbot-volumes/v1'
+        manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+        backup.restore(backup_dir, 'restored-legacy', HOST_TAG)
+        self.assertEqual((self.restored('restored-legacy', 'host-data') / 'payload').read_bytes(), b'host-data: original')
 
     def test_first_install_health_failure_stops_partial_stack_and_retains_its_volumes(self):
         self.invoke('init')

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { align, mapRange } from '../tools/byte-align.mjs';
 import { replaceAsarIntegrity } from '../patchers/desktop/pe.mjs';
 import { writeZip } from '../patchers/desktop/zip.mjs';
-import { titleBarOverlay, windowChrome, initialLink } from '../../mac/clients/desktop/platform.mjs';
+import { titleBarOverlay, windowChrome, initialLink, agentFromLink } from '../../mac/clients/desktop/platform.mjs';
 import { windowsNativeCodex, findCodex } from '../../mac/clients/desktop/codex-process.mjs';
 import { remoteAttachmentPath } from '../../mac/clients/desktop/attachments.mjs';
 import { loadLocalExecDaemon } from '../../mac/clients/desktop/local-exec.mjs';
@@ -17,7 +17,7 @@ import { loadLocalExecDaemon } from '../../mac/clients/desktop/local-exec.mjs';
 const pad = text => `${'/* shared prefix that anchors the alignment */'.repeat(2)}${text}${'/* shared suffix that anchors the alignment */'.repeat(2)}`;
 
 test('an explicit installer must match both the wrapper and embedded archive', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-wrapper-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-wrapper-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const payload = Buffer.alloc(32); Buffer.from('377abcaf271c', 'hex').copy(payload);
   const wrapper = Buffer.concat([Buffer.from('MZ'), payload]);
@@ -31,7 +31,7 @@ test('an explicit installer must match both the wrapper and embedded archive', a
 });
 
 test('failed ZIP builds preserve existing output and remove only their own partial file', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-zip-error-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-zip-error-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const target = path.join(dir, 'keep.zip'), missing = path.join(dir, 'absent');
   await writeFile(target, 'keep');
@@ -69,14 +69,14 @@ test('the embedded ASAR integrity value is replaced in place', () => {
 });
 
 test('the zip archive round-trips names, contents and the version comment', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'grokbot-zip-test-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'rokbot-zip-test-'));
   try {
     const source = path.join(root, 'app');
     await mkdir(path.join(source, 'resources', '中文'), { recursive: true });
     await writeFile(path.join(source, 'Grok Bot.exe'), Buffer.alloc(4096, 7));
     await writeFile(path.join(source, 'resources', '中文', 'note.txt'), 'hello');
     const archive = path.join(root, 'out.zip');
-    const { entries } = await writeZip(source, archive, { prefix: 'Grok Bot Local', comment: '0.71.2' });
+    const { entries } = await writeZip(source, archive, { prefix: 'RokBot Local', comment: '0.71.2' });
     assert.equal(entries, 2);
     const bytes = await readFile(archive);
     const end = bytes.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
@@ -91,9 +91,9 @@ test('the zip archive round-trips names, contents and the version comment', asyn
       files[name] = method === 8 ? inflateRawSync(body) : body;
       at += 46 + nameLength + bytes.readUInt16LE(at + 30) + bytes.readUInt16LE(at + 32);
     }
-    assert.deepEqual(Object.keys(files).sort(), ['Grok Bot Local/Grok Bot.exe', 'Grok Bot Local/resources/中文/note.txt']);
-    assert.equal(files['Grok Bot Local/resources/中文/note.txt'].toString(), 'hello');
-    assert.ok(files['Grok Bot Local/Grok Bot.exe'].equals(Buffer.alloc(4096, 7)));
+    assert.deepEqual(Object.keys(files).sort(), ['RokBot Local/Grok Bot.exe', 'RokBot Local/resources/中文/note.txt']);
+    assert.equal(files['RokBot Local/resources/中文/note.txt'].toString(), 'hello');
+    assert.ok(files['RokBot Local/Grok Bot.exe'].equals(Buffer.alloc(4096, 7)));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -103,8 +103,13 @@ test('Windows chrome follows the original title-bar overlay values', () => {
   assert.equal(titleBarOverlay('#111111', true).height, 43);
   assert.deepEqual(windowChrome('#111111', 'win32').frame, false);
   assert.deepEqual(windowChrome('#111111', 'darwin'), { frame: true, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } });
+  assert.equal(initialLink(['Grok Bot.exe', '--flag', 'rokbot-local://agent/abc']), 'rokbot-local://agent/abc');
+  assert.equal(initialLink(['Grok Bot.exe', 'grokbot-local://agent/old', 'rokbot-local://agent/new']), 'rokbot-local://agent/new');
   assert.equal(initialLink(['Grok Bot.exe', '--flag', 'grokbot-local://agent/abc']), 'grokbot-local://agent/abc');
   assert.equal(initialLink(['Grok Bot.exe']), null);
+  assert.equal(agentFromLink('rokbot-local://agent/abc'), 'abc');
+  assert.equal(agentFromLink('grokbot-local://agent/abc'), null);
+  assert.equal(agentFromLink('rokbot-local://agent/abc?x=1'), null);
 });
 
 test('Windows npm candidates use the requested architecture regardless of the test host', () => {
@@ -116,7 +121,7 @@ test('Windows npm candidates use the requested architecture regardless of the te
 });
 
 test('the npm Codex launcher resolves to its native Windows binary', { skip: process.platform !== 'win32' }, async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'grokbot-codex-test-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'rokbot-codex-test-'));
   try {
     const native = windowsNativeCodex(root)[0];
     await mkdir(path.dirname(native), { recursive: true });

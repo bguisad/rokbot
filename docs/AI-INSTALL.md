@@ -1,6 +1,6 @@
-# ProkBot Plus 部署手册
+# RokBot 部署手册
 
-[English](AI-INSTALL.en.md) · [架构与扩展](ARCHITECTURE.md) · [分机部署](#split-host) · [卷备份与恢复](#volume-recovery)
+[English](AI-INSTALL.en.md) · [架构与扩展](ARCHITECTURE.md) · [兼容与重命名说明](REBRAND_COMPAT.md) · [分机部署](#split-host) · [卷备份与恢复](#volume-recovery)
 
 **给人和 AI 的同一条路线：选机器 → 检查 → 启动 → 配模型 → 客户端发消息。** 不要把容器显示 `healthy` 当作交付成功。下文的服务器命令从仓库根目录运行，Host 发布包解压后也是同样的结构。
 
@@ -10,7 +10,7 @@
 
 | 你有的机器 | 怎么部署 | 注意 |
 | --- | --- | --- |
-| 一台 x86_64 Linux | 默认，Host 和执行桌面都原生运行 | 最低 2 核 4 GB，推荐 4 核 8 GB；2 核 2 GB 实测不够。见[首页的服务器要求](../README.md#server-requirements) |
+| 一台 x86_64 Linux | 默认，Host 和执行桌面都原生运行 | 最低 2 核 4 GB，推荐 4 核 8 GB；2 核 2 GB 实测不够。见[技术文档的容量依据](ARCHITECTURE.md#capacity-evidence) |
 | 一台 ARM64 Linux，例如 Oracle Ampere A1 | 默认，Host 原生运行，桌面经 QEMU 模拟 amd64 | **实验**。不是原生 ARM 桌面；先通过 `doctor`，实际速度取决于任务 |
 | ARM64 Linux + 一台 amd64 Linux | 在 Host 的 `doctor`、`init` 前加 `--host-only`；桌面放第二台 | ARM 机不下载或模拟桌面。当前版本未在 ARM 上重新实测 |
 
@@ -21,7 +21,7 @@
 
 开始前一次问清：新装还是升级？服务器及 SSH 访问方式？客户端从哪访问（本机、专网、HTTPS 域名）？使用哪种模型接口、模型 ID、哪些客户端？密码和 API Key 由用户在管理页输入，不要贴到聊天、工单或日志。已有服务、域名、反向代理和防火墙不默认改动。升级演练、恢复演练和容量测试只在获准的专用非生产实例上做，不使用生产服务、数据卷或凭据。
 
-服务器需 Python 3.10+、可访问的 Linux Docker daemon、`up` 同时支持 `--wait` 和 `--wait-timeout` 的 Compose，以及 Git 或解压好的 Host 包。同机部署最低 2 核、4 GB 内存、30 GB 可用磁盘，推荐 4 核、8 GB、50 GB；构建缓存和备份另占空间，依据见[首页的服务器要求](../README.md#server-requirements)。ARM 同机还需注册 x86-64 QEMU/binfmt，安装或变更前请机主确认。
+服务器需 Python 3.10+、可访问的 Linux Docker daemon、`up` 同时支持 `--wait` 和 `--wait-timeout` 的 Compose，以及 Git 或解压好的 Host 包。同机部署最低 2 核、4 GB 内存、30 GB 可用磁盘，推荐 4 核、8 GB、50 GB；构建缓存和备份另占空间，依据见[技术文档的容量依据](ARCHITECTURE.md#capacity-evidence)。ARM 同机还需注册 x86-64 QEMU/binfmt，安装或变更前请机主确认。
 
 全新 Ubuntu 24.04 可从系统仓库安装 `docker.io docker-compose-v2 docker-buildx python3 git`，启用 Docker，让部署用户获得使用权限并重新登录。仅 ARM 同机模式还需 `qemu-user-static binfmt-support`，用 `sudo update-binfmts --enable qemu-x86_64` 启用解释器，再跑 `doctor`。已有 Docker 的机器只补缺项；加入 `docker` 组相当于授予主机管理权限。
 
@@ -34,25 +34,25 @@
 ```sh
 ssh USER@SERVER 'bash -s' <<'EOF'
 set -eu
-mkdir -p "$HOME/grokbot"
-git clone https://github.com/ferretgeek/prokbot-plus.git "$HOME/grokbot/src" < /dev/null
-cd "$HOME/grokbot/src"
+mkdir -p "$HOME/rokbot"
+git clone https://github.com/hongfaqiu/rokbot.git "$HOME/rokbot/src" < /dev/null
+cd "$HOME/rokbot/src"
 python3 host/deploy.py doctor < /dev/null
 EOF
 ```
 
-已有代码不要重复 clone。服务器不能访问 GitHub 时，在本机用 `git archive --format=tar.gz -o prokbot-host-src.tar.gz HEAD host`，只上传这个归档，解到新的源码目录；不要打包工作目录或私密文件。构建仍需访问固定原版来源和依赖源。
+已有代码不要重复 clone。服务器不能访问 GitHub 时，在本机用 `git archive --format=tar.gz -o rokbot-host-src.tar.gz HEAD host`，只上传这个归档，解到新的源码目录；不要打包工作目录或私密文件。构建仍需访问固定原版来源和依赖源。
 
 `doctor` 成功时输出 JSON：`ok: true`、Host 架构、桌面方式、资源和数据卷。`hostDataVolumes` 包括其他项目名下的 Host 卷。若发现已有实例，先确认原来的 `.env`、项目名和部署方式。仅在明确要升级服务端时才运行 `update`；只更新客户端请跳过服务器步骤。不要换项目名重装。探针失败不会下载大桌面。新装示例：
 
 ```sh
-cd "$HOME/grokbot/src"
+cd "$HOME/rokbot/src"
 python3 host/deploy.py init < /dev/null
 python3 host/deploy.py up < /dev/null
 python3 host/deploy.py status < /dev/null
 ```
 
-`init` 只写一次 `~/grokbot/.env`。默认仅本机 `http://127.0.0.1:18080` 可访问。**远端手机不能用这个回环地址配对。** 在运行 `init` 前选择实际的连接方式：
+`init` 只写一次 `~/rokbot/.env`。默认仅本机 `http://127.0.0.1:18080` 可访问。**远端手机不能用这个回环地址配对。** 在运行 `init` 前选择实际的连接方式：
 
 - 已有 HTTPS 反向代理：给 `init` 加 `--public-url https://bot.example.org`（换成自己的域名）。代理转给服务器回环端口并支持 WebSocket；无需把 18080 开到公网。
 - 专网 / 局域网：给 `init` 加 `--listen 服务器专网IP --public-url http://服务器专网IP:18080`。只绑定实际接口，只允许可信设备访问；不要在公网明文发送配对码或密码。
@@ -63,7 +63,7 @@ python3 host/deploy.py status < /dev/null
 
 1. 在私有终端运行 `python3 host/deploy.py setup-key`，不要把输出转发到聊天。打开管理页，用初始化码设置 12–128 位管理员密码。该码仅首次使用，与设备配对码不同。
 2. 独立桌面模式先在管理页连接执行节点。然后在「模型」里先添加每个模型服务（接口格式、地址、Key），再创建绑定服务和模型 ID 的模型档案。OpenAI Chat 和 Responses 通常填到 `/v1`，Anthropic Messages 可填根地址；按供应商实际接口选择。设置默认路由后，可为单个 Bot 覆盖主模型、思考强度和有序备用模型（切换规则见[技术文档](ARCHITECTURE.md#模型适配层)），不需要 Jev Key。逐个测试档案后再保存，等 Host 显示已连接。联网、生图、语音、推送按需配置，不是首次聊天的前提。
-3. 管理页生成一次性六位配对码（5 分钟有效）。客户端输入与 `GROKBOT_PUBLIC_URL` 相同的地址和配对码。每台设备单独配对。Android 和网页版不支持 Tailcat 链接，请用专网地址或 HTTPS。
+3. 管理页生成一次性六位配对码（5 分钟有效）。客户端输入与 `ROKBOT_PUBLIC_URL` 相同的地址和配对码。每台设备单独配对。网页版不支持 Tailcat 链接，请用专网地址或 HTTPS；Android 原生客户端同时支持 Tailcat 链接、专网地址或 HTTPS。
 
 <a id="client-packages"></a>
 **选择客户端包**：各 ZIP 都含这份手册，但只含本平台所需的工具。下表的路径从对应 ZIP 的解压根目录算起，须取与 Host 匹配的补丁版本。其他包不含这些文件是正常的。
@@ -73,12 +73,12 @@ python3 host/deploy.py status < /dev/null
 | Windows 10/11 x64 | Windows 包内 `windows/README.md`。默认用官方 1.1.0 x64 安装包生成便携版或安装器；1.1.0 用不了时加 `--version 0.71.2` 改用 0.71.2。保留同包的 `mac/` 共用代码。 |
 | Mac（Apple Silicon） | Mac 包内 `mac/README.md`。使用官方 0.71.2 Apple Silicon 原版（Mac 尚未适配 1.1.0）；本机图形控制还需合适的签名和系统授权。 |
 | iPhone | iOS 包内 `ios/README.md` 的「签名」。自备 1.16.0 (23152) 的已解密 IPA；按 `extension-signing.json` 为主应用和三个扩展配置各自的签名。 |
-| Android 9+ | Android 包内 `android/README.md`。默认用官方 Windows 1.1.0 安装包（和 Windows 客户端同一个文件）的界面和项目外壳生成 APK，1.1.0 界面用不了时加 `--version 0.71.2`；不使用官方 Android APK；单独备份自己的签名密钥，升级须使用同一密钥。 |
-| 网页版（任何浏览器） | 网页版包内 `web/README.md`。在电脑上用官方 Windows 1.1.0 安装包（和 Windows、Android 同一个文件）生成界面包，加 `--upload <GROKBOT_PUBLIC_URL>` 直接装到 Host 并启用（管理员密码经 `GROKBOT_ADMIN_PASSWORD` 传入），或在管理页「网页版」上传；1.1.0 界面用不了时加 `--version 0.71.2`。之后在各设备的浏览器打开 `<GROKBOT_PUBLIC_URL>/web/`，输入配对码登录。保留同包的 `android/`、`windows/`、`mac/` 共用代码。界面包含有官方界面，只装在机主自己的 Host 上，不要转发或公开。 |
+| Android 9+ | Android 包内 `android/README.md`。使用官方 Android `1.16.0`（build `1075`）原版 `.xapk` / `.apks` / `.apk`（`ai.x.grok.bot` / `co.anysphere.sand`）配合 `node android/release/patch-android.mjs` 生成 16KB 对齐并签名的 APK（`android/bin/rokbot-native-base.apk` 仅作补丁器测试基准）；单独备份自己的签名密钥（目标路径 `~/.rokbot-local/android-signing.json`，升级须使用同一密钥）。 |
+| 网页版（任何浏览器） | 网页版包内 `web/README.md`。在电脑上用官方 Windows 1.1.0 安装包（和 Windows 客户端同一个文件）生成界面包，加 `--upload <ROKBOT_PUBLIC_URL>` 直接装到 Host 并启用（管理员密码目标规范经 `ROKBOT_ADMIN_PASSWORD` 传入；若在客户端重命名完成前运行，请查阅 [REBRAND_COMPAT.md](REBRAND_COMPAT.md#3-migration--compatibility-bridges) 中的网页版上传器过渡环境变量），或在管理页「网页版」上传；1.1.0 界面用不了时加 `--version 0.71.2`。之后在各设备的浏览器打开 `<ROKBOT_PUBLIC_URL>/web/`，输入配对码登录。保留同包的 `windows/`、`mac/` 共用代码。界面包含有官方界面，只装在机主自己的 Host 上，不要转发或公开。 |
 
-准备原包前看首页的[客户端版本表](../README.md#client-versions)。官方商店和更新通道可能先行发布新版；工具只接受右栏固定输入。Android 外壳有自己的应用版本，和界面版本、最低 Android 系统版本不是一回事。
+准备原包前先核对首页的[目录结构与当前适配基线](../README.md#目录结构)及对应模块 README。官方商店和更新通道可能先行发布新版；工具只接受清单中固定校验的原包。Android 与 iOS 原生客户端使用各自的移动端原包版本，与桌面/网页版界面的版本号不是一回事。
 
-AI 可以用 `python3 host/deploy.py admin help` 查看同一套管理操作。管理员密码和模型 Key 通过 `GROKBOT_ADMIN_PASSWORD`、`MODEL_API_KEY` 环境变量传入，不放进命令参数；不要打印环境变量。`admin session` 查初始化，`admin status` 查核心是否连接，`admin model-set --test-only` 可用指定的格式、地址和模型测试而不保存。
+AI 可以用 `python3 host/deploy.py admin help` 查看同一套管理操作。管理员密码和模型 Key 通过 `ROKBOT_ADMIN_PASSWORD`、`MODEL_API_KEY` 环境变量传入，不放进命令参数；不要打印环境变量。`admin session` 查初始化，`admin status` 查核心是否连接，`admin model-set --test-only` 可用指定的格式、地址和模型测试而不保存。
 
 **交付验收**：客户端发一句问题，再追问上一轮；让 Bot 在自己的执行桌面运行 `uname -m` 并读回结果，再打开桌面画面。三个结果分别证明对话、上下文、执行桌面，而不是只证明管理页可打开。在 ARM 同机模式，桌面应返回 `x86_64`，Host 的 `doctor` 应报告 `linux/arm64`。交付只记录地址、代码版本、模式、备份位置、通过和未通过的项目，不记录密钥。
 

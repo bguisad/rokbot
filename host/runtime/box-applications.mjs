@@ -3,7 +3,7 @@ import { validatePlugin, pluginDigest, validatePluginConfiguration, runnerDepend
 import { check } from '../server/security.mjs';
 
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
-const root = '/home/box/.grokbot-apps';
+const root = '/home/box/.rokbot-apps';
 const sdk = `${root}/sdk-${createHash('sha256').update(JSON.stringify(runnerDependencies)).digest('hex').slice(0, 16)}`;
 const prepare = `import os,sys,json,base64
 from pathlib import Path
@@ -54,7 +54,7 @@ export function createBoxApplications({ box, library, exec, updateRegistry }) {
     if (!files.some(file => file.path === 'package.json')) files.push({ path: 'package.json', data: Buffer.from('{"type":"module"}').toString('base64') });
     const payload = Buffer.from(JSON.stringify({ directory, sdk, files })).toString('base64');
     // Exec has bounded stdout and command frames; package bytes travel via its file upload port.
-    const staging = `/tmp/grokbot-app-${id}.json`;
+    const staging = `/tmp/rokbot-app-${id}.json`;
     await box.uploadFile(library.createContext(), undefined, staging, Buffer.from(payload));
     try { await shell(`python3 -c ${quote(prepare.replace("base64.b64decode(sys.argv[1])", "base64.b64decode(Path(sys.argv[1]).read_bytes())"))} ${quote(staging)}`); }
     finally { await shell(`rm -f ${quote(staging)}`).catch(() => {}); }
@@ -64,7 +64,7 @@ export function createBoxApplications({ box, library, exec, updateRegistry }) {
       sdkReady = true;
     }
     const config = { command: '/exec-daemon/node', args: [directory + '/' + pkg.runtime.entry],
-      env: { ...configuration, GROKBOT_APP_AUTH_HEADERS: JSON.stringify(authorization) } };
+      env: { ...configuration, ROKBOT_APP_AUTH_HEADERS: JSON.stringify(authorization) } };
     sessions.set(id, { identifier, config });
     try { await updateRegistry(configs()); return { id }; }
     catch (error) { sessions.delete(id); await updateRegistry(configs()).catch(() => {}); throw error; }

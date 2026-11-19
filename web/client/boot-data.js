@@ -4,7 +4,7 @@
 // it runs before compat.js, every module and the interface.
 (function () {
   'use strict';
-  var SETTINGS = 'grokbot-web:settings', PERSISTENCE = 'grokbot-web:persistence';
+  var SETTINGS = 'rokbot-web:settings', PERSISTENCE = 'rokbot-web:persistence';
   function read(key) {
     try {
       var value = JSON.parse(window.localStorage.getItem(key) || 'null');
@@ -24,7 +24,7 @@
   var dark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false;
   var apple = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  window.__grokbotAndroidBoot = {
+  window.__rokbotAndroidBoot = {
     client: 'web',
     clientKind: 'web',
     appVersion: 'web',
@@ -50,7 +50,7 @@
       var url = new URL(typeof input === 'string' || input instanceof URL ? String(input) : input.url, location.href);
       if (url.origin === location.origin && DEVICE_API.test(url.pathname)) {
         var headers = new Headers(init && init.headers !== undefined ? init.headers : input instanceof Request ? input.headers : undefined);
-        headers.set('x-grokbot-web', '1');
+        headers.set('x-rokbot-web', '1');
         init = Object.assign({}, init, { headers: headers });
       }
     } catch (error) { /* Not a URL the Host serves; send it unchanged. */ }
@@ -63,6 +63,6 @@
   var viewport = document.querySelector('meta[name=viewport]');
   if (viewport) viewport.setAttribute('content', 'width=device-width, initial-scale=1' +
     (apple ? ', maximum-scale=1' : ', interactive-widget=resizes-content'));
-  document.documentElement.classList.add('grokbot-web');
-  if (apple) document.documentElement.classList.add('grokbot-apple');
+  document.documentElement.classList.add('rokbot-web');
+  if (apple) document.documentElement.classList.add('rokbot-apple');
 })();

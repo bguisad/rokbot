@@ -15,12 +15,12 @@ from uuid import uuid4
 
 DOCKER = shutil.which('docker') or '/usr/local/bin/docker'
 PROJECT_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,60}')
-RESTORE_LABEL = 'io.prokbot.restore-id'
-LINEAGE_LABEL = 'io.prokbot.lineage-root'
+RESTORE_LABEL = 'io.rokbot.restore-id'
+LINEAGE_LABEL = 'io.rokbot.lineage-root'
 PROJECT_LABEL = 'com.docker.compose.project'
 VOLUME_LABEL = 'com.docker.compose.volume'
 VERSION_LABEL = 'com.docker.compose.version'
-OPERATION_LABEL = 'io.prokbot.operation-id'
+OPERATION_LABEL = 'io.rokbot.operation-id'
 MOUNTS = {'host': {'host-data': '/data'}, 'box': {'box-home': '/home/box', 'box-workspace': '/workspace'},
           'gateway': {'gateway-data': '/data'}}
 TOPOLOGIES = (('host',), ('host', 'box'), ('gateway', 'box'))
@@ -78,13 +78,13 @@ def operation_lock(name):
 def project_lock(project):
     if not PROJECT_NAME.fullmatch(project):
         raise ValueError('Invalid Compose project name')
-    return operation_lock('prokbot-operation-'+project)
+    return operation_lock('rokbot-operation-'+project)
 
 
 def lineage_lock(root):
     if not isinstance(root, str) or not PROJECT_NAME.fullmatch(root):
         raise ValueError('Unknown backup lineage; only offline data restore is safe.')
-    return operation_lock('prokbot-lineage-operation-'+root)
+    return operation_lock('rokbot-lineage-operation-'+root)
 
 
 def compose_created(labels):
@@ -132,11 +132,11 @@ def host_volume_inventory():
                 raise ValueError('A Host is using an unlabelled data volume; refusing activation.')
             continue
         if (not project and not role and not marked and re.fullmatch(r'[a-f0-9]{32}', labels.get(OPERATION_LABEL, ''))
-                and name.startswith(('prokbot-operation-', 'prokbot-lineage-operation-'))):
+                and name.startswith(('rokbot-operation-', 'rokbot-lineage-operation-', 'prokbot-operation-', 'prokbot-lineage-operation-'))):
             continue  # A valid project name (and hence its lock name) can end in _host-data.
         if (not marked and PROJECT_NAME.fullmatch(project) and role and compose_created(labels) and
                 (role != 'host-data' or name != project+'_host-data')):
-            continue  # Explicit foreign Compose names are not managed ProkBot mounts.
+            continue  # Explicit foreign Compose names are not managed RokBot mounts.
         if (not PROJECT_NAME.fullmatch(project) or name != project+'_host-data' or role != 'host-data'):
             raise ValueError('Cannot establish lineage of an unmanaged Host volume on this daemon.')
         entries[project] = (name, volume_lineage(project, labels))
@@ -313,7 +313,7 @@ def backup(project, destination, image, *, stopped=False):
                 failed.append(container)
         if failed:
             raise RuntimeError('Could not resume these containers; check docker ps and unpause them: ' + ', '.join(failed))
-    manifest = {'schema':'grokbot-volumes/v1', 'project':project, 'image':image,
+    manifest = {'schema':'rokbot-volumes/v1', 'project':project, 'image':image,
                 'lineageRoot': root,
                 'serviceImages': {s: c['Image'] for s, c in containers.items()},
                 'at':time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'volumes':records}
@@ -335,7 +335,7 @@ def backup(project, destination, image, *, stopped=False):
 
 def read_manifest(source):
     manifest = json.loads((source/'manifest.json').read_text(encoding='utf-8'))
-    if not isinstance(manifest, dict) or manifest.get('schema') != 'grokbot-volumes/v1':
+    if not isinstance(manifest, dict) or manifest.get('schema') not in ('rokbot-volumes/v1', 'grokbot-volumes/v1'):
         raise ValueError('Unsupported backup format')
     origin = manifest.get('project')
     if not isinstance(origin, str) or not PROJECT_NAME.fullmatch(origin) or not isinstance(manifest.get('volumes'), list):
@@ -422,7 +422,7 @@ def main():
     parser.add_argument('operation',choices=['backup','restore'])
     parser.add_argument('--project',required=True)
     parser.add_argument('--directory',required=True,type=Path)
-    parser.add_argument('--image',default='grokbot-host:local')
+    parser.add_argument('--image',default='rokbot-host:local')
     args=parser.parse_args()
     if not PROJECT_NAME.fullmatch(args.project):
         parser.error('Invalid Compose project name')

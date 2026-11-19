@@ -22,16 +22,17 @@ import (
 )
 
 const (
-	appName      = "Grok Bot Local"
+	appName      = "RokBot Local"
 	exeName      = "Grok Bot.exe"
-	uninstaller  = "Uninstall Grok Bot Local.exe"
-	registryKey  = `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\GrokBotLocal`
-	footerMagic  = "GROKBOT-SETUP-V1"
+	uninstaller  = "Uninstall RokBot Local.exe"
+	registryKey  = `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\RokBotLocal`
+	footerMagic  = "ROKBOT-SETUP-V1\x00"
 	footerLength = 8 + 8 + 16
 )
 
 var (
-	errInUse         = errors.New("Grok Bot Local is running. Quit it first.")
+	footerMagicBytes = []byte(footerMagic)
+	errInUse         = errors.New("RokBot Local is running. Quit it first.")
 	user32           = syscall.NewLazyDLL("user32.dll")
 	kernel32         = syscall.NewLazyDLL("kernel32.dll")
 	messageBox       = user32.NewProc("MessageBoxW")
@@ -106,7 +107,7 @@ func readPayload(path string) (*payload, error) {
 		return nil, errors.New("installer payload missing")
 	}
 	footer := make([]byte, footerLength)
-	if _, err := file.ReadAt(footer, info.Size()-footerLength); err != nil || string(footer[16:]) != footerMagic {
+	if _, err := file.ReadAt(footer, info.Size()-footerLength); err != nil || !bytes.Equal(footer[16:], footerMagicBytes) {
 		file.Close()
 		return nil, errors.New("installer payload missing")
 	}
@@ -141,16 +142,16 @@ func inUse(directory string) bool {
 	return false
 }
 
-// closeRunningProcesses terminates Grok Bot executables inside directory so upgrades can overwrite files cleanly.
+// closeRunningProcesses terminates RokBot executables inside directory so upgrades can overwrite files cleanly.
 func closeRunningProcesses(directory string) {
 	dir := strings.TrimRight(filepath.Clean(directory), `\`) + `\`
 	script := `$ErrorActionPreference = 'SilentlyContinue'
-$dir = $env:GB_INSTALL_DIR
+$dir = $env:RB_INSTALL_DIR
 Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force
 Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`
 	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	command.Env = append(os.Environ(), "GB_INSTALL_DIR="+dir)
+	command.Env = append(os.Environ(), "RB_INSTALL_DIR="+dir)
 	_ = command.Run()
 }
 
@@ -177,8 +178,8 @@ func waitUntilClosed(directory string) (bool, error) {
 		if silent {
 			return false, errInUse
 		}
-		if !ask(text("无法自动关闭运行中的 Grok Bot Local。请在通知区域图标菜单中选择“退出”，然后点“是”继续。",
-			"Could not automatically close the running Grok Bot Local. Choose Quit from its notification-area icon, then select Yes to continue."), mbIconWarning) {
+		if !ask(text("无法自动关闭运行中的 RokBot Local。请在通知区域图标菜单中选择“退出”，然后点“是”继续。",
+			"Could not automatically close the running RokBot Local. Choose Quit from its notification-area icon, then select Yes to continue."), mbIconWarning) {
 			return false, nil
 		}
 	}
@@ -251,7 +252,7 @@ func registry(directory string, version string, size uint64) error {
 	values := [][3]string{
 		{"DisplayName", "REG_SZ", appName},
 		{"DisplayVersion", "REG_SZ", version},
-		{"Publisher", "REG_SZ", "ProkBot (self-hosted Grok Bot)"},
+		{"Publisher", "REG_SZ", "RokBot"},
 		{"InstallLocation", "REG_SZ", directory},
 		{"DisplayIcon", "REG_SZ", filepath.Join(directory, exeName) + ",0"},
 		{"UninstallString", "REG_SZ", `"` + self + `" --uninstall`},
@@ -272,17 +273,17 @@ func registry(directory string, version string, size uint64) error {
 func shortcuts(directory string, desktop bool) error {
 	script := `$ErrorActionPreference = 'Stop'
 $shell = New-Object -ComObject WScript.Shell
-$targets = @($env:GB_START_MENU)
-if ($env:GB_DESKTOP -eq '1') { $targets += Join-Path ([Environment]::GetFolderPath('Desktop')) 'Grok Bot Local.lnk' }
+$targets = @($env:RB_START_MENU)
+if ($env:RB_DESKTOP -eq '1') { $targets += Join-Path ([Environment]::GetFolderPath('Desktop')) 'RokBot Local.lnk' }
 foreach ($path in $targets) {
   $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
   if ($item -and ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint))) { continue }
   $link = $shell.CreateShortcut($path)
-  if ($item -and $link.TargetPath -ne $env:GB_TARGET) { continue }
-  $link.TargetPath = $env:GB_TARGET
-  $link.WorkingDirectory = $env:GB_DIRECTORY
-  $link.IconLocation = "$($env:GB_TARGET),0"
-  $link.Description = 'Grok Bot Local'
+  if ($item -and $link.TargetPath -ne $env:RB_TARGET) { continue }
+  $link.TargetPath = $env:RB_TARGET
+  $link.WorkingDirectory = $env:RB_DIRECTORY
+  $link.IconLocation = "$($env:RB_TARGET),0"
+  $link.Description = 'RokBot Local'
   $link.Save()
 }`
 	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
@@ -291,8 +292,8 @@ foreach ($path in $targets) {
 	if desktop {
 		flag = "1"
 	}
-	command.Env = append(os.Environ(), "GB_START_MENU="+startMenuShortcut(), "GB_DESKTOP="+flag,
-		"GB_TARGET="+filepath.Join(directory, exeName), "GB_DIRECTORY="+directory)
+	command.Env = append(os.Environ(), "RB_START_MENU="+startMenuShortcut(), "RB_DESKTOP="+flag,
+		"RB_TARGET="+filepath.Join(directory, exeName), "RB_DIRECTORY="+directory)
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("shortcuts: %v: %s", err, bytes.TrimSpace(output))
 	}
@@ -304,18 +305,18 @@ foreach ($path in $targets) {
 func removeIntegration(directory string) error {
 	script := `$ErrorActionPreference = 'Stop'
 $shell = New-Object -ComObject WScript.Shell
-foreach ($path in @($env:GB_START_MENU, (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Grok Bot Local.lnk'))) {
+foreach ($path in @($env:RB_START_MENU, (Join-Path ([Environment]::GetFolderPath('Desktop')) 'RokBot Local.lnk'))) {
   $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
-  if ($item -and !$item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $shell.CreateShortcut($path).TargetPath -eq $env:GB_TARGET) {
+  if ($item -and !$item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $shell.CreateShortcut($path).TargetPath -eq $env:RB_TARGET) {
     Remove-Item -LiteralPath $path -Force
   }
 }
-$handler = 'HKCU:\Software\Classes\grokbot-local'
+$handler = 'HKCU:\Software\Classes\rokbot-local'
 $command = (Get-ItemProperty -LiteralPath "$handler\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
-if ($command -and $command.StartsWith(('"' + $env:GB_TARGET + '" '), [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $handler -Recurse -Force }`
+if ($command -and $command.StartsWith(('"' + $env:RB_TARGET + '" '), [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $handler -Recurse -Force }`
 	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	command.Env = append(os.Environ(), "GB_START_MENU="+startMenuShortcut(), "GB_TARGET="+filepath.Join(directory, exeName))
+	command.Env = append(os.Environ(), "RB_START_MENU="+startMenuShortcut(), "RB_TARGET="+filepath.Join(directory, exeName))
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("shortcuts: %v: %s", err, bytes.TrimSpace(output))
 	}
@@ -376,7 +377,7 @@ func installToGuided(self, directory, version string, shell shellIntegration, op
 	}
 	var window *asyncProgress
 	if onProgress == nil {
-		window = showProgress(text("正在安装 Grok Bot Local…", "Installing Grok Bot Local…"))
+		window = showProgress(text("正在安装 RokBot Local…", "Installing RokBot Local…"))
 		defer window.close()
 	}
 	reportProgress := func(pct int, msg string) {
@@ -391,7 +392,7 @@ func installToGuided(self, directory, version string, shell shellIntegration, op
 		size, err = extract(data, stage, func(done, total int) {
 			if done%8 == 0 || done == total {
 				pct := done * 75 / total
-				msg := text(fmt.Sprintf("正在安装 Grok Bot Local… %d%%", done*100/total), fmt.Sprintf("Installing Grok Bot Local… %d%%", done*100/total))
+				msg := text(fmt.Sprintf("正在安装 RokBot Local… %d%%", done*100/total), fmt.Sprintf("Installing RokBot Local… %d%%", done*100/total))
 				reportProgress(pct, msg)
 			}
 		})
@@ -430,7 +431,7 @@ func installToGuided(self, directory, version string, shell shellIntegration, op
 		tell(fmt.Sprintf(text("并行安装完成。请先退出另一版本，再打开：\n%s\n配对和设置沿用原配置。", "Side-by-side installation complete. Quit the other version, then open:\n%s\nExisting pairing and settings are shared."), filepath.Join(directory, exeName)), mbOK|mbIconInfo)
 		return true, nil
 	}
-	if !silent && ask(text("安装完成。现在打开 Grok Bot Local？", "Installation complete. Open Grok Bot Local now?"), mbIconInfo) {
+	if !silent && ask(text("安装完成。现在打开 RokBot Local？", "Installation complete. Open RokBot Local now?"), mbIconInfo) {
 		command := exec.Command(filepath.Join(directory, exeName))
 		command.Dir = directory
 		command.Start()
@@ -469,7 +470,7 @@ func installedDirectory(self string) string {
 }
 
 func uninstall(self, directory string, shell shellIntegration, worker bool) error {
-	if worker && strings.EqualFold(filepath.Dir(self), filepath.Clean(os.TempDir())) && strings.HasPrefix(filepath.Base(self), "grokbot-uninstall-") {
+	if worker && strings.EqualFold(filepath.Dir(self), filepath.Clean(os.TempDir())) && strings.HasPrefix(filepath.Base(self), "rokbot-uninstall-") {
 		defer cleanupWorker(self)
 	}
 	if _, _, err := inspectDirectory(directory, false); err != nil {
@@ -481,7 +482,7 @@ func uninstall(self, directory string, shell shellIntegration, worker bool) erro
 		if err != nil {
 			return err
 		}
-		copy, err := os.CreateTemp(os.TempDir(), "grokbot-uninstall-*.exe")
+		copy, err := os.CreateTemp(os.TempDir(), "rokbot-uninstall-*.exe")
 		if err != nil {
 			return err
 		}
@@ -501,7 +502,7 @@ func uninstall(self, directory string, shell shellIntegration, worker bool) erro
 		}
 		return nil
 	}
-	if !ask(text("卸载 Grok Bot Local？", "Uninstall Grok Bot Local?"), mbIconWarning|mbDefButton2) && !silent {
+	if !ask(text("卸载 RokBot Local？", "Uninstall RokBot Local?"), mbIconWarning|mbDefButton2) && !silent {
 		return nil
 	}
 	if proceed, err := waitUntilClosed(directory); !proceed {
@@ -518,14 +519,14 @@ func uninstall(self, directory string, shell shellIntegration, worker bool) erro
 	}, installOptions{}); err != nil {
 		return err
 	}
-	tell(text("Grok Bot Local 已卸载。已保留配对、设置及个人文件。", "Grok Bot Local has been uninstalled. Pairing, settings and personal files have been kept."), mbOK|mbIconInfo)
+	tell(text("RokBot Local 已卸载。已保留配对、设置及个人文件。", "RokBot Local has been uninstalled. Pairing, settings and personal files have been kept."), mbOK|mbIconInfo)
 	return nil
 }
 
 func cleanupWorker(self string) {
 	cleanup := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-		`Wait-Process -Id $env:GB_PARENT -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $env:GB_TEMP_UNINSTALLER -Force`)
-	cleanup.Env = append(os.Environ(), "GB_TEMP_UNINSTALLER="+self, fmt.Sprintf("GB_PARENT=%d", os.Getpid()))
+		`Wait-Process -Id $env:RB_PARENT -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $env:RB_TEMP_UNINSTALLER -Force`)
+	cleanup.Env = append(os.Environ(), "RB_TEMP_UNINSTALLER="+self, fmt.Sprintf("RB_PARENT=%d", os.Getpid()))
 	cleanup.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	cleanup.Start()
 }
@@ -603,7 +604,7 @@ func main() {
 	}
 	if err != nil {
 		if errors.Is(err, errInUse) {
-			tell(text("Grok Bot Local 正在运行，请先退出。", errInUse.Error()), mbIconError)
+			tell(text("RokBot Local 正在运行，请先退出。", errInUse.Error()), mbIconError)
 			os.Exit(3)
 		}
 		tell(text("操作未完成：", "The operation did not finish: ")+err.Error(), mbIconError)

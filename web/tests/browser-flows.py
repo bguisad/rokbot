@@ -1,4 +1,4 @@
-"""Optional Playwright test of the web client: python -B web/tests/browser-flows.py <GrokBotLocal-web-*.zip>.
+"""Optional Playwright test of the web client: python -B web/tests/browser-flows.py <RokBotLocal-web-*.zip>.
 
 Runs the real Host service (host/server, needs `npm ci --prefix host/server`) on loopback with a
 temporary data directory and a fixture Host core (fixture-host.mjs), installs the supplied bundle and
@@ -20,7 +20,7 @@ from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 # Phone layout classes android.css sets on <html>.
-LIST, CHAT = re.compile(r'\bgrokbot-view-list\b'), re.compile(r'\bgrokbot-view-chat\b')
+LIST, CHAT = re.compile(r'\brokbot-view-list\b'), re.compile(r'\brokbot-view-chat\b')
 # Fake notifications: headless browsers cannot show real ones, and the page's own rules are under test.
 NOTIFICATIONS = '''(() => {
   const shown = [];
@@ -28,7 +28,7 @@ NOTIFICATIONS = '''(() => {
   Notification.permission = 'granted';
   Notification.requestPermission = async () => 'granted';
   Object.defineProperty(window, 'Notification', { value: Notification, configurable: true, writable: true });
-  window.__grokbotShown = shown;
+  window.__rokbotShown = shown;
 })();'''
 
 
@@ -106,7 +106,7 @@ class Run:
 def shown(page, name):
     # Polls from here: wait_for_function evaluates a string, which Safari's CSP for the page refuses.
     for _ in range(100):
-        if any(body.endswith(name) for body in page.evaluate('window.__grokbotShown.map(item => item.body)')):
+        if any(body.endswith(name) for body in page.evaluate('window.__rokbotShown.map(item => item.body)')):
             return
         page.wait_for_timeout(100)
     raise AssertionError(f'{name}: no notification shown')
@@ -132,7 +132,7 @@ def sign_in(run):
     expect(code).to_have_value(key)
     code.press('Enter')
     expect(page).to_have_url(re.compile(r'/web/renderer/index\.html$'))
-    expect(page.locator('html')).to_have_class(re.compile(r'\bgrokbot-web\b'))
+    expect(page.locator('html')).to_have_class(re.compile(r'\brokbot-web\b'))
 
 
 def workspace(run, phone):
@@ -156,7 +156,7 @@ def workspace(run, phone):
     notify('other', 'Other reply')
     shown(page, run.name)
     # Notifications from the previous device's run may still be inside the page's start-up window.
-    bodies = [body for body in page.evaluate('window.__grokbotShown.map(item => item.body)') if body.endswith(run.name)]
+    bodies = [body for body in page.evaluate('window.__rokbotShown.map(item => item.body)') if body.endswith(run.name)]
     assert bodies == [f'Other reply · {run.name}'], (run.name, bodies)
     message = f'Hello from {run.name}'
     field.click()

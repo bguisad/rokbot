@@ -21,7 +21,7 @@ PATCH_HOST_SPEC.loader.exec_module(patch_host)
 
 
 def pinned_host_archive():
-    configured = os.environ.get('PROKBOT_TEST_HOST_ARCHIVE')
+    configured = os.environ.get('ROKBOT_TEST_HOST_ARCHIVE') or os.environ.get('PROKBOT_TEST_HOST_ARCHIVE')
     candidates = [Path(configured).expanduser()] if configured else [
         Path(__file__).resolve().parents[2] / 'inputs' / 'host' / 'sand-host-bundle-d0a4baa.tgz',
     ]
@@ -93,10 +93,16 @@ class PinnedPatchTests(unittest.TestCase):
         self.assertIn(b'await Promise.allSettled([stream1.throw(e), stream22.close()]', additions)
         self.assertIn(b'.catch(() => interactionHandler.invocationId)', additions)
 
+    def test_accepts_both_rokbot_and_legacy_grokbot_bytepatch_schemas(self):
+        self.assertEqual(self.recipe['schema'], 'rokbot-bytepatch/v1')
+        self.assertEqual(bytepatch.apply(self.raw, {**self.recipe, 'schema': 'grokbot-bytepatch/v1'}), self.target)
+        with self.assertRaisesRegex(ValueError, 'Unsupported patch schema'):
+            bytepatch.apply(self.raw, {**self.recipe, 'schema': 'other-schema/v1'})
+
     def test_bot_id_injection_applies_to_the_complete_pinned_harness_target(self):
         source = pinned_host_archive()
         if source is None:
-            self.skipTest('set PROKBOT_TEST_HOST_ARCHIVE to run the pinned Host recipe check')
+            self.skipTest('set ROKBOT_TEST_HOST_ARCHIVE to run the pinned Host recipe check')
         expected = {
             'recovered-core__stable__harness-turn-run-shell.mjs.gbp.gz': (
                 '23657bba5e9d8a5b9cb90553312be1793b568bbe89af3d377c31cd681195911d', 769, (418, 449)),

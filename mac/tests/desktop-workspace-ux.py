@@ -33,7 +33,7 @@ def digest(path):
 
 def verify(app):
     pins = json.loads((REPO / 'windows/patchers/desktop/supported.json').read_text('utf-8'))
-    marker = json.loads((app / 'resources/grokbot-local.patch.json').read_text('utf-8'))
+    marker = json.loads((app / 'resources/rokbot-local.patch.json').read_text('utf-8'))
     assert marker['version'] == pins['version'] and marker['originalAsarSha256'] == pins['asarSha256']
     assert marker['executable']['originalSha256'] == pins['exeSha256'] and digest(app / 'Grok Bot.exe') == marker['executable']['patchedSha256']
     assert digest(app / 'resources/app.asar') == marker['patchedAsarSha256']
@@ -134,16 +134,16 @@ def wait_for(fn, seconds=20):
 
 @contextmanager
 def workspace(app):
-    with tempfile.TemporaryDirectory(prefix='prokbot-workspace-ux-') as tmp, Fixture() as fixture, sync_playwright() as pw:
+    with tempfile.TemporaryDirectory(prefix='rokbot-workspace-ux-') as tmp, Fixture() as fixture, sync_playwright() as pw:
         thread = threading.Thread(target=fixture.serve_forever, daemon=True); thread.start()
         with socket.socket() as reserve:
             reserve.bind(('127.0.0.1', 0)); port = reserve.getsockname()[1]
         home = Path(tmp)
         env = {k: os.environ[k] for k in ('SystemRoot', 'WINDIR', 'COMSPEC', 'SystemDrive') if k in os.environ}
         for key, child in [('APPDATA', 'roaming'), ('LOCALAPPDATA', 'local'), ('TEMP', 'tmp'), ('TMP', 'tmp'),
-                           ('USERPROFILE', 'home'), ('HOME', 'home'), ('GROKBOT_LOCAL_TEST_PROFILE', 'profile')]:
+                           ('USERPROFILE', 'home'), ('HOME', 'home'), ('ROKBOT_LOCAL_TEST_PROFILE', 'profile')]:
             d = home / child; d.mkdir(exist_ok=True); env[key] = str(d)
-        env.update(PATH=str(Path(env['SystemRoot']) / 'System32'), GROKBOT_LOCAL_DEBUG_PORT=str(port))
+        env.update(PATH=str(Path(env['SystemRoot']) / 'System32'), ROKBOT_LOCAL_DEBUG_PORT=str(port))
         proc = subprocess.Popen([str(app / 'Grok Bot.exe'), '--disable-gpu', '--disable-gpu-shader-disk-cache', '--disable-background-networking', '--no-first-run', '--lang=en-US',
                                  '--proxy-server=http://127.0.0.1:9', '--proxy-bypass-list=127.0.0.1;localhost'], cwd=home,
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

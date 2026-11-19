@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ProkBot Plus benchmark observer and offline evidence validator (never generates workload)."""
+"""RokBot benchmark observer and offline evidence validator (never generates workload)."""
 import argparse
 import hashlib
 import json
@@ -14,7 +14,7 @@ import guest
 
 def selftest():
     # A deliberately short, synthetic, Host-only trace. Success means the validator *rejects* it as capacity evidence.
-    with tempfile.TemporaryDirectory(prefix='prokbot-bench-selftest-') as temp:
+    with tempfile.TemporaryDirectory(prefix='rokbot-bench-selftest-') as temp:
         root = Path(temp); proc = root / 'proc'; proc.mkdir()
         (proc / 'meminfo').write_text('MemTotal: 128 kB\nMemAvailable: 64 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n', encoding='ascii')
         (proc / 'vmstat').write_text('oom_kill 0\npswpin 0\npswpout 0\n', encoding='ascii')

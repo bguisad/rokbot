@@ -46,7 +46,7 @@ async function api(path, { method = 'GET', body, signal = consoleSession?.signal
   try {
     response = await fetch(path, {
       method, credentials: 'same-origin', signal,
-      headers: { 'content-type': 'application/json', 'x-grokbot-csrf': '1' },
+      headers: { 'content-type': 'application/json', 'x-rokbot-csrf': '1' },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
   } catch (error) {
@@ -135,7 +135,7 @@ function showView(view) {
     element.classList.toggle('active', active);
     if (active) element.setAttribute('aria-current', 'page'); else element.removeAttribute('aria-current');
   }
-  document.title = `${titles[activeView]} · Grok Bot Host`;
+  document.title = `${titles[activeView]} · RokBot Host`;
   $('#sidebar').classList.remove('open'); $('#nav-toggle').setAttribute('aria-expanded', 'false');
   window.scrollTo(0, 0);
   const params = new URLSearchParams(location.search); params.set('view', activeView);
@@ -213,7 +213,7 @@ $('#nav-toggle').addEventListener('click', () => {
   const open = $('#sidebar').classList.toggle('open');
   $('#nav-toggle').setAttribute('aria-expanded', String(open));
 });
-document.addEventListener('grokbot:logout', () => showAuth());
+document.addEventListener('rokbot:logout', () => showAuth());
 
 try {
   const session = await api('/admin/api/session');

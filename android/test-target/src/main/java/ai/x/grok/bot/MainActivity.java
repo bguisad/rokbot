@@ -27,7 +27,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("GrokBot Target App (1.16.0)");
+        title.setText("RokBot Target App (1.16.0)");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setGravity(Gravity.CENTER);
@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
         root.addView(mInfo);
         updateIntentText(getIntent());
 
-        // Official RN surface labels hooked by GrokBotBootstrap (6 GBBootstrap surfaces)
+        // Official RN surface labels hooked by RokBotBootstrap (6 native modal surfaces)
         for (String label : new String[] {
                 "Connect Host",
                 "Profile",

@@ -28,7 +28,7 @@ export class Federation {
     return this;
   }
   role() { return this.store.value.role ?? 'primary'; }
-  identity() { const { id, publicKey } = this.store.value.identity; return { id, publicKey, name: this.profile?.current().hostName ?? 'Grok Bot Host', url: this.store.value.url }; }
+  identity() { const { id, publicKey } = this.store.value.identity; return { id, publicKey, name: this.profile?.current().hostName ?? 'RokBot Host', url: this.store.value.url }; }
   publicConfig() { return { role: this.role(), primaryId: this.store.value.primaryId ?? null, identity: this.identity(), url: this.store.value.url, privateNetwork: this.store.value.privateNetwork,
     peers: this.store.value.peers.map(publicPeer), messages: this.store.value.messages.slice(-200).reverse().map(messageView) }; }
   async save(input) {

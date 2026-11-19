@@ -7,7 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 
-SCHEMA = 'grokbot-bytepatch/v1'
+SCHEMA = 'rokbot-bytepatch/v1'
 MAX_BYTES = 512 * 1024 * 1024
 
 
@@ -70,7 +70,7 @@ def create(source, target, index=None):
 
 
 def apply(source, recipe):
-    if recipe.get('schema') != SCHEMA:
+    if recipe.get('schema') not in (SCHEMA, 'grokbot-bytepatch/v1'):
         raise ValueError('Unsupported patch schema')
     if len(source) != recipe['sourceBytes'] or digest(source) != recipe['sourceSha256']:
         raise ValueError('Unsupported original: SHA-256 mismatch')

@@ -6,7 +6,7 @@ package main
 import "C"
 import (
 	"encoding/json"
-	"grokbot.local/tunnel/core"
+	"rokbot.local/tunnel/core"
 	"sync"
 	"unsafe"
 )

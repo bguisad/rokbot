@@ -11,7 +11,7 @@ import { Readable } from 'node:stream';
 const lookupImpl = async () => [{ address: '93.184.215.14', family: 4 }];
 
 async function profile(t) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'grokbot-link-preview-test-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'rokbot-link-preview-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   return directory;
 }

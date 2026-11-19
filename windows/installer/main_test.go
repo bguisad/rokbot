@@ -38,14 +38,17 @@ func TestDirectoryOwnership(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "resources"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	put("resources/grokbot-local.patch.json", `{}`)
+	put("resources/rokbot-local.patch.json", `{}`)
 	check(false, false)
-	put("resources/grokbot-local.patch.json", `{"appUserModelId":"dev.grokbot.local"}`)
+	put("resources/rokbot-local.patch.json", `{"appUserModelId":"dev.rokbot.local"}`)
 	check(true, false)
 	check(false, false)
 	for _, invalid := range []string{".", "", filepath.VolumeName(dir) + `\`} {
 		if _, _, err := inspectDirectory(invalid, true); err == nil {
 			t.Fatalf("accepted %q", invalid)
 		}
+	}
+	if len(footerMagic) != 16 || footerMagic != "ROKBOT-SETUP-V1\x00" {
+		t.Fatalf("unexpected footerMagic: %q (%d)", footerMagic, len(footerMagic))
 	}
 }

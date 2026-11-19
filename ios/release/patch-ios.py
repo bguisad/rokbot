@@ -50,7 +50,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, required=True, help=f'Decrypted Grok Bot {version} ({build}) IPA')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--bundle-id', default='dev.grokbot.local')
+    parser.add_argument('--bundle-id', default='dev.rokbot.local')
     parser.add_argument('--app-group', help='App Group configured in your signing account')
     parser.add_argument('--remove-extensions', action='store_true', help='Explicitly omit Live Activity, share and notification extensions')
     args = parser.parse_args()
@@ -59,7 +59,7 @@ def main():
     started = time.monotonic()
     original_digest = digest(args.input.read_bytes())
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='grokbot-ios-', dir=args.output.parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix='rokbot-ios-', dir=args.output.parent) as temporary:
         work = Path(temporary)
         source = extract(args.input, work / 'source')
         info = plistlib.loads((source / 'Info.plist').read_bytes())
@@ -81,7 +81,7 @@ def main():
             if path.is_absolute() or '..' in path.parts:
                 raise ValueError('Invalid resource path')
             (resources / path).write_bytes(apply(original, load(ROOT / 'recipes/ios' / record['patch'])))
-        dylib = ROOT / 'bin/GrokBotLocal.dylib'
+        dylib = ROOT / 'bin/RokBotLocal.dylib'
         if digest(dylib.read_bytes()) != manifest['dylibSha256']:
             raise ValueError('Injection library checksum mismatch')
         command = [sys.executable, ROOT / 'patchers/ios/patch-app.py', '--source', source,
@@ -96,11 +96,11 @@ def main():
         report.update(seconds=round(time.monotonic()-started, 3), inputSha256=original_digest,
                       signing='unsigned', originalPreserved=digest(args.input.read_bytes()) == original_digest)
         report.pop('app', None)
-        report['ipa'] = 'GrokBot-Local-resignable.ipa'
+        report['ipa'] = 'RokBot-Local-resignable.ipa'
         (work / 'patched/patch-report.json').write_text(json.dumps(report, indent=2)+'\n')
         # Only the IPA, our library and the report are delivered. No profile/certificate.
         shutil.rmtree(work / 'patched/Payload')
-        shutil.copy2(dylib, work / 'patched/GrokBotLocal.dylib')
+        shutil.copy2(dylib, work / 'patched/RokBotLocal.dylib')
         shutil.move(str(work / 'patched'), str(args.output))
         print(json.dumps(report))
 

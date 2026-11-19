@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 import { subscribe } from './streams.mjs';
 
 const COORDINATOR_VERSION = 3;
@@ -50,7 +50,7 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
     else if (status === 404) onUnauthorized?.();
   }
   async function request(endpoint, args, signal, method = 'POST') {
-    if (lifetime.signal.aborted) throw new Error(grokText('已退出连接，请重新连接。', 'Disconnected. Connect again.'));
+    if (lifetime.signal.aborted) throw new Error(rokText('已退出连接，请重新连接。', 'Disconnected. Connect again.'));
     const active = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
     const response = await fetch(`${config.server}${endpoint}`, {
       method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.token}` },
@@ -58,7 +58,7 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
       signal: active, redirect: 'error',
     });
     active.throwIfAborted(); // A late 401 for a closed port is not a revocation of its live siblings.
-    if (process.env.GROKBOT_LOCAL_DEBUG_PORT) console.log('[gateway]', endpoint, response.status);
+    if (process.env.ROKBOT_LOCAL_DEBUG_PORT) console.log('[gateway]', endpoint, response.status);
     if (!response.ok) {
       if (response.status === 401) await unauthorized();
       const value = await response.json().catch(() => null);
@@ -68,7 +68,7 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
     return response.status === 204 || response.status === 205 ? null : await response.json();
   }
   async function command(method, args = {}, signal) {
-    if (lifetime.signal.aborted) throw new Error(grokText('已退出连接，请重新连接。', 'Disconnected. Connect again.'));
+    if (lifetime.signal.aborted) throw new Error(rokText('已退出连接，请重新连接。', 'Disconnected. Connect again.'));
     if (method === 'getServerAgentRoster') return { status: 'disabled' };
     if (method === 'getMainAgent') return { agentId: null };
     if (method === 'resolveAgentCreation') return { kind: 'box' };

@@ -3,10 +3,10 @@ import { spawn } from 'node:child_process';
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { grokText as localText, setLocaleSource } from './i18n.mjs';
+import { rokText as localText, setLocaleSource } from './i18n.mjs';
 import { credentialStore, credentialUnavailableText, finishPairingWindow, pair, verifyDevice, openTransport, restoreConnection, savedConnectionMatches } from './connection.mjs';
 import { APP_USER_MODEL_ID, canRegisterDesktopIntegration, connectWindowChrome, createTray, ensureStartMenuShortcut, initialLink, isWindows,
-  windowChrome, windowHandlers } from './platform.mjs';
+  resolveDesktopProfile, windowChrome, windowHandlers } from './platform.mjs';
 import { createGateway } from './gateway.mjs';
 import { createClientPersistence } from './client-persistence.mjs';
 import { createAttachmentHandlers, createAttachmentMediaResolver } from './attachments.mjs';
@@ -26,12 +26,9 @@ import { applyAsarUpdateAndRestart, canApplyAsarUpdate } from './asar-install.mj
 
 const clientRoot = path.dirname(fileURLToPath(import.meta.url));
 const payload = path.join(clientRoot, '../dist');
-const isolatedProfile = Boolean(process.env.GROKBOT_LOCAL_DEBUG_PORT && process.env.GROKBOT_LOCAL_TEST_PROFILE);
-const profile = isolatedProfile
-  ? path.resolve(process.env.GROKBOT_LOCAL_TEST_PROFILE)
-  : path.join(app.getPath('appData'), 'Grok Bot Local');
+const { isolatedProfile, profile, debugPort } = resolveDesktopProfile({ appDataDir: app.getPath('appData') });
 app.setPath('userData', profile);
-app.setName('Grok Bot Local');
+app.setName('RokBot Local');
 // Windows groups windows and delivers toasts by this ID; it matches the Start menu shortcut.
 if (isWindows) app.setAppUserModelId(APP_USER_MODEL_ID);
 const clientSettings = loadSettings(profile);
@@ -41,21 +38,21 @@ process.env.SAND_DISABLE_UPDATES = '1';
 process.env.SAND_DISABLE_TELEMETRY = '1';
 app.commandLine.appendSwitch('disable-breakpad');
 // Debugging is opt-in and loopback only; packaged clients expose no debug port.
-if (process.env.GROKBOT_LOCAL_DEBUG_PORT) {
+if (debugPort) {
   app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
-  app.commandLine.appendSwitch('remote-debugging-port', process.env.GROKBOT_LOCAL_DEBUG_PORT);
+  app.commandLine.appendSwitch('remote-debugging-port', debugPort);
 }
 let config, mainWindow, connectWindow, gateway, notifications, connectionError = '';
 let quitting = false, starting = true;
 let transport, tray;
-const transportBinary = path.join(process.resourcesPath, isWindows ? 'grokbot-tailcat.exe' : 'grokbot-tailcat');
+const transportBinary = path.join(process.resourcesPath, isWindows ? 'rokbot-tailcat.exe' : 'rokbot-tailcat');
 let methodCall, accountProfile, localExec, browserProviders, voiceAvailability, deepLinksReady = false, pendingAgent = null;
 const ports = new Set();
 const store = credentialStore(profile, safeStorage);
 const persistence = createClientPersistence(profile);
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', (_event, argv) => {
-  const link = argv.find(value => value.startsWith('grokbot-local:'));
+  const link = initialLink(argv);
   if (link) routeLink(link);
   else void showApp();
 });
@@ -118,7 +115,7 @@ function connectionStatus() {
 }
 function reportConnection() {
   if (mainWindow && !mainWindow.isDestroyed())
-    mainWindow.webContents.send('grokbot-local:connection-changed', connectionStatus());
+    mainWindow.webContents.send('rokbot-local:connection-changed', connectionStatus());
 }
 function unauthorized() {
   connectionError = localText('连接已失效，请重新配对。', 'Connection expired. Pair again.');
@@ -133,7 +130,7 @@ async function showConnection() {
   if (!app.isReady()) return;
   if (connectWindow && !connectWindow.isDestroyed()) { connectWindow.show(); connectWindow.focus(); return; }
   connectWindow = new BrowserWindow({ width: 510, height: 550, resizable: false, maximizable: false,
-    title: localText('连接 Grok Bot', 'Connect Grok Bot'), backgroundColor: '#111111', ...connectWindowChrome(),
+    title: localText('连接 RokBot', 'Connect RokBot'), backgroundColor: '#111111', ...connectWindowChrome(),
     webPreferences: { preload: path.join(clientRoot, 'connect-preload.cjs'), sandbox: true, nodeIntegration: false, contextIsolation: true } });
   connectWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   connectWindow.webContents.on('will-navigate', event => event.preventDefault());
@@ -144,7 +141,7 @@ function updateMenu() {
   // Windows windows are frameless with native caption buttons; the menu only supplies shortcuts.
   Menu.setApplicationMenu(Menu.buildFromTemplate(isWindows
     ? [{ role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
-    : [{ label: 'Grok Bot', submenu: [{ role: 'about' }, { type: 'separator' },
+    : [{ label: 'RokBot', submenu: [{ role: 'about' }, { type: 'separator' },
       { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
 }
@@ -164,7 +161,7 @@ async function showWorkspace() {
   if (['dark', 'light', 'system'].includes(clientSettings.theme)) nativeTheme.themeSource = clientSettings.theme;
   const background = nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff';
   const win = new BrowserWindow({ width: 1200, height: 850, minWidth: 720, minHeight: 500,
-    title: 'Grok Bot', backgroundColor: background, ...windowChrome(background),
+    title: 'RokBot', backgroundColor: background, ...windowChrome(background),
     webPreferences: { preload: path.join(clientRoot, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: false, webviewTag: true } });
   mainWindow = win;
@@ -184,12 +181,12 @@ async function showWorkspace() {
   win.on('focus', () => send('window-focus', {}));
   win.on('close', event => {
     if (!quitting) { event.preventDefault(); win.hide(); }
-    if (process.env.GROKBOT_LOCAL_DEBUG_PORT) console.log('[notification-window]', JSON.stringify({visible:win.isVisible(),focused:win.isFocused(),quitting}));
+    if (debugPort) console.log('[notification-window]', JSON.stringify({visible:win.isVisible(),focused:win.isFocused(),quitting}));
     void gateway.command('setWindowFocused', { isFocused: false }).catch(() => {});
   });
   notifications = await createNotifications({ config: activeConfig, profile, Notification, openAgent,
     sounds: await createSounds(profile, payload), command: gateway.command, getWindow: () => BrowserWindow.getFocusedWindow() ?? mainWindow,
-    reportDecision: item => { if (process.env.GROKBOT_LOCAL_DEBUG_PORT) console.log('[notification-decision]', JSON.stringify(item)); },
+    reportDecision: item => { if (debugPort) console.log('[notification-decision]', JSON.stringify(item)); },
     onUnauthorized: unauthorized });
   const uploads = createAttachmentUploads({ profile, command: gateway.command,
     onProgress: progress => { if (!win.isDestroyed()) win.webContents.send('dune-rpc:main:e:attachment-commit-progress', progress); } });
@@ -276,14 +273,14 @@ async function showWorkspace() {
   finishPairingWindow(pairingWindow, connectWindow, connectionError);
 }
 
-ipcMain.on('grokbot-local:locale', event => { event.returnValue = trusted(event, mainWindow) || trusted(event, connectWindow) ? (clientSettings.language === 'system' ? app.getLocale() : clientSettings.language) : 'en'; });
+ipcMain.on('rokbot-local:locale', event => { event.returnValue = trusted(event, mainWindow) || trusted(event, connectWindow) ? (clientSettings.language === 'system' ? app.getLocale() : clientSettings.language) : 'en'; });
 ipcMain.on('sand:boot-snapshot-sync', event => { event.returnValue = trusted(event, mainWindow) ? boot : {}; });
-ipcMain.handle('grokbot-local:status', async event => {
+ipcMain.handle('rokbot-local:status', async event => {
   requireConnection(event);
   if (config && accountProfile) await accountProfile.refresh().catch(() => {});
   return connectionStatus();
 });
-ipcMain.handle('grokbot-local:voice-credential', async (event, agentId) => {
+ipcMain.handle('rokbot-local:voice-credential', async (event, agentId) => {
   if (!trusted(event, mainWindow) || !config || !gateway) throw new Error('Unexpected renderer');
   try {
     if (clientSettings.realtimeVoice !== true) throw new Error(localText('请启用实时语音。', 'Enable realtime voice.'));
@@ -292,11 +289,11 @@ ipcMain.handle('grokbot-local:voice-credential', async (event, agentId) => {
   // 1.1.0 reads a missing usage refusal as a usage limit; this failure is never one.
   catch (error) { return { ok: false, fault: { reason: 'unavailable' }, usageRefusal: null, detail: error.message }; }
 });
-ipcMain.handle('grokbot-local:voice-preference', async (event, enabled) => {
+ipcMain.handle('rokbot-local:voice-preference', async (event, enabled) => {
   if (!trusted(event, mainWindow) || !methodCall) throw new Error('Unexpected renderer');
   return enabled === undefined ? methodCall('getRealtimeVoiceEnabled') : methodCall('setRealtimeVoiceEnabled', { enabled });
 });
-ipcMain.handle('grokbot-local:pair', async (event, args) => {
+ipcMain.handle('rokbot-local:pair', async (event, args) => {
   requireConnection(event);
   try {
     const saved = config, editing = args.edit === true, tunneled = args.tailcat === true, mode = args.mode === 'password' ? 'password' : 'code';
@@ -322,13 +319,13 @@ ipcMain.handle('grokbot-local:pair', async (event, args) => {
     return { ok: true };
   } catch (error) { return { ok: false, error: error.message }; }
 });
-ipcMain.handle('grokbot-local:disconnect', async event => {
+ipcMain.handle('rokbot-local:disconnect', async event => {
   requireConnection(event); await store.clear(); config = null; connectionError = '';
   stopConnection(); await transport?.close(); transport = null; reportConnection(); updateMenu();
   return { ok: true };
 });
-ipcMain.on('grokbot-local:open-management', event => { if (trusted(event, mainWindow) && config) void shell.openExternal(`${config.server}/admin`); });
-ipcMain.handle('grokbot-local:update-profile', async (event, args) => {
+ipcMain.on('rokbot-local:open-management', event => { if (trusted(event, mainWindow) && config) void shell.openExternal(`${config.server}/admin`); });
+ipcMain.handle('rokbot-local:update-profile', async (event, args) => {
   if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
   if (typeof args?.id !== 'string' || !args.profile || Object.entries(args.profile).some(([key, value]) => !['title', 'description'].includes(key) || typeof value !== 'string')) throw new Error('Invalid Bot profile');
   const agents = await gateway.command('listAgents');
@@ -351,7 +348,7 @@ app.whenReady().then(async () => {
 setLocaleSource(() => clientSettings.language === 'system' ? app.getLocale() : clientSettings.language);
 await mkdir(profile, { recursive: true, mode: 0o700 });
 const registerIntegration = await canRegisterDesktopIntegration({ isolatedProfile });
-if (registerIntegration && (!isWindows || !app.getApplicationNameForProtocol('grokbot-local://'))) app.setAsDefaultProtocolClient('grokbot-local');
+if (registerIntegration && (!isWindows || !app.getApplicationNameForProtocol('rokbot-local://'))) app.setAsDefaultProtocolClient('rokbot-local');
 // Official update and account network code is never started. Renderer traffic
 // is restricted to the current Host; credentials stay in this main process.
 const restrict = target => target.webRequest.onBeforeRequest((details, callback) => {

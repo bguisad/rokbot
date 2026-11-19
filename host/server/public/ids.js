@@ -16,11 +16,14 @@ export function clientId(prefix = 'item', cryptoImpl = globalThis.crypto) {
 }
 
 export function persistentClientDeviceId(prefix = 'web', storage = globalThis.localStorage) {
-  const key = 'grokbot.clientDeviceId';
+  const key = 'rokbot.clientDeviceId';
+  const legacyKey = 'grokbot.clientDeviceId';
   try {
-    const existing = storage?.getItem?.(key);
+    const existing = storage?.getItem?.(key) ?? storage?.getItem?.(legacyKey);
     if (typeof existing === 'string' && existing.trim() && /^[A-Za-z0-9._:@-]{1,128}$/.test(existing.trim())) {
-      return existing.trim();
+      const normalized = existing.trim();
+      if (!storage?.getItem?.(key)) storage?.setItem?.(key, normalized);
+      return normalized;
     }
   } catch {}
   const fresh = clientId(prefix);

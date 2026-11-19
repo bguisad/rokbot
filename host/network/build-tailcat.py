@@ -19,9 +19,9 @@ if args.target == 'ios-arm64':
     env.update(GOOS='ios', GOARCH='arm64', CGO_ENABLED='1', CC='clang',
                CGO_CFLAGS=f'-arch arm64 -isysroot {sdk} -miphoneos-version-min=15.1',
                CGO_LDFLAGS=f'-arch arm64 -isysroot {sdk} -miphoneos-version-min=15.1')
-    command += ['-buildmode=c-archive', '-o', str(args.output.resolve() / 'libGrokTailcat.a'), './mobile']
+    command += ['-buildmode=c-archive', '-o', str(args.output.resolve() / 'libRokTailcat.a'), './mobile']
 else:
-    name = 'grokbot-tailcat'
+    name = 'rokbot-tailcat'
     if args.target.startswith('linux-'):
         env.update(GOOS='linux', GOARCH=args.target.split('-')[1], CGO_ENABLED='0')
     elif args.target == 'windows-amd64':
@@ -29,5 +29,5 @@ else:
         name += '.exe'
     elif args.target == 'native' and os.name == 'nt':
         name += '.exe'
-    command += ['-ldflags=-s -w', '-o', str(args.output.resolve() / name), './cmd/grokbot-tailcat']
+    command += ['-ldflags=-s -w', '-o', str(args.output.resolve() / name), './cmd/rokbot-tailcat']
 subprocess.run(command, cwd=ROOT / 'network/tailcat', env=env, check=True)

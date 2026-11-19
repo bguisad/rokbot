@@ -6,9 +6,10 @@ import { peerAddress } from '../server/federation-identity.mjs';
 /** Preserve the original SendToAgent and background wake; replace only remote transport. */
 export async function startLocalFederation(context, { call, interval = 1500, extensions = id => context.deps[id] } = {}) {
   if (!call) {
-    const configured = process.env.GROKBOT_FEDERATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
-    if (configured && process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE) {
-      const base = new URL(configured), token = (await readFile(process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
+    const configured = process.env.ROKBOT_FEDERATION_URL ?? process.env.GROKBOT_FEDERATION_URL ?? process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
+    const tokenFile = process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
+    if (configured && tokenFile) {
+      const base = new URL(configured), token = (await readFile(tokenFile, 'utf8')).trim();
       call = async (method, body = {}) => {
         const response = await fetch(new URL(`/internal/federation/${method}`, base), { method: 'POST', redirect: 'error',
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });

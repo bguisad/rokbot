@@ -14,6 +14,7 @@ const ALLOWED_MIME_TYPES = new Map([
   ['.apk', 'application/vnd.android.package-archive'],
   ['.exe', 'application/vnd.microsoft.portable-executable'],
   ['.dmg', 'application/x-apple-diskimage'],
+  ['.rbdelta', 'application/octet-stream'],
   ['.gbdelta', 'application/octet-stream'],
 ]);
 
@@ -116,7 +117,10 @@ export async function handleUpdateProxy(
   response,
   path,
   url,
-  { device, connections, allowOrigin = process.env.GROKBOT_UPDATE_UPSTREAM_ORIGIN || null, updateDir = process.env.GROKBOT_UPDATE_DIR || null, lookupImpl = lookup } = {},
+  { device, connections,
+    allowOrigin = (process.env.ROKBOT_UPDATE_UPSTREAM_ORIGIN ?? process.env.GROKBOT_UPDATE_UPSTREAM_ORIGIN) || null,
+    updateDir = (process.env.ROKBOT_UPDATE_DIR ?? process.env.GROKBOT_UPDATE_DIR) || null,
+    lookupImpl = lookup } = {},
 ) {
   if (path !== '/local/updates/fetch') return false;
   check(['GET', 'HEAD'].includes(request.method), 405, 'Unsupported method');

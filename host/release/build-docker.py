@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 import shutil
@@ -55,10 +56,13 @@ def prepare_box(box_archive):
         source = load_verified_archive(box_archive.resolve())
         run('docker', 'tag', source, BOX_TAG)
         return BOX_ID
-    source = next((ref for ref in (BOX, BOX_TAG, BOX_ID) if image_id(ref) in BOX_IDENTITIES), None)
+    mirror_ref = (os.environ.get('ROKBOT_BOX_IMAGE') or os.environ.get('GROKBOT_BOX_IMAGE') or '').strip()
+    candidates = (*( [mirror_ref] if mirror_ref else () ), BOX, BOX_TAG, BOX_ID)
+    source = next((ref for ref in candidates if image_id(ref) in BOX_IDENTITIES), None)
     if not source:
-        run('docker', 'pull', '--platform', BOX_SPEC['platform'], BOX)
-        source = BOX
+        pull_ref = mirror_ref or BOX
+        run('docker', 'pull', '--platform', BOX_SPEC['platform'], pull_ref)
+        source = pull_ref
     identity = image_id(source)
     if identity not in BOX_IDENTITIES:
         raise ValueError('Unsupported Box image identity')
@@ -68,7 +72,7 @@ def prepare_box(box_archive):
 
 def choose_runtime(platform, host_only):
     if platform == 'linux/arm64':
-        return 'grokbot-arm-runtime:local', not host_only
+        return 'rokbot-arm-runtime:local', not host_only
     return BOX_TAG, True
 
 
@@ -79,8 +83,8 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--box-only', action='store_true', help='Prepare only the verified desktop')
     modes.add_argument('--host-only', action='store_true', help='Build a Host for a separate execution node')
-    parser.add_argument('--image', default='grokbot-host:local')
-    parser.add_argument('--base-image', default='grokbot-patch-base:local')
+    parser.add_argument('--image', default='rokbot-host:local')
+    parser.add_argument('--base-image', default='rokbot-patch-base:local')
     args = parser.parse_args()
     manifest = INPUTS
     started = time.monotonic()
@@ -96,12 +100,13 @@ def main():
     if args.box_only:
         print(json.dumps({'boxImage': box_image, 'originalImageId': identity, 'inputSeconds': round(time.monotonic()-started, 3)}))
         return
-    with tempfile.TemporaryDirectory(prefix='grokbot-build-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='rokbot-build-') as temporary:
         work = Path(temporary)
         archive = args.host_archive
         if not archive:
             archive = work / 'host.tgz'
-            with urllib.request.urlopen(manifest['archive']['url'], timeout=60) as response, archive.open('wb') as target:
+            archive_url = os.environ.get('ROKBOT_HOST_ARCHIVE_URL') or os.environ.get('GROKBOT_HOST_ARCHIVE_URL') or manifest['archive']['url']
+            with urllib.request.urlopen(archive_url, timeout=60) as response, archive.open('wb') as target:
                 shutil.copyfileobj(response, target)
         if file_digest(archive) != manifest['archive']['sha256']:
             raise ValueError('Unsupported Host archive SHA-256')

@@ -53,7 +53,7 @@ export async function carveSevenZip(setup, destination, expected, wrapper) {
   const { size } = await stat(setup);
   if (!wrapper) return carvePayload(setup, destination, expected, size);
   if (size !== wrapper.bytes) throw new Error('官方安装包摘要不匹配。');
-  const scratch = await mkdtemp(path.join(path.dirname(destination), '.grokbot-wrapper-'));
+  const scratch = await mkdtemp(path.join(path.dirname(destination), '.rokbot-wrapper-'));
   try {
     // Inspect only the private copy whose complete bytes matched, not a possibly changed source path.
     const verified = await copyPinned(setup, path.join(scratch, 'installer.exe'), wrapper, '官方安装包');

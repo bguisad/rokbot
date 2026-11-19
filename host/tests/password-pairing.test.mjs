@@ -14,7 +14,7 @@ function memory(store) {
 }
 
 async function startPairFixture(t, { role = 'primary' } = {}) {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-pwd-pair-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-pwd-pair-'));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const auth = await new Auth(dataDir).load();
   const limiter = new RateLimit();
@@ -170,10 +170,10 @@ test('POST /connect/pair enforces strict brute-force rate limiting on password a
 });
 
 test('POST /connect/pair handles password pairing identically over direct HTTPS/canonical origin and Tailcat ingress', async t => {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-host-pwd-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-host-pwd-'));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const auth = await new Auth(dataDir).load();
-  await auth.setup(auth.setupKey, 'example-admin-password');
+  await auth.setup(auth.setupKey, 'fixture-pair-pass-123');
   const limiter = new RateLimit();
   const federation = { role: () => 'primary' };
   const canonical = 'https://host.example';
@@ -182,7 +182,7 @@ test('POST /connect/pair handles password pairing identically over direct HTTPS/
     try {
       const reqPath = request.url.split('?')[0];
       const origin = originFor(request, ingress?.matches(request) ? '' : canonical);
-      delete request.headers['x-grokbot-tailcat-ingress'];
+      delete request.headers['x-rokbot-tailcat-ingress'];
       if (request.method === 'POST' && reqPath === '/connect/pair') {
         return await handleConnectPair({ request, response, origin, auth, federation, limiter });
       }
@@ -214,7 +214,7 @@ test('POST /connect/pair handles password pairing identically over direct HTTPS/
   const directRes = await fetch(`${directBase}/connect/pair`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: 'example-admin-password', deviceName: 'Direct Mac', platform: 'desktop' }),
+    body: JSON.stringify({ password: 'fixture-pair-pass-123', deviceName: 'Direct Mac', platform: 'desktop' }),
   });
   assert.equal(directRes.status, 201);
   const directJson = await directRes.json();
@@ -223,7 +223,7 @@ test('POST /connect/pair handles password pairing identically over direct HTTPS/
   const ingressRes = await fetch(`${ingressBase}/connect/pair`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: 'example-admin-password', deviceName: 'Tailcat Phone', platform: 'desktop', clientKind: 'android' }),
+    body: JSON.stringify({ password: 'fixture-pair-pass-123', deviceName: 'Tailcat Phone', platform: 'desktop', clientKind: 'android' }),
   });
   assert.equal(ingressRes.status, 201);
   const ingressJson = await ingressRes.json();

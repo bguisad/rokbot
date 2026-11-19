@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 import Module, { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { readFile, writeFile, rename, mkdir, rm } from 'node:fs/promises';
@@ -84,16 +84,16 @@ export async function createLocalExec({ payload, profile, config, command, reque
     handlers: {
       getLocalToolPermission: () => permission,
       setLocalToolPermission: async args => {
-        if (!['ask', 'never', 'always'].includes(args.permission) || args.machineId && args.machineId !== machineId) throw new Error(grokText('无效的本机权限设置', 'Invalid local access permission'));
+        if (!['ask', 'never', 'always'].includes(args.permission) || args.machineId && args.machineId !== machineId) throw new Error(rokText('无效的本机权限设置', 'Invalid local access permission'));
         await publishPermission(args.permission);
         permission = args.permission; await serialize(() => save(settingsPath, { permission }));
         if (permission === 'never') codex?.stop();
         return permission;
       },
       recordLocalToolApproval: args => serialize(async () => {
-        if (args.machineId && args.machineId !== machineId) throw new Error(grokText('请在目标电脑确认审批。', 'Approve this request on the target computer.'));
+        if (args.machineId && args.machineId !== machineId) throw new Error(rokText('请在目标电脑确认审批。', 'Approve this request on the target computer.'));
         const record = original.parseApproval({ id: args.approvalId, action: args.action, target: args.target });
-        if (!record) throw new Error(grokText('本机审批无效', 'Invalid local approval'));
+        if (!record) throw new Error(rokText('本机审批无效', 'Invalid local approval'));
         let entries = [];
         try { entries = JSON.parse(await readFile(approvalsPath, 'utf8')).approvals ?? []; } catch {}
         await save(approvalsPath, { approvals: [...entries.filter(item => item.id !== record.id), record].slice(-500) });

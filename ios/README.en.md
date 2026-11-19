@@ -1,4 +1,4 @@
-# ProkBot Plus iOS Patch
+# RokBot iOS Patch
 
 [简体中文](README.md)
 
@@ -11,11 +11,11 @@ For the full deployment steps see the [deployment guide](../docs/AI-INSTALL.en.m
 ```sh
 python3 release/patch-ios.py \
   --input /path/to/GrokBot-decrypted.ipa \
-  --output ./GrokBot-Patched \
-  --bundle-id dev.grokbot.local
+  --output ./RokBot-Patched \
+  --bundle-id dev.rokbot.local
 ```
 
-Outputs `GrokBot-Local-resignable.ipa`, `GrokBotLocal.dylib` and `extension-signing.json`. Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code.
+Outputs `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `extension-signing.json`. Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code.
 
 Push notifications use APNs or Bark, configured in the Host console. Enable realtime voice in the app settings.
 

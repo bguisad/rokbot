@@ -1,10 +1,10 @@
 // The web client: a bundle built by web/patchers/patch.mjs from the administrator's own copy of
-// the official Grok Bot Windows installer, uploaded from the admin page and served at /web/.
+// the official Windows installer, uploaded from the admin page and served at /web/.
 //
 // - The bundle contains the official interface, so every one of its files goes only to a browser
 //   that signed in with a pairing code. Nothing of it is public; the sign-in page is Host code.
 // - A signed-in browser holds an HttpOnly, SameSite=Strict cookie with its device token. The
-//   device API accepts that cookie only together with the `x-grokbot-web: 1` header, which
+//   device API accepts that cookie only together with the `x-rokbot-web: 1` header, which
 //   another site cannot send without a CORS preflight the Host never grants, and only from the
 //   Host's own origin. Bundle files are plain GETs and carry Cross-Origin-Resource-Policy.
 // - Upload replaces the whole bundle at once: it is checked against its own manifest, unpacked
@@ -19,8 +19,8 @@ import { JsonStore } from './storage.mjs';
 import { check, cookie } from './security.mjs';
 
 const gzip = promisify(gzipCallback);
-export const WEB_COOKIE = 'grokbot_web';
-export const BUNDLE_SCHEMA = 'grokbot-web-bundle/v1';
+export const WEB_COOKIE = 'rokbot_web';
+export const BUNDLE_SCHEMA = 'rokbot-web-bundle/v1';
 export const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
 const MAX_FILES = 5000, MAX_FILE_BYTES = 64 * 1024 * 1024, MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const COOKIE_SECONDS = 400 * 24 * 60 * 60;
@@ -230,7 +230,7 @@ export class WebClient {
     const token = cookie(request, WEB_COOKIE);
     if (!token) return null;
     check(this.available, 403, '网页版未启用');
-    check(request.headers['x-grokbot-web'] === '1', 403, '请从网页版发起请求');
+    check(request.headers['x-rokbot-web'] === '1', 403, '请从网页版发起请求');
     check(!request.headers.origin || request.headers.origin === origin, 403, '请求来源不匹配');
     return token;
   }
@@ -261,16 +261,16 @@ export class WebClient {
       response.once('close', () => { stream.destroy(); resolve(); });
     });
   }
-  /** The scripts the Bot computer view loads beside the noVNC page (see android/client/vnc-bridge.js). */
+  /** The scripts the Bot computer view loads beside the noVNC page (see web/client/vnc-bridge.js). */
   async vncScript(name, origin) {
     const file = name === 'vnc-bridge' ? 'client/vnc-bridge.js' : 'client/vnc-preload.js';
     check(this.has(file), 404, '文件不存在');
     const script = await readFile(join(this.root, 'current', ...file.split('/')));
-    return name === 'vnc-bridge' ? Buffer.concat([Buffer.from(`window.__grokbotAppOrigin = ${JSON.stringify(origin)};\n`), script]) : script;
+    return name === 'vnc-bridge' ? Buffer.concat([Buffer.from(`window.__rokbotAppOrigin = ${JSON.stringify(origin)};\n`), script]) : script;
   }
   /** Adds the bridge scripts to the noVNC page right after <head>, in the page's own directory. */
   static injectVncBridge(html, directory) {
-    const tags = `<script src="${directory}/__grokbot-vnc-bridge.js"></script><script src="${directory}/__grokbot-vnc-preload.js"></script>`;
+    const tags = `<script src="${directory}/__rokbot-vnc-bridge.js"></script><script src="${directory}/__rokbot-vnc-preload.js"></script>`;
     const opening = /<head(\s[^>]*)?>/i.exec(html);
     return opening ? html.slice(0, opening.index + opening[0].length) + tags + html.slice(opening.index + opening[0].length) : tags + html;
   }
@@ -291,10 +291,14 @@ export async function rawBody(request, limit = MAX_BUNDLE_BYTES) {
 }
 
 /** The installable-app description for phones; it names the Host, never the interface's files. */
-export function webManifest() {
+export function webManifest(client = null) {
+  const icons = [{ src: '/web/client/icon.png', sizes: '256x256', type: 'image/png', purpose: 'any' }];
+  if (client?.has?.('client/icon-512.png')) {
+    icons.push({ src: '/web/client/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' });
+  }
   return {
-    name: 'Grok Bot', short_name: 'Grok Bot', start_url: '/web/', scope: '/web/', display: 'standalone',
+    name: 'RokBot', short_name: 'RokBot', start_url: '/web/', scope: '/web/', display: 'standalone',
     background_color: '#111111', theme_color: '#111111',
-    icons: [{ src: '/web/client/icon.png', sizes: '256x256', type: 'image/png', purpose: 'any' }],
+    icons,
   };
 }

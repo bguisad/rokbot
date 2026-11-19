@@ -1,6 +1,6 @@
 """Verify all ZIPs named in --sums without extracting anything to disk.
 
---shell-manifest is the trusted public checkout's android/patchers/supported.json,
+--shell-manifest is the trusted public checkout's android/recipes/manifest.json,
 not a file taken from the ZIP. --sensitive-file is caller-managed binary data:
 one literal per LF/CRLF line (caller controls its Windows ACL). For native helpers,
 --helper-sums supplies their SHA-256 records from an independent public baseline.
@@ -28,14 +28,16 @@ BLOCK = TEXT = 64 << 10
 MAX_ZIP, MAX_MEMBER, MAX_BUFFER = 256 * MIB, 128 * MIB, 32 * MIB
 MAX_DEPTH, MAX_ENTRIES, MAX_DIRECTORY = 4, 20000, 2 * MIB
 MAX_PACKAGES, MAX_RULES, MAX_LITERAL = 16, 128, 4096
-SHELL = 'android/dist/grokbot-android-shell.apk'
-MANIFEST = 'android/patchers/supported.json'
-HELPERS = {'windows/dist/network/grokbot-tailcat.exe', 'windows/dist/installer/grokbot-setup-stub.exe',
-           'host/bin/grokbot-tailcat', 'host/bin/linux-arm64/grokbot-tailcat',
-           'mac/dist/network/grokbot-tailcat', 'ios/bin/GrokBotLocal.dylib'}
-PRIVATE = set(('.git .cache .ssh .gnupg .aws .azure .kube .codex .grokbot-local .netrc .npmrc '
+SHELL = 'android/bin/rokbot-native-base.apk'
+MANIFEST = 'android/recipes/manifest.json'
+HELPERS = {'windows/dist/network/rokbot-tailcat.exe', 'windows/dist/installer/rokbot-setup-stub.exe',
+           'host/bin/rokbot-tailcat', 'host/bin/linux-arm64/rokbot-tailcat',
+           'mac/dist/network/rokbot-tailcat', 'ios/bin/RokBotLocal.dylib',
+           'android/bin/jniLibs/arm64-v8a/libgroktailcat.so',
+           'android/bin/jniLibs/arm64-v8a/libgroktailcatjni.so'}
+PRIVATE = set(('.git .cache .ssh .gnupg .aws .azure .kube .codex .rokbot-local .grokbot-local .netrc .npmrc '
                '.private private secrets .secrets credentials .credentials host-data box-home box-workspace '
-               'backups .gradle .grokbot .docker .envrc android-signing.json auth.json model.env setup-key credentials.json secrets.json').split())
+               'backups .gradle .rokbot .grokbot .docker .envrc android-signing.json auth.json model.env setup-key credentials.json secrets.json').split())
 KEY_FILES = ('.key', '.pem', '.p8', '.pk8', '.pkcs8', '.p12', '.pfx', '.ppk', '.jks', '.keystore', '.mobileprovision')
 NOTES = re.compile(r'access[ ._-]*(?:notes?|details?|info|records?|credentials?)|(?:server|ssh)[ ._-]*(?:access|login|notes?|credentials?|details?)|'
                    r'^(?:access|ssh|login)(?:[ ._-]*notes?)?\.|\u8bbf\u95ee|\u767b\u5f55|\u51ed\u636e|\u5bc6\u7801|\u79c1\u94a5|\u670d\u52a1\u5668|'
@@ -121,9 +123,10 @@ def pin(data):
         need(len(obj) == len(pairs), 'shell-manifest')
         return obj
     try:
-        shell = json.loads(data, object_pairs_hook=unique)['shell']
-        digest = shell['sha256']
-        need(shell['path'] == SHELL and isinstance(digest, str) and re.fullmatch('[0-9a-f]{64}', digest), 'shell-manifest')
+        doc = json.loads(data, object_pairs_hook=unique)
+        need(isinstance(doc, dict), 'shell-manifest')
+        digest = doc['baseApkSha256']
+        need(isinstance(digest, str) and re.fullmatch('[0-9a-f]{64}', digest), 'shell-manifest')
         return digest
     except (ValueError, TypeError, KeyError, RecursionError):
         raise Rejected('shell-manifest') from None

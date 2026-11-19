@@ -39,12 +39,12 @@ test('stableAutomationId, trigger detection, and resolveWebhookOrigin behave as 
   assert.equal(hasWebhookTrigger(null), false);
 
   assert.equal(
-    resolveWebhookOrigin({ canonical: 'https://prokbot.cosfoc.com', requestOrigin: 'http://127.0.0.1:18080', isIngress: false }),
-    'https://prokbot.cosfoc.com',
+    resolveWebhookOrigin({ canonical: 'https://rokbot.example.invalid', requestOrigin: 'http://127.0.0.1:18080', isIngress: false }),
+    'https://rokbot.example.invalid',
   );
   assert.equal(
-    resolveWebhookOrigin({ canonical: 'https://prokbot.cosfoc.com', requestOrigin: 'http://100.64.0.10:18080', isIngress: true }),
-    'https://prokbot.cosfoc.com',
+    resolveWebhookOrigin({ canonical: 'https://rokbot.example.invalid', requestOrigin: 'http://100.64.0.10:18080', isIngress: true }),
+    'https://rokbot.example.invalid',
   );
   assert.equal(
     resolveWebhookOrigin({ canonical: 'http://127.0.0.1:18080', requestOrigin: 'http://100.64.0.10:18080', isIngress: true }),
@@ -57,7 +57,7 @@ test('stableAutomationId, trigger detection, and resolveWebhookOrigin behave as 
 });
 
 test('getAutomationWebhookCredential mints persistent keys using publicUrl and executes POST /automations/webhook/<id>', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'grokbot-auto-webhooks-'));
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-auto-webhooks-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
 
   const internalToken = 'internal_token_for_testing_1234567890abcd';
@@ -119,7 +119,7 @@ test('getAutomationWebhookCredential mints persistent keys using publicUrl and e
           localId: input?.automationId,
           verifyAgent,
           hostCall,
-          origin: resolveWebhookOrigin({ canonical: 'https://prokbot.cosfoc.com', requestOrigin: 'http://127.0.0.1:18080', isIngress: false }),
+          origin: resolveWebhookOrigin({ canonical: 'https://rokbot.example.invalid', requestOrigin: 'http://127.0.0.1:18080', isIngress: false }),
         }));
       }
       if (req.method === 'POST' && reqPath.startsWith('/internal/automation-webhooks/')) {
@@ -156,7 +156,7 @@ test('getAutomationWebhookCredential mints persistent keys using publicUrl and e
   const credRes1 = await rpc('getAutomationWebhookCredential', { id: agentId, automationId: localId });
   assert.equal(credRes1.status, 200);
   const cred1 = await credRes1.json();
-  assert.equal(cred1.url, 'https://prokbot.cosfoc.com/automations/webhook/0fdae384-6eb9-5b37-a144-8c93ae3dec81');
+  assert.equal(cred1.url, 'https://rokbot.example.invalid/automations/webhook/0fdae384-6eb9-5b37-a144-8c93ae3dec81');
   assert.match(cred1.key, /^[A-Za-z0-9_-]{32,256}$/);
 
   // Repeated reads return the exact same persistent key.
@@ -210,18 +210,18 @@ test('getAutomationWebhookCredential mints persistent keys using publicUrl and e
   // 3. startLocalWebhooks drains the queued event and calls runServerAutomationForEvent with sanitized headers.
   const fired = [];
   const originalEnv = {
-    url: process.env.GROKBOT_NOTIFICATION_URL,
-    tokenFile: process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE,
-    publicUrl: process.env.GROKBOT_PUBLIC_URL,
+    url: process.env.ROKBOT_NOTIFICATION_URL,
+    tokenFile: process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE,
+    publicUrl: process.env.ROKBOT_PUBLIC_URL,
   };
-  process.env.GROKBOT_NOTIFICATION_URL = `${serverUrl}/internal/notifications`;
-  process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE = tokenFile;
-  process.env.GROKBOT_PUBLIC_URL = 'https://prokbot.cosfoc.com';
+  process.env.ROKBOT_NOTIFICATION_URL = `${serverUrl}/internal/notifications`;
+  process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE = tokenFile;
+  process.env.ROKBOT_PUBLIC_URL = 'https://rokbot.example.invalid';
   t.after(() => {
     for (const [k, v] of Object.entries({
-      GROKBOT_NOTIFICATION_URL: originalEnv.url,
-      GROKBOT_INTERNAL_HOST_TOKEN_FILE: originalEnv.tokenFile,
-      GROKBOT_PUBLIC_URL: originalEnv.publicUrl,
+      ROKBOT_NOTIFICATION_URL: originalEnv.url,
+      ROKBOT_INTERNAL_HOST_TOKEN_FILE: originalEnv.tokenFile,
+      ROKBOT_PUBLIC_URL: originalEnv.publicUrl,
     })) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
@@ -264,7 +264,7 @@ test('getAutomationWebhookCredential mints persistent keys using publicUrl and e
 });
 
 test('Admin Webhooks (/hooks/v1/:id) continue to receive, claim, and finish cleanly', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'grokbot-admin-hooks-'));
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-admin-hooks-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
 
   const webhooks = await new Webhooks(dir).load();
@@ -284,9 +284,9 @@ test('Admin Webhooks (/hooks/v1/:id) continue to receive, claim, and finish clea
     socket: { remoteAddress: '127.0.0.1' },
     headers: {
       'content-type': 'application/json',
-      'x-grokbot-timestamp': timestamp,
-      'x-grokbot-event-id': eventId,
-      'x-grokbot-signature': `sha256=${sig}`,
+      'x-rokbot-timestamp': timestamp,
+      'x-rokbot-event-id': eventId,
+      'x-rokbot-signature': `sha256=${sig}`,
     },
   });
   const queued = await webhooks.receive(req, created.id, created.path);
@@ -307,7 +307,7 @@ test('Admin Webhooks (/hooks/v1/:id) continue to receive, claim, and finish clea
 });
 
 test('AutomationWebhooks rotates key if routine createdAt changes', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'grokbot-auto-rotate-'));
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-auto-rotate-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
 
   const store = await new AutomationWebhooks(dir).load();

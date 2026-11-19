@@ -1,7 +1,7 @@
 // Disposable Host for the web client's browser tests: the real Host server (host/server) on loopback
 // with a temporary data directory, in front of a fixture Host core that answers with demo data.
 //
-//   node web/tests/fixture-host.mjs <GrokBotLocal-web-*.zip>
+//   node web/tests/fixture-host.mjs <RokBotLocal-web-*.zip>
 //
 // Prints one JSON line {origin, control, password} and runs until stdin closes. The control
 // address creates pairing codes, publishes notifications, reports what the core received and
@@ -38,8 +38,8 @@ const ENTRIES = [
 ];
 
 const bundle = process.argv[2];
-if (!bundle) throw new Error('Usage: node web/tests/fixture-host.mjs <GrokBotLocal-web-*.zip>');
-const dataDir = await mkdtemp(join(tmpdir(), 'grokbot-web-fixture-'));
+if (!bundle) throw new Error('Usage: node web/tests/fixture-host.mjs <RokBotLocal-web-*.zip>');
+const dataDir = await mkdtemp(join(tmpdir(), 'rokbot-web-fixture-'));
 const received = { sends: [], uploads: [], methods: [] };
 const streams = new Set();
 let entries = ENTRIES, agents = [AGENT];

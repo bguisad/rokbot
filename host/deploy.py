@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operate one local ProkBot Compose project, from a checkout or the Host release package."""
+"""Operate one local RokBot Compose project, from a checkout or the Host release package."""
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -50,8 +50,8 @@ def initialise(home, args):
     except FileExistsError:
         raise ValueError('Configuration already exists; init never overwrites it. Use status or update.') from None
     with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as config:
-        config.write(f'GROKBOT_LISTEN_ADDRESS={listen}\nGROKBOT_PUBLIC_PORT={args.port}\nGROKBOT_PUBLIC_URL={origin}\n'
-                     f'PROKBOT_MODE={"remote" if args.host_only else "local"}\nPROKBOT_PROJECT={args.project}\n')
+        config.write(f'ROKBOT_LISTEN_ADDRESS={listen}\nROKBOT_PUBLIC_PORT={args.port}\nROKBOT_PUBLIC_URL={origin}\n'
+                     f'ROKBOT_MODE={"remote" if args.host_only else "local"}\nROKBOT_PROJECT={args.project}\n')
     print(json.dumps({'configCreated': True, 'publicUrl': origin}))
 
 
@@ -69,16 +69,17 @@ def instance_settings(args, home):
     if path.is_file():
         for line in path.read_text(encoding='utf-8').splitlines():
             key, _, value = line.partition('=')
-            if key in ('PROKBOT_MODE', 'PROKBOT_PROJECT'):
+            # Accept legacy PROKBOT_* markers for smooth migration of existing .env files.
+            if key in ('ROKBOT_MODE', 'ROKBOT_PROJECT', 'PROKBOT_MODE', 'PROKBOT_PROJECT'):
                 markers[key] = value.strip()
-    mode = markers.get('PROKBOT_MODE')
+    mode = markers.get('ROKBOT_MODE') or markers.get('PROKBOT_MODE')
     if mode not in (None, 'remote', 'local') or (mode == 'local' and args.host_only):
         raise ValueError('Instance mode conflicts with its .env; do not switch topologies during an update.')
     args.host_only = args.host_only or mode == 'remote'
-    saved = markers.get('PROKBOT_PROJECT')
+    saved = markers.get('ROKBOT_PROJECT') or markers.get('PROKBOT_PROJECT')
     if saved and args.project and saved != args.project:
         raise ValueError('Project name conflicts with the instance .env; check --home and --project.')
-    args.project = args.project or saved or 'grokbot'
+    args.project = args.project or saved or 'rokbot'
     if not volume_backup.PROJECT_NAME.fullmatch(args.project):
         raise ValueError('Invalid Compose project name')
 
@@ -106,9 +107,9 @@ def backup(args, home, image, *, stopped=False):
 
 def volume_policy(existing, images=None):
     # Explicit process environment takes precedence over a stale setting in an instance .env.
-    env = {**os.environ, 'PROKBOT_EXISTING_VOLUMES': 'true' if existing else 'false'}
+    env = {**os.environ, 'ROKBOT_EXISTING_VOLUMES': 'true' if existing else 'false'}
     for service, ref in (images or {}).items():
-        env['GROKBOT_'+service.upper()+'_IMAGE'] = ref
+        env['ROKBOT_'+service.upper()+'_IMAGE'] = ref
     return env
 
 
@@ -272,7 +273,7 @@ def publish_image(previous, candidate, tag):
 
 @contextmanager
 def staged_host(args, services):
-    candidate = 'prokbot-upgrade:' + uuid4().hex
+    candidate = 'rokbot-upgrade:' + uuid4().hex
     build(args, candidate)
     try:
         check_platform(candidate)
@@ -312,7 +313,7 @@ def upgrade(args, home, dc, services, image, old, root, continuing):
                 run(['docker', 'stop', cid])
             dest = backup(args, home, previous, stopped=True)
             # Keep the old image locally addressable after Compose removes its last container.
-            recovery_image = f'prokbot-recovery:{args.project}-{previous[7:]}'
+            recovery_image = f'rokbot-recovery:{args.project}-{previous[7:]}'
             run(['docker', 'image', 'tag', previous, recovery_image])
             offline_only = volume_backup.check_lineage(root, args.project, continuing=continuing)
             publish_image(public_before, candidate_id, image)
@@ -396,7 +397,7 @@ def operate(args, home, dc):
         return backup(args, home, current['host']['Image'] if 'host' in current else image)
     root = volume_backup.local_lineage(args.project) if args.action == 'update' else args.project
     # Builders also publish fixed shared base/desktop tags. One daemon-wide writer covers aliases and rollback.
-    with volume_backup.lineage_lock(root), volume_backup.operation_lock('prokbot-image-publication-lock'):
+    with volume_backup.lineage_lock(root), volume_backup.operation_lock('rokbot-image-publication-lock'):
         # Preserve the pre-stop fact through snapshot and rollback. This exception never applies
         # to a stopped Host, a restored Host, or recovery into a new project.
         continuing = False
@@ -428,8 +429,8 @@ def operate(args, home, dc):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--home', type=Path, default=Path.home() / 'grokbot', help='Instance directory (.env, backups); default ~/grokbot')
-    parser.add_argument('--project', help='Compose project/volume prefix; default: saved project or grokbot')
+    parser.add_argument('--home', type=Path, default=Path.home() / 'rokbot', help='Instance directory (.env, backups); default ~/rokbot')
+    parser.add_argument('--project', help='Compose project/volume prefix; default: saved project or rokbot')
     parser.add_argument('--host-only', action='store_true', help='Use a separately deployed execution node')
     sub = parser.add_subparsers(dest='action', required=True)
     init = sub.add_parser('init', help='Create .env once; never overwrite an existing deployment')
@@ -479,8 +480,8 @@ def main(argv=None):
         return run(dc + {'status': ['ps', '--all'], 'logs': ['logs', '--tail', '100', 'host'],
                          'setup-key': ['exec', '-T', 'host', 'cat', '/data/setup-key']}[args.action])
     if args.action == 'admin':
-        env = {**os.environ, 'GROKBOT_URL': 'http://127.0.0.1:8000'}
-        flags = [arg for k in ('GROKBOT_URL', 'GROKBOT_ADMIN_PASSWORD', 'MODEL_API_KEY') if k in env for arg in ('-e', k)]
+        env = {**os.environ, 'ROKBOT_URL': 'http://127.0.0.1:8000'}
+        flags = [arg for k in ('ROKBOT_URL', 'ROKBOT_ADMIN_PASSWORD', 'GROKBOT_ADMIN_PASSWORD', 'MODEL_API_KEY') if k in env for arg in ('-e', k)]
         extra = args.arguments or ['help']
         if extra[0] == 'setup':
             extra = [*extra, '--setup-key-file', '/data/setup-key']

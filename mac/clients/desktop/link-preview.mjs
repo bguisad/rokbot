@@ -11,7 +11,7 @@ const FAVICON_LIMIT = 128 * 1024;
 const MAX_REDIRECTS = 5;
 const SUCCESS_TTL = 24 * 60 * 60 * 1000;
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
-  + '(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 GrokBot-LinkPreview/1.0';
+  + '(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 RokBot-LinkPreview/1.0';
 const IMAGE_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -339,7 +339,7 @@ export function createLinkPreview({
           fetchedAt: now(),
         };
       } catch (error) {
-        if (process.env.GROKBOT_LOCAL_DEBUG_PORT) {
+        if (process.env.ROKBOT_LOCAL_DEBUG_PORT) {
           console.warn('[link-preview]', error.code ?? error.name ?? 'failed');
         }
       }

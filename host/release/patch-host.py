@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import tarfile
@@ -68,12 +69,13 @@ def main():
     spec = json.loads((ROOT / 'recipes/host/manifest.json').read_text())
     started = time.monotonic()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='grokbot-host-', dir=args.output.parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix='rokbot-host-', dir=args.output.parent) as temporary:
         work = Path(temporary)
         archive = args.archive
         if not archive:
             archive = work / 'host.tgz'
-            with urllib.request.urlopen(spec['archive']['url'], timeout=60) as response, archive.open('wb') as target:
+            archive_url = os.environ.get('ROKBOT_HOST_ARCHIVE_URL') or os.environ.get('GROKBOT_HOST_ARCHIVE_URL') or spec['archive']['url']
+            with urllib.request.urlopen(archive_url, timeout=60) as response, archive.open('wb') as target:
                 shutil.copyfileobj(response, target)
         if file_digest(archive) != spec['archive']['sha256']:
             raise ValueError('Unsupported original Host archive: SHA-256 mismatch')
@@ -102,7 +104,7 @@ def main():
         args.output.mkdir(mode=0o700)
         shutil.move(str(original), str(args.output / 'original'))
         shutil.move(str(seed), str(args.output / 'seed'))
-        report = dict(schema='grokbot-host-patch/v1', archiveSha256=spec['archive']['sha256'],
+        report = dict(schema='rokbot-host-patch/v1', archiveSha256=spec['archive']['sha256'],
                       files=len(spec['files']), inputSeconds=round(download_seconds, 3),
                       patchSeconds=round(time.monotonic()-started-download_seconds, 3), originalPreserved=True)
         (args.output / 'patch-report.json').write_text(json.dumps(report, indent=2)+'\n')

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 
 export function createClientPersistence(profile) {
   const file = path.join(profile, 'local-client-persistence.json');
@@ -11,7 +11,7 @@ export function createClientPersistence(profile) {
     let text;
     try { text = await readFile(file, 'utf8'); }
     catch (cause) {
-      if (cause.code !== 'ENOENT') throw new Error(grokText(
+      if (cause.code !== 'ENOENT') throw new Error(rokText(
         '无法读取桌面设置文件 local-client-persistence.json；已保留原文件。',
         'Cannot read the desktop profile local-client-persistence.json. The original file was preserved.'), { cause });
       return state = Object.create(null);
@@ -24,7 +24,7 @@ export function createClientPersistence(profile) {
     const kept = `${file}.damaged-${Date.now()}`;
     try { await rename(file, kept); }
     catch (cause) {
-      throw new Error(grokText(
+      throw new Error(rokText(
         '桌面设置文件 local-client-persistence.json 已损坏，且无法改名备份；已保留原文件。',
         'The desktop profile local-client-persistence.json is damaged and could not be renamed. The original file was preserved.'), { cause });
     }

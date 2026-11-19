@@ -181,9 +181,44 @@ test('SSE parser accepts adjacent data frames from compatible gateways', async (
 test('loadModelConfig retains every provider base URL for the Host network boundary', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'model-routing-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  await writeFile(join(directory, 'model.env'), `GROKBOT_MODEL_ROUTING=${JSON.stringify(fixture())}\n`);
-  const config = await loadModelConfig({ env: { GROKBOT_MODEL_ENV: join(directory, 'model.env'), GROKBOT_DATA_DIR: directory } });
+  await writeFile(join(directory, 'model.env'), `ROKBOT_MODEL_ROUTING=${JSON.stringify(fixture())}\n`);
+  const config = await loadModelConfig({ env: { ROKBOT_MODEL_ENV: join(directory, 'model.env'), ROKBOT_DATA_DIR: directory } });
   assert.deepEqual(config.modelBaseUrls, ['https://primary.example/v1', 'https://backup.example/v1']);
+});
+
+test('loadModelConfig and Models support GROKBOT_* migration fallbacks with ROKBOT_* precedence', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'model-routing-fallback-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const policy = defaultPolicy('legacy-grokbot-model');
+  policy.models = [{ id: 'legacy-grokbot-model', efforts: ['low'], contextWindowTokens: 64_000, summaryThresholdTokens: 48_000 }];
+  const legacyEnvFile = join(directory, 'legacy-model.env');
+  await writeFile(legacyEnvFile, [
+    'MODEL_API_FORMAT=openai',
+    'OPENAI_BASE_URL=https://legacy.example/v1',
+    'OPENAI_API_KEY=test-legacy-key',
+    'OPENAI_MODEL=legacy-grokbot-model',
+    `GROKBOT_MODEL_POLICY=${JSON.stringify(policy)}`,
+    '',
+  ].join('\n'));
+  const loadedLegacy = await loadModelConfig({ env: { GROKBOT_MODEL_ENV: legacyEnvFile, GROKBOT_DATA_DIR: directory, GROKBOT_MODEL: 'override-legacy' } });
+  assert.equal(loadedLegacy.model, 'override-legacy');
+  assert.equal(loadedLegacy.usageDirectory, join(directory, 'usage'));
+
+  const rokbotEnvFile = join(directory, 'rokbot-model.env');
+  await writeFile(rokbotEnvFile, `GROKBOT_MODEL_ROUTING=${JSON.stringify(fixture())}\n`);
+  const loadedPrecedence = await loadModelConfig({
+    env: {
+      ROKBOT_MODEL_ENV: rokbotEnvFile,
+      GROKBOT_MODEL_ENV: legacyEnvFile,
+      ROKBOT_DATA_DIR: directory,
+      ROKBOT_MODEL: 'rokbot-wins',
+      GROKBOT_MODEL: 'grokbot-loses',
+    },
+  });
+  assert.deepEqual(loadedPrecedence.modelBaseUrls, ['https://primary.example/v1', 'https://backup.example/v1']);
+  const models = new Models(directory, { filename: rokbotEnvFile });
+  const publicCfg = await models.publicConfig();
+  assert.equal(publicCfg.providers.length, 2);
 });
 
 test('model administration keeps saved provider keys private and preserves them on an unchanged provider', async t => {
@@ -211,8 +246,8 @@ test('legacy Jev configuration remains in the legacy format until an administrat
   await models.save({ apiFormat: 'openai', baseUrl: 'https://legacy.example/v1', apiKey: 'test-legacy-key', model: 'legacy-model',
     contextWindowTokens: 16_000, policy, jevApiKey: 'test-jev-key' });
   const source = await readFile(join(directory, 'model.env'), 'utf8');
-  assert.doesNotMatch(source, /^GROKBOT_MODEL_ROUTING=/m);
-  const loaded = await loadModelConfig({ env: { GROKBOT_MODEL_ENV: join(directory, 'model.env'), GROKBOT_DATA_DIR: directory } });
+  assert.doesNotMatch(source, /^(ROKBOT|GROKBOT)_MODEL_ROUTING=/m);
+  const loaded = await loadModelConfig({ env: { ROKBOT_MODEL_ENV: join(directory, 'model.env'), ROKBOT_DATA_DIR: directory } });
   assert.equal(loaded.policy.mode, 'adaptive');
   assert.equal(loaded.jevApiKey, 'test-jev-key');
   assert.equal((await models.publicConfig()).legacyAdaptiveRouting, true);
@@ -221,7 +256,7 @@ test('legacy Jev configuration remains in the legacy format until an administrat
   const migrated = await models.save({ ...fixture(), migrateLegacyRouting: true });
   assert.equal(migrated.routingMigrated, false);
   assert.equal(migrated.legacyAdaptiveRouting, false);
-  assert.match(await readFile(join(directory, 'model.env'), 'utf8'), /^GROKBOT_MODEL_ROUTING=/m);
+  assert.match(await readFile(join(directory, 'model.env'), 'utf8'), /^ROKBOT_MODEL_ROUTING=/m);
 });
 
 test('a legacy single-model configuration is not reported as task-difficulty routing', async t => {
@@ -315,10 +350,10 @@ test('legacy model.env context and summary thresholds enable compaction through 
     'OPENAI_API_KEY=test-legacy-key',
     'OPENAI_MODEL=legacy-compaction-model',
     'OPENAI_CONTEXT_WINDOW_TOKENS=128000',
-    `GROKBOT_MODEL_POLICY=${JSON.stringify(policy)}`,
+    `ROKBOT_MODEL_POLICY=${JSON.stringify(policy)}`,
     '',
   ].join('\n'));
-  const config = await loadModelConfig({ env: { GROKBOT_MODEL_ENV: join(directory, 'model.env'), GROKBOT_DATA_DIR: directory } });
+  const config = await loadModelConfig({ env: { ROKBOT_MODEL_ENV: join(directory, 'model.env'), ROKBOT_DATA_DIR: directory } });
   const context = contextPolicyFor(config, config.model);
   assert.deepEqual(context, { contextWindowTokens: 128_000, summaryThresholdTokens: 96_000 });
   const session = createModelSession({ ...config, ...context, fetchImpl: async () => sse('OK'),

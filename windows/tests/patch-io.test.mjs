@@ -12,7 +12,7 @@ import { checkOutputLocation, publishBuild, writeNewFile, writeSetup } from '../
 
 async function disposable(t) {
   const base = await realpath(os.tmpdir());
-  const root = await mkdtemp(path.join(base, 'grokbot-patch-io-'));
+  const root = await mkdtemp(path.join(base, 'rokbot-patch-io-'));
   assert.equal(path.dirname(await realpath(root)), base);
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
@@ -45,7 +45,7 @@ test('exclusive writes and setup assembly clean only their own partial files', a
   assert.equal(data.subarray(0, -32).toString(), 'stubzip');
   assert.equal(data.readBigUInt64LE(data.length - 32), 4n);
   assert.equal(data.readBigUInt64LE(data.length - 24), 3n);
-  assert.equal(data.subarray(-16).toString(), 'GROKBOT-SETUP-V1');
+  assert.equal(data.subarray(-16).toString('latin1'), 'ROKBOT-SETUP-V1\0');
   await assert.rejects(writeSetup(stub, archive, out, 3), { code: 'EEXIST' });
   assert.deepEqual(await readFile(out), data);
 });

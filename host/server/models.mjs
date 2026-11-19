@@ -28,7 +28,7 @@ function legacyConfig(values) {
     apiFormat: API_FORMATS.includes(values.MODEL_API_FORMAT) ? values.MODEL_API_FORMAT : 'openai',
     baseUrl: values.OPENAI_BASE_URL ?? '', model: values.OPENAI_MODEL ?? '', apiKey: values.OPENAI_API_KEY ?? '',
     contextWindowTokens: Number(values.OPENAI_CONTEXT_WINDOW_TOKENS ?? 0),
-    policy: parseModelPolicy(values.GROKBOT_MODEL_POLICY, values.OPENAI_MODEL || undefined),
+    policy: parseModelPolicy(values.ROKBOT_MODEL_POLICY ?? values.GROKBOT_MODEL_POLICY, values.OPENAI_MODEL || undefined),
     jevApiKey: values.JEV_API_KEY || '',
   };
 }
@@ -74,7 +74,7 @@ export class Models {
       throw error;
     });
     const values = valuesFrom(source), legacy = legacyConfig(values);
-    const parsed = parseModelRouting(values[MODEL_ROUTING_ENV], legacy);
+    const parsed = parseModelRouting(values[MODEL_ROUTING_ENV] ?? values.GROKBOT_MODEL_ROUTING, legacy);
     let primary;
     try { primary = modelRouteForAgent(parsed.config); }
     catch { primary = undefined; }
@@ -156,7 +156,7 @@ export class Models {
         `OPENAI_API_KEY=${apiKey}`,
         `OPENAI_MODEL=${model}`,
         `OPENAI_CONTEXT_WINDOW_TOKENS=${contextWindowTokens}`,
-        `GROKBOT_MODEL_POLICY=${JSON.stringify(policy)}`,
+        `ROKBOT_MODEL_POLICY=${JSON.stringify(policy)}`,
         `JEV_API_KEY=${config.jevApiKey}`,
         '',
       ].join('\n'));
@@ -171,7 +171,7 @@ export class Models {
       `OPENAI_API_KEY=${primary.apiKey}`,
       `OPENAI_MODEL=${primary.model}`,
       `OPENAI_CONTEXT_WINDOW_TOKENS=${primary.contextWindowTokens}`,
-      `GROKBOT_MODEL_POLICY=${JSON.stringify(policy)}`,
+      `ROKBOT_MODEL_POLICY=${JSON.stringify(policy)}`,
       `JEV_API_KEY=${config.jevApiKey}`,
       '',
     ].join('\n'));

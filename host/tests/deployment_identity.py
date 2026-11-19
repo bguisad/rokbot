@@ -184,8 +184,8 @@ class IdentityTests(unittest.TestCase):
 
     def test_repository_without_tag_queries_only_latest_not_all_repository_tags(self):
         with patch.object(deploy, 'run', wraps=deploy.run) as calls:
-            self.assertIsNone(deploy.tag_state('grokbot-host'))
-        self.assertEqual(calls.call_args.args[0][-1], 'grokbot-host:latest')
+            self.assertIsNone(deploy.tag_state('rokbot-host'))
+        self.assertEqual(calls.call_args.args[0][-1], 'rokbot-host:latest')
 
     def test_new_install_failure_restores_existing_public_tag_of_other_projects(self):
         fresh = self.home('fresh', 18083)

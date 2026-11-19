@@ -67,8 +67,8 @@ export class Webhooks {
     const hook = this.store.value.hooks.find(hook => hook.id === id);
     check(hook?.enabled, 404, 'Webhook not found');
     check(String(request.headers['content-type'] ?? '').split(';')[0].trim() === 'application/json', 415, 'JSON required');
-    const timestamp = request.headers['x-grokbot-timestamp'], eventId = request.headers['x-grokbot-event-id'];
-    const signature = request.headers['x-grokbot-signature'];
+    const timestamp = request.headers['x-rokbot-timestamp'], eventId = request.headers['x-rokbot-event-id'];
+    const signature = request.headers['x-rokbot-signature'];
     check(typeof timestamp === 'string' && /^\d{10}$/.test(timestamp) && Math.abs(this.now() - Number(timestamp) * 1000) <= 300000, 401, 'Expired webhook signature');
     check(typeof eventId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(eventId), 400, 'Invalid event ID');
     check(typeof signature === 'string' && /^sha256=[a-f0-9]{64}$/.test(signature), 401, 'Invalid webhook signature');

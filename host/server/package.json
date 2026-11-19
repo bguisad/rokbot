@@ -1,5 +1,5 @@
 {
-  "name": "grokbot-selfhost-service",
+  "name": "rokbot-selfhost-service",
   "private": true,
   "type": "module",
   "dependencies": {

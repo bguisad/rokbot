@@ -57,7 +57,7 @@ def prepare_extensions(app, bundle_id, group, commands):
             # Original GrokBotActionURL builds a seven-character Swift string.
             # Keep its ABI/length and change only the four MOV-wide immediates.
             offset = start + (0x1f9bc - 0x4000)
-            for index, part in enumerate((0x6267, 0x6f6c, 0x6163, 0x6c)):
+            for index, part in enumerate((0x6272, 0x6f6c, 0x6163, 0x6c)):
                 instruction = struct.unpack_from('<I', data, offset + index * 4)[0]
                 instruction = (instruction & ~(0xffff << 5)) | (part << 5)
                 struct.pack_into('<I', data, offset + index * 4, instruction)
@@ -65,7 +65,7 @@ def prepare_extensions(app, bundle_id, group, commands):
             # Equal-length replacement also preserves the original CFString size.
             if data.count(b'sand-mobile\0') != 1:
                 raise ValueError('Unexpected original share URL scheme')
-            data = data.replace(b'sand-mobile\0', b'gblocal-ios\0')
+            data = data.replace(b'sand-mobile\0', b'rblocal-ios\0')
         path.write_bytes(data)
         info['CFBundleIdentifier'] = bundle_id + '.' + suffix
         info['SandAppGroupIdentifier'] = group

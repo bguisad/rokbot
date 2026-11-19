@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates && rm -rf /var/lib/apt/lists/*
-WORKDIR /opt/grokbot
+WORKDIR /opt/rokbot
 COPY server/package*.json server/
 RUN npm ci --prefix server --omit=dev --ignore-scripts --no-audit --no-fund
 COPY runtime/ runtime/
@@ -12,7 +12,7 @@ COPY release/ release/
 COPY recipes/ recipes/
 COPY network/ network/
 COPY bin/ bin/
-RUN case "$(dpkg --print-architecture)" in arm64) mv bin/linux-arm64/grokbot-tailcat bin/grokbot-tailcat ;; amd64) ;; *) exit 1 ;; esac \
-    && rm -r bin/linux-arm64 && chmod 755 bin/grokbot-tailcat
+RUN case "$(dpkg --print-architecture)" in arm64) mv bin/linux-arm64/rokbot-tailcat bin/rokbot-tailcat ;; amd64) ;; *) exit 1 ;; esac \
+    && rm -r bin/linux-arm64 && chmod 755 bin/rokbot-tailcat
 COPY THIRD_PARTY/ THIRD_PARTY/
 # This stage contains only project code, delta recipes and open-source dependencies.

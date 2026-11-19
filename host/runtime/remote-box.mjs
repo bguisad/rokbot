@@ -15,10 +15,10 @@ with open(p,'rb') as f:
 
 /** Keep the original Exec/window protocol; replace assumptions about shared local files. */
 export function installRemoteBoxAdapter(bindings, original, env = process.env) {
-  const host = env.GROKBOT_BOX_HOST?.trim();
+  const host = (env.ROKBOT_BOX_HOST ?? env.GROKBOT_BOX_HOST)?.trim();
   if (!host) return { mode: 'in-container' };
-  if (!/^[A-Za-z0-9.-]+$/.test(host) && !/^\[[0-9a-f:]+\]$/i.test(host)) throw new Error('GROKBOT_BOX_HOST must be a hostname or IP address');
-  const token = env.GROKBOT_BOX_TOKEN || 'local';
+  if (!/^[A-Za-z0-9.-]+$/.test(host) && !/^\[[0-9a-f:]+\]$/i.test(host)) throw new Error('ROKBOT_BOX_HOST must be a hostname or IP address');
+  const token = env.ROKBOT_BOX_TOKEN || env.GROKBOT_BOX_TOKEN || 'local';
   const { LoopbackSandBox, buildHostShellArgs } = bindings;
   const { shellExecutorResource, BoxFileUnreadableError } = original;
   if (!LoopbackSandBox || !buildHostShellArgs || !shellExecutorResource) throw new Error('Remote Box dependencies are missing');

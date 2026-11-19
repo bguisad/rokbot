@@ -8,7 +8,7 @@ export class Profile {
     this.store = new JsonStore(join(dataDir, "user-profile.json"), {
       version: 1,
       displayName: "本地工作区",
-      hostName: "Grok Bot Host",
+      hostName: "RokBot Host",
       avatarDataUrl: null,
       updatedAt: null,
     });
@@ -51,7 +51,7 @@ export class Profile {
       return this.currentFrom(value);
     });
   }
-  currentFrom({ displayName, avatarDataUrl, updatedAt, hostName = "Grok Bot Host" }) {
+  currentFrom({ displayName, avatarDataUrl, updatedAt, hostName = "RokBot Host" }) {
     return { displayName, avatarDataUrl, hostName, updatedAt };
   }
 }

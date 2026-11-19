@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 
 /** Opt-in research observation. Never records headers, credentials, or reasoning text. */
-export function observeModelFetch(fetchImpl, session = {}, stateDir = process.env.GROKBOT_STATE_DIR ?? '/research/state') {
+export function observeModelFetch(fetchImpl, session = {}, stateDir = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state') {
   const sessionId = randomUUID();
   return async (url, options) => {
     let capture;

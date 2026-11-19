@@ -8,7 +8,7 @@ const descriptions = { en: 'Develop, validate and submit shareable applications 
 const objectSchema = properties => ({ type: 'object', properties, additionalProperties: false });
 const tools = [
   { name: 'application_development_guide', description: 'Read the Host application format, executable MCP example, OAuth setup, and submission workflow before building an application.', inputSchema: objectSchema({}) },
-  { name: 'validate_application', description: 'Validate a grokbot-app JSON package without installing or running it. Supply package or an absolute JSON path on the Bot computer.', inputSchema: objectSchema({ package: { type: 'object' }, path: { type: 'string' } }) },
+  { name: 'validate_application', description: 'Validate a rokbot-app JSON package without installing or running it. Supply package or an absolute JSON path on the Bot computer.', inputSchema: objectSchema({ package: { type: 'object' }, path: { type: 'string' } }) },
   { name: 'submit_application', description: 'Submit a new application to the Host catalog. The user then adds it in Connected Apps and authorizes external services. Does not execute application code.', inputSchema: objectSchema({ package: { type: 'object' }, path: { type: 'string' } }) },
 ];
 const textResult = value => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }] });
@@ -49,10 +49,10 @@ export class Applications {
   list() { return this.connectors.store.data.connectors.map(row => this.get(row.id, false)); }
   export(id) {
     const row = this.connectors.resolve(id); check(!row.builtin, 400, 'Built-in applications do not need exporting');
-    if (row.pluginId) return { ...this.plugins.package(row.id), kind: 'grokbot-app' };
+    if (row.pluginId) return { ...this.plugins.package(row.id), kind: 'rokbot-app' };
     const files = [], icon = row.iconDataUrl ? 'icon.' + row.iconDataUrl.split(';')[0].split('/')[1] : undefined;
     if (icon) files.push({ path: icon, encoding: 'base64', content: row.iconDataUrl.split(',')[1] });
-    return this.plugins.preview({ schemaVersion: 1, kind: 'grokbot-app', id: row.id, version: '1.0.0',
+    return this.plugins.preview({ schemaVersion: 1, kind: 'rokbot-app', id: row.id, version: '1.0.0',
       name: row.name, description: row.description, runtime: { kind: 'remote-mcp', url: row.url, transport: row.transport, auth: row.auth },
       ...(icon ? { icon } : {}), files }).package;
   }

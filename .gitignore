@@ -16,6 +16,7 @@ output/
 *.aab
 *.app/
 *.dmg
+*.rbdelta
 *.gbdelta
 *.jks
 *.keystore
@@ -23,12 +24,23 @@ output/
 *.p12
 *.mobileprovision
 android-signing.json
-!android/bin/grokbot-native-base.apk
+!android/bin/rokbot-native-base.apk
 
-# Local environment & private notes
+# Local environment, keys & private notes
 .env
 .env.*
 !.env.example
+!.env.*.example
+!.env.sample
+!.env.template
+.admin-password
+.rokbot-local/
+.grokbot-local/
+host-data/
+*.pem
+*.key
+model.env
+auth.json
 /接入信息.md
 /接入信息.txt
 

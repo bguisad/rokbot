@@ -10,7 +10,7 @@ import { snapshotPayload } from '../patchers/desktop/snapshot-payload.mjs';
 const pin = bytes => ({ bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
 
 async function fixture(t) {
-  const root = await mkdtemp(path.join(tmpdir(), 'grokbot-payload-test-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'rokbot-payload-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const header = Buffer.alloc(32), body = Buffer.alloc(65536 + 17, 'z');
   Buffer.from('377abcaf271c', 'hex').copy(header);

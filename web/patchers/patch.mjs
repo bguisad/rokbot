@@ -1,45 +1,71 @@
 #!/usr/bin/env node
-// Build the web client bundle that a Host serves at /web/. The interface comes from the user's
-// own copy of the official Grok Bot Windows installer (verified against pinned hashes) with the
-// ProkBot Plus desktop recipes and the Android interface patches applied, exactly as the Android
-// client builds it; the bridge is android/client with the browser layer in web/client. The
-// bundle is installed on the user's own Host (admin page, or --upload) and is never published.
-import { readFile, mkdtemp, rm, readdir } from 'node:fs/promises';
+// Build the web client bundle that a Host serves at /web/. The interface comes from the
+// user's own copy of the official Grok Bot Windows installer (verified against pinned hashes)
+// with the RokBot desktop recipes and the web interface patches applied; the bridge and
+// browser layer live in web/client. The bundle is installed on the user's own Host (admin
+// page, or --upload) and is never published.
+import { readFile, writeFile, mkdir, mkdtemp, rm, stat, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
+import { applyReleaseRecipes } from '../../mac/patchers/desktop/release-recipes.mjs';
 import { acquireDesktopSource } from '../../mac/patchers/desktop/download-original.mjs';
-import { applicationIcon } from '../../windows/patchers/desktop/pe.mjs';
 import { unpackOriginal } from '../../windows/patchers/desktop/original.mjs';
 import { selectWindowsRelease } from '../../windows/patchers/desktop/inputs.mjs';
 import { withInstallerDiagnostic } from '../../windows/patchers/desktop/input-diagnostic.mjs';
-import { androidRenderers, stageAndroidArchive, verifyStagedRenderer, wrapPreload, wrapVncPreload } from '../../android/patchers/patch.mjs';
-import { rendererPatches } from '../../android/patchers/renderer-patches.mjs';
-import { writeZip, createEntry } from '../../android/patchers/apk.mjs';
-import { writeBuildOutput } from '../../android/patchers/output.mjs';
+import { desktopEdges } from '../../mac/clients/desktop/local-services.mjs';
+import { rendererPatches, applyPinnedRendererPatch } from './renderer-patches.mjs';
+import { writeZip, createEntry } from './zip.mjs';
+import { writeBuildOutput } from './output.mjs';
 import { uploadBundle, adminPassword } from './upload.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(here, '..');
 const repo = path.resolve(webRoot, '..');
-const androidClient = path.join(repo, 'android/client');
-const sharedAssets = ['i18n.mjs', 'external-url.mjs', 'connectors.mjs', 'dictation.mjs', 'workspace.css', 'workspace-keys.cjs'];
-// The Android shell's own pages and native layer; web/client provides the browser's.
-const ANDROID_ONLY = new Set(['connect.html', 'connect.js', 'connect.css', 'native.js']);
-export const BUNDLE_SCHEMA = 'grokbot-web-bundle/v1';
+const sharedAssets = ['i18n.mjs', 'external-url.mjs', 'connectors.mjs', 'dictation.mjs', 'sand-machines.mjs', 'workspace.css', 'workspace-keys.cjs'];
+export const BUNDLE_SCHEMA = 'rokbot-web-bundle/v1';
+const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 async function hashFile(filename) { return sha(await readFile(filename)); }
+
+export function resolveWebIcons(rootDir = repo) {
+  return {
+    icon256Path: path.join(rootDir, 'assets/logo/rokbot-icon-256.png'),
+    icon512Path: path.join(rootDir, 'assets/logo/rokbot-icon-512.png'),
+  };
+}
+
+function assertPngDimensions(bytes, expectedSize, label) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 24 || !bytes.subarray(0, 8).equals(PNG_MAGIC) ||
+      bytes.subarray(12, 16).toString('ascii') !== 'IHDR') {
+    throw new Error(`Invalid RokBot PNG icon: ${label}`);
+  }
+  const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
+  if (width !== expectedSize || height !== expectedSize) {
+    throw new Error(`Unexpected RokBot icon dimensions for ${label}: ${width}x${height} (expected ${expectedSize}x${expectedSize})`);
+  }
+}
+
+export async function readWebIcons(rootDir = repo) {
+  const { icon256Path, icon512Path } = resolveWebIcons(rootDir);
+  const [icon, icon512] = await Promise.all([readFile(icon256Path), readFile(icon512Path)]);
+  assertPngDimensions(icon, 256, icon256Path);
+  assertPngDimensions(icon512, 512, icon512Path);
+  return { icon, icon512 };
+}
 
 export const WEB_TAGS = '<script src="../client/boot-data.js"></script>\n    <script src="../client/compat.js"></script>\n    ' +
   '<script src="../client/desktop/workspace-keys.js"></script>\n    <script type="module" src="../client/bridge.js"></script>\n    ' +
   '<script type="module" src="../client/web-shell.js"></script>\n    <link rel="stylesheet" href="../client/android.css">\n    ' +
   '<link rel="stylesheet" href="../client/desktop/workspace.css">\n    <link rel="stylesheet" href="../client/web.css">\n    ' +
-  '<link rel="icon" href="../client/icon.png">\n    <link rel="apple-touch-icon" href="../client/icon.png">\n    ' +
+  '<link rel="icon" type="image/png" sizes="256x256" href="../client/icon.png">\n    ' +
+  '<link rel="icon" type="image/png" sizes="512x512" href="../client/icon-512.png">\n    ' +
+  '<link rel="apple-touch-icon" href="../client/icon-512.png">\n    ' +
   '<link rel="manifest" href="/web/manifest.webmanifest" crossorigin="use-credentials">\n    ' +
   '<meta name="mobile-web-app-capable" content="yes">\n    <meta name="apple-mobile-web-app-capable" content="yes">\n    ' +
-  '<meta name="apple-mobile-web-app-title" content="Grok Bot">\n    ';
+  '<meta name="apple-mobile-web-app-title" content="RokBot">\n    ';
 const MODULE_ANCHOR = '<script type="module" crossorigin src="./assets/index-';
 const FRAME_ANCHOR = /frame-src sand-html-preview: sand-canvas: sand-mcp-app:(?: sand-[a-z-]+:)*;/g;
 const CONNECT_ANCHOR = /connect-src 'self' ws: /g;
@@ -57,6 +83,91 @@ export function webIndexHtml(html) {
     .replace(CONNECT_ANCHOR, "connect-src 'self' ws: wss: ");
 }
 
+export function preloadMethods(source) {
+  return [...desktopEdges(source).main].sort();
+}
+
+export function preloadEdges(source) {
+  return Object.fromEntries([...desktopEdges(source).others].map(([edge, methods]) => [edge, [...methods].sort()]));
+}
+
+export function webRenderers(build) {
+  const pins = ({ desktopVersion, rendererIndexSha256, preloadSha256, vncPreloadSha256 }) =>
+    ({ desktopVersion, rendererIndexSha256, preloadSha256, vncPreloadSha256 });
+  return [pins(build), ...(build.fallback ?? []).map(pins)];
+}
+
+export function wrapPreload(source) {
+  return `// Generated by web/patchers/patch.mjs from the original preload.cjs of the user's download.\n` +
+    `export const methods = ${JSON.stringify(preloadMethods(source))};\n` +
+    `export const edges = ${JSON.stringify(preloadEdges(source))};\n` +
+    `export default function preload(require, process) {\nconst module = { exports: {} };\n` +
+    `(function (module, exports) {\n${source}\n}).call(module.exports, module, module.exports);\n}\n`;
+}
+
+// Both originals are CommonJS bundles (`module.exports = ...`); the VNC one installs itself on load.
+export function wrapVncPreload(source) {
+  return `// Generated by web/patchers/patch.mjs from the original preload-vnc.cjs of the user's download.\n` +
+    `(function (require, process) {\nconst module = { exports: {} };\n` +
+    `(function (module, exports) {\n${source}\n}).call(module.exports, module, module.exports);\n` +
+    `})(window.__rokbotVncPreload.require, window.__rokbotVncPreload.process);\n`;
+}
+
+// extractAll buffers the entire ASAR. Stage individual reviewed members instead; include existing
+// recipe destinations so the shared replayer still detects collisions with a declared new file.
+export async function stageWebArchive(asar, archive, unpacked, recipes, verifyOnly, patches) {
+  const manifest = JSON.parse(await readFile(path.join(recipes, 'manifest.json'), 'utf8'));
+  const members = new Set(asar.listPackage(archive).map(name => name.replaceAll('\\', '/').replace(/^\//, '')));
+  const needed = new Set(['dist/renderer/index.html', 'dist/electron-preload/preload.cjs', 'dist/electron-preload/preload-vnc.cjs',
+    ...patches.map(patch => `dist/renderer/${patch.file}`)]);
+  for (const file of manifest.files) {
+    needed.add(file.path);
+    if (file.source !== null) needed.add(file.source ?? file.path);
+  }
+  if (!verifyOnly) for (const name of members) if (name.startsWith('dist/renderer/')) needed.add(name);
+  for (const name of needed) {
+    if (typeof name !== 'string' || name.includes('\\') || path.win32.parse(name).root || name.split('/').some(p => !p || p === '.' || p === '..'))
+      throw new Error(`Invalid ASAR member path: ${name}`);
+    if (!members.has(name)) continue;
+    const member = path.normalize(name), target = path.join(unpacked, member), info = asar.statFile(archive, member, false);
+    if ('link' in info) throw new Error(`Unexpected link in Web inputs: ${name}`);
+    if ('files' in info) { await mkdir(target, { recursive: true }); continue; }
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, asar.extractFile(archive, member, false));
+  }
+  await applyReleaseRecipes(unpacked, recipes);
+  return manifest.files.length;
+}
+
+export async function verifyStagedRenderer(dist, build, patches = rendererPatches(build.desktopVersion), indexHtml = webIndexHtml) {
+  const pinned = async (name, digest) => {
+    const bytes = await readFile(path.join(dist, name));
+    if (sha(bytes) !== digest) throw new Error(`${name} 与支持的版本不一致。`);
+    return bytes.toString('utf8');
+  };
+  const index = 'renderer/index.html';
+  const patchedHtml = indexHtml(await pinned(index, build.rendererIndexSha256));
+  await writeFile(path.join(dist, index), patchedHtml);
+  const preload = await pinned('electron-preload/preload.cjs', build.preloadSha256);
+  const vncPreload = await pinned('electron-preload/preload-vnc.cjs', build.vncPreloadSha256);
+  for (const patch of patches) {
+    const file = path.join(dist, 'renderer', patch.file);
+    await writeFile(file, applyPinnedRendererPatch(patch, await readFile(file)));
+  }
+  for (const file of [
+    path.join(webRoot, 'client/bridge.js'),
+    path.join(webRoot, 'client/android.css'),
+    path.join(webRoot, 'client/web-shell.js'),
+    path.join(webRoot, 'client/native.js'),
+    path.join(webRoot, 'client/boot-data.js'),
+    ...sharedAssets.map(name => path.join(repo, 'mac/clients/desktop', name)),
+  ]) {
+    if (!(await stat(file)).isFile()) throw new Error(`Missing Web bridge input: ${path.basename(file)}`);
+  }
+  await readWebIcons(repo);
+  return { preload, vncPreload };
+}
+
 async function listFiles(root, prefix = '') {
   const result = [];
   for (const item of await readdir(path.join(root, prefix), { withFileTypes: true })) {
@@ -68,17 +179,17 @@ async function listFiles(root, prefix = '') {
 }
 
 /** The files of the bundle, by path: the patched renderer, the bridge and the copied originals. */
-export async function bundleFiles({ dist, preload, vncPreload, icon, build }) {
+export async function bundleFiles({ dist, preload, vncPreload, icon, icon512, build }) {
   const files = new Map();
   const add = (name, bytes) => { if (files.has(name)) throw new Error(`重复的文件：${name}`); files.set(name, Buffer.from(bytes)); };
   for (const name of await listFiles(path.join(dist, 'renderer'))) add(`renderer/${name}`, await readFile(path.join(dist, 'renderer', name)));
-  for (const name of await listFiles(androidClient)) if (!ANDROID_ONLY.has(name)) add(`client/${name}`, await readFile(path.join(androidClient, name)));
   for (const name of await listFiles(path.join(webRoot, 'client'))) add(`client/${name}`, await readFile(path.join(webRoot, 'client', name)));
   for (const name of sharedAssets)
     add(`client/desktop/${name.replace(/\.cjs$/, '.js')}`, await readFile(path.join(repo, 'mac/clients/desktop', name)));
   add('client/official-preload.js', wrapPreload(preload));
   add('client/vnc-preload.js', wrapVncPreload(vncPreload));
   add('client/icon.png', icon);
+  if (icon512 !== undefined && icon512 !== null) add('client/icon-512.png', icon512);
   add('client/build.json', JSON.stringify(build));
   return files;
 }
@@ -95,8 +206,8 @@ export function bundleZip(files, build) {
 async function main() {
   const args = process.argv.slice(2);
   const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
-  const build = JSON.parse(await readFile(path.join(repo, 'android/patchers/supported.json'), 'utf8'));
-  const renderers = androidRenderers(build), accepted = renderers.map(renderer => renderer.desktopVersion);
+  const build = JSON.parse(await readFile(path.join(here, 'supported.json'), 'utf8'));
+  const renderers = webRenderers(build), accepted = renderers.map(renderer => renderer.desktopVersion);
   if (args.includes('--help')) {
     const [recommended, ...older] = accepted;
     console.log(`node web/patchers/patch.mjs [--source <Grok_Bot_${recommended}_Setup.exe | app-64.7z | 安装目录>] [--version <${accepted.join('|')}>]
@@ -104,15 +215,15 @@ async function main() {
 生成网页版界面包；界面推荐取自 Windows ${recommended}${older.length ? `，${recommended} 用不了时再用 ${older.join('、')}` : ''}。
 --source 指定的官方 Windows 原版按摘要自动识别版本；省略 --source 时自动下载并校验 ${recommended}（或 --version 指定的版本）Windows x64 安装包。
 --verify-only 在临时目录验证原包、Windows recipe、网页入口和界面补丁，不生成文件。
---upload 生成后用管理员密码登录 Host，把界面包安装到 Host 上；密码取自 GROKBOT_ADMIN_PASSWORD、--password-file，或在终端输入。
-默认输出到 web/output/GrokBotLocal-web-<版本>.zip，也可以在管理页「网页版」里上传。`);
+--upload 生成后用管理员密码登录 Host，把界面包安装到 Host 上；密码取自 ROKBOT_ADMIN_PASSWORD、--password-file，或在终端输入。
+默认输出到 web/output/RokBotLocal-web-<版本>.zip，也可以在管理页「网页版」里上传。`);
     return;
   }
   const verifyOnly = args.includes('--verify-only');
   const uploadTo = arg('--upload');
   // Ask for the password before the long build, so an unattended upload does not wait at the end.
   const password = uploadTo && !verifyOnly ? await adminPassword(arg('--password-file')) : null;
-  const temporary = await mkdtemp(path.join(os.tmpdir(), 'grokbot-web-patch-'));
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'rokbot-web-patch-'));
   try {
     const explicitSource = arg('--source');
     const { directory: windowsDesktop, supported } = await selectWindowsRelease({ source: explicitSource, version: arg('--version'), accepted });
@@ -129,7 +240,7 @@ async function main() {
     catch { throw new Error('缺少 @electron/asar；执行 npm install --prefix mac/patchers/desktop。'); }
     const unpacked = path.join(temporary, 'app');
     const patches = rendererPatches(renderer.desktopVersion);
-    const windowsRecipes = await stageAndroidArchive(asar, originalAsar, unpacked, path.join(windowsDesktop, 'recipes'), verifyOnly, patches);
+    const windowsRecipes = await stageWebArchive(asar, originalAsar, unpacked, path.join(windowsDesktop, 'recipes'), verifyOnly, patches);
     const dist = path.join(unpacked, 'dist');
     const { preload, vncPreload } = await verifyStagedRenderer(dist, renderer, patches, webIndexHtml);
     const recommended = renderer.desktopVersion === accepted[0];
@@ -139,12 +250,13 @@ async function main() {
       return;
     }
     const outputRoot = path.resolve(arg('--output') ?? path.join(webRoot, 'output'));
-    const zipPath = path.join(outputRoot, `GrokBotLocal-web-${renderer.desktopVersion}.zip`);
+    const zipPath = path.join(outputRoot, `RokBotLocal-web-${renderer.desktopVersion}.zip`);
     const force = args.includes('--force');
     const within = (root, file) => { const relative = path.relative(root, file); return !relative.startsWith('..') && !path.isAbsolute(relative); };
     if (within(path.resolve(source), zipPath)) throw new Error(`输出位置与输入重叠：${zipPath}`);
     const info = { rendererVersion: renderer.desktopVersion, recommended, sourceAsarSha256: asarSha256, builtAt: new Date().toISOString() };
-    const files = await bundleFiles({ dist, preload, vncPreload, icon: applicationIcon(await readFile(originalExe)).png, build: info });
+    const { icon, icon512 } = await readWebIcons(repo);
+    const files = await bundleFiles({ dist, preload, vncPreload, icon, icon512, build: info });
     const { zip, manifest } = bundleZip(files, info);
     await writeBuildOutput(outputRoot, [{ target: zipPath, bytes: zip }], force);
     console.log(JSON.stringify({ output: zipPath, ...info, files: Object.keys(manifest.files).length, bytes: zip.length, sha256: sha(zip), checks }, null, 2));

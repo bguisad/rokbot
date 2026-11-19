@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 import { readFileSync } from 'node:fs';
 import { writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
@@ -47,7 +47,7 @@ export function createSettings({ profile, window, app, nativeTheme, settings, en
     setRealtimeVoiceEnabled: async ({ enabled }) => {
       if (typeof enabled !== 'boolean') throw new Error('Invalid voice preference');
       settings.realtimeVoice = enabled; await persist();
-      if (!window.isDestroyed()) window.webContents.send('grokbot-local:voice-preference', enabled);
+      if (!window.isDestroyed()) window.webContents.send('rokbot-local:voice-preference', enabled);
       await onVoicePreference?.();
       return enabled;
     },
@@ -74,6 +74,6 @@ export function createSettings({ profile, window, app, nativeTheme, settings, en
       settings.timeZone = value; await persist(); return timeZone();
     },
     getMessagesAppIcon: () => null,
-    updateCurrentMachineMessagesEnabled: () => { throw new Error(grokText('信息服务不可用。', 'Messages service unavailable.')); },
+    updateCurrentMachineMessagesEnabled: () => { throw new Error(rokText('信息服务不可用。', 'Messages service unavailable.')); },
   };
 }

@@ -6,11 +6,15 @@ import { inspectRecipe } from './recipe-pin.mjs';
 
 test('offline verification checks the compressed bytes and both manifest and recipe metadata', () => {
   const sha = bytes => createHash('sha256').update(bytes).digest('hex');
-  const r = { schema: 'grokbot-bytepatch/v1', sourceSha256: sha('a'), targetSha256: sha('ab'),
+  const r = { schema: 'rokbot-bytepatch/v1', sourceSha256: sha('a'), targetSha256: sha('ab'),
     sourceBytes: 1, targetBytes: 2, ops: [['copy', 0, 1], ['add', 'Yg==']] };
   const encode = obj => gzipSync(JSON.stringify(obj));
   const bytes = encode(r), item = { targetBytes: 2, addedBytes: 1, sha256: sha(bytes) };
   assert.deepEqual(inspectRecipe(bytes, 'fixture', item, sha('a')), { input: sha('a'), output: sha('ab') });
+  const legacyBytes = encode({ ...r, schema: 'grokbot-bytepatch/v1' });
+  assert.deepEqual(inspectRecipe(legacyBytes, 'legacy-fixture', { ...item, sha256: sha(legacyBytes) }, sha('a')),
+    { input: sha('a'), output: sha('ab') });
+  assert.throws(() => inspectRecipe(encode({ ...r, schema: 'invalid-bytepatch/v1' }), 'fixture', {}));
   assert.throws(() => inspectRecipe(bytes, 'fixture', { ...item, sha256: sha('other') }), /recipe bytes/);
   assert.throws(() => inspectRecipe(bytes, 'fixture', item, sha('other')), /source pin/);
   assert.throws(() => inspectRecipe(bytes, 'fixture', { ...item, addedBytes: 0 }));

@@ -15,7 +15,7 @@ class NetworkLifecycle(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='network-tests-', suffix='.noindex', dir=directory) as temporary:
             work = Path(temporary)
             info = work / 'info.plist'
-            info.write_bytes(plistlib.dumps({'CFBundleIdentifier':'dev.prokbot.network-tests'}))
+            info.write_bytes(plistlib.dumps({'CFBundleIdentifier':'dev.rokbot.network-tests'}))
             executable = work / 'network-test'
             subprocess.run(['clang','-fobjc-arc','-fblocks','-framework','Foundation','-framework','Security',
                 '-Wno-nullability-completeness','-Wl,-sectcreate,__TEXT,__info_plist,'+str(info),

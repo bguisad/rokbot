@@ -5,11 +5,12 @@ import { check } from '../server/security.mjs';
 import { readJson } from '../server/storage.mjs';
 
 export async function sharingClient() {
-  const configured = process.env.GROKBOT_SHARING_URL ?? process.env.GROKBOT_CONNECTORS_URL?.replace(/\/connectors\/?$/, '/sharing');
+  const configured = process.env.ROKBOT_SHARING_URL ?? process.env.GROKBOT_SHARING_URL
+    ?? (process.env.ROKBOT_CONNECTORS_URL ?? process.env.GROKBOT_CONNECTORS_URL)?.replace(/\/connectors\/?$/, '/sharing');
   check(configured, 503, 'Host sharing service is unavailable');
   const base = new URL(configured);
   check(['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname) && !base.username && !base.password && !base.search && !base.hash, 500, 'Sharing service must be loopback');
-  const token = (await readFile(process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
+  const token = (await readFile(process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
   return async (method, args = {}) => {
     const response = await fetch(`${base.toString().replace(/\/$/, '')}/${method}`, { method: 'POST', redirect: 'error',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(args), signal: AbortSignal.timeout(30_000) });
@@ -38,7 +39,7 @@ async function skillFiles(directory) {
 }
 
 export async function createLocalSkillPublish() {
-  const request = await sharingClient(), root = process.env.SAND_DATA_ROOT ?? join(process.env.GROKBOT_STATE_DIR, 'host-data');
+  const request = await sharingClient(), root = process.env.SAND_DATA_ROOT ?? join(process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR, 'host-data');
   async function publish({ workflowId, teamId = 1 }) {
     check(teamId === 1, 400, 'Select this Host');
     check(typeof workflowId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(workflowId), 400, 'Invalid skill ID');

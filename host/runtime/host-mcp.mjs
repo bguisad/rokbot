@@ -42,7 +42,7 @@ const idFor = name => (BigInt(`0x${createHash('sha256').update(`local-mcp:${name
 
 /** One config owner per Exec; retain original manager, tools, settings and transport. */
 export async function startLocalHostMcp(context, library, { nativeEnabled = () => true, permission = () => context.deps['local-tool-permission'] } = {}) {
-  const stateDir = process.env.GROKBOT_STATE_DIR ?? '/research/state';
+  const stateDir = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
   const configPath = join(stateDir, 'mcp.json');
   const ownerPath = join(stateDir, 'mcp-owned.json');
   const statusPath = join(stateDir, 'mcp-status.json');

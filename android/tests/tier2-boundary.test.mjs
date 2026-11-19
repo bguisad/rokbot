@@ -118,7 +118,7 @@ export async function runTier2Tests(host) {
   });
 
   test('F2.B2: Manifest validator rejects missing permissions array', () => {
-    const manifest = { packageName: 'ai.x.grok.bot', usesCleartextTraffic: true, activities: [{ name: 'dev.grokbot.nativeapp.PairingActivity' }] };
+    const manifest = { packageName: 'ai.x.grok.bot', usesCleartextTraffic: true, activities: [{ name: 'dev.rokbot.nativeapp.PairingActivity' }] };
     const res = AxmlManifestEmulator.validate(manifest);
     assert.equal(res.valid, false);
     assert.ok(res.errors.some(e => e.includes('Missing required permission')));
@@ -128,7 +128,7 @@ export async function runTier2Tests(host) {
     const manifest = {
       packageName: 'ai.x.grok.bot',
       usesCleartextTraffic: false,
-      activities: [{ name: 'dev.grokbot.nativeapp.PairingActivity' }],
+      activities: [{ name: 'dev.rokbot.nativeapp.PairingActivity' }],
       permissions: ['android.permission.INTERNET', 'android.permission.RECORD_AUDIO', 'android.permission.POST_NOTIFICATIONS', 'android.permission.FOREGROUND_SERVICE', 'android.permission.WAKE_LOCK']
     };
     const res = AxmlManifestEmulator.validate(manifest);
@@ -140,7 +140,7 @@ export async function runTier2Tests(host) {
     const manifest = {
       packageName: 'ai.x.grok.invalid',
       usesCleartextTraffic: true,
-      activities: [{ name: 'dev.grokbot.nativeapp.PairingActivity' }],
+      activities: [{ name: 'dev.rokbot.nativeapp.PairingActivity' }],
       permissions: ['android.permission.INTERNET', 'android.permission.RECORD_AUDIO', 'android.permission.POST_NOTIFICATIONS', 'android.permission.FOREGROUND_SERVICE', 'android.permission.WAKE_LOCK']
     };
     const res = AxmlManifestEmulator.validate(manifest);
@@ -183,9 +183,9 @@ export async function runTier2Tests(host) {
     assert.equal(isSafePath('/Volumes/ORICO/workspace/rokbot/android/output/patched.apk'), true);
   });
 
-  test('F3.B3: Pipeline verifies sha256 checksums of android/bin/grokbot-native-base.apk remain unchanged', () => {
-    const preBuildHash = crypto.createHash('sha256').update('android/bin/grokbot-native-base.apk').digest('hex');
-    const postBuildHash = crypto.createHash('sha256').update('android/bin/grokbot-native-base.apk').digest('hex');
+  test('F3.B3: Pipeline verifies sha256 checksums of android/bin/rokbot-native-base.apk remain unchanged', () => {
+    const preBuildHash = crypto.createHash('sha256').update('android/bin/rokbot-native-base.apk').digest('hex');
+    const postBuildHash = crypto.createHash('sha256').update('android/bin/rokbot-native-base.apk').digest('hex');
     assert.equal(preBuildHash, postBuildHash);
   });
 
@@ -619,11 +619,11 @@ export async function runTier2Tests(host) {
     const device = await pairTestDevice('F12B-Device-1');
     const sse1 = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     const sse2 = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse1.connect();
     await sse2.connect();
@@ -632,7 +632,7 @@ export async function runTier2Tests(host) {
     sse2.close();
   });
 
-  test('F12.B2: Foreground stream without x-grokbot-foreground header does NOT suppress background push', async () => {
+  test('F12.B2: Foreground stream without x-rokbot-foreground header does NOT suppress background push', async () => {
     const device = await pairTestDevice('F12B-Device-2');
     const sse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`
@@ -662,11 +662,11 @@ export async function runTier2Tests(host) {
     const device = await pairTestDevice('F12B-Device-4');
     const sse1 = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     const sse2 = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse1.connect();
     await sse2.connect();
@@ -680,7 +680,7 @@ export async function runTier2Tests(host) {
     const device = await pairTestDevice('F12B-Device-5');
     const sse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${device.token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse.connect();
     assert.ok(host.foregroundDevices.has(device.deviceId));
@@ -694,8 +694,8 @@ export async function runTier2Tests(host) {
   // ==========================================
   test('F13.B1: Deep link with missing or malformed URI scheme ignored without crashing', () => {
     const parseDeepLink = uri => {
-      if (!uri || !uri.startsWith('grokbot-local://')) return null;
-      return uri.slice('grokbot-local://'.length);
+      if (!uri || !uri.startsWith('rokbot-local://')) return null;
+      return uri.slice('rokbot-local://'.length);
     };
     assert.equal(parseDeepLink('https://evil.com'), null);
     assert.equal(parseDeepLink(''), null);

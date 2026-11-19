@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, symlink, readFile, writeFile, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { previousImageLink, provisionResources } from '../runtime/host-resources.mjs';
+import { installDefaultMachineRouting } from '../runtime/host-computers.mjs';
 import { checkDeploymentHealth } from '../deploy/healthcheck.mjs';
 import { HostSupervisor } from '../deploy/host-supervisor.mjs';
 
@@ -30,18 +31,40 @@ test('remote Host health follows the same execution-node setup gate as its super
   });
   await new Promise(resolve => admin.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => { admin.close(resolve); admin.closeAllConnections(); }));
-  const env = { GROKBOT_PORT: String(admin.address().port), GROKBOT_DATA_DIR: data, GROKBOT_REQUIRE_EXECUTION_NODE: '1',
-    GROKBOT_INTERNAL_HOST_URL: `http://127.0.0.1:${admin.address().port}` };
+  const env = { ROKBOT_PORT: String(admin.address().port), ROKBOT_DATA_DIR: data, ROKBOT_REQUIRE_EXECUTION_NODE: '1',
+    ROKBOT_INTERNAL_HOST_URL: `http://127.0.0.1:${admin.address().port}` };
   await writeFile(join(data, 'model.env'), 'OPENAI_BASE_URL=fixture\nOPENAI_API_KEY=fixture\nOPENAI_MODEL=fixture\n');
   const nodeFile = join(data, 'execution-node.json');
   assert.equal(await checkDeploymentHealth(env), true, 'execution node has not been configured yet');
+  // Legacy GROKBOT_* env vars still work during .env migration, with ROKBOT_* taking precedence.
+  const legacyEnv = { GROKBOT_PORT: String(admin.address().port), GROKBOT_DATA_DIR: data, GROKBOT_REQUIRE_EXECUTION_NODE: '1',
+    GROKBOT_INTERNAL_HOST_URL: `http://127.0.0.1:${admin.address().port}` };
+  assert.equal(await checkDeploymentHealth(legacyEnv), true);
+  assert.equal(await checkDeploymentHealth({ ...legacyEnv, ROKBOT_PORT: '1' }), false);
   await writeFile(nodeFile, JSON.stringify({ version: 1, config: { enabled: false } }));
   assert.equal(await checkDeploymentHealth(env), true);
-  assert.deepEqual(requests, ['/healthz', '/healthz']);
+  assert.deepEqual(requests, ['/healthz', '/healthz', '/healthz']);
   await writeFile(nodeFile, JSON.stringify({ version: 1, config: { enabled: true } }));
   assert.equal(await checkDeploymentHealth(env), false, 'a configured deployment must not mask a missing Host');
   await writeFile(nodeFile, '{');
   assert.equal(await checkDeploymentHealth(env), false, 'unreadable configuration is not a setup state');
+});
+
+test('installDefaultMachineRouting keeps empty/unset ROKBOT_DEFAULT_MACHINE_ID unset', () => {
+  const resolveCalls = [];
+  const makeBridge = () => ({
+    resolveProvider(id) { resolveCalls.push(id); return id === 'mac-1' ? { id } : undefined; },
+    requireProvider(id, _gate, implicit) { return { id, implicit }; },
+  });
+  const emptyBridge = makeBridge();
+  assert.equal(installDefaultMachineRouting(emptyBridge, ''), undefined);
+  assert.equal(installDefaultMachineRouting(makeBridge(), '   '), undefined);
+  assert.equal(installDefaultMachineRouting(makeBridge(), undefined), undefined);
+  assert.deepEqual(emptyBridge.requireProvider(undefined, {}, true), { id: undefined, implicit: false });
+  const configuredBridge = makeBridge();
+  assert.equal(installDefaultMachineRouting(configuredBridge, 'mac-1'), 'mac-1');
+  assert.deepEqual(configuredBridge.resolveProvider(undefined), { id: 'mac-1' });
+  assert.ok(resolveCalls.includes('mac-1'));
 });
 
 test('shutdown while writing startup status must not spawn a new Host', async t => {

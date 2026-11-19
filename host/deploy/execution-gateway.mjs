@@ -32,7 +32,7 @@ export function createExecutionGateway({ token, boxHost = 'box', boxToken = 'loc
     if (!authorized(request)) { request.resume(); return sendJson(response, 401, { error: 'Unauthorized' }); }
     if (request.method === 'GET' && request.url === '/health') {
       const states = Object.fromEntries(await Promise.all(Object.entries(services).map(async ([name, port]) => [name, await probe(port)])));
-      return sendJson(response, 200, { protocol: 'grokbot-execution/v1', ready: Object.values(states).every(Boolean), services: states });
+      return sendJson(response, 200, { protocol: 'rokbot-execution/v1', ready: Object.values(states).every(Boolean), services: states });
     }
     const destination = route(request);
     if (!destination || !['GET', 'HEAD', 'POST'].includes(request.method)) { request.resume(); return sendJson(response, 404, { error: 'Not found' }); }
@@ -52,11 +52,17 @@ export function createExecutionGateway({ token, boxHost = 'box', boxToken = 'loc
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const token = process.env.GROKBOT_NODE_TOKEN_FILE ? (await readFile(process.env.GROKBOT_NODE_TOKEN_FILE, 'utf8')).trim() : process.env.GROKBOT_NODE_TOKEN;
-  const tls = process.env.GROKBOT_NODE_TLS_CERT ? { cert: await readFile(process.env.GROKBOT_NODE_TLS_CERT), key: await readFile(process.env.GROKBOT_NODE_TLS_KEY) } : undefined;
-  const gateway = createExecutionGateway({ token, tls, boxHost: process.env.GROKBOT_BOX_HOST ?? 'box', boxToken: process.env.GROKBOT_BOX_TOKEN ?? 'local' });
-  const address = await gateway.start(Number(process.env.GROKBOT_NODE_PORT ?? 8443), process.env.GROKBOT_NODE_BIND ?? '0.0.0.0');
-  const internal = tls && process.env.GROKBOT_TAILCAT_ENABLED === '1' ? createExecutionGateway({ token, boxHost: process.env.GROKBOT_BOX_HOST ?? 'box', boxToken: process.env.GROKBOT_BOX_TOKEN ?? 'local' }) : null;
+  // Primary ROKBOT_* env vars with GROKBOT_* fallback for smooth .env migration.
+  const tokenFile = process.env.ROKBOT_NODE_TOKEN_FILE ?? process.env.GROKBOT_NODE_TOKEN_FILE;
+  const token = tokenFile ? (await readFile(tokenFile, 'utf8')).trim() : (process.env.ROKBOT_NODE_TOKEN ?? process.env.GROKBOT_NODE_TOKEN);
+  const certFile = process.env.ROKBOT_NODE_TLS_CERT ?? process.env.GROKBOT_NODE_TLS_CERT;
+  const keyFile = process.env.ROKBOT_NODE_TLS_KEY ?? process.env.GROKBOT_NODE_TLS_KEY;
+  const tls = certFile ? { cert: await readFile(certFile), key: await readFile(keyFile) } : undefined;
+  const boxHost = process.env.ROKBOT_BOX_HOST ?? process.env.GROKBOT_BOX_HOST ?? 'box';
+  const boxToken = process.env.ROKBOT_BOX_TOKEN ?? process.env.GROKBOT_BOX_TOKEN ?? 'local';
+  const gateway = createExecutionGateway({ token, tls, boxHost, boxToken });
+  const address = await gateway.start(Number(process.env.ROKBOT_NODE_PORT ?? process.env.GROKBOT_NODE_PORT ?? 8443), process.env.ROKBOT_NODE_BIND ?? process.env.GROKBOT_NODE_BIND ?? '0.0.0.0');
+  const internal = tls && (process.env.ROKBOT_TAILCAT_ENABLED ?? process.env.GROKBOT_TAILCAT_ENABLED) === '1' ? createExecutionGateway({ token, boxHost, boxToken }) : null;
   const tailcatPort = internal ? (await internal.start(0, '127.0.0.1')).port : address.port;
   const tunnel = await startExecutionTailcat(tailcatPort);
   console.log('[execution-node] ready');

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Live Android Emulator E2E verification harness against MockHostServer.
-// Targets the official patched APK (`output/grokbot-native-patched.apk`, `ai.x.grok.bot`).
+// Targets the official patched APK (`output/rokbot-native-patched.apk`, `ai.x.grok.bot`).
 // Uses `dumpsys activity top` + `screencap -p` for React Native Fabric `MainActivity`
 // (avoiding `uiautomator dump` hangs on animated RN Fabric views).
 import assert from 'node:assert/strict';
@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 const SDK_ROOT = process.env.ANDROID_HOME || '/Users/lianqishi/Library/Android/sdk';
 const ADB = path.join(SDK_ROOT, 'platform-tools/adb');
 const TARGET_PKG = process.env.TARGET_PKG || process.env.RN_TARGET_PKG || 'ai.x.grok.bot';
-const PATCHED_APK_PATH = process.env.PATCHED_APK || path.resolve(__dirname, '../output/grokbot-native-patched.apk');
+const PATCHED_APK_PATH = process.env.PATCHED_APK || path.resolve(__dirname, '../output/rokbot-native-patched.apk');
 const SERIAL = process.env.ANDROID_SERIAL || 'emulator-5554';
 
 function adb(...args) {
@@ -266,7 +266,7 @@ async function waitForTopActivity(predicate, description, timeoutMs = 15000) {
 
 async function dumpNativeXml() {
   const top = await dumpTopActivity();
-  if (!top.className.startsWith('dev.grokbot.nativeapp.')) {
+  if (!top.className.startsWith('dev.rokbot.nativeapp.')) {
     // Guard: never invoke uiautomator dump when React Native Fabric views are active.
     return '';
   }
@@ -402,7 +402,7 @@ function isMainActivity(top) {
 }
 
 function isCompanionActivity(top, simpleName) {
-  return Boolean(top && top.resumed && top.packageName === TARGET_PKG && top.className === `dev.grokbot.nativeapp.${simpleName}`);
+  return Boolean(top && top.resumed && top.packageName === TARGET_PKG && top.className === `dev.rokbot.nativeapp.${simpleName}`);
 }
 
 export function findTopLeftCornerButton(views) {
@@ -527,7 +527,7 @@ async function run() {
       'MainActivity or PairingActivity launch',
       15000
     );
-    assert.ok(!launchTop.raw.includes('grokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
+    assert.ok(!launchTop.raw.includes('rokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
     capturePng('/tmp/emu_rn_main_launch.png');
 
     if (isMainActivity(launchTop)) {
@@ -591,7 +591,7 @@ async function run() {
       'RN MainActivity after pairing',
       15000
     );
-    assert.ok(!pairedTop.raw.includes('grokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
+    assert.ok(!pairedTop.raw.includes('rokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
     assert.equal(host.devices.size, 1, 'Host must register 1 paired device');
     assert.ok(
       host.agents.every(a => typeof a.createdAt === 'number' && typeof a.updatedAt === 'number' && a.harness === undefined),
@@ -617,7 +617,7 @@ async function run() {
       'MainActivity after cold restart',
       15000
     );
-    assert.ok(!restartTop.raw.includes('grokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
+    assert.ok(!restartTop.raw.includes('rokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
     await waitForCondition(
       () => {
         const restartReqs = host.requestLogs.slice(reqIdxBeforeRestart);
@@ -839,7 +839,7 @@ async function run() {
     // ComputersActivity
     await tapNodeWithScroll(n => n.text === 'Bot Computers' || n.text === 'Bot 电脑', 'Bot Computers button');
     await waitForTopActivity(t => isCompanionActivity(t, 'ComputersActivity'), 'ComputersActivity');
-    await waitForNode(n => (n.text || '').includes('grokbot-box-1'), 'ComputersActivity live computer label from GET /local/computers');
+    await waitForNode(n => (n.text || '').includes('rokbot-box-1'), 'ComputersActivity live computer label from GET /local/computers');
     assert.ok(host.requestLogs.some(r => r.method === 'GET' && r.pathname === '/local/computers'), 'ComputersActivity must query GET /local/computers');
     capturePng('/tmp/emu_rn_computers.png');
     adb('shell', 'input', 'keyevent', '4');
@@ -910,10 +910,10 @@ async function run() {
     adb('shell', 'input', 'keyevent', '3'); // HOME
     await waitForCondition(async () => {
       const svcs = await adbSafeAsync(['shell', 'dumpsys', 'activity', 'services', TARGET_PKG], 8000);
-      return svcs.includes('dev.grokbot.nativeapp.NotificationService');
+      return svcs.includes('dev.rokbot.nativeapp.NotificationService');
     }, 'NotificationService running in background');
 
-    // Wait for NotificationService to finish reconnecting in background mode (x-grokbot-foreground !== '1')
+    // Wait for NotificationService to finish reconnecting in background mode (x-rokbot-foreground !== '1')
     await waitForCondition(
       () => [...host.notificationClients].some(c => c.deviceId === pairedDevice.deviceId && !c.isForeground),
       'NotificationService background SSE stream connected',
@@ -928,7 +928,7 @@ async function run() {
         type: 'attention',
         title: 'Code Companion Alert',
         body: 'Emulator background SSE delivery test passed',
-        deepLink: 'grokbot-local://agent/agent-coding',
+        deepLink: 'rokbot-local://agent/agent-coding',
       },
       pairedDevice.deviceId
     );
@@ -938,23 +938,23 @@ async function run() {
       return extractActiveNotificationsText(notifDump).includes('Code Companion Alert');
     }, 'OS NotificationManager holding background notification');
 
-    // Launch grokbot-local://agent/agent-coding -> warm MainActivity onNewIntent cancels agent notification and routes RN to agent-coding
+    // Launch rokbot-local://agent/agent-coding -> warm MainActivity onNewIntent cancels agent notification and routes RN to agent-coding
     const openCountBeforeDeepLink = host.openedAgentIds.length;
-    adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', 'grokbot-local://agent/agent-coding', TARGET_PKG);
+    adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', 'rokbot-local://agent/agent-coding', TARGET_PKG);
     const deepLinkTop = await waitForTopActivity(
       t => isMainActivity(t) && t.views.some(v => v.visible),
       'MainActivity opened by grokbot-local deep link',
       15000
     );
-    assert.ok(!deepLinkTop.raw.includes('grokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
+    assert.ok(!deepLinkTop.raw.includes('rokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
     const postTapNotifDump = await adbSafeAsync(['shell', 'dumpsys', 'notification', '--noredact'], 8000);
     assert.ok(
       !extractActiveNotificationsText(postTapNotifDump).includes('Code Companion Alert'),
-      'Opening grokbot-local://agent/agent-coding must cancel agent notification via GrokBotBootstrap.normalizeIncomingDeepLinkIntent'
+      'Opening rokbot-local://agent/agent-coding must cancel agent notification via RokBotBootstrap.normalizeIncomingDeepLinkIntent'
     );
     await waitForCondition(
       () => host.openedAgentIds.slice(openCountBeforeDeepLink).includes('agent-coding'),
-      'RN MainActivity opens agent-coding via flat /api/openAgentWindowed after grokbot-local:// onNewIntent normalization',
+      'RN MainActivity opens agent-coding via flat /api/openAgentWindowed after rokbot-local:// onNewIntent normalization',
       15000
     );
     await sleep(500);
@@ -970,7 +970,7 @@ async function run() {
       'MainActivity opened by normalized grokbot://app deep link',
       15000
     );
-    assert.ok(!canonicalTop.raw.includes('grokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
+    assert.ok(!canonicalTop.raw.includes('rokbot_native_pill'), 'Must NOT inject floating overlay toolbar over RN');
     const actDumpCanonical = adb('shell', 'dumpsys', 'activity', 'activities');
     assert.ok(
       actDumpCanonical.includes('grokbot://app/v1/chat?id=agent-coding'),

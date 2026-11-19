@@ -1,8 +1,8 @@
-# ProkBot Plus Host
+# RokBot Host
 
 [简体中文](README.md)
 
-A self-hosted Grok Bot server. The Host builds on Linux amd64 / arm64; the official execution desktop is amd64 only, so an ARM machine pairs with a separate amd64 node or emulates it (experimental). Requires Python 3.10+ and Docker Compose v2.
+A self-hosted RokBot server (`https://github.com/hongfaqiu/rokbot`). The Host builds on Linux amd64 / arm64; the official execution desktop is amd64 only, so an ARM machine pairs with a separate amd64 node or emulates it (experimental). Requires Python 3.10+ and Docker Compose v2.
 
 See the [deployment guide](../docs/AI-INSTALL.en.md) for the full steps and the [technical documentation](../docs/ARCHITECTURE.en.md) for how it works.
 
@@ -26,7 +26,7 @@ By default the build downloads the originals from pinned sources and verifies th
 python3 deploy.py up --host-archive /path/to/host.tgz --box-archive /path/to/box.tar.gz
 ```
 
-- A verified Box archive is tagged `grokbot-box-input:9d2ac1b` and used by Compose directly. Offline archives are checked by their config digest, whatever image store Docker uses.
+- A verified Box archive is tagged `rokbot-box-input:9d2ac1b` and used by Compose directly (you can also set `ROKBOT_HOST_IMAGE=ghcr.io/hongfaqiu/rokbot/host` / `ROKBOT_BOX_IMAGE=ghcr.io/hongfaqiu/rokbot/box` for prebuilt images and `ROKBOT_HOST_ARCHIVE_URL` for archive mirror overrides). Offline archives are checked by their config digest, whatever image store Docker uses.
 - For an existing instance replace `up` with `update`; to build without starting, `release/build-docker.py` takes the same options.
 - These options only replace the original downloads. A fully offline build also needs the base images, system packages and npm dependencies cached, and a single ARM machine needs amd64 `busybox:1.37`. A standalone ARM Host takes no `--box-archive`.
 - `release/patch-host.py --archive ORIGINAL --output NEW_DIRECTORY` generates the Host files on their own, with fixed byte copies and additions only, no decompilation.
@@ -44,14 +44,14 @@ python3 deploy.py backup < /dev/null
 **Recover into a new instance**: keep the volume backup, the original `.env`, the matching code revision and the images separately; `serviceImages` in the manifest records full image IDs, and the target Docker must already have those images. First confirm that the original instance and any copy of its identity elsewhere are stopped, and never run `down -v` on the original project. The example below is a single-machine loopback setup; replace the directory and project name. To keep existing pairings working, recreate the original address with `--listen`, `--port` and `--public-url` on `init`. A standalone Host adds `--host-only` before `init`.
 
 ```sh
-python3 deploy.py --home "$HOME/grokbot-restored" --project grokbot-restored init < /dev/null
-python3 deploy.py --home "$HOME/grokbot-restored" recover --directory /path/to/backup < /dev/null
-python3 deploy.py --home "$HOME/grokbot-restored" status < /dev/null
+python3 deploy.py --home "$HOME/rokbot-restored" --project rokbot-restored init < /dev/null
+python3 deploy.py --home "$HOME/rokbot-restored" recover --directory /path/to/backup < /dev/null
+python3 deploy.py --home "$HOME/rokbot-restored" status < /dev/null
 ```
 
 `recover` checks the volumes, project name, topology and local image IDs, unpacks only into the new project and starts it with the recorded images only, without building, pulling or touching the original volumes. Afterwards, read old chats and files back with an original device. If startup fails, the new project's volumes are kept and the original instance is not restarted automatically.
 
-If an old manifest lacks complete `serviceImages`, or the exact images are not on this machine, the instance cannot be brought back automatically; do not guess a version from a `:local` tag. To restore data only, use `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <verified image ID> < /dev/null`; it starts nothing, and a standalone execution node uses the same entry point.
+If an old manifest lacks complete `serviceImages`, or the exact images are not on this machine, the instance cannot be brought back automatically; do not guess a version from a `:local` tag. To restore data only, use `python3 release/backup.py restore --project rokbot-data-only --directory /path/to/backup --image <verified image ID> < /dev/null`; it starts nothing, and a standalone execution node uses the same entry point.
 
 On one Docker daemon, the deployment tool uses locks so that a project is not changed concurrently and a recovered copy does not go online twice. Different daemons share no locks; the operator makes sure each identity runs only once. A crash can leave a lock behind: check the services and running operations first, and do not treat removing locks as a routine step. A project whose name ends in `_restore-in-progress` is an unfinished recovery; do not start it, and retry with another empty project.
 
@@ -61,14 +61,14 @@ On the Host machine run `python3 deploy.py --host-only init`, then `python3 depl
 
 ```sh
 python3 release/build-docker.py --box-only
-# Set a random GROKBOT_NODE_TOKEN of at least 32 characters; add --box-archive above for an offline image
+# Set a random ROKBOT_NODE_TOKEN of at least 32 characters; add --box-archive above for an offline image
 docker compose -f release/compose.execution.yaml up -d --build
 ```
 
 Then enter the node's address and key on the Host admin page and enable it. In `--host-only` mode the chat core starts only after a model is configured and the node is enabled; without a node the admin page opens and the container may look healthy, but chat does not work.
 
-- LAN access: set `GROKBOT_NODE_LISTEN_ADDRESS=0.0.0.0`; the default port is 18443.
-- Embedded network: set `GROKBOT_TAILCAT_ENABLED=1`; advanced options are `GROKBOT_TAILCAT_RELAY` and `GROKBOT_TAILCAT_DERP_MAP_URL`.
+- LAN access: set `ROKBOT_NODE_LISTEN_ADDRESS=0.0.0.0`; the default port is 18443.
+- Embedded network: set `ROKBOT_TAILCAT_ENABLED=1`; advanced options are `ROKBOT_TAILCAT_RELAY` and `ROKBOT_TAILCAT_DERP_MAP_URL`.
 
 <a id="capacity-benchmark"></a>
 ## Whole-machine benchmark
@@ -99,7 +99,7 @@ The homepage minimum and recommendation come from functional tests and real usag
 
 ## App development
 
-Apps on the admin page manage remote MCP services, apps with code and their bundled skills in one place. An app is a single `grokbot-app` JSON package; old plugin JSON files can be imported too.
+Apps on the admin page manage remote MCP services, apps with code and their bundled skills in one place. An app is a single `rokbot-app` JSON package; old plugin JSON files can be imported too.
 
 - The built-in "Write an app" provides the guide, format validation and a submit tool. After a Bot submits an app, the user adds and authorizes it under Connected apps in the client.
 - Import and export are a single JSON file with code, icon, description and skills; saved settings and credentials are never exported.

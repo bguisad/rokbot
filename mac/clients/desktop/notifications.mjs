@@ -1,18 +1,10 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { subscribe } from './streams.mjs';
 import { NotificationDecider } from './notification-policy.mjs';
 import { notificationTransition, DEFAULT_NOTIFICATION_FREQUENCY, NOTIFICATION_FREQUENCIES } from '../shared/notification-frequency.mjs';
-
-export function agentFromLink(link) {
-  try {
-    if (typeof link !== 'string' || !/^grokbot-local:\/\/agent\/[a-zA-Z0-9_-]{1,128}$/.test(link)) return null;
-    const url = new URL(link);
-    if (url.protocol !== 'grokbot-local:' || url.hostname !== 'agent' || url.search || url.hash) return null;
-    return decodeURIComponent(url.pathname.slice(1));
-  } catch { return null; }
-}
+export { agentFromLink } from './platform.mjs';
 export function notificationAgent(agent) {
   return { id: agent.id, name: agent.name, purpose: agent.purpose, isGroup: agent.isGroup,
     isRunning: agent.isRunning, awaitingReason: agent.awaitingUserResponse?.reason ?? null,
@@ -63,8 +55,8 @@ export async function createNotifications({ config, profile, Notification, openA
       if (verdict !== 'deliver') { reportDecision({ agentId: agent.id, kind: transition.kind, outcome: verdict }); continue; }
       if (!Notification.isSupported()) { reportDecision({ agentId: agent.id, kind: transition.kind, outcome: 'unsupported' }); continue; }
       const needsInput = transition.kind === 'agent-needs-input';
-      const notice = new Notification({ title: needsInput ? grokText(`${transition.agentName} 需要你处理`, `${transition.agentName} needs your input`) : transition.agentName || 'Grok Bot',
-        body: summary(needsInput ? transition.reasonCopy ?? grokText('需要你的回复或授权。', 'Your reply or approval is needed.') : transition.lastMessagePreview ?? grokText('任务已完成。', 'Task completed.')),
+      const notice = new Notification({ title: needsInput ? rokText(`${transition.agentName} 需要你处理`, `${transition.agentName} needs your input`) : transition.agentName || 'RokBot',
+        body: summary(needsInput ? transition.reasonCopy ?? rokText('需要你的回复或授权。', 'Your reply or approval is needed.') : transition.lastMessagePreview ?? rokText('任务已完成。', 'Task completed.')),
         silent: true, urgency: needsInput ? 'critical' : 'normal' });
       active.add(notice);
       notice.on('show', () => reportDecision({ agentId: agent.id, kind: transition.kind, outcome: 'shown' }));

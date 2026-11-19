@@ -1,4 +1,4 @@
-name: grokbot-execution
+name: rokbot-execution
 services:
   gateway:
     platform: linux/amd64
@@ -11,13 +11,13 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     ports:
-      - "${GROKBOT_NODE_LISTEN_ADDRESS:-127.0.0.1}:${GROKBOT_NODE_PORT:-18443}:8443"
+      - "${ROKBOT_NODE_LISTEN_ADDRESS:-${GROKBOT_NODE_LISTEN_ADDRESS:-127.0.0.1}}:${ROKBOT_NODE_PORT:-${GROKBOT_NODE_PORT:-18443}}:8443"
     environment:
-      GROKBOT_NODE_TOKEN: ${GROKBOT_NODE_TOKEN:?Set an execution node key}
-      GROKBOT_BOX_HOST: box
-      GROKBOT_TAILCAT_ENABLED: ${GROKBOT_TAILCAT_ENABLED:-0}
-      GROKBOT_TAILCAT_RELAY: ${GROKBOT_TAILCAT_RELAY:-}
-      GROKBOT_TAILCAT_DERP_MAP_URL: ${GROKBOT_TAILCAT_DERP_MAP_URL:-}
+      ROKBOT_NODE_TOKEN: ${ROKBOT_NODE_TOKEN:-${GROKBOT_NODE_TOKEN:?Set an execution node key}}
+      ROKBOT_BOX_HOST: box
+      ROKBOT_TAILCAT_ENABLED: ${ROKBOT_TAILCAT_ENABLED:-${GROKBOT_TAILCAT_ENABLED:-0}}
+      ROKBOT_TAILCAT_RELAY: ${ROKBOT_TAILCAT_RELAY:-${GROKBOT_TAILCAT_RELAY:-}}
+      ROKBOT_TAILCAT_DERP_MAP_URL: ${ROKBOT_TAILCAT_DERP_MAP_URL:-${GROKBOT_TAILCAT_DERP_MAP_URL:-}}
     volumes:
       - gateway-data:/data
     depends_on: [box]
@@ -25,7 +25,8 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
   box:
-    image: ${GROKBOT_BOX_IMAGE:-grokbot-box-input:9d2ac1b}
+    # Override with ROKBOT_BOX_IMAGE=ghcr.io/hongfaqiu/rokbot/box:latest when using prebuilt images.
+    image: ${ROKBOT_BOX_IMAGE:-${GROKBOT_BOX_IMAGE:-rokbot-box-input:9d2ac1b}}
     platform: linux/amd64
     restart: unless-stopped
     shm_size: 1gb

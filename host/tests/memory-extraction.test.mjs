@@ -12,7 +12,8 @@ function child(mode, policy, seed) {
 }
 
 const sources = new Map([['portable', '']]);
-if (process.env.PROKBOT_TEST_HOST_SEED) sources.set('generated Host', process.env.PROKBOT_TEST_HOST_SEED);
+const testHostSeed = process.env.ROKBOT_TEST_HOST_SEED || process.env.PROKBOT_TEST_HOST_SEED;
+if (testHostSeed) sources.set('generated Host', testHostSeed);
 for (const [source, seed] of sources) {
   test(`${source}: a post-turn memory reset is reported once and the same child saves the next memory`, () => {
     const result = child('recover', 'strict', seed);

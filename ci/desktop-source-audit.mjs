@@ -35,7 +35,7 @@ export async function audit(platform,archive,expectedVersion,expectedDigest) {
   };
   const pkg=JSON.parse(bytes('package.json')); assert.equal(pkg.version,expectedVersion,'original internal version mismatch');
   const directory=path.join(root,platform,'patchers/desktop/recipes');
-  const manifest=JSON.parse(await readFile(path.join(directory,'manifest.json'),'utf8')); assert.equal(manifest.schema,'grokbot-desktop-recipes/v1');
+  const manifest=JSON.parse(await readFile(path.join(directory,'manifest.json'),'utf8')); assert.ok(['rokbot-desktop-recipes/v1','grokbot-desktop-recipes/v1'].includes(manifest.schema));
   const inputs=new Map();
   for(const entry of manifest.files) {
     assert.match(entry.recipe,/^[\w.-]+\.gz$/);

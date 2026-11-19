@@ -21,7 +21,7 @@ func legacyFixture(t *testing.T, s *sandbox) (old, next, profile string) {
 	profile = filepath.Join(os.Getenv("APPDATA"), appName)
 	put(t, filepath.Join(old, exeName), "original client placeholder")
 	put(t, filepath.Join(old, uninstaller), "baseline stub placeholder")
-	put(t, filepath.Join(old, markerName), `{"appUserModelId":"dev.grokbot.local","version":"0.71.2"}`)
+	put(t, filepath.Join(old, markerName), `{"appUserModelId":"dev.rokbot.local","version":"0.71.2"}`)
 	put(t, filepath.Join(old, "resources", "personal", "notes"), "not installer-owned")
 	put(t, filepath.Join(profile, "settings.json"), `{"language":"en"}`)
 	return
@@ -101,14 +101,15 @@ func TestLegacyMigrationRefusesOccupiedSiblingAndInvalidSource(t *testing.T) {
 // Compare the embedded executable to this repo's stub before running it. Only
 // the no-shell side-by-side commands are permitted; never launch the client.
 func TestGeneratedCandidateLegacyMigration(t *testing.T) {
-	setup := os.Getenv("PROKBOT_WINDOWS_TEST_CANDIDATE")
+	setup := os.Getenv("ROKBOT_WINDOWS_TEST_CANDIDATE")
 	if setup == "" {
-		t.Skip("set PROKBOT_WINDOWS_TEST_CANDIDATE to the generated setup")
+		t.Skip("set ROKBOT_WINDOWS_TEST_CANDIDATE to the generated setup")
 	}
 	s := disposable(t)
 	old, next, profile := legacyFixture(t, s)
 	baseline, settings := snapshot(t, old), snapshot(t, profile)
-	stub, err := filepath.Abs("../dist/installer/grokbot-setup-stub.exe")
+	stubRel := "../dist/installer/rokbot-setup-stub.exe"
+	stub, err := filepath.Abs(stubRel)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,13 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { loadManifestSigningKey, signDesktopDeltas, signDesktopUpdateManifest } from '../../android/patchers/release-sign.mjs';
-import { createDeltaBuffer } from '../clients/shared/delta.mjs';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { loadManifestSigningKey, signDesktopDeltas, signDesktopUpdateManifest } from '../../ci/release-sign.mjs';
+import {
+  ANDROID_DELTAS_SCHEMA,
+  DELTA_MAGIC,
+  DELTA_SCHEMA,
+  DESKTOP_DELTAS_SCHEMA,
+  applyDeltaBuffer,
+  applyDeltaFile,
+  createDeltaBuffer,
+  createDeltaFile,
+} from '../clients/shared/delta.mjs';
 import { replaceWindowsAsarIntegrityHex } from '../clients/desktop/asar-install.mjs';
-import { createDesktopUpdater, createTailcatUpdateFetch } from '../clients/desktop/updater.mjs';
+import {
+  DESKTOP_UPDATE_SCHEMA,
+  canonicalDesktopPayload,
+  createDesktopUpdater,
+  createTailcatUpdateFetch,
+  loadDesktopUpdateConfig,
+  verifyDesktopDeltasManifest,
+  verifyDesktopManifest,
+} from '../clients/desktop/updater.mjs';
 
 test('desktop updater stays disabled without manifest config', async () => {
   const updater = createDesktopUpdater({ appVersion: '0.71.2', profileDir: os.tmpdir(), config: null });
@@ -17,7 +35,7 @@ test('desktop updater stays disabled without manifest config', async () => {
 });
 
 test('desktop updater verifies signature, downloads artifact, verifies checksum, and stages ready update', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-updater-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-updater-'));
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
     const installerBytes = Buffer.from('fake-desktop-installer-payload-0.72.0');
@@ -29,7 +47,7 @@ test('desktop updater verifies signature, downloads artifact, verifies checksum,
       version: '0.72.0',
       sha256,
       size: installerBytes.length,
-      url: 'https://updates.example/GrokBotLocal-0.72.0-x64-Setup.exe',
+      url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
 
@@ -88,8 +106,9 @@ test('desktop updater verifies signature, downloads artifact, verifies checksum,
   }
 });
 
+
 test('desktop updater discards in-flight check result if setTrack switches track concurrently', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-track-race-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-track-race-'));
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
     const installerBytes = Buffer.from('stable-payload');
@@ -99,7 +118,7 @@ test('desktop updater discards in-flight check result if setTrack switches track
       version: '0.72.0',
       sha256: createHash('sha256').update(installerBytes).digest('hex'),
       size: installerBytes.length,
-      url: 'https://updates.example/GrokBotLocal-0.72.0-x64-Setup.exe',
+      url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
     const gate = Promise.withResolvers();
@@ -127,6 +146,7 @@ test('desktop updater discards in-flight check result if setTrack switches track
   }
 });
 
+
 function buildSyntheticAsar(headerObj, payloadText) {
   const json = Buffer.from(JSON.stringify(headerObj), 'utf8');
   const pickleSize = 4 + 4 + json.length;
@@ -146,7 +166,7 @@ function buildSyntheticAsar(headerObj, payloadText) {
 }
 
 test('desktop updater stages installer binary delta without downloading full installer, and falls back if tampered', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-delta-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-delta-'));
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
     const sharedTail = Buffer.alloc(128 * 1024, 0x41);
@@ -166,7 +186,7 @@ test('desktop updater stages installer binary delta without downloading full ins
         version: '0.72.0',
         sha256: createHash('sha256').update(newInstaller).digest('hex'),
         size: newInstaller.length,
-        url: 'https://updates.example/GrokBotLocal-0.72.0-x64-Setup.exe',
+        url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
         publishedAt: '2026-11-16T12:00:00.000Z',
       }, key.privateKey)
         ? {
@@ -176,7 +196,7 @@ test('desktop updater stages installer binary delta without downloading full ins
               version: '0.72.0',
               sha256: createHash('sha256').update(newInstaller).digest('hex'),
               size: newInstaller.length,
-              url: 'https://updates.example/GrokBotLocal-0.72.0-x64-Setup.exe',
+              url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
               publishedAt: '2026-11-16T12:00:00.000Z',
             }, key.privateKey),
             deltas: [{
@@ -184,7 +204,7 @@ test('desktop updater stages installer binary delta without downloading full ins
               baseSize: oldInstaller.length,
               sha256: createHash('sha256').update(deltaBytes).digest('hex'),
               size: deltaBytes.length,
-              url: 'https://updates.example/deltas/0720.gbdelta',
+              url: 'https://updates.example/deltas/0720.rbdelta',
             }],
           }
         : {},
@@ -202,21 +222,21 @@ test('desktop updater stages installer binary delta without downloading full ins
       fetchImpl: async url => {
         fetched.push(url);
         if (url.includes('/win32-x64.json')) return new Response(JSON.stringify(signed), { status: 200 });
-        if (url.includes('0720.gbdelta')) return new Response(deltaBytes, { status: 200, headers: { 'content-length': String(deltaBytes.length) } });
+        if (url.includes('0720.rbdelta')) return new Response(deltaBytes, { status: 200, headers: { 'content-length': String(deltaBytes.length) } });
         return new Response(newInstaller, { status: 200, headers: { 'content-length': String(newInstaller.length) } });
       },
     });
 
     const ready = await updater.check();
     assert.equal(ready.state.type, 'ready');
-    assert.equal(fetched.some(u => u.includes('0720.gbdelta')), true);
+    assert.equal(fetched.some(u => u.includes('0720.rbdelta')), true);
     assert.equal(fetched.some(u => u.includes('Setup.exe')), false);
     await updater.quitAndInstall({ expectedVersion: '0.72.0' });
     assert.equal(installed.length, 1);
     assert.ok(installed[0].bytes.equals(newInstaller));
 
     // If delta signature is tampered, updater safely falls back to full installer download.
-    const profile2 = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-fallback-'));
+    const profile2 = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-fallback-'));
     try {
       await mkdir(path.join(profile2, 'updates'), { recursive: true });
       await writeFile(path.join(profile2, 'updates', 'base-stable.exe'), oldInstaller);
@@ -230,7 +250,7 @@ test('desktop updater stages installer binary delta without downloading full ins
         fetchImpl: async url => {
           fetched2.push(url);
           if (url.includes('/win32-x64.json')) return new Response(JSON.stringify(tamperedSigned), { status: 200 });
-          if (url.includes('0720.gbdelta')) throw new Error('should not download delta with bad deltasSignature');
+          if (url.includes('0720.rbdelta')) throw new Error('should not download delta with bad deltasSignature');
           return new Response(newInstaller, { status: 200, headers: { 'content-length': String(newInstaller.length) } });
         },
       });
@@ -245,8 +265,9 @@ test('desktop updater stages installer binary delta without downloading full ins
   }
 });
 
+
 test('desktop updater stages ASAR incremental delta and passes header hashes to onInstallAsar', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-asar-delta-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-asar-delta-'));
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
     const resDir = path.join(dir, 'resources');
@@ -266,7 +287,7 @@ test('desktop updater stages ASAR incremental delta and passes header hashes to 
       version: '0.72.0',
       sha256: createHash('sha256').update(fullInstaller).digest('hex'),
       size: fullInstaller.length,
-      url: 'https://updates.example/GrokBotLocal-0.72.0-arm64.dmg',
+      url: 'https://updates.example/RokBotLocal-0.72.0-arm64.dmg',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
     const signed = signDesktopDeltas({
@@ -280,7 +301,7 @@ test('desktop updater stages ASAR incremental delta and passes header hashes to 
         targetHeaderSha256: newAsar.headerSha256,
         sha256: createHash('sha256').update(asarDelta).digest('hex'),
         size: asarDelta.length,
-        url: 'https://updates.example/deltas/mac-asar.gbdelta',
+        url: 'https://updates.example/deltas/mac-asar.rbdelta',
       }],
     }, key.privateKey);
 
@@ -291,21 +312,21 @@ test('desktop updater stages ASAR incremental delta and passes header hashes to 
       platformId: 'darwin-arm64',
       profileDir,
       resourcesDir: resDir,
-      execPath: path.join(dir, 'Grok Bot'),
+      execPath: path.join(dir, 'RokBot'),
       config: { updateUrl: 'https://updates.example', updatePublicKey: key.publicKeySpkiBase64 },
       canUseAsarUpdate: async () => true,
       onInstallAsar: async info => asarInstalls.push(info),
       fetchImpl: async url => {
         fetched.push(url);
         if (url.includes('/darwin-arm64.json')) return new Response(JSON.stringify(signed), { status: 200 });
-        if (url.includes('mac-asar.gbdelta')) return new Response(asarDelta, { status: 200 });
+        if (url.includes('mac-asar.rbdelta')) return new Response(asarDelta, { status: 200 });
         return new Response(fullInstaller, { status: 200 });
       },
     });
 
     const ready = await updater.check();
     assert.equal(ready.state.type, 'ready');
-    assert.equal(fetched.some(u => u.includes('mac-asar.gbdelta')), true);
+    assert.equal(fetched.some(u => u.includes('mac-asar.rbdelta')), true);
     assert.equal(fetched.some(u => u.includes('.dmg')), false);
     await updater.quitAndInstall({ expectedVersion: '0.72.0' });
     assert.equal(asarInstalls.length, 1);
@@ -325,8 +346,9 @@ test('desktop updater stages ASAR incremental delta and passes header hashes to 
   }
 });
 
+
 test('createTailcatUpdateFetch routes manifest and installer downloads through Host /local/updates/fetch and falls back when older Host returns 404', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-tailcat-updater-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-tailcat-updater-'));
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
     const installerBytes = Buffer.from('tailcat-tunneled-installer-0.72.0');
@@ -336,7 +358,7 @@ test('createTailcatUpdateFetch routes manifest and installer downloads through H
       version: '0.72.0',
       sha256: createHash('sha256').update(installerBytes).digest('hex'),
       size: installerBytes.length,
-      url: 'https://updates.example/GrokBotLocal-0.72.0-x64-Setup.exe',
+      url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
 
@@ -390,4 +412,85 @@ test('createTailcatUpdateFetch routes manifest and installer downloads through H
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+
+
+test('updater & delta support rokbot-* schemas, RBD1 magic, rokbot-local-* configs, and legacy GBD1/grokbot-* backward compat', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-updater-compat-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  assert.equal(DELTA_SCHEMA, 'rokbot-delta/v1');
+  assert.equal(DELTA_MAGIC.toString('ascii'), 'RBD1');
+  assert.equal(ANDROID_DELTAS_SCHEMA, 'rokbot-android-deltas/v1');
+  assert.equal(DESKTOP_DELTAS_SCHEMA, 'rokbot-desktop-deltas/v1');
+  assert.equal(DESKTOP_UPDATE_SCHEMA, 'rokbot-desktop-update/v1');
+
+  const source = Buffer.concat([Buffer.from('OLD-'), Buffer.alloc(4096, 0x31)]);
+  const target = Buffer.concat([Buffer.from('NEW-'), Buffer.alloc(4096, 0x31), Buffer.from('-TAIL')]);
+  const rbdDelta = createDeltaBuffer(source, target);
+  const rawRbd = gunzipSync(rbdDelta);
+  assert.equal(rawRbd.subarray(0, 4).toString('ascii'), 'RBD1');
+  assert.ok(applyDeltaBuffer(source, rbdDelta).equals(target));
+
+  // Legacy GBD1 delta stream remains readable by both applyDeltaBuffer and applyDeltaFile.
+  const rawGbd = Buffer.from(rawRbd);
+  Buffer.from('GBD1', 'ascii').copy(rawGbd, 0);
+  const gbdDelta = gzipSync(rawGbd);
+  assert.ok(applyDeltaBuffer(source, gbdDelta).equals(target));
+
+  const srcPath = path.join(dir, 'src.bin');
+  const targetPath = path.join(dir, 'target.bin');
+  const gbdPath = path.join(dir, 'legacy.gbdelta');
+  const rbdPath = path.join(dir, 'modern.rbdelta');
+  const outFromGbd = path.join(dir, 'out-gbd.bin');
+  const outFromRbd = path.join(dir, 'out-rbd.bin');
+  await writeFile(srcPath, source);
+  await writeFile(targetPath, target);
+  await writeFile(gbdPath, gbdDelta);
+  await createDeltaFile(srcPath, targetPath, rbdPath);
+  await applyDeltaFile(srcPath, gbdPath, outFromGbd, { expectedTargetSize: target.length });
+  await applyDeltaFile(srcPath, rbdPath, outFromRbd, { expectedTargetSize: target.length });
+  assert.ok((await readFile(outFromGbd)).equals(target));
+  assert.ok((await readFile(outFromRbd)).equals(target));
+
+  // rokbot-desktop-update/v1 manifest verifies cleanly alongside grokbot-desktop-update/v1 compat.
+  const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const spkiBase64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+  const rokManifest = {
+    schema: 'rokbot-desktop-update/v1',
+    platform: 'darwin-arm64',
+    track: 'stable',
+    version: '0.73.0',
+    sha256: createHash('sha256').update(target).digest('hex'),
+    size: target.length,
+    url: 'https://updates.example/RokBotLocal-0.73.0-arm64.dmg',
+    publishedAt: '2026-11-19T00:00:00.000Z',
+  };
+  rokManifest.signature = sign('sha256', Buffer.from(canonicalDesktopPayload(rokManifest), 'utf8'), privateKey).toString('base64');
+  assert.equal(verifyDesktopManifest(rokManifest, spkiBase64).schema, 'rokbot-desktop-update/v1');
+
+  const signedRokDeltas = signDesktopDeltas(rokManifest, privateKey);
+  assert.equal(verifyDesktopDeltasManifest(signedRokDeltas, spkiBase64), true);
+
+  // loadDesktopUpdateConfig prefers rokbot-local-* and falls back to grokbot-local-*.
+  const resPrimary = path.join(dir, 'res-primary');
+  const resFallback = path.join(dir, 'res-fallback');
+  await mkdir(resPrimary, { recursive: true });
+  await mkdir(resFallback, { recursive: true });
+  await writeFile(path.join(resPrimary, 'grokbot-local-update.json'), JSON.stringify({
+    updateUrl: 'https://legacy.example/updates',
+    updatePublicKey: spkiBase64,
+  }));
+  await writeFile(path.join(resPrimary, 'rokbot-local-update.json'), JSON.stringify({
+    updateUrl: 'https://rokbot.example/updates',
+    updatePublicKey: spkiBase64,
+  }));
+  assert.equal((await loadDesktopUpdateConfig({ resourcesDir: resPrimary })).updateUrl, 'https://rokbot.example/updates');
+
+  await writeFile(path.join(resFallback, 'grokbot-local.patch.json'), JSON.stringify({
+    updateUrl: 'https://legacy-patch.example/updates',
+    updatePublicKey: spkiBase64,
+  }));
+  assert.equal((await loadDesktopUpdateConfig({ resourcesDir: resFallback })).updateUrl, 'https://legacy-patch.example/updates');
 });

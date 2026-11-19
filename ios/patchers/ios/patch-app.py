@@ -22,6 +22,36 @@ from signing import sign
 
 ROOT=Path(__file__).resolve().parents[2]
 
+ICON_FILES = (
+    ('AppIcon-120.png', 'RokBotAppIcon60x60@2x.png'),
+    ('AppIcon-180.png', 'RokBotAppIcon60x60@3x.png'),
+    ('AppIcon-152.png', 'RokBotAppIcon76x76@2x~ipad.png'),
+    ('AppIcon-167.png', 'RokBotAppIcon83.5x83.5@2x~ipad.png'),
+    ('AppIcon-1024.png', 'RokBotAppIcon1024x1024.png'),
+)
+
+def default_icon_dir():
+    repo_icons = ROOT.parent / 'assets' / 'logo' / 'ios'
+    return repo_icons if repo_icons.is_dir() else ROOT / 'assets' / 'logo' / 'ios'
+
+def apply_app_icons(app, info, icon_dir):
+    sources = []
+    for src_name, dst_name in ICON_FILES:
+        src = icon_dir / src_name
+        if not src.is_file():
+            raise ValueError(f'Missing RokBot AppIcon asset: {src}')
+        sources.append((src, app / dst_name))
+    for pattern in ('AppIcon*.png', 'RokBotAppIcon*.png'):
+        for stale in app.glob(pattern):
+            if stale.is_file() or stale.is_symlink():
+                stale.unlink()
+    for src, dst in sources:
+        shutil.copy2(src, dst)
+    for key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFile'):
+        info.pop(key, None)
+    info['CFBundleIcons'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['RokBotAppIcon60x60']}}
+    info['CFBundleIcons~ipad'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['RokBotAppIcon60x60', 'RokBotAppIcon76x76', 'RokBotAppIcon83.5x83.5']}}
+
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
 def disable_expo_updates(app):
@@ -101,7 +131,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--source',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--dylib',type=Path,required=True);p.add_argument('--resources',type=Path,required=True)
-    p.add_argument('--bundle-id',default='dev.grokbot.local');p.add_argument('--display-name',default='Grok Bot')
+    p.add_argument('--bundle-id',default='dev.rokbot.local');p.add_argument('--display-name',default='RokBot')
+    p.add_argument('--icon-dir',type=Path,default=None,help='Directory containing AppIcon-{120,152,167,180,1024}.png')
     p.add_argument('--remove-extensions',action='store_true');p.add_argument('--app-only',action='store_true')
     p.add_argument('--without-injection',action='store_true',
                    help='Prepare scripts/resources for a phone injection tool; keep the executable uninjected')
@@ -140,22 +171,22 @@ def main():
     # The exported arm64 slice is CPU-compatible with newer iPhones. Remove only
     # the App Store thinning allowlist in the derivative; runtime assets are verified on device.
     info.pop('UISupportedDevices',None)
-    info['CFBundleURLTypes']=[{'CFBundleURLSchemes':['grokbot-local','gblocal','gblocal-ios'],'CFBundleURLName':a.bundle_id}]
+    info['CFBundleURLTypes']=[{'CFBundleURLSchemes':['rokbot-local','rblocal','rblocal-ios'],'CFBundleURLName':a.bundle_id}]
     info['SandAppGroupIdentifier']=group
     info.pop('GrokBotPresenceAppGroup',None)
-    # Retain the original icon resources; cloud push is configured separately.
+    apply_app_icons(app,info,a.icon_dir or default_icon_dir())
     info['NSAppTransportSecurity']={'NSAllowsArbitraryLoads':True,'NSAllowsLocalNetworking':True}
     info['NSLocalNetworkUsageDescription']='连接你配置的局域网 Host，接收消息并查看执行电脑。'
     if isinstance(info.get('Braze'),dict):info['Braze']={**info['Braze'],'UseBrazePush':False,'RequestPushPermissionsAutomatically':False}
     (app/'Info.plist').write_bytes(plistlib.dumps(info))
     disable_expo_updates(app)
     frameworks=app/'Frameworks';frameworks.mkdir(exist_ok=True)
-    if not a.without_injection:shutil.copy2(a.dylib,frameworks/'GrokBotLocal.dylib')
-    shutil.copytree(a.resources,frameworks/'GrokBotLocal.bundle')
+    if not a.without_injection:shutil.copy2(a.dylib,frameworks/'RokBotLocal.dylib')
+    shutil.copytree(a.resources,frameworks/'RokBotLocal.bundle')
     unpaired=a.resources/'unpaired.hbc'
     if not unpaired.is_file():raise ValueError('Missing native-style onboarding bundle')
     shutil.copy2(unpaired,app/'main.jsbundle')
-    if not a.without_injection:inject(app/executable,'@executable_path/Frameworks/GrokBotLocal.dylib')
+    if not a.without_injection:inject(app/executable,'@executable_path/Frameworks/RokBotLocal.dylib')
     profile_info=None
     binaries=[x for x in app.rglob('*') if x.is_file() and commands(x.read_bytes()) and x!=app/executable]
     if a.unsigned:
@@ -171,12 +202,12 @@ def main():
             'profileRequiredForEveryBundle':True},indent=2)+'\n')
     ipa=None
     if not a.app_only:
-        ipa=a.output/'GrokBot-Local-resignable.ipa'
+        ipa=a.output/'RokBot-Local-resignable.ipa'
         with zipfile.ZipFile(ipa,'w',zipfile.ZIP_DEFLATED) as z:
             for file in app.rglob('*'):
                 if file.is_file():z.write(file,file.relative_to(a.output))
     if sha(a.source/executable)!=before:raise ValueError('Original source changed')
-    report={'schema':'grokbot-ios-app-patch/v1','app':str(app.resolve()),'ipa':str(ipa.resolve()) if ipa else None,'bundleId':a.bundle_id,'sourceBinarySha256':before,'patchedBinarySha256':sha(app/executable),'dylibSha256':sha(a.dylib),'dylibInjected':not a.without_injection,'originalPreserved':True,'encryptedBinaries':0,'removedExtensions':removed,'expoUpdatesEnabled':False,'signing':'existing-development-profile' if a.identity else 'ad-hoc-requires-resigning','profileName':profile_info.get('Name') if profile_info else None,'deviceVerified':False}
+    report={'schema':'rokbot-ios-app-patch/v1','app':str(app.resolve()),'ipa':str(ipa.resolve()) if ipa else None,'bundleId':a.bundle_id,'sourceBinarySha256':before,'patchedBinarySha256':sha(app/executable),'dylibSha256':sha(a.dylib),'dylibInjected':not a.without_injection,'originalPreserved':True,'encryptedBinaries':0,'removedExtensions':removed,'expoUpdatesEnabled':False,'signing':'existing-development-profile' if a.identity else 'ad-hoc-requires-resigning','profileName':profile_info.get('Name') if profile_info else None,'deviceVerified':False}
     report['preservedExtensions']=extensions
     if a.unsigned:report.update(signing='unsigned',profileName=None)
     (a.output/'patch-report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report))

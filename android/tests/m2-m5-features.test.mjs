@@ -53,14 +53,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const NATIVE_ROOT = path.resolve(__dirname, '..');
-const FIXTURE_APK = path.join(NATIVE_ROOT, 'bin/grokbot-native-base.apk');
-const BASE_TARGET_APK = path.join(NATIVE_ROOT, 'bin/grokbot-native-base.apk');
+const FIXTURE_APK = path.join(NATIVE_ROOT, 'bin/rokbot-native-base.apk');
+const BASE_TARGET_APK = path.join(NATIVE_ROOT, 'bin/rokbot-native-base.apk');
 
 function getAndroidAttr(node, attrName) {
   return (node.attributes || []).find(a => a.name === attrName && a.namespace === ANDROID_NS);
 }
 
-test('M2-Manifest: injects GrokBotInitProvider, all 9 Activities, 2 foreground services, 2 receivers, deep links & permissions', () => {
+test('M2-Manifest: injects RokBotInitProvider, all 9 Activities, 2 foreground services, 2 receivers, deep links & permissions', () => {
   const inputApk = fs.existsSync(BASE_TARGET_APK) ? BASE_TARGET_APK : FIXTURE_APK;
   const zip = readZip(fs.readFileSync(inputApk));
   const origAxml = entryBytes(zip.entries.find(e => e.name === 'AndroidManifest.xml'));
@@ -72,25 +72,25 @@ test('M2-Manifest: injects GrokBotInitProvider, all 9 Activities, 2 foreground s
   const manifest = parsed.rootNodes.find(n => n.name === 'manifest');
   const app = manifest.children.find(n => n.name === 'application');
 
-  // Verify GrokBotInitProvider
+  // Verify RokBotInitProvider
   const provider = app.children.find(
-    c => c.name === 'provider' && getAndroidAttr(c, 'name')?.value === 'dev.grokbot.nativeapp.GrokBotInitProvider'
+    c => c.name === 'provider' && getAndroidAttr(c, 'name')?.value === 'dev.rokbot.nativeapp.RokBotInitProvider'
   );
-  assert.ok(provider, 'GrokBotInitProvider must be injected');
-  assert.equal(getAndroidAttr(provider, 'authorities')?.value, `${info.packageName}.grokbot.init`);
+  assert.ok(provider, 'RokBotInitProvider must be injected');
+  assert.equal(getAndroidAttr(provider, 'authorities')?.value, `${info.packageName}.rokbot.init`);
   assert.equal(getAndroidAttr(provider, 'exported')?.value, false);
   assert.equal(getAndroidAttr(provider, 'initOrder')?.value, 999999);
 
   // Verify iOS-parity native modal activities (no homemade BotListActivity/ChatActivity/VoiceCallActivity/ConnectorsActivity)
   const expectedActivities = [
-    'dev.grokbot.nativeapp.PairingActivity',
-    'dev.grokbot.nativeapp.LibraryActivity',
-    'dev.grokbot.nativeapp.PushSettingsActivity',
-    'dev.grokbot.nativeapp.ProfileActivity',
-    'dev.grokbot.nativeapp.UsageActivity',
-    'dev.grokbot.nativeapp.ComputersActivity',
-    'dev.grokbot.nativeapp.ComputerViewerActivity',
-    'dev.grokbot.nativeapp.ShareTargetActivity',
+    'dev.rokbot.nativeapp.PairingActivity',
+    'dev.rokbot.nativeapp.LibraryActivity',
+    'dev.rokbot.nativeapp.PushSettingsActivity',
+    'dev.rokbot.nativeapp.ProfileActivity',
+    'dev.rokbot.nativeapp.UsageActivity',
+    'dev.rokbot.nativeapp.ComputersActivity',
+    'dev.rokbot.nativeapp.ComputerViewerActivity',
+    'dev.rokbot.nativeapp.ShareTargetActivity',
   ];
   for (const actName of expectedActivities) {
     const found = app.children.some(
@@ -99,10 +99,10 @@ test('M2-Manifest: injects GrokBotInitProvider, all 9 Activities, 2 foreground s
     assert.ok(found, `Activity ${actName} must be registered`);
   }
   for (const forbiddenAct of [
-    'dev.grokbot.nativeapp.BotListActivity',
-    'dev.grokbot.nativeapp.ChatActivity',
-    'dev.grokbot.nativeapp.VoiceCallActivity',
-    'dev.grokbot.nativeapp.ConnectorsActivity',
+    'dev.rokbot.nativeapp.BotListActivity',
+    'dev.rokbot.nativeapp.ChatActivity',
+    'dev.rokbot.nativeapp.VoiceCallActivity',
+    'dev.rokbot.nativeapp.ConnectorsActivity',
   ]) {
     const found = app.children.some(
       c => c.name === 'activity' && getAndroidAttr(c, 'name')?.value === forbiddenAct
@@ -110,7 +110,7 @@ test('M2-Manifest: injects GrokBotInitProvider, all 9 Activities, 2 foreground s
     assert.equal(found, false, `Homemade primary UI activity ${forbiddenAct} must NOT be registered`);
   }
 
-  // Verify official launcher MainActivity carries grokbot-local://agent deep-link filter
+  // Verify official launcher MainActivity carries rokbot-local://agent deep-link filter
   const mainAct = app.children.find(
     c => c.name === 'activity' && (getAndroidAttr(c, 'name')?.value || '').endsWith('.MainActivity')
   );
@@ -118,24 +118,24 @@ test('M2-Manifest: injects GrokBotInitProvider, all 9 Activities, 2 foreground s
   const hasDeepLink = (mainAct.children || []).some(
     f => f.name === 'intent-filter' && (f.children || []).some(
       d => d.name === 'data' &&
-        getAndroidAttr(d, 'scheme')?.value === 'grokbot-local' &&
+        getAndroidAttr(d, 'scheme')?.value === 'rokbot-local' &&
         getAndroidAttr(d, 'host')?.value === 'agent'
     )
   );
-  assert.ok(hasDeepLink, 'Official MainActivity must expose grokbot-local://agent deep-link filter');
+  assert.ok(hasDeepLink, 'Official MainActivity must expose rokbot-local://agent deep-link filter');
 
   // Verify NotificationService (0x1) & VoiceCallService (0x80)
   const notifSvc = app.children.find(
-    c => c.name === 'service' && getAndroidAttr(c, 'name')?.value === 'dev.grokbot.nativeapp.NotificationService'
+    c => c.name === 'service' && getAndroidAttr(c, 'name')?.value === 'dev.rokbot.nativeapp.NotificationService'
   );
   const voiceSvc = app.children.find(
-    c => c.name === 'service' && getAndroidAttr(c, 'name')?.value === 'dev.grokbot.nativeapp.VoiceCallService'
+    c => c.name === 'service' && getAndroidAttr(c, 'name')?.value === 'dev.rokbot.nativeapp.VoiceCallService'
   );
   assert.equal(getAndroidAttr(notifSvc, 'foregroundServiceType')?.value, 0x00000001);
   assert.equal(getAndroidAttr(voiceSvc, 'foregroundServiceType')?.value, 0x00000080);
 
   // Verify BootReceiver & UnifiedPushReceiver
-  for (const rcvName of ['dev.grokbot.nativeapp.BootReceiver', 'dev.grokbot.nativeapp.UnifiedPushReceiver']) {
+  for (const rcvName of ['dev.rokbot.nativeapp.BootReceiver', 'dev.rokbot.nativeapp.UnifiedPushReceiver']) {
     assert.ok(
       app.children.some(c => c.name === 'receiver' && getAndroidAttr(c, 'name')?.value === rcvName),
       `Receiver ${rcvName} must be injected`
@@ -208,8 +208,8 @@ test('M2-Hermes: patchHermesBundleSafely handles small/mismatched real bundles w
   assert.ok(mismatchRes.buffer.equals(realLikeMismatch));
 });
 
-test('M3-Pipeline: strips legacy v1 META-INF, keeps resources.arsc uncompressed, injects preconfig & refuses src/android keystore', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-pipeline-m3-'));
+test('M3-Pipeline: strips legacy v1 META-INF, keeps resources.arsc uncompressed, injects preconfig & refuses android/ keystore', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-pipeline-m3-'));
   const tmpIn = path.join(tmpDir, 'in.apk');
   const tmpOut = path.join(tmpDir, 'out.apk');
   const tmpKeystore = path.join(tmpDir, 'signing.json');
@@ -242,7 +242,7 @@ test('M3-Pipeline: strips legacy v1 META-INF, keeps resources.arsc uncompressed,
     assert.ok(fs.existsSync(tmpKeystore));
 
     const ks = JSON.parse(fs.readFileSync(tmpKeystore, 'utf8'));
-    assert.equal(ks.schema, 'grokbot-android-signing/v1');
+    assert.equal(ks.schema, 'rokbot-android-signing/v1');
     assert.ok(ks.privateKey && ks.certificate);
 
     const outZip = readZip(fs.readFileSync(tmpOut));
@@ -251,8 +251,8 @@ test('M3-Pipeline: strips legacy v1 META-INF, keeps resources.arsc uncompressed,
     assert.equal(arsc.method, 0, 'resources.arsc must be stored uncompressed');
     assert.equal(arsc.dataStart % 4, 0, 'resources.arsc must be 4-byte aligned');
 
-    const preconfigEntry = outZip.entries.find(e => e.name === 'assets/grokbot-preconfig.json');
-    assert.ok(preconfigEntry, 'assets/grokbot-preconfig.json must be injected when host/code provided');
+    const preconfigEntry = outZip.entries.find(e => e.name === 'assets/rokbot-preconfig.json');
+    assert.ok(preconfigEntry, 'assets/rokbot-preconfig.json must be injected when host/code provided');
     const preconfig = JSON.parse(entryBytes(preconfigEntry).toString('utf8'));
     assert.equal(preconfig.host, 'http://127.0.0.1:18080');
     assert.equal(preconfig.pairingCode, 'K7M9P2');
@@ -401,7 +401,7 @@ test('M5-Manifest: strips networkSecurityConfig and attaches deep links onto Mai
     assert.equal(hasLauncher, true, 'Official MainActivity must retain LAUNCHER category');
     const hasDeepLink = (mainAct.children || []).some(filter =>
       filter.name === 'intent-filter' && (filter.children || []).some(
-        d => d.name === 'data' && getAndroidAttr(d, 'scheme')?.value === 'grokbot-local'
+        d => d.name === 'data' && getAndroidAttr(d, 'scheme')?.value === 'rokbot-local'
       )
     );
     assert.equal(hasDeepLink, true, 'Official MainActivity must carry grokbot-local deep-link filter');
@@ -1042,7 +1042,7 @@ test('M5-Legacy-SlimAvatars-PerClient: in realHostProtocol=false mode, SSE & HTT
 });
 
 test('R2-Patcher: injects 16KB-aligned Tailcat arm64-v8a libs, supports --package-name renaming, and registers iOS-parity modals + ComputerViewer/ShareTarget', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-r2-pkg-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-r2-pkg-'));
   const tmpOut = path.join(tmpDir, 'custom-pkg.apk');
   const tmpKeystore = path.join(tmpDir, 'signing.json');
 
@@ -1050,14 +1050,14 @@ test('R2-Patcher: injects 16KB-aligned Tailcat arm64-v8a libs, supports --packag
     const report = await runPatchPipeline({
       inputApk: BASE_TARGET_APK,
       outputApk: tmpOut,
-      packageName: 'dev.grokbot.customapp',
+      packageName: 'dev.rokbot.customapp',
       host: 'tailcat://connect/tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef?port=8000',
       pairingCode: 'K7M9P2',
       keystore: tmpKeystore,
       force: true,
     });
 
-    assert.equal(report.packageName, 'dev.grokbot.customapp');
+    assert.equal(report.packageName, 'dev.rokbot.customapp');
     assert.equal(report.originalPackageName, 'ai.x.grok.bot');
     assert.deepEqual(report.tailcatLibsInjected, [
       'lib/arm64-v8a/libgroktailcat.so',
@@ -1076,13 +1076,13 @@ test('R2-Patcher: injects 16KB-aligned Tailcat arm64-v8a libs, supports --packag
     const manifestAst = parseAxml(entryBytes(outZip.entries.find(e => e.name === 'AndroidManifest.xml')));
     const rootNode = manifestAst.rootNodes.find(n => n.name === 'manifest');
     const pkgAttr = rootNode.attributes.find(a => a.name === 'package');
-    assert.equal(pkgAttr.value, 'dev.grokbot.customapp');
+    assert.equal(pkgAttr.value, 'dev.rokbot.customapp');
 
     const appNode = rootNode.children.find(n => n.name === 'application');
     const providerNames = appNode.children
       .filter(c => c.name === 'provider')
       .map(c => getAndroidAttr(c, 'authorities')?.value);
-    assert.ok(providerNames.includes('dev.grokbot.customapp.grokbot.init'));
+    assert.ok(providerNames.includes('dev.rokbot.customapp.rokbot.init'));
 
     const activityNames = new Set(
       appNode.children
@@ -1090,15 +1090,15 @@ test('R2-Patcher: injects 16KB-aligned Tailcat arm64-v8a libs, supports --packag
         .map(c => getAndroidAttr(c, 'name')?.value)
     );
     assert.ok(activityNames.has('ai.x.grok.bot.MainActivity'), 'Relative/original MainActivity must be expanded to original package');
-    assert.equal(activityNames.has('dev.grokbot.nativeapp.BotListActivity'), false);
-    assert.equal(activityNames.has('dev.grokbot.nativeapp.ChatActivity'), false);
-    assert.equal(activityNames.has('dev.grokbot.nativeapp.VoiceCallActivity'), false);
-    assert.equal(activityNames.has('dev.grokbot.nativeapp.ConnectorsActivity'), false);
-    assert.ok(activityNames.has('dev.grokbot.nativeapp.ComputerViewerActivity'));
-    assert.ok(activityNames.has('dev.grokbot.nativeapp.ShareTargetActivity'));
+    assert.equal(activityNames.has('dev.rokbot.nativeapp.BotListActivity'), false);
+    assert.equal(activityNames.has('dev.rokbot.nativeapp.ChatActivity'), false);
+    assert.equal(activityNames.has('dev.rokbot.nativeapp.VoiceCallActivity'), false);
+    assert.equal(activityNames.has('dev.rokbot.nativeapp.ConnectorsActivity'), false);
+    assert.ok(activityNames.has('dev.rokbot.nativeapp.ComputerViewerActivity'));
+    assert.ok(activityNames.has('dev.rokbot.nativeapp.ShareTargetActivity'));
 
     const shareAct = appNode.children.find(
-      c => c.name === 'activity' && getAndroidAttr(c, 'name')?.value === 'dev.grokbot.nativeapp.ShareTargetActivity'
+      c => c.name === 'activity' && getAndroidAttr(c, 'name')?.value === 'dev.rokbot.nativeapp.ShareTargetActivity'
     );
     assert.equal(getAndroidAttr(shareAct, 'exported')?.value, true);
 
@@ -1239,7 +1239,7 @@ test('R2-Bytepatch: verifies pinned .gbp.gz recipes and executes bytepatch-unpai
   }
 
   // Exercise full bytepatch synthesis on a pinned synthetic bundle matching meta.originalSha256
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-bytepatch-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-bytepatch-'));
   try {
     const origBuf = Buffer.alloc(1024, 0x11);
     const origSha = crypto.createHash('sha256').update(origBuf).digest('hex');
@@ -1262,7 +1262,7 @@ test('R2-Bytepatch: verifies pinned .gbp.gz recipes and executes bytepatch-unpai
 
     const writeGbp = (targetBuf, fileName) => {
       const recipe = {
-        schema: 'grokbot-bytepatch/v1',
+        schema: 'rokbot-bytepatch/v1',
         sourceSha256: origSha,
         sourceBytes: origBuf.length,
         targetSha256: crypto.createHash('sha256').update(targetBuf).digest('hex'),
@@ -1298,7 +1298,7 @@ test('R2-Bytepatch: verifies pinned .gbp.gz recipes and executes bytepatch-unpai
   }
 });
 
-test('R2-Review: co.anysphere.sand.MainApplication auto-selects GrokBotSandApplication & honors --package-name', async () => {
+test('R2-Review: co.anysphere.sand.MainApplication auto-selects RokBotSandApplication & honors --package-name', async () => {
   const sdkRoot = [process.env.ANDROID_HOME, '/Users/lianqishi/Library/Android/sdk', '/Volumes/ORICO/android/sdk']
     .find(d => d && fs.existsSync(path.join(d, 'platforms/android-36/android.jar')) && fs.existsSync(path.join(d, 'build-tools/36.0.0/d8')));
   const javacBin = ['javac', '/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/javac']
@@ -1307,7 +1307,7 @@ test('R2-Review: co.anysphere.sand.MainApplication auto-selects GrokBotSandAppli
     });
   assert.ok(sdkRoot && javacBin, 'Android SDK build-tools and javac required for DEX Sand test');
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-sand-test-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-sand-test-'));
   try {
     const stubsDir = path.join(NATIVE_ROOT, 'companion/compile-stubs/src/main/java');
     const stubClasses = path.join(tmpDir, 'classes');
@@ -1354,20 +1354,20 @@ test('R2-Review: co.anysphere.sand.MainApplication auto-selects GrokBotSandAppli
     const report = await runPatchPipeline({
       inputApk: sandInputApk,
       outputApk: sandOutApk,
-      packageName: 'dev.grokbot.customsand',
+      packageName: 'dev.rokbot.customsand',
       unsigned: true,
       force: true,
     });
     assert.equal(report.setApplicationName, true);
-    assert.equal(report.packageName, 'dev.grokbot.customsand');
+    assert.equal(report.packageName, 'dev.rokbot.customsand');
 
     const outZip = readZip(fs.readFileSync(sandOutApk));
     const outAxml = entryBytes(outZip.entries.find(e => e.name === 'AndroidManifest.xml'));
     const parsed = parseAxml(outAxml);
     const manifest = parsed.rootNodes.find(n => n.name === 'manifest');
     const app = manifest.children.find(n => n.name === 'application');
-    assert.equal(getAndroidAttr(manifest, 'package')?.value || manifest.attributes.find(a => a.name === 'package')?.value, 'dev.grokbot.customsand');
-    assert.equal(getAndroidAttr(app, 'name')?.value, 'dev.grokbot.nativeapp.GrokBotSandApplication');
+    assert.equal(getAndroidAttr(manifest, 'package')?.value || manifest.attributes.find(a => a.name === 'package')?.value, 'dev.rokbot.customsand');
+    assert.equal(getAndroidAttr(app, 'name')?.value, 'dev.rokbot.nativeapp.RokBotSandApplication');
 
     const classes = outZip.entries.filter(e => e.name.endsWith('.dex')).map(e => e.name);
     assert.ok(classes.includes('classes2.dex'));
@@ -1376,7 +1376,7 @@ test('R2-Review: co.anysphere.sand.MainApplication auto-selects GrokBotSandAppli
   }
 });
 
-test('R2-Review: JVM checks on NetworkInterceptor host/RPC gates and GrokBotBootstrap label parity', () => {
+test('R2-Review: JVM checks on NetworkInterceptor host/RPC gates and RokBotBootstrap label parity', () => {
   const sdkRoot = [process.env.ANDROID_HOME, '/Users/lianqishi/Library/Android/sdk', '/Volumes/ORICO/android/sdk']
     .find(d => d && fs.existsSync(path.join(d, 'platforms/android-36/android.jar')));
   const javacBin = ['javac', '/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/javac']
@@ -1386,7 +1386,7 @@ test('R2-Review: JVM checks on NetworkInterceptor host/RPC gates and GrokBotBoot
   const javaBin = javacBin.endsWith('javac') ? javacBin.slice(0, -1) : 'java';
   assert.ok(sdkRoot && javacBin, 'Android SDK and JDK required for JVM verification');
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-jvm-verify-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-jvm-verify-'));
   try {
     const outClasses = path.join(tmpDir, 'classes');
     fs.mkdirSync(outClasses, { recursive: true });
@@ -1403,7 +1403,7 @@ test('R2-Review: JVM checks on NetworkInterceptor host/RPC gates and GrokBotBoot
 
     const harnessJava = path.join(tmpDir, 'VerifyHarness.java');
     fs.writeFileSync(harnessJava, `
-import dev.grokbot.nativeapp.*;
+import dev.rokbot.nativeapp.*;
 
 public class VerifyHarness {
     private static void check(boolean cond, String msg) {
@@ -1413,7 +1413,7 @@ public class VerifyHarness {
         check(!NetworkInterceptor.isTargetCloudEndpoint("evil-grok.bot"), "reject prefix spoof");
         check(!NetworkInterceptor.isTargetCloudEndpoint("grok.bot.attacker.com"), "reject suffix spoof");
         check(NetworkInterceptor.isTargetCloudEndpoint("api.grok.bot."), "allow subdomain with trailing dot");
-        check(NetworkInterceptor.isTargetCloudEndpoint("grokbot.local"), "allow grokbot.local");
+        check(NetworkInterceptor.isTargetCloudEndpoint("rokbot.local"), "allow grokbot.local");
         check(!NetworkInterceptor.isTelemetryHost("my-sentry.io.local"), "reject spoofed telemetry substring");
         check(NetworkInterceptor.isTelemetryHost("o123.ingest.sentry.io"), "block sentry subdomain");
 
@@ -1437,24 +1437,24 @@ public class VerifyHarness {
         check("/local/app-intents/GetGrokBotSendStatus".equals(GatewayEndpointRouter.rewriteRpcPath("/aiserver.v1.GrokBotService/GetGrokBotSendStatus")), "rewrite GetGrokBotSendStatus to AppIntents");
         check("/aiserver.v1.GrokBotService/UnknownMethod".equals(GatewayEndpointRouter.rewriteRpcPath("/aiserver.v1.GrokBotService/UnknownMethod")), "do not rewrite unknown GrokBotService RPC");
 
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Log in or sign up") == PairingActivity.class, "Log in or sign up");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("登录或注册") == PairingActivity.class, "登录或注册");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("连接服务端") == PairingActivity.class, "连接服务端");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Host Connection") == PairingActivity.class, "Host Connection");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Profile") == ProfileActivity.class, "Profile");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("个人资料") == ProfileActivity.class, "个人资料");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Notifications") == PushSettingsActivity.class, "Notifications");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("通知") == PushSettingsActivity.class, "通知");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Library") == LibraryActivity.class, "Library");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("资料库") == LibraryActivity.class, "资料库");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Bot Computer") == ComputersActivity.class, "Bot Computer");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Bot 电脑") == ComputersActivity.class, "Bot 电脑");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Usage") == UsageActivity.class, "Usage");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("用量") == UsageActivity.class, "用量");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("消息") == null, "Bots list stays in RN");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Bots") == null, "Bots stays in RN");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("连接器") == null, "Connectors stay in RN");
-        check(GrokBotBootstrap.resolveNativeTargetForLabel("Connectors") == null, "Connectors stay in RN");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Log in or sign up") == PairingActivity.class, "Log in or sign up");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("登录或注册") == PairingActivity.class, "登录或注册");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("连接服务端") == PairingActivity.class, "连接服务端");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Host Connection") == PairingActivity.class, "Host Connection");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Profile") == ProfileActivity.class, "Profile");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("个人资料") == ProfileActivity.class, "个人资料");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Notifications") == PushSettingsActivity.class, "Notifications");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("通知") == PushSettingsActivity.class, "通知");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Library") == LibraryActivity.class, "Library");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("资料库") == LibraryActivity.class, "资料库");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Bot Computer") == ComputersActivity.class, "Bot Computer");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Bot 电脑") == ComputersActivity.class, "Bot 电脑");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Usage") == UsageActivity.class, "Usage");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("用量") == UsageActivity.class, "用量");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("消息") == null, "Bots list stays in RN");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Bots") == null, "Bots stays in RN");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("连接器") == null, "Connectors stay in RN");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Connectors") == null, "Connectors stay in RN");
         NetworkInterceptor.setLastAgentId("agent-coding");
         check("agent-coding".equals(NetworkInterceptor.getLastAgentId()), "track last agentId");
         System.out.println("JVM_HARNESS_OK");
@@ -1561,7 +1561,7 @@ test('CLI guard: --standalone fails closed while --verify-only validates package
 });
 
 test('Pairip detection, libpairipcore.so stripping, and incomplete split XAPK fail-closed guards', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-pairip-guard-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-pairip-guard-'));
   try {
     const baseZip = readZip(fs.readFileSync(fs.existsSync(BASE_TARGET_APK) ? BASE_TARGET_APK : FIXTURE_APK));
     const manifestEntry = baseZip.entries.find(e => e.name === 'AndroidManifest.xml');
@@ -1666,7 +1666,7 @@ test('R3-Review: JVM verification of SSE cancellation, R8OkHttpHook Expo/FS wrap
   await new Promise(resolve => sseServer.listen(0, '127.0.0.1', resolve));
   const { port: ssePort } = sseServer.address();
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-r3-jvm-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-r3-jvm-'));
   try {
     const outClasses = path.join(tmpDir, 'classes');
     const overrideSrc = path.join(tmpDir, 'override-src');
@@ -2129,7 +2129,7 @@ import android.widget.CompoundButton;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import dev.grokbot.nativeapp.*;
+import dev.rokbot.nativeapp.*;
 import java.io.Closeable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -2174,8 +2174,8 @@ public class VerifyR3Harness {
         @Override public void engineSetKeyEntry(String a, byte[] k, Certificate[] c) {}
         @Override public void engineSetCertificateEntry(String a, Certificate c) {}
         @Override public void engineDeleteEntry(String a) {}
-        @Override public Enumeration<String> engineAliases() { return Collections.enumeration(List.of("grokbot-native-device-credential")); }
-        @Override public boolean engineContainsAlias(String a) { return "grokbot-native-device-credential".equals(a); }
+        @Override public Enumeration<String> engineAliases() { return Collections.enumeration(List.of("rokbot-native-device-credential")); }
+        @Override public boolean engineContainsAlias(String a) { return "rokbot-native-device-credential".equals(a); }
         @Override public int engineSize() { return 1; }
         @Override public boolean engineIsKeyEntry(String a) { return true; }
         @Override public boolean engineIsCertificateEntry(String a) { return false; }
@@ -2492,7 +2492,7 @@ public class VerifyR3Harness {
         Localize.observeAppLanguage("Usage");
         check("en".equals(Localize.getObservedLanguage()), "observeAppLanguage en");
 
-        // E. GrokBotBootstrap UI matching, SettingsSheet / SidebarIdentityBar guards, Fabric view recycling & Fc.o.i vs Fc.o.j
+        // E. RokBotBootstrap UI matching, SettingsSheet / SidebarIdentityBar guards, Fabric view recycling & Fc.o.i vs Fc.o.j
         FakeReactActivity reactAct = alloc(FakeReactActivity.class);
         reactAct.app = app;
         reactAct.res = res;
@@ -2503,7 +2503,7 @@ public class VerifyR3Harness {
         rd.mReactHost = intent -> hostDeliveredUri.set(intent.getData());
         reactAct.mDelegate.reactDelegate = rd;
 
-        Method hookDeepLink = GrokBotBootstrap.class.getDeclaredMethod("hookDeepLinkDelivery", Activity.class);
+        Method hookDeepLink = RokBotBootstrap.class.getDeclaredMethod("hookDeepLinkDelivery", Activity.class);
         hookDeepLink.setAccessible(true);
         hookDeepLink.invoke(null, reactAct);
         check(reactAct.mDelegate.i.size() == 1, "Fc.o.i must receive bootstrap pe.j listener");
@@ -2512,18 +2512,18 @@ public class VerifyR3Harness {
             handler.onDidCreate(reactAct);
         }
         FakeIntent hotIntent = alloc(FakeIntent.class);
-        hotIntent.data = Uri.parse("grokbot-local://agent/agent-xyz");
+        hotIntent.data = Uri.parse("rokbot-local://agent/agent-xyz");
         reactAct.mDelegate.i.get(0).onNewIntent(hotIntent);
         check("grokbot://app/v1/chat?id=agent-xyz".equals(String.valueOf(hotIntent.getData())),
-                "pe.j proxy must normalize grokbot-local:// URI before ExpoLinking reads it: " + hotIntent.getData());
+                "pe.j proxy must normalize rokbot-local:// URI before ExpoLinking reads it: " + hotIntent.getData());
         FakeIntent hostIntent = alloc(FakeIntent.class);
-        hostIntent.data = Uri.parse("grokbot-local://agent/agent-host-1");
+        hostIntent.data = Uri.parse("rokbot-local://agent/agent-host-1");
         rd.onNewIntent(hostIntent);
         check("grokbot://app/v1/chat?id=agent-host-1".equals(String.valueOf(hostDeliveredUri.get())),
                 "ReactDelegate host proxy must normalize URI before mReactHost.onNewIntent: " + hostDeliveredUri.get());
 
-        Method resolveViewM = GrokBotBootstrap.class.getDeclaredMethod("resolveNativeTargetForView", Activity.class, View.class);
-        Method scanViewsM = GrokBotBootstrap.class.getDeclaredMethod("scanAndWireRnViews", Activity.class, View.class);
+        Method resolveViewM = RokBotBootstrap.class.getDeclaredMethod("resolveNativeTargetForView", Activity.class, View.class);
+        Method scanViewsM = RokBotBootstrap.class.getDeclaredMethod("scanAndWireRnViews", Activity.class, View.class);
         resolveViewM.setAccessible(true);
         scanViewsM.setAccessible(true);
 
@@ -2590,7 +2590,7 @@ public class VerifyR3Harness {
         check(resolveViewM.invoke(null, reactAct, singleConnectTxt) == null, "Wide 1-child Connect to Host row must NOT hijack");
 
         // 6) Flattened InsetGroup #2de NotificationsRow + HostView switch -> full-row hit rect strictly above Appearance vs NotificationsToggle subtitle rejection
-        Method findAtPointM = GrokBotBootstrap.class.getDeclaredMethod("findNativeTargetAtPoint", Activity.class, View.class, float.class, float.class);
+        Method findAtPointM = RokBotBootstrap.class.getDeclaredMethod("findNativeTargetAtPoint", Activity.class, View.class, float.class, float.class);
         findAtPointM.setAccessible(true);
 
         FakeViewGroup notifGroup = new FakeViewGroup();
@@ -2781,9 +2781,9 @@ public class VerifyR3Harness {
     assert.equal(observedSseHeaders.length, 1);
     assert.equal(observedSseHeaders[0].authorization, 'Bearer tok-123');
     assert.equal(observedSseHeaders[0].accept, 'text/event-stream');
-    assert.equal(observedSseHeaders[0]['x-grokbot-foreground'], '1');
+    assert.equal(observedSseHeaders[0]['x-rokbot-foreground'], '1');
     assert.equal(observedSseHeaders[0]['last-event-id'], 'cursor-0');
-    assert.equal(observedSseHeaders[0]['x-grokbot-client'], 'android-native/1.16.0');
+    assert.equal(observedSseHeaders[0]['x-rokbot-client'], 'android-native/1.16.0');
   } finally {
     for (const s of sockets) s.destroy();
     await new Promise(resolve => sseServer.close(resolve));
@@ -2791,7 +2791,27 @@ public class VerifyR3Harness {
   }
 });
 
-test('Track A-HBC: verifies patched LoadTrue/LoadFalse stubs, stampSender, and tail-patched BackendClient.call/callPublic 22 RPCs', () => {
+function resolveTrackAXapkPath() {
+  if (process.env.ROKBOT_ANDROID_TEST_XAPK !== undefined) {
+    const envPath = process.env.ROKBOT_ANDROID_TEST_XAPK.trim();
+    return envPath && fs.existsSync(envPath) ? envPath : null;
+  }
+  const candidates = [
+    path.join(PROJECT_ROOT, 'inputs/android/grok-bot-1.16.0.xapk'),
+    '/Volumes/ORICO/grokbot/inputs/android/grok-bot-1.16.0.xapk',
+  ];
+  return candidates.find(p => fs.existsSync(p)) || null;
+}
+
+const TRACK_A_XAPK_PATH = resolveTrackAXapkPath();
+
+test(
+  'Track A-HBC: verifies patched LoadTrue/LoadFalse stubs, stampSender, and tail-patched BackendClient.call/callPublic 22 RPCs',
+  {
+    skip: !TRACK_A_XAPK_PATH &&
+      'Official grok-bot-1.16.0.xapk not found; set ROKBOT_ANDROID_TEST_XAPK or place in inputs/android/',
+  },
+  () => {
   const realMeta = loadGatewayTemplateMetadata();
   assert.equal(realMeta.bodyOffset, 22391212);
   assert.equal(realMeta.bodyCapacity, 24600);
@@ -2799,7 +2819,7 @@ test('Track A-HBC: verifies patched LoadTrue/LoadFalse stubs, stampSender, and t
 
   const tplJsonRaw = fs.readFileSync(path.join(NATIVE_ROOT, 'recipes/gateway-template.json'));
   const tplJsonGbp = loadBytepatchRecipe(path.join(NATIVE_ROOT, 'recipes/gateway-template.json.gbp.gz'));
-  const xapkPath = path.join(PROJECT_ROOT, 'inputs/android/grok-bot-1.16.0.xapk');
+  const xapkPath = TRACK_A_XAPK_PATH;
   const xapkZip = readZip(fs.readFileSync(xapkPath));
   const baseApkEntry = xapkZip.entries.find(e => e.name === 'ai.x.grok.bot.apk');
   assert.ok(baseApkEntry, 'Base APK entry must exist inside official xapk');
@@ -2909,7 +2929,7 @@ test('Track A-HBC: verifies patched LoadTrue/LoadFalse stubs, stampSender, and t
 
 test('Track C-Host-Connectors: real Connectors/Plugins/ConnectorStore permissions, BLOCKED isolation, includeDisabled list-tools, and UpdateUserPluginInstall', async () => {
   const { Connectors, Plugins, Skills } = await loadHostConnectorModules();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grokbot-host-conn-'));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-host-conn-'));
   const connectors = new Connectors(dataDir);
   const skills = new Skills(dataDir);
   const plugins = new Plugins(dataDir, { connectors, skills, hostCall: async () => { throw new Error('unused'); } });
@@ -2931,7 +2951,7 @@ test('Track C-Host-Connectors: real Connectors/Plugins/ConnectorStore permission
 
     await plugins.publish({
       schemaVersion: 1,
-      kind: 'grokbot-app',
+      kind: 'rokbot-app',
       id: 'conn-plugin',
       version: '1.0.0',
       name: 'Conn Plugin',
@@ -3108,5 +3128,87 @@ test('Track C-MockHost-Connectors: MockHostServer exposes servedBy, annotationsJ
     await host.stop();
   }
 });
+
+test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing mipmap-*.png icons with valid APK signature', async () => {
+  const logoDir = path.join(PROJECT_ROOT, 'assets/logo/android');
+  const densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+  const kinds = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'];
+  for (const d of densities) {
+    for (const k of kinds) {
+      assert.ok(fs.existsSync(path.join(logoDir, `mipmap-${d}`, `${k}.png`)), `Missing RokBot icon asset mipmap-${d}/${k}.png`);
+    }
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-logo-wiring-'));
+  try {
+    const baseApk = path.join(NATIVE_ROOT, 'bin/rokbot-native-base.apk');
+    const baseZip = readZip(fs.readFileSync(baseApk));
+
+    // Seed 6 existing -v4/*.webp entries (like official 1.16.0 APK) and leave the other 9 absent
+    const preseededEntries = [
+      ...baseZip.entries,
+      createEntry('res/mipmap-mdpi-v4/ic_launcher.webp', Buffer.from('OLD_MDPI_LAUNCHER')),
+      createEntry('res/mipmap-hdpi-v4/ic_launcher_round.webp', Buffer.from('OLD_HDPI_ROUND')),
+      createEntry('res/mipmap-xhdpi-v4/ic_launcher_foreground.webp', Buffer.from('OLD_XHDPI_FG')),
+      createEntry('res/mipmap-xxhdpi-v4/ic_launcher.webp', Buffer.from('OLD_XXHDPI_LAUNCHER')),
+      createEntry('res/mipmap-xxxhdpi-v4/ic_launcher.webp', Buffer.from('OLD_XXXHDPI_LAUNCHER')),
+      createEntry('res/mipmap-xxxhdpi-v4/ic_launcher_round.webp', Buffer.from('OLD_XXXHDPI_ROUND')),
+    ];
+    const inApk = path.join(tmpDir, 'with-partial-mipmaps.apk');
+    const outApk = path.join(tmpDir, 'patched-with-logo.apk');
+    const keystore = path.join(tmpDir, 'signing.json');
+    fs.writeFileSync(inApk, writeZip(preseededEntries));
+
+    const report = await runPatchPipeline({
+      inputApk: inApk,
+      outputApk: outApk,
+      keystore,
+      force: true,
+    });
+    assert.equal(report.schema, 'rokbot-android-patch-report/v1');
+    assert.equal(report.launcherIconsReplaced, 6);
+    assert.equal(report.launcherIconsInserted, 9);
+
+    const outBytes = fs.readFileSync(outApk);
+    const sigCheck = verifyApk(outBytes);
+    assert.equal(sigCheck.verified, true, 'Patched APK with replaced/inserted RokBot icons must pass v2/v3 signature verification');
+    assert.equal(sigCheck.hasV2, true);
+    assert.equal(sigCheck.hasV3, true);
+
+    const outZip = readZip(outBytes);
+    const byName = new Map(outZip.entries.map(e => [e.name, e]));
+    const sha = buf => crypto.createHash('sha256').update(buf).digest('hex');
+
+    // Verify all 6 preseeded -v4/*.webp entries kept their exact entry paths & matched RokBot PNG SHA-256
+    const replacedMap = [
+      ['res/mipmap-mdpi-v4/ic_launcher.webp', 'mdpi', 'ic_launcher'],
+      ['res/mipmap-hdpi-v4/ic_launcher_round.webp', 'hdpi', 'ic_launcher_round'],
+      ['res/mipmap-xhdpi-v4/ic_launcher_foreground.webp', 'xhdpi', 'ic_launcher_foreground'],
+      ['res/mipmap-xxhdpi-v4/ic_launcher.webp', 'xxhdpi', 'ic_launcher'],
+      ['res/mipmap-xxxhdpi-v4/ic_launcher.webp', 'xxxhdpi', 'ic_launcher'],
+      ['res/mipmap-xxxhdpi-v4/ic_launcher_round.webp', 'xxxhdpi', 'ic_launcher_round'],
+    ];
+    for (const [entryPath, d, k] of replacedMap) {
+      assert.ok(byName.has(entryPath), `Replaced entry path must be preserved: ${entryPath}`);
+      const expected = fs.readFileSync(path.join(logoDir, `mipmap-${d}`, `${k}.png`));
+      assert.equal(sha(entryBytes(byName.get(entryPath))), sha(expected), `SHA-256 mismatch for replaced ${entryPath}`);
+    }
+
+    // Verify remaining 9 absent icons were inserted at res/mipmap-<density>/<kind>.png
+    const replacedSet = new Set(replacedMap.map(([, d, k]) => `${d}:${k}`));
+    for (const d of densities) {
+      for (const k of kinds) {
+        if (replacedSet.has(`${d}:${k}`)) continue;
+        const insertedPath = `res/mipmap-${d}/${k}.png`;
+        assert.ok(byName.has(insertedPath), `Missing icon should be inserted at ${insertedPath}`);
+        const expected = fs.readFileSync(path.join(logoDir, `mipmap-${d}`, `${k}.png`));
+        assert.equal(sha(entryBytes(byName.get(insertedPath))), sha(expected), `SHA-256 mismatch for inserted ${insertedPath}`);
+      }
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 
 

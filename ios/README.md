@@ -1,4 +1,4 @@
-# ProkBot Plus iOS 补丁
+# RokBot iOS 补丁
 
 [English](README.en.md)
 
@@ -11,11 +11,11 @@
 ```sh
 python3 release/patch-ios.py \
   --input /path/to/GrokBot-decrypted.ipa \
-  --output ./GrokBot-Patched \
-  --bundle-id dev.grokbot.local
+  --output ./RokBot-Patched \
+  --bundle-id dev.rokbot.local
 ```
 
-输出 `GrokBot-Local-resignable.ipa`、`GrokBotLocal.dylib` 和 `extension-signing.json`。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码。
+输出 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib` 和 `extension-signing.json`。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码。
 
 推送用 APNs 或 Bark，在 Host 管理页配置。实时通话在 App 设置中开启。
 

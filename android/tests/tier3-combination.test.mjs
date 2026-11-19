@@ -242,7 +242,7 @@ export async function runTier3Tests(host) {
 
     const sse = new SSEClientHelper(`${BASE_URL}/notifications/events`, {
       'Authorization': `Bearer ${token}`,
-      'x-grokbot-foreground': '1'
+      'x-rokbot-foreground': '1'
     });
     await sse.connect();
     assert.ok(host.foregroundDevices.has(deviceId));
@@ -284,7 +284,7 @@ export async function runTier3Tests(host) {
   });
 
   // C10: Push Registration (F11) + Notification Channels & Deep Links (F13)
-  test('C10: Push Registration (F11) + Notification Channels & Deep Links (F13): Incoming push notification maps to Android channel and parses grokbot-local:// deep link', async () => {
+  test('C10: Push Registration (F11) + Notification Channels & Deep Links (F13): Incoming push notification maps to Android channel and parses rokbot-local:// deep link', async () => {
     const pairRes = await fetch(`${BASE_URL}/connect/pair`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -300,7 +300,7 @@ export async function runTier3Tests(host) {
 
     const notifItem = host.notificationHistory.find(n => n.id === notificationId);
     assert.ok(notifItem);
-    assert.ok(notifItem.deepLink.startsWith('grokbot-local://agent/'));
+    assert.ok(notifItem.deepLink.startsWith('rokbot-local://agent/'));
 
     // Map to Android channel
     const channelId = notifItem.type === 'attention' ? 'attention' : 'messages';
@@ -493,12 +493,12 @@ export async function runTier3Tests(host) {
     const manifest = {
       packageName: 'ai.x.grok.bot',
       usesCleartextTraffic: true,
-      activities: [{ name: 'dev.grokbot.nativeapp.PairingActivity', exported: true }],
+      activities: [{ name: 'dev.rokbot.nativeapp.PairingActivity', exported: true }],
       permissions: ['android.permission.INTERNET', 'android.permission.RECORD_AUDIO', 'android.permission.POST_NOTIFICATIONS', 'android.permission.FOREGROUND_SERVICE', 'android.permission.WAKE_LOCK']
     };
     const valid = AxmlManifestEmulator.validate(manifest);
     assert.equal(valid.valid, true);
-    assert.equal(manifest.activities[0].name, 'dev.grokbot.nativeapp.PairingActivity');
+    assert.equal(manifest.activities[0].name, 'dev.rokbot.nativeapp.PairingActivity');
   });
 
   // C19: Protected Directory Layout (F3) + Build Pipeline CLI (F1)
@@ -520,12 +520,12 @@ export async function runTier3Tests(host) {
     const creds = await pairRes.json();
 
     // Simulated React Native bundle string injection
-    const jsBundle = 'const ENDPOINT = "https://cloud.grokbot.local/api/listAgents";';
-    const rewritten = HermesBytecodeEmulator.rewriteBundleStrings(jsBundle, 'https://cloud.grokbot.local', BASE_URL);
+    const jsBundle = 'const ENDPOINT = "https://cloud.rokbot.local/api/listAgents";';
+    const rewritten = HermesBytecodeEmulator.rewriteBundleStrings(jsBundle, 'https://cloud.rokbot.local', BASE_URL);
     assert.ok(rewritten.includes(`${BASE_URL}/api/listAgents`));
 
     const interceptor = new OkHttpInterceptorEmulator({ gatewayUrl: BASE_URL, token: creds.token });
-    const res = await interceptor.intercept('https://cloud.grokbot.local/api/listAgents', { method: 'POST' });
+    const res = await interceptor.intercept('https://cloud.rokbot.local/api/listAgents', { method: 'POST' });
     assert.equal(res.status, 200);
   });
 

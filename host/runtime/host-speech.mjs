@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 
 /** The original inference extension delegates ASR to the self-host service. */
 export async function transcribeLocalAudio({ audio, mimeType, language }) {
-  const endpoint = process.env.GROKBOT_SPEECH_URL;
-  const tokenFile = process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
+  const endpoint = process.env.ROKBOT_SPEECH_URL ?? process.env.GROKBOT_SPEECH_URL;
+  const tokenFile = process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
   if (!endpoint || !tokenFile) throw new Error('Speech recognition is not configured');
   const token = (await readFile(tokenFile, 'utf8')).trim();
   const response = await fetch(endpoint, {

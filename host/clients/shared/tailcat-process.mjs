@@ -18,7 +18,7 @@ export class TailcatProcess {
   constructor(config, { binary, onIdentity = async () => {}, onStatus = () => {} } = {}) {
     this.config = { ...config };
     if (config.mode === 'forward') this.config.link = tailcatLink(config.link);
-    this.binary = binary ?? process.env.GROKBOT_TAILCAT_BINARY ?? fileURLToPath(new URL('../../dist/network/grokbot-tailcat', import.meta.url));
+    this.binary = binary ?? process.env.ROKBOT_TAILCAT_BINARY ?? process.env.GROKBOT_TAILCAT_BINARY ?? fileURLToPath(new URL('../../dist/network/rokbot-tailcat', import.meta.url));
     this.onIdentity = onIdentity; this.onStatus = onStatus;
     this.status = { state: 'disabled', path: 'unknown' }; this.closed = false; this.failures = 0;
   }

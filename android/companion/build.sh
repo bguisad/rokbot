@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="${SCRIPT_DIR}/../bin"
 STUBS_SRC="${SCRIPT_DIR}/compile-stubs/src/main/java"
 SRC_DIR="${SCRIPT_DIR}/src/main/java"
-BUILD_TMP="${TMPDIR:-$COMPANION_DIR/.build-tmp}-$$"
+BUILD_TMP="${TMPDIR:-/tmp}/rokbot-companion-$$"
 
 ANDROID_JAR="${ANDROID_HOME:-/Users/lianqishi/Library/Android/sdk}/platforms/android-36/android.jar"
 if [ ! -f "${ANDROID_JAR}" ]; then
@@ -38,7 +38,7 @@ find "${STUBS_SRC}" -name "*.java" > "${BUILD_TMP}/stub_sources.txt"
 find "${SRC_DIR}" -name "*.java" > "${BUILD_TMP}/sources.txt"
 "${JAVAC_BIN}" --release 17 -encoding UTF-8 -cp "${ANDROID_JAR}:${BUILD_TMP}/stubs.jar" -d "${BUILD_TMP}/classes" @"${BUILD_TMP}/sources.txt"
 
-# 3. Dex ONLY dev.grokbot.nativeapp classes into bin/classes2.dex
+# 3. Dex dev.rokbot.nativeapp (and dev.grokbot.local.TailcatBridge) classes into bin/classes2.dex
 "${D8_BIN}" --min-api 26 --output "${BUILD_TMP}/" $(find "${BUILD_TMP}/classes" -name "*.class")
 
 cp "${BUILD_TMP}/classes.dex" "${BIN_DIR}/classes2.dex"

@@ -407,9 +407,9 @@ export class PushService {
     check(this.auth.device(deviceId), 404, '设备不存在');
     const reason = !bypassForeground && this.isForeground(deviceId) ? '应用正在前台接收通知' : this.unavailable(this.store.value.devices[deviceId]);
     if (reason) return { ok: false, status: 'skipped', reason };
-    const safeAgentId = typeof agentId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(agentId) ? agentId : 'grokbot-test';
-    const item = { id: randomUUID(), type: 'test', agentId: safeAgentId, title: 'Grok Bot 通知测试',
-      body: '点击此通知打开对应会话。', createdAt: iso(), deepLink: `grokbot-local://agent/${safeAgentId}` };
+    const safeAgentId = typeof agentId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(agentId) ? agentId : 'rokbot-test';
+    const item = { id: randomUUID(), type: 'test', agentId: safeAgentId, title: 'RokBot 通知测试',
+      body: '点击此通知打开对应会话。', createdAt: iso(), deepLink: `rokbot-local://agent/${safeAgentId}` };
     const ids = await this.enqueue(item, deviceId, { bypassForeground });
     await this.flush();
     const job = this.store.value.jobs.find(job => ids.includes(job.id));

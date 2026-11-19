@@ -208,7 +208,7 @@ test('failed tunnel startup keeps the saved device for retry but does not select
 });
 
 test('concurrent credential changes persist in invocation order and logout cannot resurrect an old pairing', async t => {
-  const profile = await mkdtemp(path.join(tmpdir(), 'prokbot-pair-'));
+  const profile = await mkdtemp(path.join(tmpdir(), 'rokbot-pair-'));
   t.after(() => rm(profile, { recursive: true, force: true }));
   const storage = { isEncryptionAvailable: () => true, encryptString: s => Buffer.from(s), decryptString: b => b.toString() };
   const store = connection.credentialStore(profile, storage);
@@ -223,7 +223,7 @@ test('concurrent credential changes persist in invocation order and logout canno
 });
 
 test('unusable saved credentials do not activate a workspace and a failed replacement preserves the existing device', async t => {
-  const profile = await mkdtemp(path.join(tmpdir(), 'prokbot-credential-'));
+  const profile = await mkdtemp(path.join(tmpdir(), 'rokbot-credential-'));
   t.after(() => rm(profile, { recursive: true, force: true }));
   let available = true;
   const storage = { isEncryptionAvailable: () => available, encryptString: s => Buffer.from(s), decryptString: b => b.toString() };

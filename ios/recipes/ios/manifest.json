@@ -1,10 +1,10 @@
 {
-  "schema": "grokbot-ios-inputs/v1",
+  "schema": "rokbot-ios-inputs/v1",
   "version": "1.16.0",
   "build": "23152",
   "hbcVersion": 98,
   "hbcSha256": "9dcbab4683d0e64a7072987c4e8a55ed781092daf23384c4b94fc1e9b8f6d8fe",
-  "dylibSha256": "27fa59b3b34c8859520b94289fdd3cd567a4708e6dde980d143f4bb4a2c4aac2",
+  "dylibSha256": "98417b9ce595dcf70c559664f66cfebc581a3e1bf9d4907240d0b8585ec3fb9a",
   "nativeTextSha256": "7cdb10c9eaaa6c0fb002eb372b0a4f976ef315987eaeb3815a8df4531a34f42e",
   "resources": [
     {

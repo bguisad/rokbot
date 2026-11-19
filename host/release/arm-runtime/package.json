@@ -1,5 +1,5 @@
 {
-  "name": "prokbot-arm-host-runtime",
+  "name": "rokbot-arm-host-runtime",
   "private": true,
   "dependencies": {
     "@napi-rs/canvas-linux-arm64-gnu": "0.1.80",

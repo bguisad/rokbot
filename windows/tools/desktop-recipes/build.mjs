@@ -106,7 +106,7 @@ async function main() {
   const args = process.argv.slice(2);
   const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
   const supported = JSON.parse(await readFile(path.join(desktop, 'supported.json'), 'utf8'));
-  const temporary = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-recipes-'));
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-recipes-'));
   try {
     const source = await acquireDesktopSource({ source: arg('--source'), cacheDirectory: path.join(windowsRoot, '.cache'), supported,
       onDownload: ({ version }) => console.error(`正在下载 Grok Bot ${version} Windows x64…`) });

@@ -1,4 +1,4 @@
-# ProkBot Plus 网页版
+# RokBot 网页版
 
 [English](README.en.md)
 
@@ -12,8 +12,8 @@
 
 需要：
 
-- 已部署并且能打开管理页的 Host（ProkBot Plus 1.5.0 及以上）；
-- 一台电脑（Windows、macOS 或 Linux），装有 Node.js 22.12+，并有完整的网页版工具包（含 `web/`、`android/`、`windows/`、`mac/`）或完整的仓库。
+- 已部署并且能打开管理页的 RokBot Host；
+- 一台电脑（Windows、macOS 或 Linux），装有 Node.js 22.12+，并有完整的网页版工具包（含 `web/`、`windows/`、`mac/`）或完整的仓库。
 
 ### 1. 生成界面包
 
@@ -23,7 +23,7 @@
 node web/patchers/patch.mjs
 ```
 
-工具自动下载并校验官方 `Grok_Bot_1.1.0_Setup.exe`（和 Windows、Android 客户端用的是同一个文件），生成 `web/output/GrokBotLocal-web-1.1.0.zip`。
+工具自动下载并校验官方 `Grok_Bot_1.1.0_Setup.exe`（和 Windows、Android 客户端用的是同一个文件；可通过 `ROKBOT_DESKTOP_DOWNLOAD_BASE` 覆盖下载源），并打包 `assets/logo/rokbot-icon-256.png` 与 `assets/logo/rokbot-icon-512.png` 作为网页版应用图标，生成 `web/output/RokBotLocal-web-1.1.0.zip`。
 
 1.1.0 的界面用不了时，加 `--version 0.71.2` 改用 0.71.2 的界面，或用 `--source` 指定已下载的 0.71.2 安装包，工具按摘要识别版本。
 
@@ -42,7 +42,7 @@ node web/patchers/patch.mjs
 任选一种：
 
 - **管理页**：打开 Host 管理页的「网页版」，点「选择文件并上传」，选刚生成的 ZIP。上传完成后网页版自动启用。
-- **命令行**：生成时加 `--upload`，例如 `node web/patchers/patch.mjs --upload https://bot.example.org`。管理员密码从环境变量 `GROKBOT_ADMIN_PASSWORD`、`--password-file` 指定的文件或终端输入读取，不写在命令行里。
+- **命令行**：生成时加 `--upload`，例如 `node web/patchers/patch.mjs --upload https://bot.example.org`。管理员密码从环境变量 `ROKBOT_ADMIN_PASSWORD`、`--password-file` 指定的文件或终端输入读取，不写在命令行里。
 
 Host 会按界面包里的清单逐个核对文件的大小和 SHA-256，核对不通过就不安装，原来的界面包保持不变。
 
@@ -87,7 +87,7 @@ Host 会按界面包里的清单逐个核对文件的大小和 SHA-256，核对�
 
 ### 测试情况
 
-每次发布前用 Playwright 在 8 种模拟设备尺寸上跑完整流程（Windows 的 Chromium 和 Firefox、Mac 的 WebKit、Android 手机和平板、iPhone 15、iPhone SE、iPad Pro 横屏），1.1.0 和 0.71.2 两种界面都测。另在真实服务器上验证过上传、局域网 http 登录、真实模型对话和 Bot 电脑的实时画面。没有在真机浏览器上测过，遇到问题欢迎[提交 Issue](https://github.com/ferretgeek/prokbot-plus/issues)。
+每次发布前用 Playwright 在 8 种模拟设备尺寸上跑完整流程（Windows 的 Chromium 和 Firefox、Mac 的 WebKit、Android 手机和平板、iPhone 15、iPhone SE、iPad Pro 横屏），1.1.0 和 0.71.2 两种界面都测。另在真实服务器上验证过上传、局域网 http 登录、真实模型对话和 Bot 电脑的实时画面。没有在真机浏览器上测过，遇到问题欢迎[提交 Issue](https://github.com/hongfaqiu/rokbot/issues)。
 
 ## 安全
 
@@ -98,7 +98,7 @@ Host 会按界面包里的清单逐个核对文件的大小和 SHA-256，核对�
 
 ## 更新与删除
 
-- **更新界面**：重新生成界面包并上传，新包整体替换旧包，已经登录的浏览器不用重新配对，刷新页面即可。升级 ProkBot Plus 后，用同一版本的工具重新生成界面包。
+- **更新界面**：重新生成界面包并上传，新包整体替换旧包，已经登录的浏览器不用重新配对，刷新页面即可。升级 RokBot 后，用同一版本的工具重新生成界面包。
 - **暂停**：在管理页「网页版」关掉「启用网页版」。界面包保留，已登录的浏览器暂时打不开网页版。
 - **删除**：点「删除界面包」，网页版随之停用。已登录的浏览器仍列在「设备与通知」里，可以在那里撤销。
 
@@ -116,9 +116,9 @@ Host 会按界面包里的清单逐个核对文件的大小和 SHA-256，核对�
 
 ## 维护
 
-- `client/` 是只在浏览器里用的代码（`native.js`、`web-shell.js`、`boot-data.js`、`web.css`），其余桥接与 Android 客户端共用（`android/client/`）；`patchers/` 生成和上传界面包；Host 端是 `host/server/web-client.mjs`。
+- `client/` 存放网页版自带的浏览器端代码与桥接脚本（`native.js`、`web-shell.js`、`boot-data.js`、`web.css`、`bridge.js`、`gateway.js`、`services.js` 等）；`patchers/` 负责生成和上传界面包；Host 端是 `host/server/web-client.mjs`。
 - 实现原理见[技术文档](../docs/ARCHITECTURE.md#web-client)，测试命令和需要的环境变量见[测试与维护](../docs/ARCHITECTURE.md#testing)。
 
 ## 许可与支持
 
-仅限非商业使用，见 [LICENSE](../LICENSE)。本项目多数代码由 AI 辅助编写。生成的界面包含有官方程序的界面，只能装在你自己的 Host 上，不要公开分享。
+仅限非商业使用，见 [LICENSE](../LICENSE)。项目仓库：<https://github.com/hongfaqiu/rokbot>。本项目多数代码由 AI 辅助编写。生成的界面包含有官方程序的界面，只能装在你自己的 Host 上，不要公开分享。

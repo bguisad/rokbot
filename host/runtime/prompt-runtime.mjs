@@ -67,11 +67,16 @@ export async function installLocalPromptPolicy(directory, library, { pollMs = 10
       return render;
     },
   };
-  const previous = globalThis.__grokbotPromptPolicy;
+  // Keep __grokbotPromptPolicy for prompt-tools-system-prompt-assembly.mjs.gbp.gz until M2 regenerates 2bb5e41 recipes.
+  const previous = globalThis.__rokbotPromptPolicy ?? globalThis.__grokbotPromptPolicy;
   if (previous) throw new Error('A prompt policy is already installed');
+  globalThis.__rokbotPromptPolicy = policy;
   globalThis.__grokbotPromptPolicy = policy;
   const timer = setInterval(() => refresh().catch(error => console.warn('[prompt-policy]', error.name)), pollMs); timer.unref();
   return { refresh, flush: () => tail, snapshot: policy.snapshot, async close() {
-    stopped = true; clearInterval(timer); if (globalThis.__grokbotPromptPolicy === policy) delete globalThis.__grokbotPromptPolicy; await tail;
+    stopped = true; clearInterval(timer);
+    if (globalThis.__rokbotPromptPolicy === policy) delete globalThis.__rokbotPromptPolicy;
+    if (globalThis.__grokbotPromptPolicy === policy) delete globalThis.__grokbotPromptPolicy;
+    await tail;
   } };
 }

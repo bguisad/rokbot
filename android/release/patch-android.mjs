@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Standalone Native Android Client Patcher CLI for GrokBot (ai.x.grok.bot 1.16.0).
+// Standalone Native Android Client Patcher CLI for RokBot (official ai.x.grok.bot 1.16.0).
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -33,6 +33,51 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '../..');
 const REPO_ANDROID_DIR = path.resolve(ROOT_DIR, 'android');
 const RECIPES_DIR = path.resolve(__dirname, '../recipes');
+const LOGO_ANDROID_DIR = path.resolve(ROOT_DIR, 'assets/logo/android');
+const ICON_DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+const ICON_KINDS = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'];
+const MIPMAP_ICON_RE = /^res\/mipmap-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi)(?:-v\d+)?\/(ic_launcher(?:_round|_foreground)?)\.(?:png|webp)$/i;
+
+export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
+  if (!logoDir || !fs.existsSync(logoDir)) {
+    return { entries, replaced: 0, inserted: 0 };
+  }
+  const iconMap = new Map();
+  for (const density of ICON_DENSITIES) {
+    for (const kind of ICON_KINDS) {
+      const iconPath = path.join(logoDir, `mipmap-${density}`, `${kind}.png`);
+      if (fs.existsSync(iconPath)) {
+        iconMap.set(`${density}:${kind}`, fs.readFileSync(iconPath));
+      }
+    }
+  }
+  if (iconMap.size === 0) {
+    return { entries, replaced: 0, inserted: 0 };
+  }
+
+  const matchedKeys = new Set();
+  let replaced = 0;
+  const updated = entries.map(entry => {
+    const m = MIPMAP_ICON_RE.exec(entry.name);
+    if (!m) return entry;
+    const key = `${m[1].toLowerCase()}:${m[2].toLowerCase()}`;
+    const pngBuf = iconMap.get(key);
+    if (!pngBuf) return entry;
+    matchedKeys.add(key);
+    replaced++;
+    return createEntry(entry.name, pngBuf, { store: false });
+  });
+
+  let inserted = 0;
+  for (const [key, pngBuf] of iconMap.entries()) {
+    if (matchedKeys.has(key)) continue;
+    const [density, kind] = key.split(':');
+    updated.push(createEntry(`res/mipmap-${density}/${kind}.png`, pngBuf, { store: false }));
+    inserted++;
+  }
+
+  return { entries: updated, replaced, inserted };
+}
 
 const PAIRING_CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/i;
 const PACKAGE_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
@@ -42,7 +87,7 @@ function sha256Buffer(buf) {
 }
 
 function loadOrCreateSigningIdentity(explicitKeystorePath) {
-  const defaultPath = path.join(os.homedir(), '.grokbot-local', 'android-signing.json');
+  const defaultPath = path.join(os.homedir(), '.rokbot-local', 'android-signing.json');
   const targetPath = path.resolve(explicitKeystorePath || defaultPath);
 
   if (targetPath === REPO_ANDROID_DIR || targetPath.startsWith(REPO_ANDROID_DIR + path.sep)) {
@@ -68,7 +113,7 @@ function loadOrCreateSigningIdentity(explicitKeystorePath) {
 
   const identity = createSigningIdentity({ type: 'rsa', modulusLength: 2048 });
   const payload = {
-    schema: 'grokbot-android-signing/v1',
+    schema: 'rokbot-android-signing/v1',
     createdAt: new Date().toISOString(),
     privateKey: identity.privateKey.export({ type: 'pkcs8', format: 'pem' }),
     certificate: identity.certificate.toString('base64'),
@@ -172,7 +217,7 @@ export async function runPatchPipeline(options) {
   if (options.packageName !== undefined && options.packageName !== null) {
     const cleanPkg = String(options.packageName).trim();
     if (!PACKAGE_NAME_RE.test(cleanPkg)) {
-      throw new Error('--package-name / --bundle-id must be a valid Android applicationId (e.g. dev.grokbot.nativeapp)');
+      throw new Error('--package-name / --bundle-id must be a valid Android applicationId (e.g. dev.rokbot.nativeapp)');
     }
     options.packageName = cleanPkg;
   }
@@ -314,8 +359,8 @@ export async function runPatchPipeline(options) {
   const hasMainApplication = hasAiXGrokBotApp || hasSandApp;
   const setApplicationName = Boolean(options.setApplicationName ?? hasMainApplication);
   const inferredApplicationName = hasSandApp && !hasAiXGrokBotApp
-    ? 'dev.grokbot.nativeapp.GrokBotSandApplication'
-    : 'dev.grokbot.nativeapp.GrokBotApplication';
+    ? 'dev.rokbot.nativeapp.RokBotSandApplication'
+    : 'dev.rokbot.nativeapp.RokBotApplication';
   const targetPackageName = options.packageName || manifestInfo.packageName;
   const patchedManifestBytes = patchManifest(manifestBytes, {
     packageName: targetPackageName,
@@ -421,13 +466,13 @@ export async function runPatchPipeline(options) {
 
   // 7b. Inject runtime preconfiguration asset when --host or --pairing-code is provided
   if (options.host || options.pairingCode) {
-    patchedEntries = patchedEntries.filter(e => e.name !== 'assets/grokbot-preconfig.json');
+    patchedEntries = patchedEntries.filter(e => e.name !== 'assets/rokbot-preconfig.json');
     const preconfig = {
       host: options.host || '',
       pairingCode: options.pairingCode || '',
     };
     patchedEntries.push(
-      createEntry('assets/grokbot-preconfig.json', Buffer.from(JSON.stringify(preconfig, null, 2)), { store: false })
+      createEntry('assets/rokbot-preconfig.json', Buffer.from(JSON.stringify(preconfig, null, 2)), { store: false })
     );
   }
 
@@ -439,6 +484,10 @@ export async function runPatchPipeline(options) {
       createEntry('assets/recipes/update-config.json', Buffer.from(JSON.stringify(updateCfg, null, 2)), { store: false })
     );
   }
+
+  // 7d. Replace or insert RokBot Android launcher mipmap icons from assets/logo/android/
+  const iconResult = patchLauncherIcons(patchedEntries, options.logoDir || LOGO_ANDROID_DIR);
+  patchedEntries = iconResult.entries;
 
   // 8. Align ZIP (16KB .so, 4B data) and Sign APK
   const unsignedApk = writeZip(patchedEntries);
@@ -470,7 +519,7 @@ export async function runPatchPipeline(options) {
   const pkgMatched = supportedPackages.includes(manifestInfo.packageName);
 
   const report = {
-    schema: 'grokbot-android-patch-report/v1',
+    schema: 'rokbot-android-patch-report/v1',
     mode: 'rn-official-apk-patch',
     targetPackage: manifestPin.packageName,
     supportedPackages,
@@ -508,6 +557,8 @@ export async function runPatchPipeline(options) {
     expoUpdatesDisabled: true,
     cleartextTrafficAllowed: true,
     preconfiguredHost: Boolean(options.host),
+    launcherIconsReplaced: iconResult.replaced,
+    launcherIconsInserted: iconResult.inserted,
   };
 
   const reportPath = path.join(path.dirname(outPath), 'patch-report.json');
@@ -531,7 +582,7 @@ Options:
   --bundle-id <id>        Alias for --package-name
   --host <url>            Pre-configured Host address (e.g. http://192.168.1.100:18080 or tailcat://connect/...)
   --pairing-code <code>   Pre-configured 6-character pairing code
-  --keystore <path>       Persistent JSON signing identity path (default ~/.grokbot-local/android-signing.json)
+  --keystore <path>       Persistent JSON signing identity path (default ~/.rokbot-local/android-signing.json)
   --unsigned              Output aligned unsigned APK
   --verify-only           Validate input APK/XAPK and recipe pins without writing output
   --force                 Overwrite existing output APK

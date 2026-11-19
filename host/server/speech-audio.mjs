@@ -15,13 +15,13 @@ export async function fishAudioBytes({ audio, mimeType }, signal) {
   check(format, 415, 'Unsupported audio format');
   signal?.throwIfAborted();
   // M4A metadata can follow its audio; a seekable file is required for reliable decoding.
-  const directory = await mkdtemp(join(tmpdir(), 'grokbot-audio-'));
+  const directory = await mkdtemp(join(tmpdir(), 'rokbot-audio-'));
   try {
     const filename = join(directory, 'recording');
     await writeFile(filename, audio, { mode: 0o600 });
     signal?.throwIfAborted();
     return await new Promise((resolve, reject) => {
-      const child = spawn(process.env.GROKBOT_FFMPEG_PATH || 'ffmpeg', [
+      const child = spawn(process.env.ROKBOT_FFMPEG_PATH || process.env.GROKBOT_FFMPEG_PATH || 'ffmpeg', [
         '-nostdin', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file,pipe',
         '-f', format, '-i', filename, '-vn', '-ac', '1', '-ar', '16000',
         '-c:a', 'pcm_s16le', '-f', 'wav', 'pipe:1',

@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 
 /** The original call entry follows this Host's configured service availability. */
 export function createVoiceAvailability({ request, window, experiments, getPreference = () => false }) {
@@ -31,7 +31,7 @@ export function createVoiceAvailability({ request, window, experiments, getPrefe
 /** Only a short-lived call ticket crosses into the original renderer. */
 export async function mintVoiceCredential({ request, server }, agentId) {
   if (typeof agentId !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(agentId))
-    throw new Error(grokText('请选择 Bot。', 'Choose a Bot.'));
+    throw new Error(rokText('请选择 Bot。', 'Choose a Bot.'));
   const value = await request('/local/voice/session', { agentId, audioProcessing: 'native-aec-v1' }, AbortSignal.timeout(15_000));
   const expected = new URL('/local/voice/realtime', server);
   expected.protocol = expected.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -40,7 +40,7 @@ export async function mintVoiceCredential({ request, server }, agentId) {
       value.websocketUrl !== expected.href || typeof value.model !== 'string' ||
       !value.model || value.model.length > 128 || !Number.isInteger(expires) ||
       expires <= Date.now() / 1000 || expires > Date.now() / 1000 + 90)
-    throw new Error(grokText('语音连接信息无效。', 'Invalid voice connection.'));
+    throw new Error(rokText('语音连接信息无效。', 'Invalid voice connection.'));
   return { clientSecret: value.clientSecret, websocketUrl: expected.href,
     expiresAtUnixSeconds: expires, model: value.model };
 }

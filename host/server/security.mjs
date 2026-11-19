@@ -121,7 +121,7 @@ export function originFor(request, configured) {
 }
 export function adminMutation(request, origin) {
   check(
-    request.headers["x-grokbot-csrf"] === "1",
+    request.headers["x-rokbot-csrf"] === "1",
     403,
     "请从管理页面执行此操作",
   );

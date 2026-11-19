@@ -1,6 +1,6 @@
 (() => {
   let preference = "system";
-  try { preference = localStorage.getItem("grokbot-host-theme") || "system"; } catch {}
+  try { preference = localStorage.getItem("rokbot-host-theme") || "system"; } catch {}
   if (!["system", "light", "dark"].includes(preference)) preference = "system";
   const media = matchMedia("(prefers-color-scheme: dark)");
   function apply() {
@@ -13,7 +13,7 @@
   document.addEventListener("change", (event) => {
     if (!event.target.matches?.("[data-theme-picker]")) return;
     preference = event.target.value;
-    try { localStorage.setItem("grokbot-host-theme", preference); } catch {}
+    try { localStorage.setItem("rokbot-host-theme", preference); } catch {}
     apply();
   });
 })();

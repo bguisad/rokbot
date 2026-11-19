@@ -462,7 +462,7 @@ export function extractManifestInfo(axmlBuffer) {
  * Patch AndroidManifest.xml:
  * - Ensure android:usesCleartextTraffic="true"
  * - Disable Expo OTA updates metadata if present
- * - Inject GrokBotInitProvider (initializes native companion before Application.onCreate)
+ * - Inject RokBotInitProvider (initializes native companion before Application.onCreate)
  * - Inject native companion Activities (Pairing, BotList + deep links, Chat, Library, VoiceCall, PushSettings, Profile, Usage, Computers)
  * - Inject NotificationService (dataSync), VoiceCallService (microphone), BootReceiver, UnifiedPushReceiver
  * - Inject required permissions
@@ -683,7 +683,7 @@ export function patchManifest(axmlBuffer, options = {}) {
   });
 
   if (options.setApplicationName && options.appComponentFactory !== false) {
-    const acfName = options.appComponentFactory || 'dev.grokbot.nativeapp.GrokBotAppComponentFactory';
+    const acfName = options.appComponentFactory || 'dev.rokbot.nativeapp.RokBotAppComponentFactory';
     let acfAttr = (appNode.attributes || []).find(
       a =>
         a.resourceId === KNOWN_RES_IDS.appComponentFactory ||
@@ -699,7 +699,7 @@ export function patchManifest(axmlBuffer, options = {}) {
   }
 
   // 2. Set application android:name only if explicitly requested
-  const customAppName = options.applicationName || 'dev.grokbot.nativeapp.GrokBotApplication';
+  const customAppName = options.applicationName || 'dev.rokbot.nativeapp.RokBotApplication';
   if (options.setApplicationName) {
     let appNameAttr = appNode.attributes.find(
       a => (a.resourceId === KNOWN_RES_IDS.name) ||
@@ -746,33 +746,33 @@ export function patchManifest(axmlBuffer, options = {}) {
     }
   }
 
-  // 3. Inject GrokBotInitProvider (runs GrokBotBootstrap.init before Application.onCreate)
-  const providerName = 'dev.grokbot.nativeapp.GrokBotInitProvider';
+  // 3. Inject RokBotInitProvider (runs RokBotBootstrap.init before Application.onCreate)
+  const providerName = 'dev.rokbot.nativeapp.RokBotInitProvider';
   upsertAppChild('provider', providerName, [
     makeAttrStr('name', providerName),
-    makeAttrStr('authorities', `${packageName}.grokbot.init`),
+    makeAttrStr('authorities', `${packageName}.rokbot.init`),
     makeAttrBool('exported', false),
     makeAttrInt('initOrder', 999999),
   ]);
 
   // 3b. Inject ApkUpdateProvider (serves staged incremental APK updates to PackageInstaller)
-  const updateProviderName = 'dev.grokbot.nativeapp.ApkUpdateProvider';
+  const updateProviderName = 'dev.rokbot.nativeapp.ApkUpdateProvider';
   upsertAppChild('provider', updateProviderName, [
     makeAttrStr('name', updateProviderName),
-    makeAttrStr('authorities', `${packageName}.grokbot.updateprovider`),
+    makeAttrStr('authorities', `${packageName}.rokbot.updateprovider`),
     makeAttrBool('exported', false),
     makeAttrBool('grantUriPermissions', true),
   ]);
 
   // 4. Inject native companion Activities
-  const pairingActivityName = options.pairingActivity || 'dev.grokbot.nativeapp.PairingActivity';
+  const pairingActivityName = options.pairingActivity || 'dev.rokbot.nativeapp.PairingActivity';
   upsertAppChild('activity', pairingActivityName, [
     makeAttrStr('name', pairingActivityName),
     makeAttrBool('exported', true),
     makeAttrHex('windowSoftInputMode', 0x00000010),
   ]);
 
-  // Attach grokbot-local://agent deep-link filter directly onto the existing LAUNCHER activity (official RN MainActivity)
+  // Attach rokbot-local://agent deep-link filter directly onto the existing LAUNCHER activity (official RN MainActivity)
   const hasFilterAction = (el, actionVal) => (el.children || []).some(
     f => f.name === 'intent-filter' && (f.children || []).some(
       c => c.name === 'action' && getAndroidNameAttr(c)?.value === actionVal
@@ -818,64 +818,64 @@ export function patchManifest(axmlBuffer, options = {}) {
       launcherAct.attributes = launcherAct.attributes || [];
       launcherAct.attributes.push(makeAttrBool('exported', true));
     }
-    const alreadyHasGrokbotDeepLink = (launcherAct.children || []).some(
+    const alreadyHasRokbotDeepLink = (launcherAct.children || []).some(
       f => f.name === 'intent-filter' && (f.children || []).some(
         d => d.name === 'data' && (d.attributes || []).some(
-          a => (a.resourceId === KNOWN_RES_IDS.scheme || a.name === 'scheme') && a.value === 'grokbot-local'
+          a => (a.resourceId === KNOWN_RES_IDS.scheme || a.name === 'scheme') && a.value === 'rokbot-local'
         )
       )
     );
-    if (!alreadyHasGrokbotDeepLink) {
+    if (!alreadyHasRokbotDeepLink) {
       launcherAct.children = launcherAct.children || [];
       launcherAct.children.push(
         makeEl('intent-filter', [], [
           makeEl('action', [makeAttrStr('name', 'android.intent.action.VIEW')]),
           makeEl('category', [makeAttrStr('name', 'android.intent.category.DEFAULT')]),
           makeEl('category', [makeAttrStr('name', 'android.intent.category.BROWSABLE')]),
-          makeEl('data', [makeAttrStr('scheme', 'grokbot-local'), makeAttrStr('host', 'agent')]),
-          makeEl('data', [makeAttrStr('scheme', 'grokbot-local'), makeAttrStr('host', 'chat')]),
+          makeEl('data', [makeAttrStr('scheme', 'rokbot-local'), makeAttrStr('host', 'agent')]),
+          makeEl('data', [makeAttrStr('scheme', 'rokbot-local'), makeAttrStr('host', 'chat')]),
           makeEl('data', [makeAttrStr('scheme', 'grokbot'), makeAttrStr('host', 'app')]),
         ])
       );
     }
   }
 
-  upsertAppChild('activity', 'dev.grokbot.nativeapp.LibraryActivity', [
-    makeAttrStr('name', 'dev.grokbot.nativeapp.LibraryActivity'),
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.LibraryActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.LibraryActivity'),
     makeAttrBool('exported', false),
   ]);
 
-  upsertAppChild('activity', 'dev.grokbot.nativeapp.PushSettingsActivity', [
-    makeAttrStr('name', 'dev.grokbot.nativeapp.PushSettingsActivity'),
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.PushSettingsActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.PushSettingsActivity'),
     makeAttrBool('exported', false),
   ]);
 
-  upsertAppChild('activity', 'dev.grokbot.nativeapp.ProfileActivity', [
-    makeAttrStr('name', 'dev.grokbot.nativeapp.ProfileActivity'),
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.ProfileActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.ProfileActivity'),
     makeAttrBool('exported', false),
   ]);
 
-  upsertAppChild('activity', 'dev.grokbot.nativeapp.UsageActivity', [
-    makeAttrStr('name', 'dev.grokbot.nativeapp.UsageActivity'),
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.UsageActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.UsageActivity'),
     makeAttrBool('exported', false),
   ]);
 
-  upsertAppChild('activity', 'dev.grokbot.nativeapp.ComputersActivity', [
-    makeAttrStr('name', 'dev.grokbot.nativeapp.ComputersActivity'),
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.ComputersActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.ComputersActivity'),
     makeAttrBool('exported', false),
   ]);
 
-  upsertAppChild('activity', 'dev.grokbot.nativeapp.ComputerViewerActivity', [
-    makeAttrStr('name', 'dev.grokbot.nativeapp.ComputerViewerActivity'),
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.ComputerViewerActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.ComputerViewerActivity'),
     makeAttrBool('exported', false),
     makeAttrHex('windowSoftInputMode', 0x00000010),
   ]);
 
   upsertAppChild(
     'activity',
-    'dev.grokbot.nativeapp.ShareTargetActivity',
+    'dev.rokbot.nativeapp.ShareTargetActivity',
     [
-      makeAttrStr('name', 'dev.grokbot.nativeapp.ShareTargetActivity'),
+      makeAttrStr('name', 'dev.rokbot.nativeapp.ShareTargetActivity'),
       makeAttrBool('exported', true),
       makeAttrHex('windowSoftInputMode', 0x00000010),
     ],
@@ -897,15 +897,15 @@ export function patchManifest(axmlBuffer, options = {}) {
   );
 
   // 5. Inject NotificationService (dataSync = 0x1) & VoiceCallService (microphone = 0x80)
-  const notifServiceName = options.notificationService || 'dev.grokbot.nativeapp.NotificationService';
+  const notifServiceName = options.notificationService || 'dev.rokbot.nativeapp.NotificationService';
   upsertAppChild('service', notifServiceName, [
     makeAttrStr('name', notifServiceName),
     makeAttrBool('exported', false),
     makeAttrHex('foregroundServiceType', 0x00000001),
   ]);
 
-  upsertAppChild('service', 'dev.grokbot.nativeapp.VoiceCallService', [
-    makeAttrStr('name', 'dev.grokbot.nativeapp.VoiceCallService'),
+  upsertAppChild('service', 'dev.rokbot.nativeapp.VoiceCallService', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.VoiceCallService'),
     makeAttrBool('exported', false),
     makeAttrHex('foregroundServiceType', 0x00000080),
   ]);
@@ -913,9 +913,9 @@ export function patchManifest(axmlBuffer, options = {}) {
   // 6. Inject BootReceiver & UnifiedPushReceiver
   upsertAppChild(
     'receiver',
-    'dev.grokbot.nativeapp.BootReceiver',
+    'dev.rokbot.nativeapp.BootReceiver',
     [
-      makeAttrStr('name', 'dev.grokbot.nativeapp.BootReceiver'),
+      makeAttrStr('name', 'dev.rokbot.nativeapp.BootReceiver'),
       makeAttrBool('exported', true),
     ],
     [
@@ -928,9 +928,9 @@ export function patchManifest(axmlBuffer, options = {}) {
 
   upsertAppChild(
     'receiver',
-    'dev.grokbot.nativeapp.UnifiedPushReceiver',
+    'dev.rokbot.nativeapp.UnifiedPushReceiver',
     [
-      makeAttrStr('name', 'dev.grokbot.nativeapp.UnifiedPushReceiver'),
+      makeAttrStr('name', 'dev.rokbot.nativeapp.UnifiedPushReceiver'),
       makeAttrBool('exported', true),
     ],
     [

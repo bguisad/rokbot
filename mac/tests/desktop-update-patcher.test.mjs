@@ -34,7 +34,7 @@ function p256Pair() {
 }
 
 test('desktop patcher update URL and ECDSA P-256 key validation match updater.mjs and support --update-public-key-file', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-update-cfg-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-update-cfg-'));
   try {
     const { pem, privatePem, spkiBase64 } = p256Pair();
     const pemFile = path.join(dir, 'update-key.pem');
@@ -121,7 +121,7 @@ test('desktop patcher update URL and ECDSA P-256 key validation match updater.mj
 });
 
 test('patchDesktopUpdateSettingsUi restores GrokOriginalUpdateSettings only when delivery === "in-app" and fails closed on drift', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-update-ui-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-update-ui-'));
   try {
     const assetsDir = path.join(dir, 'dist/renderer/assets');
     await mkdir(assetsDir, { recursive: true });

@@ -1,8 +1,8 @@
-# ProkBot Plus Host
+# RokBot Host
 
 [English](README.en.md)
 
-自建 Grok Bot 服务端。Host 可在 Linux amd64 / arm64 上构建；官方执行桌面只有 amd64，ARM 机器可以接一台独立的 amd64 节点，或同机模拟（实验）。需要 Python 3.10+ 和 Docker Compose v2。
+自建 RokBot 服务端（仓库：`https://github.com/hongfaqiu/rokbot`）。Host 可在 Linux amd64 / arm64 上构建；官方执行桌面只有 amd64，ARM 机器可以接一台独立的 amd64 节点，或同机模拟（实验）。需要 Python 3.10+ 和 Docker Compose v2。
 
 完整的部署步骤见[部署手册](../docs/AI-INSTALL.md)，实现原理见[技术文档](../docs/ARCHITECTURE.md)。
 
@@ -26,7 +26,7 @@ python3 deploy.py up
 python3 deploy.py up --host-archive /path/to/host.tgz --box-archive /path/to/box.tar.gz
 ```
 
-- Box 归档校验通过后标记为 `grokbot-box-input:9d2ac1b`，Compose 直接使用。离线归档按配置摘要校验，与 Docker 的镜像存储方式无关。
+- Box 归档校验通过后标记为 `rokbot-box-input:9d2ac1b`，Compose 直接使用（也可通过 `ROKBOT_HOST_IMAGE=ghcr.io/hongfaqiu/rokbot/host` 与 `ROKBOT_BOX_IMAGE=ghcr.io/hongfaqiu/rokbot/box` 指定预构建镜像，并通过 `ROKBOT_HOST_ARCHIVE_URL` 覆盖归档镜像源）。离线归档按配置摘要校验，与 Docker 的镜像存储方式无关。
 - 已有实例把 `up` 换成 `update`；只构建不启动时，`release/build-docker.py` 接受相同参数。
 - 这些参数只替代原版下载。全离线还要预缓存基础镜像、系统包和 npm 依赖，ARM 同机还需要 amd64 的 `busybox:1.37`。ARM 独立 Host 不传 `--box-archive`。
 - `release/patch-host.py --archive ORIGINAL --output NEW_DIRECTORY` 可以单独生成 Host 文件；只做固定的字节复制和新增，不反编译。
@@ -44,16 +44,16 @@ python3 deploy.py backup < /dev/null
 **恢复成一个新实例**：分开保管卷备份、原 `.env`、对应代码版本和镜像；清单的 `serviceImages` 记录完整镜像 ID，目标 Docker 必须已有这些镜像。先确认原实例及其他机器上的同一身份都已停机，不要对原项目运行 `down -v`。以下是回环地址的同机示例，目录和项目名按实际替换；要让原有配对继续可用，用 `init` 的 `--listen`、`--port`、`--public-url` 重现原地址。独立 Host 在 `init` 前加 `--host-only`。
 
 ```sh
-python3 deploy.py --home "$HOME/grokbot-restored" --project grokbot-restored init < /dev/null
-python3 deploy.py --home "$HOME/grokbot-restored" recover --directory /path/to/backup < /dev/null
-python3 deploy.py --home "$HOME/grokbot-restored" status < /dev/null
+python3 deploy.py --home "$HOME/rokbot-restored" --project rokbot-restored init < /dev/null
+python3 deploy.py --home "$HOME/rokbot-restored" recover --directory /path/to/backup < /dev/null
+python3 deploy.py --home "$HOME/rokbot-restored" status < /dev/null
 ```
 
 `recover` 校验卷、项目名、拓扑和本地镜像 ID，只往新项目解包，启动时只用记录的镜像，不构建、不拉取、不改原卷。启动后用原设备读回旧对话和文件。启动失败时新项目的卷保留，原实例不会自动重启。
 
-旧清单缺少完整的 `serviceImages`，或精确镜像不在本机时，不能自动恢复上线，也不要用 `:local` 标签猜版本。只恢复数据用 `python3 release/backup.py restore --project grokbot-data-only --directory /path/to/backup --image <已核实的镜像ID> < /dev/null`，它不启动服务，独立执行节点也用这个入口。
+旧清单缺少完整的 `serviceImages`，或精确镜像不在本机时，不能自动恢复上线，也不要用 `:local` 标签猜版本。只恢复数据用 `python3 release/backup.py restore --project rokbot-data-only --directory /path/to/backup --image <已核实的镜像ID> < /dev/null`，它不启动服务，独立执行节点也用这个入口。
 
-同一个 Docker daemon 上，部署工具用锁防止并发修改同一项目、同源恢复副本重复上线；不同 daemon 之间不共享锁，由操作者确认同一身份只运行一份。崩溃后可能留锁，先核实服务和操作进程，不要把删锁当成常规步骤。名字带 `_restore-in-progress` 的项目是未完成的恢复，不能启动，换一个空项目重试。
+同个 Docker daemon 上，部署工具用锁防止并发修改同一项目、同源恢复副本重复上线；不同 daemon 之间不共享锁，由操作者确认同一身份只运行一份。崩溃后可能留锁，先核实服务和操作进程，不要把删锁当成常规步骤。名字带 `_restore-in-progress` 的项目是未完成的恢复，不能启动，换一个空项目重试。
 
 ## 分开部署执行电脑
 
@@ -61,14 +61,14 @@ Host 机器用 `python3 deploy.py --host-only init` 再 `python3 deploy.py up`�
 
 ```sh
 python3 release/build-docker.py --box-only
-# 设置至少 32 位的随机 GROKBOT_NODE_TOKEN；离线镜像可在上一条命令加 --box-archive
+# 设置至少 32 位的随机 ROKBOT_NODE_TOKEN；离线镜像可在上一条命令加 --box-archive
 docker compose -f release/compose.execution.yaml up -d --build
 ```
 
 然后在 Host 管理页填写执行节点的地址和密钥并启用。`--host-only` 模式要先配好模型并启用节点，聊天核心才会启动；没有节点时管理页能打开、容器也可能显示健康，但不能聊天。
 
-- 局域网访问：设置 `GROKBOT_NODE_LISTEN_ADDRESS=0.0.0.0`，端口默认 18443。
-- 内嵌网络：设置 `GROKBOT_TAILCAT_ENABLED=1`；高级选项是 `GROKBOT_TAILCAT_RELAY` 和 `GROKBOT_TAILCAT_DERP_MAP_URL`。
+- 局域网访问：设置 `ROKBOT_NODE_LISTEN_ADDRESS=0.0.0.0`，端口默认 18443。
+- 内嵌网络：设置 `ROKBOT_TAILCAT_ENABLED=1`；高级选项是 `ROKBOT_TAILCAT_RELAY` 和 `ROKBOT_TAILCAT_DERP_MAP_URL`。
 
 <a id="capacity-benchmark"></a>
 ## 整机基准
@@ -99,7 +99,7 @@ python3 -B bench/bench.py compare --before "$R/BEFORE" --after "$R/AFTER" > "$R/
 
 ## 应用开发
 
-管理页的「应用」统一管理远程 MCP 服务、带代码的应用和附带的技能。一个应用就是一个 `grokbot-app` JSON 包，旧版插件 JSON 也能导入。
+管理页的「应用」统一管理远程 MCP 服务、带代码的应用和附带的技能。一个应用就是一个 `rokbot-app` JSON 包，旧版插件 JSON 也能导入。
 
 - 内置的「编写应用」提供开发指南、格式校验和提交工具。Bot 提交后，用户在客户端的「连接应用」里添加并授权。
 - 导入、导出都是单个 JSON，包含代码、图标、说明和技能；已保存的配置和授权凭证不会导出。

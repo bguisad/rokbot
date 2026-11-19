@@ -8,7 +8,7 @@ export async function createNativeComputer({ original, profile, decideLocalUse, 
     readGate: enabled, findHelper: async () => ({ kind: 'bundled', app: helper }),
     installDir: join(profile, 'computer-helper'),
   });
-  const schemaSession = computer.sessionFor('grokbot-local-tool-catalog', { kind: 'bundled', app: helper });
+  const schemaSession = computer.sessionFor('rokbot-local-tool-catalog', { kind: 'bundled', app: helper });
   let tools;
   try {
     await schemaSession.ready;

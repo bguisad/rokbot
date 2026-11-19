@@ -11,9 +11,20 @@ import { applyReleaseRecipes } from './release-recipes.mjs';
 import { extractNotificationPolicy } from './extract-policy.mjs';
 import { acquireDesktopSource } from './download-original.mjs';
 import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from './update-config.mjs';
+import {
+  PROFILE_DISPLAY_PATH,
+  applyRokBotInfoPlist,
+  installBundleIcon,
+  resolveRokBotLogoPaths,
+  resolveTailcatSource,
+  stageLocalClientIcon,
+  verifyRokBotIcons,
+} from './brand-assets.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
+const repo = path.resolve(root, '..');
+const { icnsPath, iconPngPath } = resolveRokBotLogoPaths(repo);
 const supported = JSON.parse(await readFile(path.join(here, 'supported.json')));
 const startedAt = performance.now();
 const timings = {};
@@ -28,8 +39,8 @@ if (args.includes('--help')) {
 const updateConfig = await resolveDesktopUpdateConfig(args);
 if (process.platform !== 'darwin') throw new Error('macOS App 构建与签名必须在 macOS 上进行。');
 let source;
-const output = path.resolve(arg('--output') ?? path.join(root, 'output.noindex/Grok Bot.app'));
-const backup = path.resolve(arg('--backup') ?? path.join(root, 'backup.noindex/Grok Bot.app'));
+const output = path.resolve(arg('--output') ?? path.join(root, 'output.noindex/RokBot.app'));
+const backup = path.resolve(arg('--backup') ?? path.join(root, 'backup.noindex/RokBot.app'));
 let signingIdentity = arg('--identity') ?? '-';
 let signingKind = signingIdentity === '-' ? 'ad-hoc' : 'certificate';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -62,11 +73,11 @@ if (signingIdentity === 'auto') {
   signingIdentity = selected[1];
   signingKind = selected[2].startsWith('Developer ID Application:') ? 'Developer ID Application' : 'Apple Development';
 }
-const temporary = await mkdtemp(path.join(os.tmpdir(), 'grokbot-desktop-patch-'));
+const temporary = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-patch-'));
 let mounted = false, createdOutput = false;
 try {
   source = await acquireDesktopSource({ source: arg('--source'), cacheDirectory: path.join(root, '.cache'), supported,
-    onDownload: ({ version }) => console.error(`正在下载 Grok Bot ${version}…`) });
+    onDownload: ({ version }) => console.error(`正在下载原版 Grok Bot ${version}…`) });
   let app = source;
   if (path.extname(source).toLowerCase() === '.dmg') {
     const mount = path.join(temporary, 'mount'); await mkdir(mount);
@@ -114,28 +125,25 @@ try {
     await cp(path.join(root, 'clients/desktop'), path.join(unpacked, 'local-client'), { recursive: true, filter: filename => !filename.endsWith('/notification-policy.mjs') });
     await writeFile(path.join(unpacked, 'local-client/notification-policy.mjs'), notificationPolicy);
     await cp(path.join(root, 'clients/shared'), path.join(unpacked, 'shared'), { recursive: true });
-    await cp(path.join(root, 'dist/network/grokbot-tailcat'), path.join(output, 'Contents/Resources/grokbot-tailcat'));
+    await cp(resolveTailcatSource(root), path.join(output, 'Contents/Resources/rokbot-tailcat'));
     // Copies made on Windows or extracted from some archives lose the executable bit.
-    await chmod(path.join(output, 'Contents/Resources/grokbot-tailcat'), 0o755);
+    await chmod(path.join(output, 'Contents/Resources/rokbot-tailcat'), 0o755);
     await cp(path.join(root, 'network/TAILCAT-LICENSE'), path.join(output, 'Contents/Resources/TAILCAT-LICENSE'));
     // ASAR extraction does not retain Unix executable bits for native helpers.
     for (const name of ['sand-op-launcher', 'sand-webauthn-signer'])
       await chmod(path.join(unpacked, 'dist/native', name), 0o755);
-    run('sips', ['-s', 'format', 'png', path.join(app, 'Contents/Resources/icon.icns'), '--out', path.join(unpacked, 'local-client/icon.png')]);
+    await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath });
     const outResources = path.join(output, 'Contents/Resources');
     const outAsar = path.join(outResources, 'app.asar');
     await rm(outAsar);
     await rm(`${outAsar}.unpacked`, { recursive: true, force: true });
     await asar.createPackageWithOptions(unpacked, outAsar, { unpack: '{**/*.node,**/dist/native/**}' });
     const header = asar.getRawHeader(outAsar).headerString;
-    info.CFBundleIdentifier = 'dev.grokbot.local';
-    info.NSLocalNetworkUsageDescription = 'Connect to your Grok Bot Host on the local network.';
-    info.CFBundleURLTypes = [{ CFBundleTypeRole: 'Viewer', CFBundleURLName: 'Grok Bot Local', CFBundleURLSchemes: ['grokbot-local'] }];
+    applyRokBotInfoPlist(info);
     info.ElectronAsarIntegrity = { 'Resources/app.asar': { algorithm: 'SHA256', hash: sha(header) } };
-    for (const key of ['SUFeedURL', 'SUPublicEDKey', 'SUEnableAutomaticChecks', 'SUAutomaticallyUpdate']) delete info[key];
     await writePlist(path.join(output, 'Contents/Info.plist'), info);
     // Helper identities must not collide with the unmodified app. The original
-    // engine, executable names, icons and ASAR integrity fuses remain unchanged.
+    // engine, executable names, and ASAR integrity fuses remain unchanged.
     const helpers = run('find', [path.join(output, 'Contents/Frameworks'), '-name', 'Info.plist']).trim().split('\n').filter(Boolean);
     for (const filename of helpers) {
       const helper = plist(filename);
@@ -166,8 +174,9 @@ try {
         path.join(output, 'Contents/Helpers/Grok Bot Computer Use.app/Contents/MacOS/CUGrokBotService'), teamId) };
     }
     if (updateConfig) {
-      await writeFile(path.join(outResources, 'grokbot-local-update.json'), JSON.stringify(updateConfig, null, 2) + '\n');
+      await writeFile(path.join(outResources, 'rokbot-local-update.json'), JSON.stringify(updateConfig, null, 2) + '\n');
     }
+    await installBundleIcon({ outResources, icnsPath });
     run('xattr', ['-cr', output]);
     // --deep does not cover every library under Electron's Framework/Libraries
     // directory. Sign each native binary first so hardened-runtime library
@@ -177,15 +186,20 @@ try {
     run('codesign', ['--force', '--deep', '--sign', signingIdentity, '--options', 'runtime', '--timestamp=none', '--entitlements', entitlements, output], { timeout: 120000 });
     run('codesign', ['--verify', '--deep', '--strict', output]);
     if (await hash(asarPath) !== asarSha256) throw new Error('原版文件意外变化。');
-    const iconUnchanged = await hash(path.join(app, 'Contents/Resources/icon.icns')) === await hash(path.join(outResources, 'icon.icns'));
-    if (!iconUnchanged) throw new Error('图标保留校验失败。');
+    const iconVerification = await verifyRokBotIcons({
+      icnsPath,
+      iconPngPath,
+      outIconPath: path.join(outResources, 'icon.icns'),
+      outAsarPath: outAsar,
+      asarModule: asar,
+    });
     const manifest = { patchedAt: new Date().toISOString(), source, output, backup,
       version: supported.version, architecture: supported.architecture, originalAsarSha256: asarSha256,
       patchedAsarSha256: await hash(outAsar), originalEntry: previousMain, patchedEntry: pkg.main,
-      bundleId: info.CFBundleIdentifier, signature: signingKind, iconUnchanged,
+      bundleId: info.CFBundleIdentifier, signature: signingKind, ...iconVerification,
       originalFrameworkSha256: frameworkSha256, originalUnchanged: true,
       originalWindow: { frame: true, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } },
-      profile: '~/Library/Application Support/Grok Bot Local', automaticUpdates: Boolean(updateConfig), ...(updateConfig ?? {}), computerHelper,
+      profile: PROFILE_DISPLAY_PATH, automaticUpdates: Boolean(updateConfig), ...(updateConfig ?? {}), computerHelper,
       timings: { ...timings, totalSeconds: Number(((performance.now() - startedAt) / 1000).toFixed(3)) } };
     await writeFile(`${output}.patch.json`, JSON.stringify(manifest, null, 2));
     console.log(JSON.stringify(manifest, null, 2));

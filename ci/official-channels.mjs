@@ -16,7 +16,7 @@ const maxBytes = 128 * 1024;
 const timeoutMs = 10_000;
 const pins = {
   windows: 'windows/patchers/desktop/supported.json', mac: 'mac/patchers/desktop/supported.json',
-  ios: 'ios/recipes/ios/manifest.json', android: 'android/patchers/supported.json',
+  ios: 'ios/recipes/ios/manifest.json', android: 'android/recipes/manifest.json',
   cloud: 'host/recipes/host/manifest.json',
 };
 
@@ -96,7 +96,10 @@ async function readPin(channel) {
     check(typeof data.build === 'string' && /^\d+$/.test(data.build), 'Invalid pinned iOS build');
     return { version: version(data.version), build: data.build };
   }
-  if (channel === 'android') return { version: version(data.desktopVersion) };
+  if (channel === 'android') {
+    check(typeof data.build === 'string' && /^\d+$/.test(data.build), 'Invalid pinned Android build');
+    return { version: version(data.version), build: data.build };
+  }
   check(typeof data.archive?.version === 'string' && data.archive.version.length > 0 &&
     typeof data.box?.localTag === 'string' && data.box.localTag.length > 0 &&
     typeof data.box.platform === 'string' && data.box.platform.length > 0, 'Missing cloud input pins');
@@ -179,17 +182,13 @@ export async function discover({ phase = 'manual', fetchImpl = globalThis.fetch,
   const checkedAt = new Date().toISOString();
   const [windows, mac, ios] = await Promise.all(Object.keys(feeds).map(k => observe(k, fetchImpl, deadline)));
   const channels = { windows, mac, ios };
-  const renderer = { sourceChannel: 'windows', pinFile: pins.android, pinned: null, comparison: null };
+  const android = { source: null, pinFile: pins.android, observed: null, comparison: null };
   try {
-    renderer.pinned = await readPin('android');
-    if (windows.status === 'observed') {
-      renderer.status = 'derived';
-      renderer.comparison = { version: compareVersion(windows.observed.version, renderer.pinned.version) };
-    } else renderer.status = 'source-unavailable';
+    channels.android = { ...android, status: 'not-discovered',
+      reason: 'No documented public latest channel used; local pin only', pinned: await readPin('android') };
   } catch (error) {
-    Object.assign(renderer, { status: 'error', error: error.message });
+    channels.android = { ...android, status: 'error', pinned: null, error: error.message };
   }
-  channels.androidRenderer = renderer;
   const cloud = { source: null, pinFile: pins.cloud, observed: null, comparison: null };
   try {
     const pinned = await readPin('cloud');
@@ -198,7 +197,7 @@ export async function discover({ phase = 'manual', fetchImpl = globalThis.fetch,
   } catch (error) {
     for (const key of ['host', 'box']) channels[key] = { ...cloud, status: 'error', pinned: null, error: error.message };
   }
-  return { schema: 'prokbot-official-channels/v1', checkedAt, phase,
+  return { schema: 'rokbot-official-channels/v1', checkedAt, phase,
     ok: Object.values(channels).every(item => item.status !== 'error'), artifactsVerified: false, channels };
 }
 

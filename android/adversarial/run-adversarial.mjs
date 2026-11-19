@@ -13,6 +13,7 @@ const suites = [
   'zipalign-16kb.test.mjs',
   'apksig-tamper.test.mjs',
   'hermes-sha1.test.mjs',
+  'empirical-challenger.test.mjs',
 ];
 
 console.log('='.repeat(70));

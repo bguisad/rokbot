@@ -1,8 +1,8 @@
 # 技术文档
 
-[English](ARCHITECTURE.en.md) · [部署手册](AI-INSTALL.md)
+[English](ARCHITECTURE.en.md) · [部署手册](AI-INSTALL.md) · [兼容与重命名说明](REBRAND_COMPAT.md)
 
-ProkBot Plus 的原理、各部分的实现、目录、测试与维护，以及已知限制。
+RokBot 的原理、各部分的实现、目录、测试与维护，以及已知限制。
 
 ## 原理
 
@@ -58,7 +58,7 @@ flowchart LR
 
 未提供的原版功能：虚拟卡、外部消息草稿、产品反馈和通行密钥转发。
 
-上游 ProkBot 新增的功能：应用（一个 JSON 文件，见[应用开发](#app-development)）、Webhook 触发任务、用量统计、提示词管理（可恢复原版）、按模型设置上下文、管理网页（中英文、深浅色、手机屏幕）、[分机部署](AI-INSTALL.md#split-host)和[卷备份恢复](AI-INSTALL.md#volume-recovery)。
+继承自上游自托管版本并演进的增强能力（出处与兼容说明见 [REBRAND_COMPAT.md](REBRAND_COMPAT.md#historical-attribution)）：应用（一个 JSON 文件，见[应用开发](#app-development)）、Webhook 触发任务、用量统计、提示词管理（可恢复原版）、按模型设置上下文、管理网页（中英文、深浅色、手机屏幕）、[分机部署](AI-INSTALL.md#split-host)和[卷备份恢复](AI-INSTALL.md#volume-recovery)。
 
 ## 各部分的实现
 
@@ -66,7 +66,7 @@ flowchart LR
 
 原版 Host 只替换了和官方服务绑定的四部分：身份验证、Agent 身份、模型调用和 MCP 配置；原版定时任务由官方后端触发，这里补上了本地计时。外面的管理服务负责管理员登录、设备配对、配置和推送，并把客户端请求转给原版 Host。
 
-- **`host` 容器**：管理服务监听 8000，映射到宿主机 `${GROKBOT_LISTEN_ADDRESS:-127.0.0.1}:${GROKBOT_PUBLIC_PORT:-18080}`；原版 Host 只监听容器内的 `127.0.0.1:1340`。
+- **`host` 容器**：管理服务监听 8000，映射到宿主机 `${ROKBOT_LISTEN_ADDRESS:-127.0.0.1}:${ROKBOT_PUBLIC_PORT:-18080}`；原版 Host 只监听容器内的 `127.0.0.1:1340`。
 - **`box` 容器**：官方 Linux 桌面，VNC 端口只在容器网络内可见。
 
 | 数据 | 内容 |
@@ -75,9 +75,9 @@ flowchart LR
 | `/data/setup-key` | 初始化码，初始化完成后自动删除 |
 | 卷 `box-home`、`box-workspace` | 执行电脑的家目录和工作区 |
 
-`.env` 里的 `GROKBOT_PUBLIC_URL` 是对外地址：客户端配对时校验地址是否一致，管理接口的 Origin 也以它为准，只能是整个域名或 IP，不能带路径。`TZ` 影响定时任务和用量统计。
+`.env` 里的 `ROKBOT_PUBLIC_URL` 是对外地址：客户端配对时校验地址是否一致，管理接口的 Origin 也以它为准，只能是整个域名或 IP，不能带路径。`TZ` 影响定时任务和用量统计。
 
-管理接口：管理员密码用 scrypt 保存（12–128 位），登录后用 Cookie 会话；非 GET 请求必须带 `x-grokbot-csrf: 1`，带 `Origin` 时必须和对外地址一致；登录、初始化、模型测试按 IP 每分钟限 5 次；配对码 6 位、5 分钟有效、只能用一次，配对后设备拿到独立令牌，可在管理页吊销。`host/tools/host-admin.mjs` 在命令行完成初始化、配置并测试模型、生成配对码和查看状态。
+管理接口：管理员密码用 scrypt 保存（12–128 位），登录后用 Cookie 会话；非 GET 请求必须带 `x-rokbot-csrf: 1`，带 `Origin` 时必须和对外地址一致；登录、初始化、模型测试按 IP 每分钟限 5 次；配对码 6 位、5 分钟有效、只能用一次，配对后设备拿到独立令牌，可在管理页吊销。`host/tools/host-admin.mjs` 在命令行完成初始化、配置并测试模型、生成配对码和查看状态。
 
 ### 模型适配层
 
@@ -103,7 +103,7 @@ flowchart LR
 - **思考强度**：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，以及 `default`（不发送）。优先用接口 `/models` 返回的档位，没有时用内置参考表。
 - **Bot 路由**：服务保存格式、地址和 Key；档案绑定服务、模型 ID、思考强度和上下文策略。单个 Bot 可定义主档案和最多 8 个备用档案，不调用 Jev；子代理继承父 Bot 的路由。Key 只写入私有 `model.env`。
 - **主/备切换**：主模型尚未发出文字或工具调用时，402、408、429、5xx、网络错误或上游 I/O 空闲超时（默认 300 秒）转到下一个备用；Harness 自己还有 150 秒首字停滞超时，多数首字停滞会先由它结束本轮。400、认证错误和调用方取消不触发备用。只有明确的额度耗尽才跳过共用同一 Key 的备用。已经发出文字或工具调用后绝不切换，避免重复输出和工具副作用。
-- **推理来源标记**：不同格式、不同服务商的推理互相读不了。每段推理在 `providerOptions.grokbot` 记下格式和服务 ID，回放时只交给同源的模型。
+- **推理来源标记**：不同格式、不同服务商的推理互相读不了。每段推理在 `providerOptions.rokbot` 记下格式和服务 ID，回放时只交给同源的模型。
 - **上下文容量**：只有服务商目录提供容量时才自动带入；未知模型为 `0`，不猜测。手动设置非零容量和摘要阈值会启用自动摘要。
 - **可选参数回退**：服务商用 400 拒绝某个可选参数（例如 `reasoning.summary`、`max_tokens`）时，去掉它重试一次并在本次会话内记住，日志打印 `[model] … retrying without …`。
 - **已知网关问题**：有的聚合网关用 Responses 格式转发 Claude 时，带工具就返回 `native_thinking_replay_mismatch`。Claude 请用 Anthropic 格式。
@@ -152,8 +152,8 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 - **Windows**：`windows/patchers/desktop/patch.mjs` 默认用 1.1.0 安装包，`--version 0.71.2` 改用回退版本，`--source` 可指定安装包、`app-64.7z` 或已安装目录（按大小和 SHA-256 识别版本）。从 NSIS 安装包取出 `app-64.7z`，用 Windows 自带的 `tar.exe`（Windows 10 用 7-Zip）解包，核对 `app.asar` 并回放 recipe；`--verify-only` 到此为止。生成时换入共用主进程，重打 ASAR，输出便携目录、便携 ZIP、安装包和 `*.patch.json`。改过的 `Grok Bot.exe` 不再带官方签名。
 - **Windows 运行时**：关窗后留在托盘；通知用带 AppUserModelID 的开始菜单快捷方式；本机命令用 PowerShell 并打开 UTF-8 输出（从 Git Bash 启动会改变 `cmd /c` 参数，请从开始菜单启动）；委派用本机 `codex.exe`，结束时 `taskkill /T`。Windows 没有 Mac 的鼠标键盘组件。
 - **1.1.0 接口**：preload 按 `desktop-mount`、`main`、`spotlight` 三条边声明方法，`local-services.mjs` 按边注册处理器；全局搜索由 `gateway.mjs` 转为 Host 的 `searchAgents` / `searchMedia`；听写把 16 kHz PCM 攒成 WAV 交给 Host 的 `/local/audio/transcriptions`。
-- **recipe**：1.1.0 的 recipe 由 `windows/tools/desktop-recipes/build.mjs` 生成。`spec.mjs` 的每处修改以原文件里只出现一次的文本为锚点，追加的本项目代码在 `extensions/`；`--check` 从官方安装包重新生成并逐字节比较。0.71.2 的 recipe 由 `windows/tools/port-desktop-recipes.mjs` 从同版本的 Mac recipe 对齐生成，Windows 回退和 Android 的 0.71.2 界面共用。`mac/clients/desktop/*-settings-extension.js` 是 0.71.2 recipe 加进设置页的代码的源码。
-- **安装器**：`windows/installer/` 用 Go 标准库把 `stub.exe`、便携 ZIP 和 32 字节尾部拼成按用户安装包，默认装到 `%LOCALAPPDATA%\Programs\Grok Bot Local`，支持 `/S`、`/D=目录`。重建 stub：在 `windows/installer/` 运行 `go build -trimpath -ldflags="-H=windowsgui -s -w" -o ../dist/installer/grokbot-setup-stub.exe .`；重建 Tailcat：`python host/network/build-tailcat.py --target windows-amd64 --output windows/dist/network`。
+- **recipe**：1.1.0 的 recipe 由 `windows/tools/desktop-recipes/build.mjs` 生成。`spec.mjs` 的每处修改以原文件里只出现一次的文本为锚点，追加的本项目代码在 `extensions/`；`--check` 从官方安装包重新生成并逐字节比较。0.71.2 的 recipe 由 `windows/tools/port-desktop-recipes.mjs` 从同版本的 Mac recipe 对齐生成，供 Windows 回退使用。`mac/clients/desktop/*-settings-extension.js` 是 0.71.2 recipe 加进设置页的代码的源码。
+- **安装器**：`windows/installer/` 用 Go 标准库把 `stub.exe`、便携 ZIP 和 32 字节尾部拼成按用户安装包，目标安装目录 `%LOCALAPPDATA%\Programs\RokBot Local`，支持 `/S`、`/D=目录`。重建 stub：在 `windows/installer/` 运行 `go build -trimpath -ldflags="-H=windowsgui -s -w" -o ../dist/installer/rokbot-setup-stub.exe .`；重建 Tailcat：`python host/network/build-tailcat.py --target windows-amd64 --output windows/dist/network`。
 
 <a id="desktop-protocol"></a>
 **共享协议**：
@@ -166,50 +166,42 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 <a id="android-客户端"></a><a id="android-client"></a>
 ### Android 客户端
 
-官方 Android 版是 React Native 应用，带 Google Play 的防篡改保护，改动后无法运行；绕过保护不在本项目范围内。所以 Android 客户端在手机上运行官方**桌面版**的界面，由本项目的外壳代替 Electron。
+RokBot 彻底舍弃了旧版「WebView 套壳 Windows 前端」的做法，改为直接对官方原生 Android React Native + Hermes 安装包（`.xapk` / `.apks` / `.apk`，对应官方包 `ai.x.grok.bot` / `co.anysphere.sand` `1.16.0` build `1075`）执行本地补丁，完整保留官方原生对话、语音通话、连接器市场与设置界面。
 
-**外壳**（`android/shell/`，Kotlin，无第三方库；预编译版是 `android/dist/grokbot-android-shell.apk`）是一个全屏 WebView 加上：
-
-- **本地网关**（`LocalGateway.kt`），只监听 `127.0.0.1`：界面端口提供界面文件和 `/__native/*` 原生接口，并把 `/api`、`/events`、`/local`、`/connect`、`/notifications` 转发给 Host 并加上设备令牌；电脑画面端口只转发 noVNC。两个端口都校验每次启动随机生成的 Cookie，界面端口还校验 Host、Origin 和 Sec-Fetch-Site。设备令牌只在原生层。
-- **凭据**（`Storage.kt`）：设备令牌用 Android Keystore 的 AES-GCM 密钥加密。
-- **通知**（`Notifications.kt`）：前台服务跟随 Host 的 `/notifications/events`，正在看的 Bot 不提醒；点通知用 `grokbot-local://agent/<id>` 打开对应的 Bot；开机和升级后自动恢复。
-- **系统功能**：文件选择和保存、麦克风权限、返回键、深色模式、系统栏和安全区域。
-
-**桥接**（`android/client/`）在 WebView 里代替 Electron 的主进程和 preload：
-
-- `bridge.js` 模拟 `ipcRenderer`、`contextBridge` 和 `process`，原样运行官方 `preload.cjs`；`services.js`、`gateway.js` 移植桌面主进程的本地方法（附件、文件、资料、语音、设置、连接应用）。
-- `webview.js` 用 iframe 代替 `<webview>`：网关在 noVNC 页面注入 `vnc-bridge.js` 和官方 `preload-vnc.cjs`；iframe 跟随界面的 `pointer-events`，只有「取得控制权」后才能触摸操作。电脑画面的票据 10 分钟失效，每次加载前重新读取 `getForeverBoxStatus` 换入新票据。
-- `layout.js`、`android.css` 照官方手机版排版：宽度小于 600 px 时 Bot 列表和对话是两个全屏页面，返回键从对话回到列表；对话详情、设置、市场和搜索全屏显示，其他对话框从底部弹出；600 px 以上沿用桌面排版，对话详情在 792 px 以下是全屏层。选择器同时匹配 1.1.0（`data-component`、`sand-` 类名）和 0.71.2（`.ui-dialog` 等）。
-- `anchor-fallback.js`：Chromium 125 以前不支持 CSS 锚点定位，电脑画面会缩成 0，兼容代码在布局后换算成像素。
-- `compat.js`（ES5）：补齐官方界面直接调用、但旧 WebView 没有的函数（例如 `URL.canParse`、`toSorted`、`Object.hasOwn`、`showPopover`、`moveBefore`），只补缺少的；页面起不来时（低于 Chromium 89）显示 WebView 版本和需要更新的组件，而不是白屏。
-
-**生成工具**（`android/patchers/patch.mjs`）：下载并校验官方 Windows 安装包，执行该版本的 Windows recipe；校验界面入口和 preload 的 SHA-256，执行 `renderer-patches.mjs` 中该版本的界面修改（放宽对话详情的宽度判断、去掉「教 Bot 做任务」和「获取手机版」入口、锚点兼容、列表显示最后活动时间）；放进外壳 APK 的 `assets/web/`，按 zipalign 规则对齐，用 v2 方案签名（`apk.mjs`）。签名密钥第一次生成时创建在 `~/.grokbot-local/android-signing.json`。`supported.json` 顶层是推荐版本，`fallback` 列出其他版本。
-
-**配对**：Android 发送 `platform: desktop` 和 `clientKind: android`，新版 Host 把它存为 Android 设备，不授予桌面执行权限。不支持 Tailcat，不能在手机上执行命令，没有「教 Bot 做任务」。
+- **Split XAPK 合并与资源重建**（`android/patchers/xapk.mjs`、`arsc.mjs`）：纯 Node.js 解包官方 Split APK/XAPK/APKS，剥离 `libpairipcore.so`，合并 base、arm64-v8a 与密度/语言分包的 `resources.arsc` 与资源目录。
+- **Pairip 防篡改中和**（`android/patchers/pairip-dex.mjs`、`pairip-elf.mjs`、`PairipVmBridge`）：在 DEX 与 ELF 层面中和 Google Play Pairip 完整性/授权校验，清理 `DT_NEEDED libpairipcore.so` 与固定 `.data` 加密区，并由 `AppComponentFactory` 接管原生初始化。
+- **Hermes 字节码与 Companion DEX 注入**（`android/patchers/hermes.mjs`、`dex.mjs`、`android/companion/`）：核对 `android/recipes/manifest.json` 中的 HBC 指纹并应用 `recipes/*.gbp.gz` 字节补丁，注入编译好的 `android/bin/classes2.dex`（`bash android/companion/build.sh` 编译）。
+- **原生运行时与 6 个 iOS 对齐模态页**（`android/companion/`）：
+  - **网络拦截与语音**：`R8OkHttpHook` / `R8OkHttpInterceptor` / `LegacyOkHttpHook` / `NetworkInterceptor` 拦截遥测上报并重定向 API/WebSocket、`/aiserver.v1.GrokBotService/*`、`/aiserver.v1.AiService/TranscribeAudio` 等上游接口至自建 Host；`VoiceManager` 提供 24kHz PCM 与硬件 AEC/NS 支持。
+  - **6 个原生模态页**：连接登录（`PairingActivity`，支持 6 位配对码、管理员密码、mDNS 局域网扫描与 Tailcat 隧道）、个人资料（`ProfileActivity`）、通知设置（`PushSettingsActivity`）、Bot 资料库（`LibraryActivity`）、Bot 电脑 noVNC（`ComputersActivity` / `ComputerViewerActivity`）与用量统计（`UsageActivity`）。
+  - **Tailcat、分享与通知**：内嵌 16KB 页对齐 `android/bin/jniLibs/arm64-v8a/libgroktailcat*.so`（`TailcatBridge`）；`NotificationService` 常驻 SSE `/notifications/events` 并发送本地通知；`ShareTargetActivity` 支持系统分享上传；外部深链接 `rokbot-local://agent/<id>` 在原生边界规范化为官方 Hermes 可识别的内部链接（见 [REBRAND_COMPAT.md](REBRAND_COMPAT.md#category-b-mobile)）。
+  - **凭据与签名**：设备令牌与 Tailcat 节点身份由 Android Keystore（AES-GCM）加密存储。`android/release/patch-android.mjs` 使用 `android/patchers/signing.mjs` 执行 16KB 对齐并完成 APK v2/v3 签名（目标密钥路径 `~/.rokbot-local/android-signing.json`；`android/bin/rokbot-native-base.apk` 仅用于离线补丁器测试基准）。
 
 <a id="web-client"></a>
 ### 网页版
 
-网页版在浏览器里运行和 Android 同一套界面与桥接。Android 外壳做的事（提供界面文件、保管设备令牌、注入电脑画面桥接）由 Host 完成，外壳的原生接口由浏览器功能代替。使用说明见 [`web/README.md`](../web/README.md)。
+网页版在浏览器里运行官方桌面端渲染界面与独立浏览器桥接，已经完全从 `android/` 解耦。原来由桌面主进程提供的能力（接口转发、令牌保存、noVNC 注入）由 Host 与 `web/client/` 共同完成。使用说明见 [`web/README.md`](../web/README.md)。
 
-**界面包**（`web/patchers/patch.mjs`）：和 Android 走同一条路生成界面；在界面入口的官方脚本前插入 `boot-data.js`、`compat.js`、`bridge.js`、`web-shell.js`、样式和 Web App 清单，CSP 的 `frame-src` 加 `'self'`、`connect-src` 加 `wss:`。输出 ZIP 的第一项 `web-bundle.json`（`grokbot-web-bundle/v1`）列出其余文件的大小和 SHA-256。界面包含有官方界面，只装在用户自己的 Host 上，不进仓库、不进 Release。`--upload` 用 `upload.mjs` 登录管理 API、上传、启用后退出登录。
+**界面包**（`web/patchers/patch.mjs`）：通过 `windows/patchers/desktop/original.mjs` 从用户自行准备的官方 Windows 安装包提取渲染层（`supported.json` 默认 `1.1.0`，回退 `0.71.2`），应用 `web/patchers/renderer-patches.mjs` 的界面补丁，在界面入口的官方脚本前插入 `boot-data.js`、`compat.js`、`bridge.js`、`gateway.js`、`services.js`、`layout.js`、`web-shell.js`、样式与 Web App 清单，CSP 的 `frame-src` 加 `'self'`、`connect-src` 加 `wss:`。输出 ZIP 的第一项 `web-bundle.json`（`rokbot-web-bundle/v1`）列出其余文件的大小和 SHA-256。界面包含有官方界面，只装在用户自己的 Host 上，不进仓库、不进 Release。`--upload` 用 `upload.mjs` 登录管理 API、上传、启用后退出登录。
 
 **Host 端**（`host/server/web-client.mjs`）：
 
 - **安装**：按清单核对路径、大小和摘要，限制文件数和大小，解到旁边的目录后整体换入，任何一步失败都不动原包。
-- **登录**：`/web/login` 是 Host 自己的页面（`public/web-login.*`）。`/web/api/pair` 用配对码创建 `platform: web` 的设备，令牌放进 `grokbot_web` Cookie（HttpOnly、SameSite=Strict，https 下加 Secure）。界面文件只提供给已登录的浏览器。
-- **设备接口**：带 Cookie 的请求还必须带 `x-grokbot-web: 1` 且 Origin 同源。其他网站发这个头要经 CORS 预检，Host 从不放行，这是 SameSite 之外的第二道防线。`web` 设备没有桌面执行权限；撤销设备时一并吊销电脑画面票据、推送登记和已打开的连接。
-- **电脑画面**：iframe 直接加载 Host 的 `/vnc/desktop/`、`/vnc/fork/`；Host 在 noVNC 页面插入取自界面包的桥接脚本。
+- **登录**：`/web/login` 是 Host 自己的页面（`public/web-login.*`）。`/web/api/pair` 用配对码创建 `platform: web` 的设备，令牌放进 `rokbot_web` Cookie（HttpOnly、SameSite=Strict，https 下加 Secure）。界面文件只提供给已登录的浏览器。
+- **设备接口**：带 Cookie 的请求还必须带 `x-rokbot-web: 1` 且 Origin 同源。其他网站发这个头要经 CORS 预检，Host 从不放行，这是 SameSite 之外的第二道防线。`web` 设备没有桌面执行权限；撤销设备时一并吊销电脑画面票据、推送登记和已打开的连接。
+- **电脑画面**：iframe 直接加载 Host 的 `/vnc/desktop/`、`/vnc/fork/`；Host 在 noVNC 页面插入取自界面包的桥接脚本（`vnc-bridge.js`）。
 
 **浏览器层**（`web/client/`）：
 
 - `boot-data.js`：准备语言、主题、设置和 `?agent=` 深链接（读取后从地址栏去掉）；iPhone 和 iPad 禁止缩放，避免点输入框时放大；Android 用 `interactive-widget=resizes-content`。
-- `native.js`：外壳原生接口的浏览器实现。设置存 localStorage，下载用 Blob 链接，外部链接开新标签页，收到 401 回到登录页；只连接提供页面的 Host。
+- `bridge.js`、`gateway.js`、`services.js`、`webview.js`、`layout.js`、`android.css`、`anchor-fallback.js`：在浏览器中模拟 Electron 的 `ipcRenderer`/`contextBridge`/`process` 与 `<webview>` 容器，并在窄屏下提供与官方手机端一致的自适应排版。
+- `native.js`：原生接口的浏览器实现。设置存 localStorage，下载用 Blob 链接，外部链接开新标签页，收到 401 回到登录页；只连接提供页面的 Host。
 - `web-shell.js`：浏览器的返回键和返回手势先交给桥接逐级返回；用 `visualViewport` 让键盘不挡输入框；页面打开时订阅通知事件，用浏览器通知提醒没在看的 Bot，按 ID 去重。
 - `web.css`：整页不滚动，从主屏幕打开时留出安全区域。
 
-与 Android 共用代码的修改：`compat.js` 在 Safari 缺少 `device-pixel-content-box` 时改用 `content-box`，避免对话变白；`bridge.js` 打开深链接或通知指向的 Bot 时，等界面列出 Bot 后再聚焦。http 的局域网地址不是安全上下文，麦克风、语音输入和通知只在 https 或 `localhost` 下可用。
+`compat.js` 补齐旧浏览器缺失的 API 并在 Safari 缺少 `device-pixel-content-box` 时回退到 `content-box`；`bridge.js` 打开深链接或通知指向的 Bot 时，等界面列出 Bot 后再聚焦。http 的局域网地址不是安全上下文，麦克风、语音输入和通知只在 https 或 `localhost` 下可用。
 
+<a id="ios-客户端"></a><a id="ios-client"></a>
 ### iOS 客户端
 
 原版 iOS 客户端用 React Native 开发。这里写了一个注入的动态库（Objective-C，源码在 `ios/clients/ios/`，`build.py` 编译），把发往官方的请求转到你的 Host，再对 Hermes 字节码做少量固定修改。小组件、分享和通知三个扩展保留，使用独立的 Bundle ID。补丁输出未签名的 IPA，主应用和三个扩展都要自己签名（见 [`ios/README.md`](../ios/README.md)）。字节码补丁（`ios/recipes/ios/*.hbc.gbp.gz`）是上游作者生成的数据，修改字节码的过程没有附在上游仓库里。
@@ -226,14 +218,14 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 
 原版的技能目录、应用市场、Bot 发布和多 Agent 协作都依赖官方平台。这里在 Host 上各做了一份，沿用原版界面，数据来自你的 Host。代码应用和 Webhook 接入了原版的工具和自动任务。
 
-开发时用一个 `grokbot-app` JSON 声明代码、远程 MCP 或技能，在管理页导入和授权。代码应用在执行电脑上运行，沿用该用户的文件和网络权限。完整格式与 OAuth 示例在 `host/server/application-guide.md`，这也是 Bot 写应用时读取的指南。
+开发时用一个 `rokbot-app` JSON 声明代码、远程 MCP 或技能，在管理页导入和授权。代码应用在执行电脑上运行，沿用该用户的文件和网络权限。完整格式与 OAuth 示例在 `host/server/application-guide.md`，这也是 Bot 写应用时读取的指南。
 
 ## 目录与关键文件
 
 | 路径 | 内容 |
 | --- | --- |
 | `host/deploy.py` | 对外部署入口：预检、初始化、启动、升级、备份、恢复。与容器内的 `host/deploy/` 不同 |
-| `host/release/` | `build-docker.py` 下载校验原版并构建 `grokbot-host:local`；`patch-host.py`、`bytepatch.py` 应用 Host 补丁；`compose*.yaml`；`backup.py`；`platforms.py` 识别架构 |
+| `host/release/` | `build-docker.py` 下载校验原版并构建 `rokbot-host:local`；`patch-host.py`、`bytepatch.py` 应用 Host 补丁；`compose*.yaml`；`backup.py`；`platforms.py` 识别架构 |
 | `host/recipes/host/` | 原版 Host、桌面和补丁的输入清单（`manifest.json`） |
 | `host/server/` | 管理服务：认证、配对、推送、配置、网页版托管、管理网页（`public/`） |
 | `host/runtime/` | 注入原版 Host 的运行时：模型适配层、联网与图片、自动审查、可靠性层（`reliability/`） |
@@ -241,17 +233,19 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 | `host/tools/host-admin.mjs` | 命令行管理 |
 | `host/network/`、`host/bin/` | Tailcat 源码与构建脚本、预编译的 Linux 版 |
 | `host/bench/` | 整机容量测量工具（见 `host/README.md`） |
-| `mac/clients/desktop/` | 桌面主进程，Mac 与 Windows 共用；Android 也复制其中的 `i18n.mjs`、`external-url.mjs`、`connectors.mjs` |
+| `assets/logo/` | RokBot 专属变形矢量图标（`rokbot-logo.svg`）、`generate_icons.py`、`manifest.json` 与全端图标资产 |
+| `mac/clients/desktop/` | 桌面主进程，Mac 与 Windows 共用 |
 | `mac/patchers/desktop/` | Mac 补丁、recipe 应用器、原版下载器（Windows 也用） |
-| `windows/patchers/desktop/` | Windows 补丁：`patch.mjs`、`original.mjs`（解压官方安装包，Android 和网页版也用）、`inputs.mjs`（各版本输入）、`pe.mjs`、`recipes/`；`0.71.2/` 是回退版本 |
+| `windows/patchers/desktop/` | Windows 补丁：`patch.mjs`、`original.mjs`（解压官方安装包，网页版也用）、`inputs.mjs`（各版本输入）、`pe.mjs`、`recipes/`；`0.71.2/` 是回退版本 |
 | `windows/tools/` | 1.1.0 recipe 生成工具 `desktop-recipes/`、同版本 recipe 移植、preload 检查 |
 | `windows/installer/`、`windows/dist/` | 安装器源码，预编译的 Tailcat 和安装器 stub |
-| `android/shell/`、`android/dist/` | Android 外壳源码（`release-shell.mjs` 重建）和预编译外壳 |
-| `android/client/` | WebView 里的桥接、排版和兼容代码，网页版共用 |
-| `android/patchers/` | APK 生成：`patch.mjs`、`apk.mjs`、`renderer-patches.mjs`、`supported.json` |
-| `web/client/`、`web/patchers/` | 网页版的浏览器层；界面包生成和上传 |
+| `android/release/` | 原生 Android 补丁 CLI 入口（`patch-android.mjs`、`patch-android.py`）与增量更新工具（`delta-update.mjs`） |
+| `android/patchers/` | 纯 Node AXML、ARSC、XAPK/APKS 合并、Pairip DEX/ELF 去校验、DEX/JNI、Hermes 补丁与 APK v2/v3 签名器 |
+| `android/companion/`、`android/bin/` | 原生 Java Companion 源码（`build.sh` 编译为 `classes2.dex`）、16KB 对齐 Tailcat `.so` 与测试基准包 `rokbot-native-base.apk` |
+| `android/recipes/`、`android/test-target/` | 官方 Android `1.16.0`（`1075`）输入指纹与 Hermes/Pairip 配方；轻量基准 APK 构建脚本 |
+| `web/client/`、`web/patchers/` | 独立网页版的浏览器层与桥接脚本；界面包生成（`patch.mjs`、`output.mjs`、`renderer-patches.mjs`、`supported.json`、`zip.mjs`）和上传（`upload.mjs`） |
 | `ios/` | `release/patch-ios.py` 补丁入口；`clients/ios/` 注入库源码 |
-| `ci/` | 输入检查、首页版本表、官方通道快照、发布打包和工作流模板 |
+| `ci/` | 输入检查、共享签名（`release-sign.mjs`）、首页版本表、官方通道快照、发布打包与校验测试 |
 | `*/recipes/`、`*/THIRD_PARTY/` | 补丁数据；第三方许可证 |
 
 ## Linux 部署要点
@@ -259,7 +253,7 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 - 两种架构走同一套 Host 补丁。amd64 Host 保留原版镜像基底；ARM64 用 Node 22、锁定的 ARM 原生模块（`host/release/arm-runtime/`）和按架构编译的 Tailcat。官方桌面始终是 `linux/amd64`。
 - ARM 同机先运行一个小型 amd64 容器做探针，失败时不下载大桌面；独立桌面模式下 ARM Host 不下载桌面。原版镜像只接受固定的摘要。
 - 在 Windows 上检出的代码会丢掉可执行权限，所以 Dockerfile 复制 Tailcat 后会再 `chmod 755`。
-- Docker 发布的端口不经过 ufw。需要限制访问时改 `GROKBOT_LISTEN_ADDRESS`，或在网络边界上限制。
+- Docker 发布的端口不经过 ufw。需要限制访问时改 `ROKBOT_LISTEN_ADDRESS`，或在网络边界上限制。
 - 备份期间会暂停容器，健康检查可能短暂失败。
 
 <a id="capacity-evidence"></a>
@@ -268,31 +262,35 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 <a id="testing"></a>
 ## 测试与维护
 
-需要 Node.js 22.12+、Python 3.10+。提交前五套测试必须全部通过，每条单独运行：
+需要 Node.js 22.12+、Python 3.10+。提交前核心自动化测试必须全部通过，每条单独运行：
 
 ```sh
-node ci/check-inputs.mjs                 # 固定版本、补丁清单和预编译外壳摘要
-node ci/homepage-versions.mjs            # 首页版本表是否与清单一致
-node --test "host/tests/*.test.mjs"      # 服务端
-node --test "windows/tests/*.test.mjs"   # Windows 客户端
-node --test "mac/tests/*.test.mjs"       # Mac / 共用客户端
-node --test "android/tests/*.test.mjs"   # Android 客户端
-node --test "web/tests/*.test.mjs"       # 网页版
+node ci/check-inputs.mjs                     # 固定版本、补丁清单与预编译摘要
+node --test ci/*.test.mjs                    # CI 工具与首页版本测试
+python3 -I -B -S ci/test_release_packages.py # 发布打包规范测试
+python3 -I -B -S ci/test_verify_release.py   # 发布包嵌套校验测试
+node --test "host/tests/*.test.mjs"          # 服务端
+node --test "windows/tests/*.test.mjs"       # Windows 客户端
+node --test "mac/tests/*.test.mjs"           # Mac / 共用客户端
+node --test android/patchers/patcher.test.mjs android/tests/*.test.mjs
+node android/tests/runner.mjs                # Android MockHost 协议测试
+node android/adversarial/run-adversarial.mjs # Android 对抗与 16KB 篡改测试
+node --test "web/tests/*.test.mjs"           # 网页版
 ```
 
 - Host 的网页版路由测试需要先执行 `npm ci --prefix host/server --omit=dev --ignore-scripts`，否则这一项跳过。
 - 在 Git Bash 里运行 Host 测试时，PATH 里的 `/usr/bin/tar` 会让两项部署用例失败，要把 `C:\Windows\System32` 放在前面，使用 Windows 自带的 `tar.exe`。
-- 依赖官方原包的用例默认跳过。把原包放在 Git 忽略的 `inputs/` 并设置环境变量后才会运行：`PROKBOT_ANDROID_TEST_SOURCE`、`PROKBOT_WEB_TEST_SOURCE`（1.1.0 安装包）、`PROKBOT_WEB_TEST_FALLBACK_SOURCE`（0.71.2 安装包）、`PROKBOT_TEST_HOST_ARCHIVE`（Host 原包，未设置时找 `inputs/host/sand-host-bundle-d0a4baa.tgz`）。
-- 网页版浏览器测试：`python web/tests/browser-flows.py <界面包>`，需要 Playwright（`pip install playwright`、`playwright install chromium firefox webkit`），在 8 种设备尺寸上跑登录、对话、看图、通知、返回和退出。改了 `android/client/` 或 `web/` 要用 1.1.0 和 0.71.2 两种界面包各跑一次。
+- 依赖官方原包的用例默认跳过。把原包放在 Git 忽略的 `inputs/` 并设置环境变量后才会运行：`ROKBOT_ANDROID_TEST_XAPK`（已启用，官方 Android `.xapk`）与 `ROKBOT_TEST_HOST_ARCHIVE`（已启用，Host 原包，未设置时按 `host/recipes/host/manifest.json` 对应原包路径查找）；Web 与其它套件的原包覆盖变量按 `ROKBOT_*` 目标规范设计，在全部测试套件完成迁移前，网页版补丁测试仍读取 [REBRAND_COMPAT.md](REBRAND_COMPAT.md#3-migration--compatibility-bridges) 中记录的过渡期旧环境变量名。
+- 网页版浏览器测试：`python web/tests/browser-flows.py <界面包>`，需要 Playwright（`pip install playwright`、`playwright install chromium firefox webkit`），在 8 种设备尺寸上跑登录、对话、看图、通知、返回和退出。改了 `web/` 要用 1.1.0 和 0.71.2 两种界面包各跑一次。
 - iOS 网络层：`python3 ios/tests/ios-network.test.py`，只能在装了 Xcode 命令行工具的 Mac 上运行。
-- Android 外壳配对来源检查：`python android/tests/native_pairing_origin.py`，需要先构建外壳。
+- Android 模拟器真实 UI 测试：`ANDROID_SERIAL=emulator-5554 node android/tests/emulator-e2e.mjs`。
 
 自动测试之外，改动后建议用 `host-admin.mjs model-set --test-only` 对各格式发真实请求，在客户端完成一次带工具调用的多轮对话，并让 Bot 搜一条新闻、画一张 16:9 的图再改一处。改了 Host 运行时代码要重建镜像才生效，只在隔离的非生产实例上验证。
 
 <a id="desktop-compatibility"></a><a id="desktop-validation"></a>
 ### 支持新的官方版本
 
-版本由构建工具读取的清单决定：桌面 `*/patchers/desktop/supported.json` 和 `recipes/manifest.json`，Android 和网页版 `android/patchers/supported.json`，iOS `ios/recipes/ios/manifest.json`，Host `host/recipes/host/manifest.json`。不要放宽哈希校验。
+版本由构建工具读取的清单决定：桌面 `*/patchers/desktop/supported.json` 和 `recipes/manifest.json`，Android `android/recipes/manifest.json`，网页版 `web/patchers/supported.json`，iOS `ios/recipes/ios/manifest.json`，Host `host/recipes/host/manifest.json`。不要放宽哈希校验。
 
 ```sh
 node ci/official-channels.mjs --online --phase planning     # 查询官方通道的当前版本
@@ -301,12 +299,12 @@ node windows/tools/desktop-recipes/build.mjs --source <安装包> --check
 node --expose-internals windows/tools/inspect-desktop-preload.mjs <preload.cjs> <preload-sha256>
 ```
 
-1. Windows：把当前版本的输入和 recipe 移到 `windows/patchers/desktop/<版本>/` 作为回退，更新 `supported.json`，按新原文件调整 `spec.mjs` 的锚点后运行 `build.mjs`。Android 和网页版另外验证 WebView 桥接和 `renderer-patches.mjs`，再更新 `android/patchers/supported.json`（旧版本移进 `fallback`）。
+1. Windows 与网页版：把当前版本的输入和 recipe 移到 `windows/patchers/desktop/<版本>/` 作为回退，更新 `windows/patchers/desktop/supported.json`，按新原文件调整 `spec.mjs` 的锚点后运行 `build.mjs`。网页版另外验证浏览器桥接和 `web/patchers/renderer-patches.mjs`，再更新 `web/patchers/supported.json`（旧版本移进 `fallback`）。
 2. 检查 preload 的接口变化、Bot 目录和资料库、表格、弹窗与输入法，并确认错版输入会被拒绝。
 3. 在真实客户端上验证配对、吊销、Bot 列表与历史、两轮对话、取消、附件上传并读回、重连不重复、重启后历史仍在。
-4. 官方通道的观测记录在 `ci/official-snapshot.json`。更新它之后运行 `node ci/homepage-versions.mjs --write` 刷新双语首页的版本表；这不改变补丁接受的版本。
+4. 官方通道的观测记录在 `ci/official-snapshot.json`。更新它之后可运行 `node ci/homepage-versions.mjs --write`（如启用版本标记）；这不改变补丁接受的版本。
 
-发布流程（打包、校验、各包的 `--verify-only`、创建 Release）见仓库根目录的 `AGENTS.md`。
+发布打包与校验规范见 `ci/release-packages.py`、`ci/verify-release.py`，品牌重命名边界与上游固定常量清单见 [REBRAND_COMPAT.md](REBRAND_COMPAT.md)。
 
 ## 二次开发入口
 
@@ -316,16 +314,16 @@ node --expose-internals windows/tools/inspect-desktop-preload.mjs <preload.cjs> 
 | 新增模型接口格式 | 在 `host/runtime/` 新建适配文件，照 `openai-chat.mjs` 的形态实现，再在 `model-session.mjs`、`host-auto-review.mjs` 的 `CLASSIFIERS`、`host/server/models.mjs`、管理页 `public/model.js` 注册 |
 | 调整思考档位 | `host/runtime/model-policy.mjs`；Claude 型号特性在 `anthropic-messages.mjs` |
 | 修改管理页 | `host/server/public/`，英文文案在 `locales-en.js` |
-| 修改桌面客户端 | `mac/clients/desktop/`，Mac 与 Windows 共用；Android 也复制其中几个模块 |
-| 修改 Android 客户端 | 桥接在 `android/client/`；外壳在 `android/shell/`，改完运行 `node android/shell/release-shell.mjs` 更新预编译外壳和摘要（需要 JDK 17+ 和 Android SDK） |
-| 修改网页版 | 浏览器层在 `web/client/`，Host 端在 `host/server/web-client.mjs`；桥接与 Android 共用 |
+| 修改桌面客户端 | `mac/clients/desktop/`，Mac 与 Windows 共用 |
+| 修改 Android 客户端 | 原生 Companion 在 `android/companion/`（改完运行 `bash android/companion/build.sh` 重建 `android/bin/classes2.dex`）；补丁器与配方在 `android/patchers/`、`android/recipes/`、`android/release/patch-android.mjs`（构建 Companion 需 JDK 17+ 与 Android SDK） |
+| 修改网页版 | 浏览器层与桥接脚本在 `web/client/`，打包与界面补丁在 `web/patchers/`，Host 端在 `host/server/web-client.mjs` |
 | 应用（插件） | 先看能否做成应用或技能：[应用开发](#app-development) |
 
 ## 已知限制
 
-- 只支持清单里的固定版本，官方更新后要重新制作补丁；没有自动更新。
+- 只支持清单里的固定版本，官方更新后要重新制作补丁；4 端 Host 增量自动更新正在按路线图推进（当前已具备 `android/release/delta-update.mjs`、`mac/clients/shared/delta.mjs` 与 `ci/release-sign.mjs` 等签名差分基础组件）。
 - Windows：Bot 还不能控制鼠标键盘；没有代码签名；只支持 x64；Tailcat 和实时语音没有和真实 Host 联调过。
-- Android：不支持 Tailcat；排版照官方手机版，但页面内容是桌面版的（设置是「通用 / 电脑 / 更新」等标签页，Bot 的电脑从对话详情打开）；后台通知靠前台服务，部分厂商系统需要允许后台运行；语音只验证到请求送达 Host；只在模拟器上测过。
+- Android：原生 React Native 补丁直接保留官方手机端界面并通过 `libgroktailcat.so` 支持 Tailcat；后台通知依赖前台服务，部分厂商系统需要允许后台运行；语音与连接器持续按设备实测完善。
 - 网页版：只能使用 Host 上的 Bot 电脑；不支持 Tailcat；http 地址下麦克风、语音输入和通知不可用，页面关闭后没有通知；没有在真机浏览器上测试。
 - 原版桌面只有 amd64。单台 ARM 机器同时运行 Host 和模拟桌面的完整部署和性能没有验证。
 - Mac 和 iOS 是上游已有的补丁，本项目没有真机测试；iOS 需要自备已解密的 IPA 和签名证书。

@@ -2,7 +2,7 @@ import { open, rename, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 
 const CHUNK_BYTES = 4 * 1024 * 1024;
 const PREVIEW_BYTES = 25 * 1024 * 1024;
@@ -20,14 +20,14 @@ export function remoteAttachmentPath(source) {
 
 function totalSize(chunk) {
   if (!Number.isSafeInteger(chunk?.totalSize) || chunk.totalSize < 0)
-    throw new Error(grokText('附件大小无效。', 'Invalid attachment size.'));
+    throw new Error(rokText('附件大小无效。', 'Invalid attachment size.'));
   return chunk.totalSize;
 }
 
 export function createAttachmentMediaResolver({ command, withStaged, nativeImage }) {
   return async ({ source, rendition }) => {
     const staged = await withStaged(source, async (file, size) => {
-      if (size > PREVIEW_BYTES) throw new Error(grokText('附件过大，无法预览。', 'Attachment is too large to preview.'));
+      if (size > PREVIEW_BYTES) throw new Error(rokText('附件过大，无法预览。', 'Attachment is too large to preview.'));
       return nativeImage.createFromBuffer(await localChunk(file, 0, size));
     });
     const remote = remoteAttachmentPath(source);
@@ -64,16 +64,16 @@ export function createAttachmentHandlers({ command, chooseDestination, showDownl
     const chunk = await request('readAttachmentChunk', { ...args, offset, length });
     if (chunk === null) return null;
     if (totalSize(chunk) !== expectedSize || typeof chunk.bytesBase64 !== 'string')
-      throw new Error(grokText('附件已改变，请重试。', 'The attachment changed. Try again.'));
+      throw new Error(rokText('附件已改变，请重试。', 'The attachment changed. Try again.'));
     const bytes = Buffer.from(chunk.bytesBase64, 'base64');
     if (bytes.length === 0 || bytes.length > length)
-      throw new Error(grokText('附件读取不完整，请重试。', 'Incomplete attachment. Try again.'));
+      throw new Error(rokText('附件读取不完整，请重试。', 'Incomplete attachment. Try again.'));
     return bytes;
   }
   async function saveDownload(size, name, read) {
     const destination = await chooseDestination(path.basename(name));
     if (!destination) return false;
-    const temporary = path.join(path.dirname(destination), `.grokbot-download-${randomUUID()}.tmp`);
+    const temporary = path.join(path.dirname(destination), `.rokbot-download-${randomUUID()}.tmp`);
     const file = await open(temporary, 'wx', 0o600);
     try {
       try {

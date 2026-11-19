@@ -59,7 +59,7 @@ export class Notifications {
       title: input.title.trim(),
       body: input.body,
       createdAt: new Date().toISOString(),
-      deepLink: `grokbot-local://agent/${input.agentId}`,
+      deepLink: `rokbot-local://agent/${input.agentId}`,
     };
     const result = await this.store.mutate((state) => {
       const existing = state.items.find((value) => value.id === id);

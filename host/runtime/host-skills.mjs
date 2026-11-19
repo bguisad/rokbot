@@ -2,8 +2,8 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { materializeSkills } from '../server/skills.mjs';
 
-const roots = () => ({ data: process.env.GROKBOT_DATA_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state',
-  host: process.env.SAND_DATA_ROOT ?? join(process.env.GROKBOT_STATE_DIR ?? '/research/state', 'host-data') });
+const roots = () => ({ data: process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state',
+  host: process.env.SAND_DATA_ROOT ?? join(process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state', 'host-data') });
 export async function startLocalManagedSkills(context) {
   const paths = roots(); let snapshot, disposed = false, pending = Promise.resolve();
   const refresh = () => pending = pending.catch(() => {}).then(async () => {

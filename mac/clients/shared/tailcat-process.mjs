@@ -2,6 +2,10 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
+function defaultTailcatBinary() {
+  return fileURLToPath(new URL('../../dist/network/rokbot-tailcat', import.meta.url));
+}
+
 export function tailcatLink(value) {
   const input = String(value ?? '').trim();
   if (/^tc[A-Za-z0-9_-]{30,16384}$/.test(input)) return `tailcat://connect/${input}?port=8000`;
@@ -18,7 +22,7 @@ export class TailcatProcess {
   constructor(config, { binary, onIdentity = async () => {}, onStatus = () => {} } = {}) {
     this.config = { ...config };
     if (config.mode === 'forward') this.config.link = tailcatLink(config.link);
-    this.binary = binary ?? process.env.GROKBOT_TAILCAT_BINARY ?? fileURLToPath(new URL('../../dist/network/grokbot-tailcat', import.meta.url));
+    this.binary = binary ?? process.env.ROKBOT_TAILCAT_BINARY ?? defaultTailcatBinary();
     this.onIdentity = onIdentity; this.onStatus = onStatus;
     this.status = { state: 'disabled', path: 'unknown' }; this.closed = false; this.failures = 0;
   }

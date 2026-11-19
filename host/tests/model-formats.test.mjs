@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createModelSession } from '../runtime/model-session.mjs';
-import { rejectedOption, deletePath, reasoningProviderOptions } from '../runtime/model-common.mjs';
+import { rejectedOption, deletePath, reasoningOrigin, reasoningProviderOptions } from '../runtime/model-common.mjs';
 import { anthropicEndpoint, anthropicOptions, convertAnthropicMessages } from '../runtime/anthropic-messages.mjs';
 import { convertResponsesInput, responsesOptions } from '../runtime/openai-responses.mjs';
 import { convertChatMessages, maxTokensParameter } from '../runtime/openai-chat.mjs';
@@ -132,7 +132,7 @@ test('anthropic stream yields tagged reasoning, its signature, text, tool call a
   assert.equal(parts.at(-1).finishReason, 'tool-calls');
   const reasoning = response.messages[0].content[0];
   assert.equal(reasoning.signature, 'sig');
-  assert.equal(reasoning.providerOptions.grokbot.format, 'anthropic');
+  assert.equal(reasoning.providerOptions.rokbot.format, 'anthropic');
   assert.deepEqual(usage, { promptTokens: 15, completionTokens: 42, totalTokens: 57 });
 });
 
@@ -178,7 +178,7 @@ test('responses input keeps instructions, media, phase and own encrypted reasoni
       { type: 'tool-call', toolCallId: 'call_1', toolName: 'screenshot', args: {} },
       { type: 'reasoning', text: 'Claude', signature: 'sig', ...anthropicTag('claude-opus-5-5') },
       { type: 'reasoning', text: 'Other model', signature: 'enc-2', ...responsesTag('gpt-6-sol', 'rs_2') },
-      { type: 'text', text: 'Done', providerOptions: { grokbot: { phase: 'final_answer' } } },
+      { type: 'text', text: 'Done', providerOptions: { rokbot: { phase: 'final_answer' } } },
     ] },
     { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'call_1', toolName: 'screenshot', result: 'ok',
       experimental_content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] }] },
@@ -245,8 +245,8 @@ test('responses stream yields summarized reasoning, signature, text and tool cal
   const content = response.messages[0].content;
   assert.deepEqual(content.map(part => part.type), ['reasoning', 'text', 'tool-call']);
   assert.equal(content[0].text, 'Need weather.\n\nCall tool.');
-  assert.equal(content[0].providerOptions.grokbot.itemId, 'rs_1');
-  assert.equal(content[1].providerOptions.grokbot.phase, 'commentary');
+  assert.equal(content[0].providerOptions.rokbot.itemId, 'rs_1');
+  assert.equal(content[1].providerOptions.rokbot.phase, 'commentary');
   assert.deepEqual(content[2].args, { city: 'Paris' });
   assert.deepEqual(usage, { promptTokens: 20, completionTokens: 30, totalTokens: 50 });
 });
@@ -327,7 +327,7 @@ test('chat stream reads reasoning_content, reasoning and refusal deltas', async 
   assert.deepEqual(requests[0].body.thinking, { type: 'enabled' });
   assert.deepEqual(parts.filter(part => part.type === 'reasoning').map(part => part.textDelta), ['Think. ', 'More.']);
   const content = response.messages[0].content;
-  assert.equal(content[0].providerOptions.grokbot.format, 'openai');
+  assert.equal(content[0].providerOptions.rokbot.format, 'openai');
   assert.equal(content[1].text, 'Answer (partly declined)');
 });
 
@@ -399,4 +399,12 @@ test('validatePolicy accepts full fetched catalog up to MAX_CATALOG_MODELS and r
 
   const oversized = Array.from({ length: MAX_POLICY_MODELS + 1 }, (_, index) => ({ id: `model-${index}`, efforts: [] }));
   assert.throws(() => validatePolicy({ mode: 'manual', effort: 'default', models: oversized, routes }, primary), /Invalid model catalog/);
+});
+
+test('reasoningOrigin prefers providerOptions.rokbot and falls back to legacy providerOptions.grokbot', () => {
+  assert.equal(reasoningOrigin({ providerOptions: { rokbot: { format: 'anthropic', model: 'm1' }, grokbot: { format: 'openai', model: 'old' } } }).format, 'anthropic');
+  assert.deepEqual(reasoningOrigin({ providerOptions: { grokbot: { format: 'openai-responses', model: 'legacy-m', phase: 'commentary' } } }), {
+    format: 'openai-responses', model: 'legacy-m', providerId: undefined, itemId: undefined,
+    summarized: false, phase: 'commentary', emptyThinking: false,
+  });
 });

@@ -56,7 +56,7 @@ export async function writeSetup(stub, archive, destination, expectedZipBytes) {
     if (!sizes[0] || sizes[1] !== expectedZipBytes) throw new Error('Incomplete installer inputs');
     const footer = Buffer.alloc(32);
     footer.writeBigUInt64LE(BigInt(sizes[0]), 0); footer.writeBigUInt64LE(BigInt(sizes[1]), 8);
-    footer.write('GROKBOT-SETUP-V1', 16, 'latin1');
+    footer.write('ROKBOT-SETUP-V1\0', 16, 'latin1');
     await file.writeFile(footer);
   });
 }

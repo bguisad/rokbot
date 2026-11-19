@@ -1,34 +1,80 @@
-ProkBot Plus
-Copyright (c) 2026 ProkBot Plus contributors
+RokBot
+Copyright (c) 2026 RokBot contributors
+Repository: https://github.com/hongfaqiu/rokbot
 
-ProkBot Plus is a modified version of ProkBot.
+RokBot is a modified derivative of ProkBot and ProkBot Plus.
 
-  Upstream project : ProkBot
-  Upstream source  : https://gitee.com/ahaduoduoduo/ProkBot
-  Based on         : release v2026.11.05, commit 3e9fe8c
-  Upstream license : ProkBot Noncommercial License 1.0 (see LICENSE)
-  Upstream notice  : Copyright (c) 2026 ProkBot contributors
+  Upstream project 1 : ProkBot
+  Upstream source    : https://gitee.com/ahaduoduoduo/ProkBot
+  Based on           : release v2026.11.05, commit 3e9fe8c
+  Upstream license   : ProkBot Noncommercial License 1.0 (see LICENSE)
+  Upstream notice    : Copyright (c) 2026 ProkBot contributors
 
-As the upstream license requires, ProkBot Plus keeps that license unchanged,
-is distributed for noncommercial purposes only, and identifies its
-modifications below. The noncommercial conditions also apply to everything
-ProkBot Plus adds; none of it is offered under terms that allow commercial use.
-CHANGELOG.md lists the changes by release.
+  Upstream project 2 : ProkBot Plus
+  Upstream source    : https://github.com/ferretgeek/prokbot-plus
+  Referenced through : release 1.5.1 (modifications 2026-11-07 to 2026-11-19)
+  Upstream license   : ProkBot Noncommercial License 1.0 (see LICENSE)
+  Upstream notice    : Copyright (c) 2026 ProkBot Plus contributors
 
-Modifications made in ProkBot Plus (2026-11-07 to 2026-11-19)
---------------------------------------------------------------
+As the upstream license requires, RokBot keeps ProkBot Noncommercial
+License 1.0 unchanged, is distributed for noncommercial purposes only, and
+identifies its modifications below. The noncommercial conditions also apply to
+everything RokBot adds or inherits; none of it is offered under terms that
+allow commercial use.
 
-1. Windows x64 client (new)
-   - windows/: patcher, recipes, per-user installer source (Go), prebuilt
-     grokbot-tailcat.exe and installer stub, tests. The patcher builds from
-     the official Windows 1.1.0 installer by default and from 0.71.2 as a
-     fallback; inputs.mjs recognizes an input by size and SHA-256.
+Modifications made in RokBot
+----------------------------
+
+1. Native Android React Native + Hermes patcher (replacing the legacy WebView shell)
+   - android/release/ (patch-android.mjs, patch-android.py, delta-update.mjs):
+     patches official Android React Native .xapk / .apks / .apk archives
+     directly on the user's machine with 16KB page-aligned zipalign and
+     APK v2/v3 signing.
+   - android/patchers/: pure Node.js AXML, ARSC, XAPK/APKS merge, Pairip
+     DEX/ELF neutralization, DEX/JNI injection, Hermes bytecode patching
+     (recipes/*.gbp.gz), and signing modules.
+   - android/companion/: lightweight Java companion runtime compiled to
+     android/bin/classes2.dex, providing 6 native modal screens aligned with
+     the iOS injection architecture, Keystore-encrypted pairing credentials,
+     foreground SSE notifications, ShareTargetActivity, Tailcat integration,
+     and OkHttp/Hermes endpoint interception.
+   - android/bin/rokbot-native-base.apk and android/test-target/: minimal
+     React Native test target APK and builder for offline patcher tests.
+   - android/tests/ and android/adversarial/: unit, MockHost protocol,
+     adversarial fuzzing/tamper, and emulator end-to-end test suites.
+
+2. Decoupled Web client (web/client/ & web/patchers/)
+   - Moved browser-side bridge modules (bridge.js, compat.js, gateway.js,
+     services.js, layout.js, android.css, anchor-fallback.js, vnc-bridge.js,
+     webview.js) directly into web/client/, removing the former dependency on
+     the deleted Android WebView client directory.
+   - Relocated shared web renderer patching helpers (output.mjs,
+     renderer-patches.mjs, supported.json, zip.mjs) into web/patchers/.
+
+3. Custom RokBot visual identity and shared release tooling
+   - assets/logo/: deformed RokBot master SVG (rokbot-logo.svg), icon
+     generator (generate_icons.py), manifest, and raster/desktop icon assets
+     integrated into Host UI (host/server/public/rokbot-icon.png) and client
+     targets.
+   - ci/release-sign.mjs: shared release manifest and delta signing module.
+   - Repository-wide Category-A rebranding to RokBot and
+     https://github.com/hongfaqiu/rokbot, with upstream-constrained constants
+     and migration bridges documented in docs/REBRAND_COMPAT.md.
+
+Upstream modifications inherited from ProkBot Plus (2026-11-07 to 2026-11-19)
+------------------------------------------------------------------------------
+
+1. Windows x64 client
+   - windows/: patcher, recipes, per-user installer source (Go), Tailcat
+     network tooling and installer stub, tests. Builds from the official
+     Windows 1.1.0 installer by default and from 0.71.2 as a fallback;
+     inputs.mjs recognizes an input by size and SHA-256.
    - windows/tools/desktop-recipes/: generator, anchored edit list and the
      project code appended to original modules, producing the 1.1.0 recipes
      from the user's own installer. The 0.71.2 recipes are ported from the
      macOS recipes (windows/tools/port-desktop-recipes.mjs).
    - windows/patchers/desktop/original.mjs: extraction of the official
-     installer, shared with the Android and web client builders.
+     installer, shared with the web client builder.
    - The installer tracks the files it owns, supports side-by-side migration
      of legacy installs and preserves occupied Start menu and URL entries.
 
@@ -46,121 +92,77 @@ Modifications made in ProkBot Plus (2026-11-07 to 2026-11-19)
      failed saves and a damaged profile is kept under another name
      (client-persistence.mjs); the saved theme applies before first paint.
    - workspace.css and workspace-keys.cjs: wide reply tables, dialog send
-     shortcuts and empty catalog-search dismissal, shared with Android.
+     shortcuts and empty catalog-search dismissal.
    - host/runtime/host-computers.mjs, native-desktop.mjs, codex-prompt.mjs and
      host/server/desktop-capabilities.mjs: the Host recognizes Windows
      computers and withholds desktop execution from phones and browsers.
 
-3. Android client (new)
-   - android/shell/: Android shell app (Kotlin, no third-party libraries):
-     loopback gateway to the paired Host, Keystore-encrypted credential,
-     pairing, background notifications, file picking and saving, back gesture.
-     android/dist/grokbot-android-shell.apk is its prebuilt release build.
-   - android/client/: bridge that runs the original desktop interface in the
-     Android WebView in place of Electron's main process and preloads, the
-     computer view frame with fresh tickets, a phone layout after the official
-     phone app, an anchor positioning fallback, compatibility functions for
-     older WebView builds (compat.js) and the connection page.
-   - android/patchers/: builds the APK from the user's own official Windows
-     installer (1.1.0 by default, 0.71.2 as a fallback), signs it with
-     APK Signature Scheme v2 using a key created for the user, and applies a
-     few verified changes to the original interface (renderer-patches.mjs).
-
-4. Web client (new)
+3. Web client Host integration & browser layer (web/, host/server/)
    - web/patchers/: builds a web client bundle from the user's own official
-     Windows installer with the Windows recipes and the Android interface
-     patches (patch.mjs), and installs it on the user's own Host through the
+     Windows installer and uploads it to the user's own Host through the
      admin API (upload.mjs). The bundle is never committed or published.
-   - web/client/: browser start-up data, the browser stand-in for the Android
-     shell's native calls, back navigation, keyboard, theme and notification
-     handling, and browser styles.
-   - host/server/web-client.mjs (new) and changes to index.mjs, auth.mjs,
+   - web/client/: browser start-up data, native bridge, back navigation,
+     keyboard, theme, notification handling, and Safari ResizeObserver shim.
+   - host/server/web-client.mjs and updates in index.mjs, auth.mjs,
      proxy.mjs and push-service.mjs: bundle verification, atomic install,
-     serving only to signed-in browsers, the web device platform, cookie
-     sign-in bound to the Host origin and a request header, admin routes, and
-     the computer view bridge injected into noVNC pages. host/server/public/:
-     sign-in page (web-login.*) and the admin Web client page (web-client.js).
-   - android/client/: a Safari ResizeObserver shim (compat.js) and deep links
-     that wait for the Bot list (bridge.js), shared with Android.
+     serving only to signed-in browsers, web device platform, origin-bound
+     cookie sign-in, and noVNC bridge injection; host/server/public/:
+     web-login.* and web-client.js.
 
-5. Model API formats and routing
-   - New Anthropic Messages and OpenAI Responses adapters next to OpenAI Chat:
+4. Model API formats and routing
+   - Anthropic Messages and OpenAI Responses adapters next to OpenAI Chat:
      host/runtime/anthropic-messages.mjs, openai-responses.mjs,
-     openai-chat.mjs, model-common.mjs (new); model-session.mjs,
-     model-policy.mjs, model-router.mjs, model-errors.mjs,
+     openai-chat.mjs, model-common.mjs, model-session.mjs,
+     model-policy.mjs, model-routing.mjs, model-errors.mjs,
      model-observation.mjs, config.mjs, host/server/models.mjs, index.mjs,
-     public/model.js, public/locales-en.js and public/ids.js (changed or new).
+     public/model.js, public/locales-en.js and public/ids.js.
    - "minimal" reasoning effort, reasoning provenance tags, optional-parameter
      fallback, bounded error bodies, incremental SSE parsing, connection tests
-     and auto review for all three formats. OpenAI Chat accepts either
-     completion marker and tool calls after "stop"; empty tool arguments mean
-     {} only for tools without required parameters. Malformed function calls
-     are omitted from replay and rejected before they are persisted.
+     and auto review for all three formats.
    - Per-Bot model routes and profiles with ordered fallbacks
-     (host/runtime/model-routing.mjs, contributed through pull request #2),
-     the rewritten model page, guarded manual summarization
-     (host-summarize.mjs), threshold compaction and rejection of malformed
-     provider function names (model-rejection-guard.mjs).
+     (host/runtime/model-routing.mjs, contributed through upstream PR #2),
+     model page, guarded manual summarization (host-summarize.mjs), threshold
+     compaction and malformed function-name guard (model-rejection-guard.mjs).
 
-6. Auto review, web and image tools
+5. Auto review, web and image tools
    - Auto review retries once on a malformed classification and logs failures
      (host/runtime/host-auto-review.mjs).
-   - Native web tools fall back to automatic tool choice when a model rejects a
-     forced tool call; parallel searches succeed when one call succeeds
+   - Native web tools fall back to automatic tool choice when forced tool
+     calls are rejected; parallel searches succeed when one call succeeds
      (host/runtime/web-services.mjs).
-   - Aspect ratios are mapped to image sizes, and reference images use the
-     image edits endpoint (host/server/media-providers.mjs, media-http.mjs,
+   - Aspect ratios map to image sizes, and reference images use the image
+     edits endpoint (host/server/media-providers.mjs, media-http.mjs,
      media-settings.mjs, host/runtime/media-services.mjs).
 
-7. Message order and reliability
-   - Messages from one model response are delivered in the order the model
-     wrote them; IDs reused by concurrent responses run unordered
-     (host/runtime/reliability/tool-order.mjs (new), tool-journal.mjs).
-   - An immediate resend of an acknowledged plain-text delivery stops before
-     another send. A failed post-turn memory request no longer stops the Host.
-   - The Host patch build verifies each prepared reliability file against its
-     protected manifest; the Harness turn-run recipe passes the Bot ID to the
-     main and summarization sessions.
+6. Message order and reliability
+   - Messages from one model response are delivered in written order; IDs
+     reused by concurrent responses run unordered
+     (host/runtime/reliability/tool-order.mjs, tool-journal.mjs).
+   - Immediate resends of acknowledged plain-text deliveries are blocked;
+     failed post-turn memory requests do not stop the Host.
 
-8. Linux deployment, ARM64, backup and recovery
-   - host/deploy.py and host/release/: one operator entry point for checks,
-     setup, start, update, backup and recovery; build before stopping
-     services; validated Compose mounts; exact-image recovery into new volumes
-     (backup.py), including Docker 29 with Compose 2.40.
+7. Linux deployment, ARM64, backup and recovery
+   - host/deploy.py and host/release/: unified operator CLI for checks, setup,
+     start, update, backup and recovery; build-before-stop updates; validated
+     Compose mounts; exact-image recovery into new volumes (backup.py).
    - ARM64 Host build path, locked ARM runtime dependencies
      (host/release/arm-runtime/), ARM64 Tailcat and platform checks
-     (platforms.py). The original desktop is unchanged and stays amd64.
-   - build-docker.py accepts Docker 29's containerd image identities;
-     host/network/build-tailcat.py builds the Windows target; the Dockerfiles
-     set the executable bit on Tailcat; streamed, verified Host patch output.
-   - host/bench/: whole-machine resource sampling and comparison.
+     (platforms.py), Windows Tailcat target, and host/bench/ capacity tooling.
 
-9. Admin tools: host/tools/host-admin.mjs (new) and admin page status and
-   CLI error handling.
-
-10. Release engineering: ci/ (input checks, homepage version tables, official
-    channel snapshots, release packaging and verification of nested ZIP, APK
-    and gzip content, inactive workflow templates).
-
-11. Tests: host/tests/, windows/tests/, android/tests/, web/tests/ (new),
-    and mac/tests/ additions.
-
-12. Documentation: README, docs/AI-INSTALL, docs/ARCHITECTURE (also covering
-    the upstream DETAILS.md, TODO.md and install notes, and the maintenance
-    notes), module READMEs (host and ios also cover the upstream DEPLOYMENT,
-    PLUGINS and SIGNING notes), AGENTS.md, CHANGELOG, CONTRIBUTING, SECURITY,
-    GitHub issue and pull request templates, and demo screenshots. Unused
-    files were removed (host/source-files.json, an unreferenced plugin
-    example, an outdated Android browser test and old screenshots).
+8. Admin tools, release engineering, tests and documentation
+   - host/tools/host-admin.mjs CLI administration.
+   - ci/: input checks, homepage version helpers, official channel snapshots,
+     release packaging and nested archive verification.
+   - Automated test suites in host/tests/, windows/tests/, mac/tests/,
+     android/tests/, and web/tests/.
+   - Bilingual documentation in README/README.en, docs/AI-INSTALL*,
+     docs/ARCHITECTURE*, module READMEs, and SECURITY.md.
 
 Third-party components
 ----------------------
 
 Third-party components keep their own licenses. See host/THIRD_PARTY,
 mac/THIRD_PARTY, ios/THIRD_PARTY and mac/patchers/desktop/node_modules.
-android/shell/gradle/wrapper/ contains the Gradle Wrapper, and the prebuilt
-Android shell includes parts of the Kotlin standard library; both are
-licensed under the Apache License 2.0.
 
 Original Grok Bot programs
 --------------------------
@@ -169,4 +171,4 @@ This repository contains no Grok Bot program files. The patch tools download
 the official programs on the user's own machine, verify their hashes and patch
 them there. Generated clients and web client bundles are not distributed.
 Grok, Grok Bot and related names and marks belong to their respective owners.
-ProkBot Plus is not affiliated with or endorsed by them.
+RokBot is not affiliated with or endorsed by them.

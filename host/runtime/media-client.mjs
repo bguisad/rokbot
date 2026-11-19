@@ -5,8 +5,8 @@ import { createHostImageService } from './media-services.mjs';
 
 /** Never expand the recovered Host's outbound network capability for provider traffic. */
 export async function internalMediaClient() {
-  const endpoint = process.env.GROKBOT_MEDIA_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
-  const tokenFile = process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
+  const endpoint = process.env.ROKBOT_MEDIA_URL ?? process.env.GROKBOT_MEDIA_URL ?? process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
+  const tokenFile = process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
   if (!endpoint) return null;
   check(tokenFile, 503, 'Internal media authentication is not configured');
   const base = new URL(endpoint), token = (await readFile(tokenFile, 'utf8')).trim();

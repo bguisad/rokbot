@@ -31,8 +31,8 @@ import { parseAxml, serializeAxml, patchManifest } from '../patchers/manifest.mj
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '../../..');
-const FIXTURE_APK = path.join(REPO_ROOT, 'src/android/dist/grokbot-android-shell.apk');
+const REPO_ROOT = path.resolve(__dirname, '../..');
+const FIXTURE_APK = path.join(REPO_ROOT, 'android/bin/rokbot-native-base.apk');
 const APKSIGNER_BIN = '/Users/lianqishi/Library/Android/sdk/build-tools/36.0.0/apksigner';
 const ZIPALIGN_BIN = '/Users/lianqishi/Library/Android/sdk/build-tools/36.0.0/zipalign';
 
@@ -56,7 +56,7 @@ function runApksigner(apkPath, { minSdk = 24, maxSdk = 35 } = {}) {
 
 function createDualSignedApk({ minSdk = 24 } = {}) {
   const entries = [
-    createEntry('AndroidManifest.xml', Buffer.from('<manifest package="dev.grokbot.test"/>'), { store: true }),
+    createEntry('AndroidManifest.xml', Buffer.from('<manifest package="dev.rokbot.test"/>'), { store: true }),
     createEntry('classes.dex', Buffer.from('dex\n038\0' + 'testdexpayload'.repeat(20)), { store: false }),
     createEntry('lib/arm64-v8a/libtest.so', Buffer.from('ELF mock binary content'), { store: true }),
   ];
@@ -377,8 +377,8 @@ test('CHALLENGE-AXML-5: Deeply nested elements (>500 levels) parse and serialize
       namespace: null,
       resourceId: null,
       type: 0x03,
-      rawValue: 'dev.grokbot.deep',
-      value: 'dev.grokbot.deep'
+      rawValue: 'dev.rokbot.deep',
+      value: 'dev.rokbot.deep'
     }],
     children: []
   };

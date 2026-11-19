@@ -1,7 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="9" fill="#f5f5f4"/>
-  <g fill="#111111">
-    <rect x="9.6" y="11" width="4.4" height="10.5" rx="2.2" transform="rotate(-28 11.8 16.25)"/>
-    <rect x="18.4" y="9.5" width="4.4" height="8.5" rx="2.2" transform="rotate(-28 20.6 13.75)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <style>
+    .brand-face { fill: #181b23; stroke: #3d4557; stroke-width: 20; stroke-linejoin: round; }
+    .brand-eye { fill: #f5f5f4; }
+    .brand-accent { fill: #38bdf8; }
+    @media (prefers-color-scheme: dark) {
+      .brand-face { fill: #f5f5f4; stroke: #d4d4d8; }
+      .brand-eye { fill: #111111; }
+      .brand-accent { fill: #1680f3; }
+    }
+  </style>
+  <path class="brand-face" d="M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z"/>
+  <g>
+    <rect class="brand-eye" x="304" y="396" width="144" height="336" rx="72" transform="rotate(-26 376 564)"/>
+    <rect class="brand-eye" x="576" y="370" width="144" height="268" rx="72" transform="rotate(-26 648 504)"/>
   </g>
+  <circle class="brand-accent" cx="768" cy="144" r="42"/>
 </svg>

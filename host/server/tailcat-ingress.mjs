@@ -5,7 +5,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 // This keeps absolute desktop/voice/file URLs on the client's local tunnel.
 export async function tailcatIngress(target) {
   const token = randomBytes(32).toString('hex'), sockets = new Set();
-  const headers = request => ({ ...request.headers, 'x-grokbot-tailcat-ingress': token });
+  const headers = request => ({ ...request.headers, 'x-rokbot-tailcat-ingress': token });
   const track = socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)); };
   const server = http.createServer((request, response) => {
     const upstream = http.request(`http://${target}`, { method: request.method, path: request.url, headers: headers(request) });
@@ -33,7 +33,7 @@ export async function tailcatIngress(target) {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   return { target: `127.0.0.1:${server.address().port}`,
     matches(request) {
-      const value = request.headers['x-grokbot-tailcat-ingress'];
+      const value = request.headers['x-rokbot-tailcat-ingress'];
       return ['127.0.0.1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress) && typeof value === 'string' &&
         Buffer.byteLength(value) === token.length && timingSafeEqual(Buffer.from(value), Buffer.from(token));
     },

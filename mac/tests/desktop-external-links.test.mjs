@@ -36,7 +36,7 @@ test('opens navigation and new-window links externally and keeps original local 
 });
 
 test('opens explicit external links through the desktop bridge', async t => {
-  const profile = await mkdtemp(path.join(tmpdir(), 'grokbot-external-link-test-'));
+  const profile = await mkdtemp(path.join(tmpdir(), 'rokbot-external-link-test-'));
   t.after(() => rm(profile, { recursive: true, force: true }));
   const opened = [];
   const call = await createLocalServices(profile, {}, {
@@ -51,7 +51,7 @@ test('opens explicit external links through the desktop bridge', async t => {
   });
 
   await call('openExternal', { url: 'https://example.com/' });
-  await call('openExternal', { url: 'grokbot-local:agent/example' });
+  await call('openExternal', { url: 'rokbot-local:agent/example' });
   await assert.rejects(call('openExternal', { url: 'file:///etc/passwd' }), /Invalid link address|链接地址无效/);
   assert.deepEqual(opened, ['https://example.com/']);
 });

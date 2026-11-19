@@ -14,7 +14,7 @@ export function createGeneral({ api, toast, busy }) {
           <input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden />
         </div>
         <label class="row"><span class="row-copy"><span class="row-title">用户名</span></span><input name="displayName" autocomplete="nickname" maxlength="160" required placeholder="本地工作区" data-private /></label>
-        <label class="row"><span class="row-copy"><span class="row-title">Host 昵称</span><span class="row-hint">显示在客户端和协作 Host 中</span></span><input name="hostName" maxlength="160" required placeholder="Grok Bot Host" /></label>
+        <label class="row"><span class="row-copy"><span class="row-title">Host 昵称</span><span class="row-hint">显示在客户端和协作 Host 中</span></span><input name="hostName" maxlength="160" required placeholder="RokBot Host" /></label>
       </div>
       <p id="profile-error" class="error" role="alert" hidden></p>
       <div class="actions"><span id="profile-saved" class="status-text" role="status"></span><button type="submit" class="btn btn-primary" disabled>保存</button></div>
@@ -97,7 +97,7 @@ export function createGeneral({ api, toast, busy }) {
     }).then(() => { save.disabled = !dirty; });
   });
   $('#logout').addEventListener('click', () => busy($('#logout'), async () => {
-    try { await api('/admin/api/logout', { method: 'POST' }); document.dispatchEvent(new Event('grokbot:logout')); }
+    try { await api('/admin/api/logout', { method: 'POST' }); document.dispatchEvent(new Event('rokbot:logout')); }
     catch (failure) { toast(failure.message, true); }
   }));
   return {

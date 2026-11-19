@@ -2,23 +2,23 @@ require('./workspace-keys.cjs');
 require('../dist/electron-preload/preload.cjs');
 const { ipcRenderer, contextBridge } = require('electron');
 contextBridge.exposeInMainWorld('localBot', {
-  locale: ipcRenderer.sendSync('grokbot-local:locale'),
-  openManagement: () => ipcRenderer.send('grokbot-local:open-management'),
-  updateProfile: (id, profile) => ipcRenderer.invoke('grokbot-local:update-profile', { id, profile }),
-  connectionStatus: () => ipcRenderer.invoke('grokbot-local:status'),
-  mintVoiceCredential: agentId => ipcRenderer.invoke('grokbot-local:voice-credential', agentId),
-  getVoicePreference: () => ipcRenderer.invoke('grokbot-local:voice-preference'),
-  setVoicePreference: enabled => ipcRenderer.invoke('grokbot-local:voice-preference', enabled),
+  locale: ipcRenderer.sendSync('rokbot-local:locale'),
+  openManagement: () => ipcRenderer.send('rokbot-local:open-management'),
+  updateProfile: (id, profile) => ipcRenderer.invoke('rokbot-local:update-profile', { id, profile }),
+  connectionStatus: () => ipcRenderer.invoke('rokbot-local:status'),
+  mintVoiceCredential: agentId => ipcRenderer.invoke('rokbot-local:voice-credential', agentId),
+  getVoicePreference: () => ipcRenderer.invoke('rokbot-local:voice-preference'),
+  setVoicePreference: enabled => ipcRenderer.invoke('rokbot-local:voice-preference', enabled),
   onVoicePreferenceChanged: callback => {
     const listener = (_event, enabled) => callback(enabled);
-    ipcRenderer.on('grokbot-local:voice-preference', listener);
-    return () => ipcRenderer.removeListener('grokbot-local:voice-preference', listener);
+    ipcRenderer.on('rokbot-local:voice-preference', listener);
+    return () => ipcRenderer.removeListener('rokbot-local:voice-preference', listener);
   },
-  pair: args => ipcRenderer.invoke('grokbot-local:pair', args),
-  disconnect: () => ipcRenderer.invoke('grokbot-local:disconnect'),
+  pair: args => ipcRenderer.invoke('rokbot-local:pair', args),
+  disconnect: () => ipcRenderer.invoke('rokbot-local:disconnect'),
   onConnectionChanged: callback => {
     const listener = (_event, status) => callback(status);
-    ipcRenderer.on('grokbot-local:connection-changed', listener);
-    return () => ipcRenderer.removeListener('grokbot-local:connection-changed', listener);
+    ipcRenderer.on('rokbot-local:connection-changed', listener);
+    return () => ipcRenderer.removeListener('rokbot-local:connection-changed', listener);
   },
 });

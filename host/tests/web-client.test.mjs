@@ -50,7 +50,7 @@ function bundle(files = bundleFiles(), { version = '1.1.0', manifestFiles } = {}
 }
 
 async function fixture(t) {
-  const dir = await mkdtemp(join(tmpdir(), 'grokbot-web-test-'));
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-web-test-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const auth = await new Auth(dir).load();
   const web = await new WebClient(dir, { auth }).load();
@@ -98,6 +98,17 @@ test('installing enables the first bundle, serves it compressed and keeps the ch
   const status = await web.install(bundle());
   assert.deepEqual([status.installed, status.enabled, status.rendererVersion, status.files], [true, true, '1.1.0', REQUIRED.length + 1]);
   assert.equal(webManifest().start_url, '/web/');
+  assert.deepEqual(webManifest().icons, [{ src: '/web/client/icon.png', sizes: '256x256', type: 'image/png', purpose: 'any' }]);
+  assert.deepEqual(webManifest(web).icons, [{ src: '/web/client/icon.png', sizes: '256x256', type: 'image/png', purpose: 'any' }]);
+  const filesWith512 = bundleFiles('1.2.1');
+  filesWith512.set('client/icon-512.png', Buffer.from('/* 512x512 icon */'));
+  const dir512 = join(dir, 'with-512');
+  const webWith512 = await new WebClient(dir512, { auth }).load();
+  await webWith512.install(bundle(filesWith512, { version: '1.2.1' }));
+  assert.deepEqual(webManifest(webWith512).icons, [
+    { src: '/web/client/icon.png', sizes: '256x256', type: 'image/png', purpose: 'any' },
+    { src: '/web/client/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+  ]);
 
   const server = http.createServer((request, response) => web.serve(request, response, decodeURIComponent(request.url.slice(1)))
     .catch(error => { response.writeHead(error.status ?? 500); response.end(); }));
@@ -145,35 +156,35 @@ test('the browser cookie is a device token only for web devices, with the header
   assert.equal(auth.authenticate((await auth.addWebDevice('Admin browser')).token).platform, 'web');
 
   const origin = 'https://host.example';
-  const request = (token, headers = {}) => ({ headers: { cookie: `other=1; grokbot_web=${token}`, ...headers } });
+  const request = (token, headers = {}) => ({ headers: { cookie: `other=1; rokbot_web=${token}`, ...headers } });
   assert.equal(web.browserDevice(request(browser.token)).device.id, browser.deviceId);
   assert.equal(web.browserDevice(request(desktop.token)), null, 'a desktop token in the cookie is not a browser sign-in');
-  assert.equal(web.deviceToken(request(browser.token, { 'x-grokbot-web': '1', origin }), origin), browser.token);
-  assert.equal(web.deviceToken(request(browser.token, { 'x-grokbot-web': '1' }), origin), browser.token);
+  assert.equal(web.deviceToken(request(browser.token, { 'x-rokbot-web': '1', origin }), origin), browser.token);
+  assert.equal(web.deviceToken(request(browser.token, { 'x-rokbot-web': '1' }), origin), browser.token);
   assert.throws(() => web.deviceToken(request(browser.token), origin), /请从网页版发起请求/);
-  assert.throws(() => web.deviceToken(request(browser.token, { 'x-grokbot-web': '1', origin: 'https://evil.example' }), origin), /来源不匹配/);
-  assert.equal(web.deviceToken({ headers: { authorization: 'Bearer app', cookie: `grokbot_web=${browser.token}` } }, origin), null,
+  assert.throws(() => web.deviceToken(request(browser.token, { 'x-rokbot-web': '1', origin: 'https://evil.example' }), origin), /来源不匹配/);
+  assert.equal(web.deviceToken({ headers: { authorization: 'Bearer app', cookie: `rokbot_web=${browser.token}` } }, origin), null,
     'apps keep using their bearer token');
   assert.equal(web.deviceToken({ headers: {} }, origin), null);
 
-  assert.match(web.sessionCookie(browser.token, origin), /^grokbot_web=[^;]+; Path=\/; HttpOnly; SameSite=Strict; Max-Age=\d+; Secure$/);
+  assert.match(web.sessionCookie(browser.token, origin), /^rokbot_web=[^;]+; Path=\/; HttpOnly; SameSite=Strict; Max-Age=\d+; Secure$/);
   assert.doesNotMatch(web.sessionCookie(browser.token, 'http://192.0.2.1'), /Secure/);
   assert.match(web.sessionCookie('', origin), /Max-Age=0/);
 
   await web.setEnabled(false);
   assert.equal(web.browserDevice(request(browser.token)), null);
-  assert.throws(() => web.deviceToken(request(browser.token, { 'x-grokbot-web': '1' }), origin), /网页版未启用/);
+  assert.throws(() => web.deviceToken(request(browser.token, { 'x-rokbot-web': '1' }), origin), /网页版未启用/);
 });
 
 test('the noVNC page gains the computer-view bridge from the installed bundle', async t => {
   const { web } = await fixture(t);
   await web.install(bundle());
   assert.equal(WebClient.injectVncBridge('<html><head lang="en"><title>x</title></head></html>', '/vnc/desktop'),
-    '<html><head lang="en"><script src="/vnc/desktop/__grokbot-vnc-bridge.js"></script>' +
-    '<script src="/vnc/desktop/__grokbot-vnc-preload.js"></script><title>x</title></head></html>');
-  assert.match(WebClient.injectVncBridge('<p>no head</p>', '/vnc/fork'), /^<script src="\/vnc\/fork\/__grokbot-vnc-bridge\.js">/);
+    '<html><head lang="en"><script src="/vnc/desktop/__rokbot-vnc-bridge.js"></script>' +
+    '<script src="/vnc/desktop/__rokbot-vnc-preload.js"></script><title>x</title></head></html>');
+  assert.match(WebClient.injectVncBridge('<p>no head</p>', '/vnc/fork'), /^<script src="\/vnc\/fork\/__rokbot-vnc-bridge\.js">/);
   const script = String(await web.vncScript('vnc-bridge', 'https://host.example'));
-  assert.equal(script, 'window.__grokbotAppOrigin = "https://host.example";\n/* client/vnc-bridge.js */');
+  assert.equal(script, 'window.__rokbotAppOrigin = "https://host.example";\n/* client/vnc-bridge.js */');
   assert.equal(String(await web.vncScript('vnc-preload', 'https://host.example')), '/* client/vnc-preload.js */');
 });
 
@@ -181,7 +192,7 @@ test('the noVNC page gains the computer-view bridge from the installed bundle', 
 const dependencies = existsSync(new URL('../server/node_modules/ws/package.json', import.meta.url));
 test('Host routes: sign-in, cookie API, sign-out, VNC bridge and admin upload', { skip: !dependencies && 'run npm ci --prefix host/server' }, async t => {
   const { createSelfHostServer } = await import('../server/index.mjs');
-  const dir = await mkdtemp(join(tmpdir(), 'grokbot-web-routes-'));
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-web-routes-'));
   const core = http.createServer((request, response) => {
     if (request.url === '/vnc.html') { response.writeHead(200, { 'content-type': 'text/html' }); return response.end('<html><head><title>noVNC</title></head></html>'); }
     response.writeHead(200, { 'content-type': 'application/json' });
@@ -196,15 +207,15 @@ test('Host routes: sign-in, cookie API, sign-out, VNC bridge and admin upload', 
   const origin = `http://127.0.0.1:${host.server.address().port}`;
   const call = (path, { cookie, headers, ...options } = {}) => fetch(origin + path, { redirect: 'manual', ...options,
     headers: { ...(cookie ? { cookie } : {}), ...headers } });
-  const json = { 'content-type': 'application/json', 'x-grokbot-web': '1' };
+  const json = { 'content-type': 'application/json', 'x-rokbot-web': '1' };
 
   assert.equal((await call('/web/api/session').then(r => r.json())).available, false);
   assert.equal((await call('/web/renderer/index.html')).status, 404);
   const password = 'demo-admin-password', adminToken = await host.auth.setup(host.auth.setupKey, password);
-  const admin = `grokbot_admin=${adminToken}`;
-  assert.equal((await call('/admin/api/web-client', { method: 'PUT', body: bundle(), headers: { 'content-type': 'application/zip', 'x-grokbot-csrf': '1' } })).status, 401);
+  const admin = `rokbot_admin=${adminToken}`;
+  assert.equal((await call('/admin/api/web-client', { method: 'PUT', body: bundle(), headers: { 'content-type': 'application/zip', 'x-rokbot-csrf': '1' } })).status, 401);
   const uploaded = await call('/admin/api/web-client', { method: 'PUT', body: bundle(), cookie: admin,
-    headers: { 'content-type': 'application/zip', 'x-grokbot-csrf': '1' } });
+    headers: { 'content-type': 'application/zip', 'x-rokbot-csrf': '1' } });
   assert.equal(uploaded.status, 200);
   assert.equal((await uploaded.json()).available, true);
   assert.equal((await call('/admin/api/status', { cookie: admin }).then(r => r.json())).webClient.rendererVersion, '1.1.0');
@@ -225,7 +236,7 @@ test('Host routes: sign-in, cookie API, sign-out, VNC bridge and admin upload', 
   const signedIn = await pair({ pairingKey, deviceName: 'Web client · Demo' });
   assert.equal(signedIn.status, 201);
   const setCookie = signedIn.headers.get('set-cookie');
-  assert.match(setCookie, /^grokbot_web=[A-Za-z0-9_-]+; Path=\/; HttpOnly; SameSite=Strict; Max-Age=\d+$/);
+  assert.match(setCookie, /^rokbot_web=[A-Za-z0-9_-]+; Path=\/; HttpOnly; SameSite=Strict; Max-Age=\d+$/);
   const browser = setCookie.split(';')[0], deviceId = (await signedIn.json()).deviceId;
   assert.equal(host.auth.device(deviceId).platform, 'web');
 
@@ -234,7 +245,9 @@ test('Host routes: sign-in, cookie API, sign-out, VNC bridge and admin upload', 
   assert.equal(asset.status, 200);
   assert.equal(asset.headers.get('cross-origin-resource-policy'), 'same-origin');
   assert.equal((await call('/local-client/icon.png', { cookie: browser })).status, 200);
-  assert.equal((await call('/web/manifest.webmanifest')).status, 200);
+  const manifestRes = await call('/web/manifest.webmanifest');
+  assert.equal(manifestRes.status, 200);
+  assert.equal((await manifestRes.json()).icons.length, 1);
 
   // The device API takes the cookie only with the header and without a foreign origin.
   const agents = headers => call('/api/listAgents', { method: 'POST', cookie: browser, headers, body: '{}' });
@@ -244,29 +257,29 @@ test('Host routes: sign-in, cookie API, sign-out, VNC bridge and admin upload', 
   assert.equal((await agents({ ...json, origin })).status, 200);
   const desktopKey = (await host.auth.createPairing()).pairingKey;
   const desktop = await host.auth.pair({ pairingKey: desktopKey, deviceName: 'Demo Mac', platform: 'desktop' });
-  assert.equal((await call('/api/listAgents', { method: 'POST', cookie: `grokbot_web=${desktop.token}`, headers: json, body: '{}' })).status, 401);
+  assert.equal((await call('/api/listAgents', { method: 'POST', cookie: `rokbot_web=${desktop.token}`, headers: json, body: '{}' })).status, 401);
   assert.equal((await call('/api/listAgents', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${desktop.token}` }, body: '{}' })).status, 200);
 
   // The computer view: the noVNC page gains the bridge, served with the page's ticket.
   const ticket = host.tickets.issue(deviceId, 'desktop');
   const page = await call(`/vnc/desktop/vnc.html?ticket=${ticket}`);
-  assert.match(await page.text(), /<head><script src="\/vnc\/desktop\/__grokbot-vnc-bridge\.js"><\/script>/);
+  assert.match(await page.text(), /<head><script src="\/vnc\/desktop\/__rokbot-vnc-bridge\.js"><\/script>/);
   const vncCookie = page.headers.get('set-cookie').split(';')[0];
-  const bridge = await call('/vnc/desktop/__grokbot-vnc-bridge.js', { cookie: vncCookie });
+  const bridge = await call('/vnc/desktop/__rokbot-vnc-bridge.js', { cookie: vncCookie });
   assert.equal(bridge.status, 200);
-  assert.match(await bridge.text(), new RegExp(`^window\\.__grokbotAppOrigin = "${origin.replace(/\./g, '\\.')}";`));
-  assert.equal((await call('/vnc/desktop/__grokbot-vnc-bridge.js')).status, 401);
+  assert.match(await bridge.text(), new RegExp(`^window\\.__rokbotAppOrigin = "${origin.replace(/\./g, '\\.')}";`));
+  assert.equal((await call('/vnc/desktop/__rokbot-vnc-bridge.js')).status, 401);
   const desktopTicket = host.tickets.issue(desktop.deviceId, 'desktop');
-  assert.doesNotMatch(await (await call(`/vnc/desktop/vnc.html?ticket=${desktopTicket}`)).text(), /__grokbot-vnc/,
+  assert.doesNotMatch(await (await call(`/vnc/desktop/vnc.html?ticket=${desktopTicket}`)).text(), /__rokbot-vnc/,
     'apps keep the unmodified noVNC page');
 
   // Admin "open in this browser" signs a browser in without a pairing code, once.
   const opened = await call('/admin/api/web-client/open', { method: 'POST', cookie: admin,
-    headers: { 'content-type': 'application/json', 'x-grokbot-csrf': '1' }, body: JSON.stringify({ deviceName: 'Admin browser' }) });
+    headers: { 'content-type': 'application/json', 'x-rokbot-csrf': '1' }, body: JSON.stringify({ deviceName: 'Admin browser' }) });
   assert.equal(opened.status, 201);
   const adminBrowser = opened.headers.get('set-cookie').split(';')[0];
   const again = await call('/admin/api/web-client/open', { method: 'POST', cookie: `${admin}; ${adminBrowser}`,
-    headers: { 'content-type': 'application/json', 'x-grokbot-csrf': '1' }, body: JSON.stringify({ deviceName: 'Admin browser' }) });
+    headers: { 'content-type': 'application/json', 'x-rokbot-csrf': '1' }, body: JSON.stringify({ deviceName: 'Admin browser' }) });
   assert.equal(again.status, 200);
   assert.equal(host.auth.devices().filter(item => item.platform === 'web' && !item.revokedAt).length, 2);
 

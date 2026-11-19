@@ -2,7 +2,8 @@
 // Preload supplies that resolved setting before any patched component renders.
 let getLocale = null;
 export function setLocaleSource(source) { getLocale = source; }
-export function grokText(zh, en) {
+export function rokText(zh, en) {
   const locale = globalThis.window?.localBot?.locale ?? globalThis.window?.connection?.locale ?? getLocale?.() ?? globalThis.navigator?.language ?? 'en';
   return /^zh\b/i.test(locale) ? zh : en;
 }
+export { rokText as grokText };

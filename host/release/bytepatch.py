@@ -8,7 +8,9 @@ import io
 import json
 from pathlib import Path
 
-SCHEMA = 'grokbot-bytepatch/v1'
+SCHEMA = 'rokbot-bytepatch/v1'
+# Accept legacy grokbot-bytepatch/v1 until M2 regenerates d0a4baa recipes for 2bb5e41.
+ACCEPTED_SCHEMAS = (SCHEMA, 'grokbot-bytepatch/v1')
 MAX_BYTES = 512 * 1024 * 1024
 
 
@@ -87,7 +89,7 @@ class PatchSource:
     def write_verified(self, recipe, stream):
         # The caller owns an unpublished staging stream until the final digest matches.
         source = self._source
-        if recipe.get('schema') != SCHEMA:
+        if recipe.get('schema') not in ACCEPTED_SCHEMAS:
             raise ValueError('Unsupported patch schema')
         if len(source) != recipe['sourceBytes'] or self.sha256 != recipe['sourceSha256']:
             raise ValueError('Unsupported original: SHA-256 mismatch')

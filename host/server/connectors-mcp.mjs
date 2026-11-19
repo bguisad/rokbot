@@ -58,7 +58,7 @@ export class ConnectorMcp {
           });
         };
         const client = new Client(
-          { name: "grokbot-selfhost", version: "1.0.0" },
+          { name: "rokbot-selfhost", version: "1.0.0" },
           { capabilities: {} },
         );
         const transport =

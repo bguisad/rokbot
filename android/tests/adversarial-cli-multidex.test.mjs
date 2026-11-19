@@ -15,7 +15,7 @@ import { readZip, writeZip, createEntry, entryBytes, verifyApk } from '../patche
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '../..');
-const FIXTURE_APK = path.join(ROOT_DIR, 'android/bin/grokbot-native-base.apk');
+const FIXTURE_APK = path.join(ROOT_DIR, 'android/bin/rokbot-native-base.apk');
 const PATCH_CLI = path.join(__dirname, '../release/patch-android.mjs');
 
 function runCli(args) {
@@ -25,7 +25,7 @@ function runCli(args) {
 function hashProtectedAndroidAssets() {
   const targets = [
     path.join(ROOT_DIR, 'android/recipes'),
-    path.join(ROOT_DIR, 'android/bin/grokbot-native-base.apk'),
+    path.join(ROOT_DIR, 'android/bin/rokbot-native-base.apk'),
   ];
   function scan(current, base) {
     let list = [];
@@ -307,13 +307,13 @@ test('ADV-OUT-3: Repatching manifest idempotency - does not duplicate components
   const app1 = root1.children.find(n => n.name === 'application');
   const app2 = root2.children.find(n => n.name === 'application');
 
-  const pairingCount1 = app1.children.filter(c => c.name === 'activity' && c.attributes.some(a => a.value === 'dev.grokbot.nativeapp.PairingActivity')).length;
-  const pairingCount2 = app2.children.filter(c => c.name === 'activity' && c.attributes.some(a => a.value === 'dev.grokbot.nativeapp.PairingActivity')).length;
+  const pairingCount1 = app1.children.filter(c => c.name === 'activity' && c.attributes.some(a => a.value === 'dev.rokbot.nativeapp.PairingActivity')).length;
+  const pairingCount2 = app2.children.filter(c => c.name === 'activity' && c.attributes.some(a => a.value === 'dev.rokbot.nativeapp.PairingActivity')).length;
   assert.equal(pairingCount1, 1);
   assert.equal(pairingCount2, 1, 'PairingActivity must not be duplicated on repatch');
 
-  const notifCount1 = app1.children.filter(c => c.name === 'service' && c.attributes.some(a => a.value === 'dev.grokbot.nativeapp.NotificationService')).length;
-  const notifCount2 = app2.children.filter(c => c.name === 'service' && c.attributes.some(a => a.value === 'dev.grokbot.nativeapp.NotificationService')).length;
+  const notifCount1 = app1.children.filter(c => c.name === 'service' && c.attributes.some(a => a.value === 'dev.rokbot.nativeapp.NotificationService')).length;
+  const notifCount2 = app2.children.filter(c => c.name === 'service' && c.attributes.some(a => a.value === 'dev.rokbot.nativeapp.NotificationService')).length;
   assert.equal(notifCount1, 1);
   assert.equal(notifCount2, 1, 'NotificationService must not be duplicated on repatch');
 
@@ -352,35 +352,35 @@ function readDexClassDescriptors(dexBuf) {
   return out;
 }
 
-test('ADV-DEX-4: Companion DEX contains only dev.grokbot.nativeapp and dev.grokbot.local.TailcatBridge without homemade primary UI', () => {
+test('ADV-DEX-4: Companion DEX contains only dev.rokbot.nativeapp and dev.grokbot.local.TailcatBridge without homemade primary UI', () => {
   const dexBuf = loadDefaultCompanionDex();
   const classes = readDexClassDescriptors(dexBuf);
   assert.ok(classes.length > 0, 'Companion DEX must define classes');
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/GrokBotBootstrap;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/GrokBotInitProvider;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/NetworkInterceptor;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/VoiceCallService;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/NotificationService;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/PairingActivity;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/LibraryActivity;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/ProfileActivity;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/PushSettingsActivity;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/UsageActivity;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/ComputersActivity;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/ComputerViewerActivity;'));
-  assert.ok(classes.includes('Ldev/grokbot/nativeapp/ShareTargetActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/RokBotBootstrap;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/RokBotInitProvider;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/NetworkInterceptor;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/VoiceCallService;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/NotificationService;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/PairingActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/LibraryActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/ProfileActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/PushSettingsActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/UsageActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/ComputersActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/ComputerViewerActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/ShareTargetActivity;'));
   assert.ok(classes.includes('Ldev/grokbot/local/TailcatBridge;'));
   for (const forbidden of [
-    'Ldev/grokbot/nativeapp/BotListActivity;',
-    'Ldev/grokbot/nativeapp/ChatActivity;',
-    'Ldev/grokbot/nativeapp/VoiceCallActivity;',
-    'Ldev/grokbot/nativeapp/ConnectorsActivity;',
-    'Ldev/grokbot/nativeapp/MarkdownRenderer;',
+    'Ldev/rokbot/nativeapp/BotListActivity;',
+    'Ldev/rokbot/nativeapp/ChatActivity;',
+    'Ldev/rokbot/nativeapp/VoiceCallActivity;',
+    'Ldev/rokbot/nativeapp/ConnectorsActivity;',
+    'Ldev/rokbot/nativeapp/MarkdownRenderer;',
   ]) {
     assert.ok(!classes.includes(forbidden), `Companion DEX must NOT reimplement primary UI class ${forbidden}`);
   }
   const nonNative = classes.filter(
-    c => !c.startsWith('Ldev/grokbot/nativeapp/') && c !== 'Ldev/grokbot/local/TailcatBridge;'
+    c => !c.startsWith('Ldev/rokbot/nativeapp/') && c !== 'Ldev/grokbot/local/TailcatBridge;'
   );
   assert.deepEqual(nonNative, [], `Companion DEX must not bundle stub classes: ${nonNative.join(', ')}`);
 });

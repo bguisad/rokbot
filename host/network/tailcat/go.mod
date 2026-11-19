@@ -1,4 +1,4 @@
-module grokbot.local/tunnel
+module rokbot.local/tunnel
 
 go 1.27.1
 

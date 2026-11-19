@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 import { createConnectorHandlers } from './connectors.mjs';
 import { externalHttpUrl } from './external-url.mjs';
 import { createLinkPreview } from './link-preview.mjs';
@@ -7,7 +7,7 @@ import { createDictation } from './dictation.mjs';
 import { fetchSandMachines } from './sand-machines.mjs';
 export const auth = {
   kind: "logged-in",
-  authId: "grokbot-local-workspace",
+  authId: "rokbot-local-workspace",
   email: "",
   displayName: "本地工作区",
   profileReady: true,
@@ -221,9 +221,9 @@ export async function createLocalServices(profile, window, { command, request, a
     getFinanceOverview: () => ({ connections: [] }),
     forceReconnectGateway: async () => { await command("listAgents"); return { connected: true }; },
     openExternal: async ({ url }) => {
-      if (url?.startsWith('grokbot-local:')) return null;
+      if (url?.startsWith('rokbot-local:')) return null;
       const target = externalHttpUrl(url);
-      if (!target) throw new Error(grokText('链接地址无效。', 'Invalid link address.'));
+      if (!target) throw new Error(rokText('链接地址无效。', 'Invalid link address.'));
       await openExternal(target);
       return null;
     },

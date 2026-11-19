@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 
 // Desktop 1.1.0 streams 16 kHz mono PCM16 while the microphone is open and
 // waits for the text when recording stops. The Host transcribes whole
@@ -63,7 +63,7 @@ export function createDictation({ request, emit }) {
       if (!session) return { text: '' };
       const timer = setTimeout(() => session.abort.abort(new DOMException('Transcription timed out.', 'TimeoutError')), TRANSCRIBE_MS);
       try {
-        if (session.overflow) throw new Error(grokText('录音太长，请分段输入。', 'The recording is too long. Dictate in shorter parts.'));
+        if (session.overflow) throw new Error(rokText('录音太长，请分段输入。', 'The recording is too long. Dictate in shorter parts.'));
         if (session.bytes === 0) return { text: '' };
         const result = await request('/local/audio/transcriptions', {
           audioBase64: base64(pcmWav(joined(session.chunks, session.bytes))), mimeType: 'audio/wav',

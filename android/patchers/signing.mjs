@@ -227,8 +227,8 @@ const certName = (common, organization) => sequence(
 export function createSigningIdentity({
   type = 'rsa',
   modulusLength = 2048,
-  commonName = 'GrokBot Native Signer',
-  organization = 'GrokBot Project',
+  commonName = 'RokBot Native Signer',
+  organization = 'RokBot Project',
   now = new Date()
 } = {}) {
   let keyPair;

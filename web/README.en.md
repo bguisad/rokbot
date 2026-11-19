@@ -1,4 +1,4 @@
-# ProkBot Plus web client
+# RokBot web client
 
 [简体中文](README.md)
 
@@ -12,8 +12,8 @@ The interface is the same as the Android client's, taken from the official Windo
 
 You need:
 
-- a deployed Host whose admin page you can open (ProkBot Plus 1.5.0 or later);
-- a computer (Windows, macOS or Linux) with Node.js 22.12+ and the complete web client package (with `web/`, `android/`, `windows/` and `mac/`) or the complete repository.
+- a deployed RokBot Host whose admin page you can open;
+- a computer (Windows, macOS or Linux) with Node.js 22.12+ and the complete web client package (with `web/`, `windows/` and `mac/`) or the complete repository.
 
 ### 1. Build the bundle
 
@@ -23,7 +23,7 @@ From the repository root:
 node web/patchers/patch.mjs
 ```
 
-The tool downloads and verifies the official `Grok_Bot_1.1.0_Setup.exe` (the same file the Windows and Android clients use) and writes `web/output/GrokBotLocal-web-1.1.0.zip`.
+The tool downloads and verifies the official `Grok_Bot_1.1.0_Setup.exe` (the same file the Windows and Android clients use; set `ROKBOT_DESKTOP_DOWNLOAD_BASE` to override the download mirror), bundles `assets/logo/rokbot-icon-256.png` and `assets/logo/rokbot-icon-512.png` as the RokBot web icons, and writes `web/output/RokBotLocal-web-1.1.0.zip`.
 
 If the 1.1.0 interface does not work for you, add `--version 0.71.2` to use the 0.71.2 interface instead, or pass a downloaded 0.71.2 installer with `--source`. The tool recognises the version by its hash.
 
@@ -42,7 +42,7 @@ If the 1.1.0 interface does not work for you, add `--version 0.71.2` to use the 
 Either:
 
 - **Admin page**: open **Web client** on the Host admin page, click **Choose a file and upload** and pick the ZIP you just built. The web client is enabled when the upload finishes.
-- **Command line**: add `--upload` when building, for example `node web/patchers/patch.mjs --upload https://bot.example.org`. The administrator password is read from the `GROKBOT_ADMIN_PASSWORD` environment variable, the file given with `--password-file`, or the terminal; it never goes on the command line.
+- **Command line**: add `--upload` when building, for example `node web/patchers/patch.mjs --upload https://bot.example.org`. The administrator password is read from the `ROKBOT_ADMIN_PASSWORD` environment variable, the file given with `--password-file`, or the terminal; it never goes on the command line.
 
 The Host checks the size and SHA-256 of every file against the bundle's own manifest. If anything does not match, nothing is installed and the previous bundle stays in place.
 
@@ -87,7 +87,7 @@ The web client can open from the home screen like an app, full screen and withou
 
 ### Testing
 
-Before every release, Playwright runs the full flow at 8 emulated device sizes (Chromium and Firefox on Windows, WebKit on Mac, Android phone and tablet, iPhone 15, iPhone SE, iPad Pro in landscape) with both the 1.1.0 and 0.71.2 interfaces. Uploading, LAN http sign-in, real model chats and the live view of the Bot's computer were also verified on a real server. It has not been tested in browsers on real devices; please [open an issue](https://github.com/ferretgeek/prokbot-plus/issues) if something goes wrong on yours.
+Before every release, Playwright runs the full flow at 8 emulated device sizes (Chromium and Firefox on Windows, WebKit on Mac, Android phone and tablet, iPhone 15, iPhone SE, iPad Pro in landscape) with both the 1.1.0 and 0.71.2 interfaces. Uploading, LAN http sign-in, real model chats and the live view of the Bot's computer were also verified on a real server. It has not been tested in browsers on real devices; please [open an issue](https://github.com/hongfaqiu/rokbot/issues) if something goes wrong on yours.
 
 ## Security
 
@@ -98,7 +98,7 @@ Before every release, Playwright runs the full flow at 8 emulated device sizes (
 
 ## Updating and removing
 
-- **Update the interface**: build and upload a new bundle. It replaces the old one as a whole; signed-in browsers keep their pairing and only need a reload. After upgrading ProkBot Plus, build the bundle again with the tools from the same release.
+- **Update the interface**: build and upload a new bundle. It replaces the old one as a whole; signed-in browsers keep their pairing and only need a reload. After upgrading RokBot, build the bundle again with the tools from the same release.
 - **Pause**: turn off **Enable the web client** on the **Web client** page. The bundle stays, and signed-in browsers cannot open the web client until you turn it back on.
 - **Delete**: click **Delete the bundle**. The web client is disabled. Signed-in browsers stay listed under **Devices & notifications**, where you can revoke them.
 
@@ -116,9 +116,9 @@ Before every release, Playwright runs the full flow at 8 emulated device sizes (
 
 ## Maintenance
 
-- `client/` holds the browser-only code (`native.js`, `web-shell.js`, `boot-data.js`, `web.css`); the rest of the bridge is shared with the Android client (`android/client/`). `patchers/` builds and uploads bundles; the Host side is `host/server/web-client.mjs`.
+- `client/` holds the browser-side code and self-contained bridge scripts (`native.js`, `web-shell.js`, `boot-data.js`, `web.css`, `bridge.js`, `gateway.js`, `services.js`, etc.); `patchers/` builds and uploads bundles; the Host side is `host/server/web-client.mjs`.
 - How it works is in the [technical documentation](../docs/ARCHITECTURE.en.md#web-client); test commands and the environment variables they need are under [tests and maintenance](../docs/ARCHITECTURE.en.md#testing).
 
 ## License and support
 
-Non-commercial use only; see [LICENSE](../LICENSE). Most of this project's code was written with AI assistance. A generated bundle contains the official program's interface: install it only on your own Host and do not share it publicly.
+Non-commercial use only; see [LICENSE](../LICENSE). Repository: <https://github.com/hongfaqiu/rokbot>. Most of this project's code was written with AI assistance. A generated bundle contains the official program's interface: install it only on your own Host and do not share it publicly.

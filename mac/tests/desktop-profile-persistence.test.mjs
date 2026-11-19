@@ -6,7 +6,7 @@ import test from 'node:test';
 import { createLocalServices } from '../clients/desktop/local-services.mjs';
 
 async function fixture(t) {
-  const profile = await mkdtemp(path.join(tmpdir(), 'plus-profile-'));
+  const profile = await mkdtemp(path.join(tmpdir(), 'rokbot-profile-'));
   t.after(() => rm(profile, { recursive: true, force: true }));
   return { profile, file: path.join(profile, 'local-client-persistence.json') };
 }

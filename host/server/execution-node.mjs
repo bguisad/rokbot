@@ -68,7 +68,7 @@ export class ExecutionNode {
         signal: AbortSignal.timeout(15000), redirect: 'error' });
       if (!response.ok) return { ok: false, status: response.status };
       const body = await response.json();
-      return { ok: body.protocol === 'grokbot-execution/v1' && body.ready === true,
+      return { ok: body.protocol === 'rokbot-execution/v1' && body.ready === true,
         protocol: body.protocol, services: body.services };
     } catch { return { ok: false, error: 'Execution node is unavailable' }; }
   }

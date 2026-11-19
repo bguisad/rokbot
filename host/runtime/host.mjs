@@ -16,8 +16,9 @@ import { installLocalPromptPolicy } from './prompt-runtime.mjs';
 import { summarizeAgent } from './host-summarize.mjs';
 import { installModelRejectionGuard } from './model-rejection-guard.mjs';
 
-const stateDir = process.env.GROKBOT_STATE_DIR ?? '/research/state';
-const originalDir = process.env.GROKBOT_ORIGINAL_HOST ?? '/research/original-host';
+const stateDir = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
+const originalDir = process.env.ROKBOT_ORIGINAL_HOST ?? process.env.GROKBOT_ORIGINAL_HOST ?? '/research/original-host';
+const dataDir = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? stateDir;
 installModelRejectionGuard();
 Object.assign(process.env, {
   SAND_DATA_ROOT: join(stateDir, 'host-data'),
@@ -30,23 +31,28 @@ Object.assign(process.env, {
 await mkdir(process.env.SAND_DATA_ROOT, { recursive: true });
 await provisionResources(stateDir, originalDir);
 const revision = (await readFile(join(originalDir, 'version'), 'utf8')).trim();
-const executionTransport = await connectExecutionNode(await loadExecutionNode(process.env.GROKBOT_DATA_DIR ?? stateDir), process.env.GROKBOT_DATA_DIR ?? stateDir);
+const executionTransport = await connectExecutionNode(await loadExecutionNode(dataDir), dataDir);
 const executionNode = executionTransport.config;
 if (executionNode?.enabled) {
+  process.env.ROKBOT_EXECUTION_URL = executionNode.url;
+  // Compatibility bridge for d0a4baa .gbp.gz recipes (computer-box-remote-accessor.mjs & host-library-reliable.cjs) until M2.
   process.env.GROKBOT_EXECUTION_URL = executionNode.url;
-  process.env.GROKBOT_BOX_HOST = new URL(executionNode.url).hostname;
-  process.env.GROKBOT_BOX_TOKEN = executionNode.token;
+  process.env.ROKBOT_BOX_HOST = new URL(executionNode.url).hostname;
+  process.env.ROKBOT_BOX_TOKEN = executionNode.token;
 }
 const model = await loadModelConfig();
-const internalToken = process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE
-  ? (await readFile(process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim() : undefined;
+const tokenFile = process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE;
+const internalToken = tokenFile
+  ? (await readFile(tokenFile, 'utf8')).trim() : undefined;
 if (internalToken !== undefined && !/^[A-Za-z0-9_-]{32,256}$/.test(internalToken)) throw new Error('Invalid internal Host token');
-const allowedHosts = process.env.GROKBOT_BOX_HOST ? [process.env.GROKBOT_BOX_HOST] : [];
-if (process.env.GROKBOT_NOTIFICATION_URL) allowedHosts.push(new URL(process.env.GROKBOT_NOTIFICATION_URL).hostname);
+const boxHost = process.env.ROKBOT_BOX_HOST ?? process.env.GROKBOT_BOX_HOST;
+const allowedHosts = boxHost ? [boxHost] : [];
+const notificationUrl = process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
+if (notificationUrl) allowedHosts.push(new URL(notificationUrl).hostname);
 if (model.policy.mode === 'adaptive') allowedHosts.push('api.typesafe.ai');
 installHostNetworkBoundary(model.modelBaseUrls ?? model.baseUrl, { additionalHosts: allowedHosts });
 const require = createRequire(import.meta.url);
-const recovered = process.env.GROKBOT_RECOVERED_CORE === '1';
+const recovered = (process.env.ROKBOT_RECOVERED_CORE ?? process.env.GROKBOT_RECOVERED_CORE) === '1';
 let libraryPath = resolve(stateDir, 'host-library.cjs'), repaired;
 if (recovered) {
   repaired = await prepareHostReliability(stateDir);
@@ -56,7 +62,7 @@ const library = require(libraryPath);
 const core = recovered ? await loadRecoveredHostCore(library, repaired.directory) : { mode: 'bundled' };
 if (recovered) core.reliability = repaired.status;
 library.activateHostLocale();
-const prompts = await installLocalPromptPolicy(process.env.GROKBOT_DATA_DIR ?? stateDir, library, { revision });
+const prompts = await installLocalPromptPolicy(dataDir, library, { revision });
 const host = new library.SandHost({ startExtensions: createExtensionStarter(library, model) });
 let gateway, computers;
 let stopping = false;
@@ -96,19 +102,19 @@ try {
     console.warn('[local-host] failed to enable multi-machine local-exec routing:', error?.message ?? error);
   }
   const localExecBridge = host.getLocalExecBridge();
-  const defaultMachineId = installDefaultMachineRouting(localExecBridge, process.env.GROKBOT_DEFAULT_MACHINE_ID);
+  const defaultMachineId = installDefaultMachineRouting(localExecBridge, process.env.ROKBOT_DEFAULT_MACHINE_ID ?? process.env.GROKBOT_DEFAULT_MACHINE_ID);
   if (defaultMachineId) {
     console.log(`[local-host] default local-exec machine: ${defaultMachineId}`);
   }
   computers = observeHostComputers(localExecBridge);
   const localApplicationRpc = args => {
-    if (args?.action === 'grokbot.manual-summary') return summarizeAgent(host, library, args.agentId);
+    if (args?.action === 'rokbot.manual-summary') return summarizeAgent(host, library, args.agentId);
     return host.requireHostExtensions().api('mcp').applicationRpc(args);
   };
   gateway = await library.startGatewayServer({
     api: decorateLocalSharingApi({ api: { ...withLibraryCleanup(host.getApi(), host, library), localApplicationRpc }, host }), subscribe: listener => host.subscribe(listener),
     getHealth: () => host.getHealth(), startedAt: host.startedAt,
-    host: process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.GROKBOT_HOST_PORT ?? 1340),
+    host: process.env.ROKBOT_HOST_BIND ?? process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.ROKBOT_HOST_PORT ?? process.env.GROKBOT_HOST_PORT ?? 1340),
     ...(internalToken ? { authToken: internalToken } : {}),
     onEventStreamClosed: () => host.noteEventStreamClosed(),
     onDesktopContact: () => host.noteDesktopContact(),
@@ -132,7 +138,7 @@ try {
     port: gateway.port, dataRoot: process.env.SAND_DATA_ROOT, identity: 'local-workspace',
     officialAccount: false, officialBackend: false, telemetry: false, updates: false, core };
   await saveHostStatus(status);
-  await writePrivate(join(process.env.GROKBOT_DATA_DIR ?? stateDir, 'execution-active.json'), JSON.stringify({
+  await writePrivate(join(dataDir, 'execution-active.json'), JSON.stringify({
     revision: executionNode?.revision ?? '', pid: process.pid,
     config: executionNode ?? { enabled: false }, appliedAt: new Date().toISOString(),
   }));

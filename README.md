@@ -1,17 +1,17 @@
 # RokBot
 
-**在自己的服务器上运行 Grok Bot，接入你自己的模型，并坚持全端官方原生客户端补丁路线。**
+**在自己的服务器上自托管运行 RokBot，接入你自己的模型，并坚持全端官方原生客户端补丁路线。**
 
-**简体中文** · [English](README.en.md)
+**简体中文** · [English](README.en.md) · [兼容与重命名说明](docs/REBRAND_COMPAT.md)
 
 ---
 
 ## 简介
 
-RokBot 是一套面向自托管场景的 Grok Bot 服务端与全端客户端补丁工程：
+RokBot 是一套面向自托管场景的 AI 助手服务端与全端官方原生客户端补丁工程：
 
 - **全端原生路线（舍弃套壳）**：彻底舍弃旧版「WebView 套壳 Windows 前端」的 Android 方案，Android 端直接对官方原生 React Native + Hermes 安装包（`.xapk` / `.apks` / `.apk`）执行补丁，100% 保留原版界面与交互。
-- **自托管 Host 增强**：支持 Anthropic Messages / OpenAI Responses / OpenAI Chat 多接口、按 Bot 独立模型路由、可靠上下文压缩、管理员密码配对、多机本地执行与默认机器固定路由（`GROKBOT_DEFAULT_MACHINE_ID`）。
+- **自托管 Host 增强**：支持 Anthropic Messages / OpenAI Responses / OpenAI Chat 多接口、按 Bot 独立模型路由、可靠上下文压缩、管理员密码配对、多机本地执行与默认机器固定路由（`ROKBOT_DEFAULT_MACHINE_ID`）。
 - **零官方闭源分发**：本仓库不含任何官方程序包、成品 APK/IPA 或密钥；所有客户端与 Host 均由用户在本地基于自行校验的官方安装包生成。
 
 ---
@@ -35,13 +35,20 @@ RokBot 在上述工作基础上以全新仓库重新组织，聚焦**原生官�
 | [`android/`](android/) | **官方原生 React Native Android 补丁器**（Pairip 去校验、Hermes 字节码补丁、Companion DEX、16KB 对齐 Tailcat `.so`、6 个原生模态页） | 官方 Android `1.16.0`（build `1075`） |
 | [`windows/`](windows/) | Windows x64 客户端补丁与安装器 | 官方 Windows `1.1.0`（兼容 `0.71.2`） |
 | [`mac/`](mac/) | macOS Apple Silicon 客户端补丁 | 官方 macOS `0.71.2` |
-| [`ios/`](ios/) | iOS arm64 砸壳 IPA 注入补丁（`GBBootstrap`） | 官方 iOS `1.16.0`（build `23152`） |
+| [`ios/`](ios/) | iOS arm64 砸壳 IPA 注入补丁（原生 dylib 注入） | 官方 iOS `1.16.0`（build `23152`） |
 | [`web/`](web/) | 浏览器网页版客户端打包与上传工具 | 界面取自 Windows `1.1.0` |
-| [`docs/`](docs/) | 部署手册与架构技术文档 | — |
+| [`docs/`](docs/) | 部署手册、架构文档与[品牌重命名兼容说明](docs/REBRAND_COMPAT.md) | — |
 
 ---
 
 ## 快速开始
+
+仓库地址：<https://github.com/hongfaqiu/rokbot>
+
+```bash
+git clone https://github.com/hongfaqiu/rokbot.git
+cd rokbot
+```
 
 ### 1. 部署自托管 Host
 
@@ -49,7 +56,7 @@ RokBot 在上述工作基础上以全新仓库重新组织，聚焦**原生官�
 
 - 构建本地 Host 镜像：`python3 host/release/build-docker.py --host-archive <sand-host-bundle.tgz>`
 - 启动服务：`docker compose -f host/release/compose.yaml up -d`
-- 多台电脑同时接入时，可通过环境变量 `GROKBOT_DEFAULT_MACHINE_ID` 指定默认执行机器，未配置且多机在线时将明确报错以避免静默随机落点。
+- 多台电脑同时接入时，可通过环境变量 `ROKBOT_DEFAULT_MACHINE_ID` 指定默认执行机器，未配置且多机在线时将明确报错以避免静默随机落点。
 
 ### 2. 生成原生 Android 客户端
 

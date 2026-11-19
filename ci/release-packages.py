@@ -1,4 +1,4 @@
-"""Build the six ProkBot Plus tool ZIPs, or check an existing set against Git.
+"""Build the six RokBot tool ZIPs, or check an existing set against Git.
 
 Use a clean checkout at the full commit ID and a fresh, caller-verified local
 remote-tracking ref. Reachability is offline evidence, not a live remote check.
@@ -23,12 +23,12 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 SUMS = 'SHA256SUMS.txt'
-COMMON = ('LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'CHANGELOG.md',
-          'CONTRIBUTING.md', 'SECURITY.md', 'docs')
-PACKAGES = {'host': ('host',), 'windows': ('windows', 'mac'), 'mac': ('mac',),
-            'ios': ('ios',), 'android': ('android', 'windows', 'mac'), 'web': ('web', 'android', 'windows', 'mac')}
+COMMON = ('LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'SECURITY.md', 'docs')
+PACKAGES = {'host': ('host', 'assets/logo'), 'windows': ('windows', 'mac', 'assets/logo'), 'mac': ('mac', 'assets/logo'),
+            'ios': ('ios', 'assets/logo'), 'android': ('android', 'windows', 'mac', 'assets/logo'), 'web': ('web', 'windows', 'mac', 'assets/logo')}
 # A faithful archive of an incomplete commit is still not a usable tool package.
-TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.en.md',
+TOOLS = ('assets/logo/manifest.json', 'assets/logo/rokbot-logo.svg',
+         'docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.en.md',
          'host/deploy.py', 'host/release/build-docker.py', 'host/server/application-guide.md',
          'host/tools/host-admin.mjs', 'host/recipes/host/manifest.json',
          'windows/patchers/desktop/patch.mjs', 'windows/patchers/desktop/original.mjs',
@@ -36,18 +36,27 @@ TOOLS = ('docs/AI-INSTALL.md', 'docs/AI-INSTALL.en.md', 'docs/ARCHITECTURE.md', 
          'windows/patchers/desktop/inputs.mjs', 'windows/patchers/desktop/0.71.2/supported.json',
          'windows/patchers/desktop/0.71.2/recipes/manifest.json', 'windows/patchers/desktop/notification-policy.json',
          'windows/patchers/desktop/0.71.2/notification-policy.json',
-         'windows/dist/network/grokbot-tailcat.exe', 'windows/dist/installer/grokbot-setup-stub.exe',
+         'windows/dist/network/rokbot-tailcat.exe', 'windows/dist/installer/rokbot-setup-stub.exe',
          'mac/clients/desktop/main.mjs', 'mac/patchers/desktop/patch.mjs', 'mac/patchers/desktop/release-recipes.mjs',
          'mac/patchers/desktop/supported.json', 'mac/patchers/desktop/recipes/manifest.json',
          'mac/patchers/desktop/download-original.mjs', 'mac/patchers/desktop/package.json',
          'mac/patchers/desktop/node_modules/@electron/asar/package.json', 'mac/patchers/desktop/node_modules/@electron/asar/lib/asar.js',
-         'ios/release/patch-ios.py', 'ios/recipes/ios/manifest.json', 'android/patchers/patch.mjs',
-         'android/patchers/supported.json', 'android/dist/grokbot-android-shell.apk',
+         'ios/release/patch-ios.py', 'ios/recipes/ios/manifest.json', 'android/release/patch-android.mjs',
+         'android/recipes/manifest.json', 'android/bin/rokbot-native-base.apk',
          'web/patchers/patch.mjs', 'web/patchers/upload.mjs', 'web/client/native.js', 'web/client/boot-data.js')
-EXECUTABLES = ('host/bin/grokbot-tailcat', 'host/bin/linux-arm64/grokbot-tailcat',
-               'mac/dist/network/grokbot-tailcat', 'ios/bin/GrokBotLocal.dylib',
+EXECUTABLES = ('host/bin/rokbot-tailcat', 'host/bin/linux-arm64/rokbot-tailcat',
+               'mac/dist/network/rokbot-tailcat', 'ios/bin/RokBotLocal.dylib',
                'mac/patchers/desktop/node_modules/.bin/asar', 'mac/patchers/desktop/node_modules/@electron/asar/bin/asar.mjs',
-               'android/shell/gradlew')
+               'android/companion/build.sh')
+
+
+def all_roots():
+    return tuple(dict.fromkeys((*COMMON, *(root for roots in PACKAGES.values() for root in roots))))
+
+
+def in_roots(name, roots):
+    return any(name == root or name.startswith(root + '/') or (name.endswith('/') and root.startswith(name))
+               for root in roots)
 
 
 class ReleaseError(Exception):
@@ -112,7 +121,7 @@ def source(repo, commit, pushed_ref):
 
 
 def inventory(repo, commit, policy):
-    raw = git(repo, 'ls-tree', '-rtz', '--full-tree', commit, '--', *COMMON, *PACKAGES)
+    raw = git(repo, 'ls-tree', '-rtz', '--full-tree', commit, '--', *all_roots())
     tree, keys = {}, set()
     for entry in raw.split(b'\0')[:-1]:
         header, path = entry.split(b'\t', 1)
@@ -227,7 +236,7 @@ def release(repo, commit, output, *, pushed_ref='refs/remotes/origin/main', veri
         raise ReleaseError('output must be a dedicated external directory, not a link or repository path')
     policy = verifier()
     tree = inventory(repo, commit, policy)
-    archives = {key: output / f'prokbot-plus-{key}.zip' for key in PACKAGES}
+    archives = {key: output / f'rokbot-{key}.zip' for key in PACKAGES}
     with ExitStack() as rollback:
         if verify_only:
             names = {p.name for p in archives.values()} | {SUMS}
@@ -248,7 +257,7 @@ def release(repo, commit, output, *, pushed_ref='refs/remotes/origin/main', veri
                 sha = digest(src)
                 if verify_only and sha != archive_digest(repo, args):
                     raise ReleaseError(f'{path.name}: bytes differ from git archive of the requested commit')
-                check_layout(src, path, commit, {n: m for n, m in tree.items() if n.partition('/')[0] in roots})
+                check_layout(src, path, commit, {n: m for n, m in tree.items() if in_roots(n, roots)})
             rows.append((path.name, sha))
         sums = ''.join(f'{sha}  {name}\n' for name, sha in sorted(rows)).encode('ascii')
         manifest = output / SUMS

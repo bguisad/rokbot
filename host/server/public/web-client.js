@@ -11,7 +11,7 @@ function upload(file, onProgress) {
     const request = new XMLHttpRequest();
     request.open('PUT', '/admin/api/web-client');
     request.setRequestHeader('content-type', 'application/zip');
-    request.setRequestHeader('x-grokbot-csrf', '1');
+    request.setRequestHeader('x-rokbot-csrf', '1');
     request.upload.onprogress = event => { if (event.lengthComputable) onProgress(event.loaded / event.total); };
     request.onload = () => {
       let value = null;
@@ -41,7 +41,7 @@ export function createWebClientPage({ api, toast, busy, refresh, copy }) {
         <span class="row-control auto"><code id="web-client-url" class="row-value" data-private></code><button id="web-client-copy" class="icon-btn" type="button" aria-label="复制网页地址">${icon('copy')}</button></span></div>
     </div><p id="web-client-insecure" class="row-hint web-client-warning" hidden>当前 Host 地址是 http。网页版可以使用，但语音输入、麦克风和浏览器通知需要 https；在公网使用时请配置 https。</p></section>
     <section class="section"><div class="section-head"><h2 class="section-title">界面包</h2></div><div class="card">
-      <div class="row"><span class="row-copy"><span class="row-title">上传界面包</span><span class="row-hint">在电脑上运行 node web/patchers/patch.mjs，生成 web/output/GrokBotLocal-web-1.1.0.zip 后上传。界面取自你自己下载的官方 Windows 安装包，只保存在这台 Host 上，未登录的访问者拿不到。</span></span>
+      <div class="row"><span class="row-copy"><span class="row-title">上传界面包</span><span class="row-hint">在电脑上运行 node web/patchers/patch.mjs，生成 web/output/RokBotLocal-web-1.1.0.zip 后上传。界面取自你自己下载的官方 Windows 安装包，只保存在这台 Host 上，未登录的访问者拿不到。</span></span>
         <span class="row-control auto"><input id="web-client-file" type="file" accept=".zip,application/zip" hidden /><button id="web-client-upload" class="btn" type="button">选择文件并上传</button></span></div>
       <div class="row"><span class="row-copy"><span class="row-title">删除界面包</span><span class="row-hint">网页版随之停用；已登录的浏览器仍列在「设备与通知」里，可在那里撤销</span></span><button id="web-client-remove" class="btn btn-danger" type="button" disabled>删除</button></div>
     </div></section>`);

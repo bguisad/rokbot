@@ -4,8 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>ProkBot</title>
+    <title>RokBot</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
+    <link rel="apple-touch-icon" href="/rokbot-icon.png" />
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/base.css" />
     <link rel="stylesheet" href="/components.css" />
@@ -19,7 +20,7 @@
     <div id="loading" class="loading" role="status">正在连接 Host…</div>
     <div id="auth-screen" class="auth theme-dark" hidden>
       <header class="auth-top">
-        <span class="brand"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="brand-face" width="32" height="32" rx="9"/><rect class="brand-eye" x="9.6" y="11" width="4.4" height="10.5" rx="2.2" transform="rotate(-28 11.8 16.25)"/><rect class="brand-eye" x="18.4" y="9.5" width="4.4" height="8.5" rx="2.2" transform="rotate(-28 20.6 13.75)"/></svg><span>ProkBot <small>Host</small></span></span>
+        <span class="brand"><svg class="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true"><path class="brand-face" d="M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z"/><rect class="brand-eye" x="304" y="396" width="144" height="336" rx="72" transform="rotate(-26 376 564)"/><rect class="brand-eye" x="576" y="370" width="144" height="268" rx="72" transform="rotate(-26 648 504)"/><circle class="brand-accent" cx="768" cy="144" r="42"/></svg><span>RokBot <small>Host</small></span></span>
       </header>
       <form id="auth-form" class="auth-talk">
         <h1 id="auth-title" class="sr-only">登录 Host</h1>
@@ -36,7 +37,7 @@
     <div id="console" class="shell" hidden>
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-head">
-          <a class="brand" href="/" data-view="overview"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="brand-face" width="32" height="32" rx="9"/><rect class="brand-eye" x="9.6" y="11" width="4.4" height="10.5" rx="2.2" transform="rotate(-28 11.8 16.25)"/><rect class="brand-eye" x="18.4" y="9.5" width="4.4" height="8.5" rx="2.2" transform="rotate(-28 20.6 13.75)"/></svg><span>ProkBot <small>Host</small></span></a>
+          <a class="brand" href="/" data-view="overview"><svg class="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true"><path class="brand-face" d="M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z"/><rect class="brand-eye" x="304" y="396" width="144" height="336" rx="72" transform="rotate(-26 376 564)"/><rect class="brand-eye" x="576" y="370" width="144" height="268" rx="72" transform="rotate(-26 648 504)"/><circle class="brand-accent" cx="768" cy="144" r="42"/></svg><span>RokBot <small>Host</small></span></a>
           <button id="nav-toggle" class="icon-btn nav-toggle" type="button" aria-label="菜单" aria-expanded="false"></button>
         </div>
         <nav id="nav" class="nav" aria-label="管理导航"></nav>

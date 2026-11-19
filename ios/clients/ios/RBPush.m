@@ -1,0 +1,425 @@
+#import "RBLocalize.h"
+#import "RBPush.h"
+#import "RBConnection.h"
+#import "RBHTTP.h"
+#import "RBDiagnostics.h"
+#import <Security/Security.h>
+#import <UserNotifications/UserNotifications.h>
+#import <dlfcn.h>
+#import <objc/runtime.h>
+
+static NSString *RBAPNsToken;
+static NSString *RBRegistrationError;
+static BOOL RBAuthorizing;
+static BOOL RBAuthorizationAttempted;
+static BOOL RBPromptVisible;
+static IMP RBOriginalRegistered;
+static IMP RBOriginalFailed;
+static Class RBInstalledDelegate;
+static NSDictionary *RBDevicePushState;
+static NSString *RBDevicePushStateIdentity;
+static char RBOriginalSwitchTargets;
+static NSString *RBPushStateKey(void) {
+  return [@"RokBotLocal.pushState." stringByAppendingString:
+    [NSUserDefaults.standardUserDefaults stringForKey:@"RokBotLocal.deviceId"] ?: @"unpaired"];
+}
+static void RBPushDiagnostic(NSString *event, NSDictionary *values) {
+  if (!getenv("ROKBOT_VALIDATE_CAPTURE")) return;
+  NSURL *dir = [[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"HostValidation"];
+  [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+  NSMutableDictionary *report = [values mutableCopy]; report[@"event"] = event;
+  [[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil]
+      writeToURL:[dir URLByAppendingPathComponent:[@"push-" stringByAppendingFormat:@"%@.json",event]] atomically:YES];
+}
+static NSString *RBAuthName(UNAuthorizationStatus value) {
+  switch (value) {
+  case UNAuthorizationStatusDenied: return @"denied";
+  case UNAuthorizationStatusAuthorized: return @"authorized";
+  case UNAuthorizationStatusProvisional: return @"provisional";
+  case UNAuthorizationStatusEphemeral: return @"ephemeral";
+  default: return @"notDetermined";
+  }
+}
+static NSString *RBReadPushEnvironment(void) {
+  // Query the running process's actual code-signing entitlement, not its profile
+  // and not the separate user-notification authorization setting.
+  typedef CFTypeRef (*Create)(CFAllocatorRef);
+  typedef CFTypeRef (*Copy)(CFTypeRef, CFStringRef, CFErrorRef *);
+  Create create = (Create)dlsym(RTLD_DEFAULT, "SecTaskCreateFromSelf");
+  Copy copy = (Copy)dlsym(RTLD_DEFAULT, "SecTaskCopyValueForEntitlement");
+  if (!create || !copy) return nil;
+  CFTypeRef task = create(kCFAllocatorDefault);
+  if (!task) return nil;
+  id value = CFBridgingRelease(copy(task, CFSTR("aps-environment"), NULL));
+  CFRelease(task);
+  return [value isEqual:@"development"] || [value isEqual:@"production"] ? value : nil;
+}
+NSString *RBPushEnvironment(void) {
+  static NSString *environment;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ environment = RBReadPushEnvironment(); });
+  return environment;
+}
+static UIViewController *RBPushTop(void) {
+  UIViewController *top;
+  for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
+    if ([s isKindOfClass:UIWindowScene.class])
+      for (UIWindow *w in ((UIWindowScene *)s).windows)
+        if (w.isKeyWindow) top = w.rootViewController;
+  while (top.presentedViewController) top = top.presentedViewController;
+  return top;
+}
+static void RBDeviceRequest(NSString *method, NSDictionary *body,
+                            void (^done)(NSDictionary *, NSError *)) {
+  NSString *base = RBConnection.shared.serverURL, *token = RBConnection.shared.deviceToken;
+  if (!base.length || !token.length) return;
+  NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:
+    [NSURL URLWithString:[base stringByAppendingString:@"/local/device"]]];
+  r.HTTPMethod = method; r.timeoutInterval = 15;
+  [r setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
+  if (body) {
+    r.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+  }
+  [[RBHTTPSession() dataTaskWithRequest:r completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    NSDictionary *value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    NSInteger status = ((NSHTTPURLResponse *)response).statusCode;
+    if (!error && (status < 200 || status >= 300 || ![value isKindOfClass:NSDictionary.class]))
+      error = [NSError errorWithDomain:@"RokBotDevice" code:status userInfo:nil];
+    RBPushDiagnostic(@"request", @{@"method":method,@"status":@(status),@"errorDomain":error.domain ?: @"",@"errorCode":@(error.code),@"responseError":[value[@"error"] isKindOfClass:NSString.class] ? value[@"error"] : @""});
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (![base isEqual:RBConnection.shared.serverURL] || ![token isEqual:RBConnection.shared.deviceToken]) return;
+      if (!error && [value[@"push"] isKindOfClass:NSDictionary.class]) {
+        // Persist only display state, never push tokens, URLs, or JSON nulls.
+        RBDevicePushState = @{@"provider":value[@"push"][@"provider"] ?: @"none",
+                              @"configured":[value[@"push"][@"configured"] boolValue] ? @YES : @NO,
+                              @"enabled":[value[@"push"][@"enabled"] boolValue] ? @YES : @NO,
+                              @"authorization":value[@"push"][@"authorization"] ?: @"notDetermined"};
+        RBDevicePushStateIdentity = RBPushStateKey();
+        [NSUserDefaults.standardUserDefaults setObject:RBDevicePushState forKey:RBPushStateKey()];
+        [NSNotificationCenter.defaultCenter postNotificationName:@"RokBotPushStateChanged" object:nil];
+      }
+      if (done) done(value, error);
+    });
+  }] resume];
+}
+static void RBReportDevice(UNNotificationSettings *settings) {
+  NSString *environment = RBPushEnvironment();
+  RBPushDiagnostic(@"registration", @{@"environment":environment ?: (id)NSNull.null,@"authorization":RBAuthName(settings.authorizationStatus),@"tokenPresent":@(RBAPNsToken.length > 0),@"registrationError":RBRegistrationError ?: @""});
+  NSMutableDictionary *body = [@{
+    @"name": UIDevice.currentDevice.name,
+    @"kind": UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? @"ipad" : @"iphone",
+    @"bundleId": NSBundle.mainBundle.bundleIdentifier,
+    @"appVersion": [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"",
+    // Objective-C comparison expressions box as NSNumber(int), which JSON
+    // encodes as 0/1. The Host correctly requires a JSON boolean here.
+    @"apnsCapable": environment ? @YES : @NO,
+    @"apnsEnvironment": environment ?: NSNull.null,
+    @"authorization": RBAuthName(settings.authorizationStatus)
+  } mutableCopy];
+  if (environment && RBAPNsToken.length)
+    body[@"push"] = @{ @"provider": @"apns", @"token": RBAPNsToken, @"registrationError": NSNull.null };
+  else if (RBRegistrationError)
+    body[@"push"] = @{ @"registrationError": RBRegistrationError };
+  else if (!environment)
+    body[@"push"] = @{ @"registrationError": NSNull.null };
+  RBDeviceRequest(@"PUT", body, nil);
+}
+void RBPushSetForeground(BOOL foreground) {
+  if (!RBConnection.shared.deviceToken.length) return;
+  __block UIBackgroundTaskIdentifier task = UIBackgroundTaskInvalid;
+  if (!foreground)
+    task = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Host notification state" expirationHandler:^{
+      if (task != UIBackgroundTaskInvalid) {
+        [UIApplication.sharedApplication endBackgroundTask:task]; task = UIBackgroundTaskInvalid;
+      }
+    }];
+  RBDeviceRequest(@"PUT", @{@"foreground":foreground ? @YES : @NO}, ^(NSDictionary *value, NSError *error) {
+    RBDiagnosticsEvent(@"presence.report", @{@"foreground":foreground ? @YES : @NO, @"success":error ? @NO : @YES});
+    if (task != UIBackgroundTaskInvalid) {
+      [UIApplication.sharedApplication endBackgroundTask:task]; task = UIBackgroundTaskInvalid;
+    }
+  });
+}
+static BOOL RBClaimNotification(NSString *identity) {
+  NSString *base = RBConnection.shared.serverURL;
+  if (!base.length || !identity.length) return NO;
+  NSMutableDictionary *all = [[NSUserDefaults.standardUserDefaults dictionaryForKey:@"RokBotLocal.notificationSeen"] mutableCopy] ?: [NSMutableDictionary new];
+  NSMutableArray *seen = [all[base] mutableCopy] ?: [NSMutableArray new];
+  if ([seen containsObject:identity]) return NO;
+  [seen addObject:identity];
+  while (seen.count > 256) [seen removeObjectAtIndex:0];
+  all[base] = seen;
+  [NSUserDefaults.standardUserDefaults setObject:all forKey:@"RokBotLocal.notificationSeen"];
+  return YES;
+}
+void RBReceiveLocalNotification(NSDictionary *n) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSString *identity = n[@"notificationId"] ?: n[@"id"];
+    if (![identity isKindOfClass:NSString.class] || !RBClaimNotification(identity)) return;
+    // The original PushPayload.foregroundBehavior suppresses task-completion
+    // banners. Conversation state continues through the existing Gateway stream.
+    // Keep receipts/deduplication without adding a separate completion UI.
+    RBDiagnosticsEvent(@"notification.foregroundReceipt", @{ @"agentId": n[@"agentId"] ?: @"" });
+  });
+}
+@interface RBPushDelegate : NSObject <UNUserNotificationCenterDelegate>
+@property(nonatomic, weak) id<UNUserNotificationCenterDelegate> original;
+@end
+@implementation RBPushDelegate
+- (BOOL)respondsToSelector:(SEL)selector {
+  return [super respondsToSelector:selector] || [self.original respondsToSelector:selector];
+}
+- (id)forwardingTargetForSelector:(SEL)selector { return self.original; }
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center willPresentNotification:(UNNotification *)n
+        withCompletionHandler:(void (^)(UNNotificationPresentationOptions))done {
+  NSDictionary *payload = n.request.content.userInfo;
+  if ([payload[@"notificationId"] isKindOfClass:NSString.class]) {
+    RBDiagnosticsEvent(@"notification.foreground", @{@"agentId":payload[@"agentId"] ?: @""});
+    RBReceiveLocalNotification(payload); done(UNNotificationPresentationOptionNone); return;
+  }
+  if ([self.original respondsToSelector:_cmd])
+    [self.original userNotificationCenter:center willPresentNotification:n withCompletionHandler:done];
+  else done(UNNotificationPresentationOptionNone);
+}
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center didReceiveNotificationResponse:(UNNotificationResponse *)response
+        withCompletionHandler:(void (^)(void))done {
+  NSDictionary *p = response.notification.request.content.userInfo;
+  if ([p[@"notificationId"] isKindOfClass:NSString.class]) {
+    RBDiagnosticsEvent(@"notification.response", @{@"agentId":p[@"agentId"] ?: @"", @"action":response.actionIdentifier ?: @""});
+    RBClaimNotification(p[@"notificationId"]);
+    RBOpenAgent(p[@"agentId"]); done(); return;
+  }
+  if ([self.original respondsToSelector:_cmd])
+    [self.original userNotificationCenter:center didReceiveNotificationResponse:response withCompletionHandler:done];
+  else done();
+}
+@end
+static RBPushDelegate *RBNotificationDelegate;
+static IMP RBOriginalSetNotificationDelegate;
+static void RBSetNotificationDelegate(id self, SEL cmd, id<UNUserNotificationCenterDelegate> delegate) {
+  if (!RBNotificationDelegate) RBNotificationDelegate = [RBPushDelegate new];
+  if (delegate != RBNotificationDelegate) RBNotificationDelegate.original = delegate;
+  ((void (*)(id,SEL,id))RBOriginalSetNotificationDelegate)(self,cmd,RBNotificationDelegate);
+}
+__attribute__((constructor)) static void RBObserveNotificationDelegate(void) {
+  // iOS may deliver a cold-start response before didBecomeActive/registration.
+  // Wrap the first delegate assignment, while preserving unrelated notifications.
+  Method method = class_getInstanceMethod(UNUserNotificationCenter.class, @selector(setDelegate:));
+  if (method) RBOriginalSetNotificationDelegate = method_setImplementation(method,(IMP)RBSetNotificationDelegate);
+}
+static void RBRegistered(id self, SEL cmd, UIApplication *app, NSData *token) {
+  if (!RBConnection.shared.deviceToken.length) {
+    if (RBOriginalRegistered) ((void (*)(id,SEL,id,id))RBOriginalRegistered)(self,cmd,app,token);
+    return;
+  }
+  const unsigned char *bytes = token.bytes;
+  NSMutableString *value = [NSMutableString stringWithCapacity:token.length * 2];
+  for (NSUInteger i=0; i<token.length; i++) [value appendFormat:@"%02x",bytes[i]];
+  RBAPNsToken = value; RBRegistrationError = nil;
+  [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) { RBReportDevice(s); }];
+}
+static void RBFailed(id self, SEL cmd, UIApplication *app, NSError *error) {
+  if (!RBConnection.shared.deviceToken.length) {
+    if (RBOriginalFailed) ((void (*)(id,SEL,id,id))RBOriginalFailed)(self,cmd,app,error);
+    return;
+  }
+  // The original app can request APNs even in a wildcard-signed Bark build.
+  // That expected missing-entitlement error is unrelated to Bark delivery.
+  if (!RBPushEnvironment()) { RBRegistrationError = nil; return; }
+  RBRegistrationError = [NSString stringWithFormat:@"%@ (%ld)",error.domain,(long)error.code];
+  [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) { RBReportDevice(s); }];
+}
+static IMP RBHook(Class cls, SEL selector, IMP replacement) {
+  Method method = class_getInstanceMethod(cls, selector);
+  IMP original = method ? method_getImplementation(method) : NULL;
+  const char *types = method ? method_getTypeEncoding(method) : "v@:@@";
+  class_replaceMethod(cls, selector, replacement, types); return original;
+}
+static void RBInstallPushDelegate(void) {
+  Class cls = object_getClass(UIApplication.sharedApplication.delegate);
+  if (cls && RBInstalledDelegate != cls) {
+    RBOriginalRegistered = RBHook(cls, @selector(application:didRegisterForRemoteNotificationsWithDeviceToken:), (IMP)RBRegistered);
+    RBOriginalFailed = RBHook(cls, @selector(application:didFailToRegisterForRemoteNotificationsWithError:), (IMP)RBFailed);
+    RBInstalledDelegate = cls;
+  }
+  UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
+  if (!RBNotificationDelegate) RBNotificationDelegate = [RBPushDelegate new];
+  if (center.delegate != RBNotificationDelegate) {
+    RBNotificationDelegate.original = center.delegate; center.delegate = RBNotificationDelegate;
+  }
+}
+static NSString *RBPromptKey(void) {
+  return [@"RokBotLocal.barkPrompt." stringByAppendingString:
+    [NSUserDefaults.standardUserDefaults stringForKey:@"RokBotLocal.deviceId"] ?: @"unpaired"];
+}
+static void RBShowBark(void) {
+  if (RBPromptVisible || !RBConnection.shared.deviceToken.length) return;
+  UIViewController *top = RBPushTop(); if (!top) return;
+  RBPromptVisible = YES;
+  UIAlertController *alert = [UIAlertController alertControllerWithTitle:RBL(@"接收通知", @"Notifications")
+    message:RBL(@"粘贴 Bark 推送链接", @"Paste your Bark notification URL")
+    preferredStyle:UIAlertControllerStyleAlert];
+  [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+    field.placeholder = @"https://api.day.app/…"; field.keyboardType = UIKeyboardTypeURL;
+    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    field.autocorrectionType = UITextAutocorrectionTypeNo; field.secureTextEntry = YES;
+  }];
+  [alert addAction:[UIAlertAction actionWithTitle:RBL(@"稍后", @"Not now") style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+    RBPromptVisible = NO; [NSUserDefaults.standardUserDefaults setBool:YES forKey:RBPromptKey()];
+  }]];
+  [alert addAction:[UIAlertAction actionWithTitle:RBL(@"保存", @"Save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    RBPromptVisible = NO;
+    NSString *input = alert.textFields.firstObject.text;
+    RBDeviceRequest(@"PUT", @{ @"push": @{ @"provider": @"bark", @"barkUrl": input ?: @"" } }, ^(NSDictionary *value, NSError *error) {
+      if (!error) { [NSUserDefaults.standardUserDefaults setBool:YES forKey:RBPromptKey()]; return; }
+      UIAlertController *failed = [UIAlertController alertControllerWithTitle:RBL(@"未能保存", @"Could not save")
+        message:RBL(@"请检查 Bark 链接和服务端连接。", @"Check the Bark URL and Host connection.") preferredStyle:UIAlertControllerStyleAlert];
+      [failed addAction:[UIAlertAction actionWithTitle:RBL(@"重试", @"Retry") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { RBShowBark(); }]];
+      [failed addAction:[UIAlertAction actionWithTitle:RBL(@"稍后", @"Not now") style:UIAlertActionStyleCancel handler:nil]];
+      [RBPushTop() presentViewController:failed animated:YES completion:nil];
+    });
+  }]];
+  [top presentViewController:alert animated:YES completion:nil];
+}
+void RBPushShowSettings(void) {
+  if (!RBPushEnvironment()) { RBShowBark(); return; }
+  [UIApplication.sharedApplication openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString] options:@{} completionHandler:nil];
+}
+@interface RBPushEntry : UIButton
+@property(nonatomic, weak) UISwitch *originalSwitch;
+@property(nonatomic, strong) UILabel *stateLabel;
+@property(nonatomic, strong) UIImageView *chevron;
+@end
+@implementation RBPushEntry
+- (void)open { RBPushShowSettings(); }
++ (void)changed:(UISwitch *)control {
+  if (!RBPushEnvironment()) { RBPushShowSettings(); return; }
+  BOOL requested = control.on;
+  control.enabled = NO;
+  void (^save)(BOOL) = ^(BOOL enabled) {
+    RBDeviceRequest(@"PUT", @{@"push":@{@"enabled":enabled ? @YES : @NO}}, ^(NSDictionary *value, NSError *error) {
+      control.enabled = YES;
+      if (error) control.on = !requested;
+      if (enabled && !error) RBPushRefresh();
+    });
+  };
+  if (!requested) { save(NO); return; }
+  UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
+  [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (settings.authorizationStatus == UNAuthorizationStatusNotDetermined) {
+        [center requestAuthorizationWithOptions:UNAuthorizationOptionAlert|UNAuthorizationOptionSound|UNAuthorizationOptionBadge completionHandler:^(BOOL granted, NSError *error) {
+          dispatch_async(dispatch_get_main_queue(), ^{ control.on = granted; save(granted); });
+        }];
+      } else if (settings.authorizationStatus == UNAuthorizationStatusDenied) {
+        control.enabled = YES; control.on = NO; RBPushShowSettings();
+      } else save(YES);
+    });
+  }];
+}
+@end
+static UISwitch *RBNotificationSwitch(UIView *view) {
+  UISwitch *control = [view isKindOfClass:UISwitch.class] ? (UISwitch *)view : nil;
+  if (!control)
+    for (UIView *child in view.subviews)
+      if ([child isKindOfClass:UISwitch.class]) { control = (UISwitch *)child; break; }
+  return control;
+}
+void RBResetPushView(UIView *view) {
+  UISwitch *control = RBNotificationSwitch(view);
+  NSMapTable *targets = objc_getAssociatedObject(control, &RBOriginalSwitchTargets);
+  if (targets) {
+    [control removeTarget:RBPushEntry.class action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+    for (id target in targets)
+      for (NSString *action in [targets objectForKey:target])
+        [control addTarget:target action:NSSelectorFromString(action) forControlEvents:UIControlEventValueChanged];
+    objc_setAssociatedObject(control, &RBOriginalSwitchTargets, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
+  RBPushEntry *entry = (RBPushEntry *)[view viewWithTag:731990];
+  if ([entry isKindOfClass:RBPushEntry.class]) {
+    entry.originalSwitch.hidden = NO;
+    [entry removeFromSuperview];
+  }
+}
+BOOL RBReplacePushView(UIView *view) {
+  if (!RBConnection.shared.deviceToken.length) return NO;
+  UISwitch *control = RBNotificationSwitch(view);
+  if (!control || ![@[@"通知", @"Notifications"] containsObject:control.accessibilityLabel]) return NO;
+  NSString *identity = RBPushStateKey();
+  NSDictionary *state = [RBDevicePushStateIdentity isEqual:identity] ? RBDevicePushState :
+    [NSUserDefaults.standardUserDefaults dictionaryForKey:identity];
+  if (RBPushEnvironment()) {
+    if (!objc_getAssociatedObject(control, &RBOriginalSwitchTargets)) {
+      NSMapTable *targets = NSMapTable.weakToStrongObjectsMapTable;
+      for (id target in control.allTargets) {
+        NSArray *actions = [control actionsForTarget:target forControlEvent:UIControlEventValueChanged];
+        if (actions.count) [targets setObject:actions forKey:target];
+      }
+      objc_setAssociatedObject(control, &RBOriginalSwitchTargets, targets, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      [control removeTarget:nil action:nil forControlEvents:UIControlEventValueChanged];
+      [control addTarget:RBPushEntry.class action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+    }
+    if (state && control.enabled)
+      control.on = [state[@"enabled"] boolValue] && [@[@"authorized", @"provisional", @"ephemeral"] containsObject:state[@"authorization"]];
+    return YES;
+  }
+  UIView *row = control.superview;
+  while (row && row.bounds.size.width < 300) row = row.superview;
+  if (!row || row.bounds.size.height < 40) return NO;
+  // Fabric flattens all setting rows into one group. Derive this row from the
+  // native switch's position, preserving Appearance/Language rows below it.
+  CGRect switchRect = [control convertRect:control.bounds toView:row];
+  CGFloat height = MAX(50, switchRect.size.height + 30);
+  CGRect rowFrame = CGRectMake(0, MAX(0, CGRectGetMidY(switchRect) - height / 2), row.bounds.size.width, height);
+  RBPushEntry *entry = (RBPushEntry *)[row viewWithTag:731990];
+  if (!entry) {
+    entry = [RBPushEntry buttonWithType:UIButtonTypeCustom];
+    entry.tag = 731990; entry.originalSwitch = control;
+    entry.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    entry.stateLabel = [UILabel new]; entry.stateLabel.font = [UIFont systemFontOfSize:17];
+    entry.stateLabel.textColor = UIColor.secondaryLabelColor; entry.stateLabel.textAlignment = NSTextAlignmentRight;
+    entry.chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
+    entry.chevron.tintColor = UIColor.tertiaryLabelColor;
+    [entry addSubview:entry.stateLabel]; [entry addSubview:entry.chevron];
+    [entry addTarget:entry action:@selector(open) forControlEvents:UIControlEventTouchUpInside];
+    row.userInteractionEnabled = YES; [row addSubview:entry];
+  }
+  control.hidden = YES;
+  entry.frame = rowFrame; entry.layer.zPosition = 1000; [row bringSubviewToFront:entry];
+  BOOL configured = [state[@"provider"] isEqual:@"bark"] && [state[@"configured"] boolValue];
+  entry.stateLabel.text = configured ? RBL(@"Bark 已配置", @"Bark configured") : RBL(@"Bark 未配置", @"Bark not configured");
+  entry.stateLabel.frame = CGRectMake(entry.bounds.size.width - 204, (entry.bounds.size.height - 22) / 2, 160, 22);
+  entry.chevron.frame = CGRectMake(entry.bounds.size.width - 34, (entry.bounds.size.height - 16) / 2, 10, 16);
+  entry.accessibilityLabel = [RBL(@"通知，", @"Notifications, ") stringByAppendingString:entry.stateLabel.text];
+  return YES;
+}
+void RBPushRefresh(void) {
+  if (!RBConnection.shared.deviceToken.length) return;
+  RBInstallPushDelegate();
+  UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
+  [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
+    RBReportDevice(s);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (RBPushEnvironment()) {
+        if (s.authorizationStatus == UNAuthorizationStatusNotDetermined && !RBAuthorizing && !RBAuthorizationAttempted) {
+          RBAuthorizing = YES; RBAuthorizationAttempted = YES;
+          [center requestAuthorizationWithOptions:UNAuthorizationOptionAlert|UNAuthorizationOptionSound|UNAuthorizationOptionBadge completionHandler:^(BOOL granted, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+              RBAuthorizing = NO;
+              if (error) RBRegistrationError = [NSString stringWithFormat:@"%@ (%ld)",error.domain,(long)error.code];
+              RBPushRefresh();
+            });
+          }];
+        } else [UIApplication.sharedApplication registerForRemoteNotifications];
+      } else if (![NSUserDefaults.standardUserDefaults boolForKey:RBPromptKey()]) {
+        RBDeviceRequest(@"GET", nil, ^(NSDictionary *value, NSError *error) {
+          if (error) return;
+          if ([value[@"push"][@"configured"] boolValue])
+            [NSUserDefaults.standardUserDefaults setBool:YES forKey:RBPromptKey()];
+          else RBShowBark();
+        });
+      }
+    });
+  }];
+}

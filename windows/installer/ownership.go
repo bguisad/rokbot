@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	receiptName = ".grokbot-installation.json"
-	markerName  = "resources/grokbot-local.patch.json"
-	appID       = "dev.grokbot.local"
+	receiptName = ".rokbot-installation.json"
+	markerName  = "resources/rokbot-local.patch.json"
+	appID       = "dev.rokbot.local"
 )
 
 type ownedFile struct {

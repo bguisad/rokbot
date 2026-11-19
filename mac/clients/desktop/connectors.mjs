@@ -1,4 +1,4 @@
-import { grokText } from './i18n.mjs';
+import { rokText } from './i18n.mjs';
 /** Original connected-app UI, backed exclusively by the paired Host. */
 export function createConnectorHandlers({ command, openExternal }) {
   const map = {
@@ -35,7 +35,7 @@ export function createConnectorHandlers({ command, openExternal }) {
           url.username ||
           url.password
         )
-          throw new Error(grokText('授权地址无效。', 'Invalid authorization URL.'));
+          throw new Error(rokText('授权地址无效。', 'Invalid authorization URL.'));
         await openExternal(url.href);
       }
       return result;

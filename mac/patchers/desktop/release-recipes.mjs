@@ -10,7 +10,7 @@ function relativePath(root, value) {
   return path.join(root, value);
 }
 export function applyByteRecipe(source, recipe) {
-  if (recipe.schema !== 'grokbot-bytepatch/v1' || source.length !== recipe.sourceBytes || sha(source) !== recipe.sourceSha256)
+  if (!['rokbot-bytepatch/v1', 'grokbot-bytepatch/v1'].includes(recipe.schema) || source.length !== recipe.sourceBytes || sha(source) !== recipe.sourceSha256)
     throw new Error('Patch input fingerprint mismatch');
   if (!Number.isSafeInteger(recipe.targetBytes) || recipe.targetBytes < 0 || recipe.targetBytes > 256 * 1024 * 1024)
     throw new Error('Invalid patch target size');
@@ -36,7 +36,7 @@ export function applyByteRecipe(source, recipe) {
 }
 export async function applyReleaseRecipes(unpacked, directory) {
   const manifest = JSON.parse(await readFile(path.join(directory, 'manifest.json'), 'utf8'));
-  if (manifest.schema !== 'grokbot-desktop-recipes/v1') throw new Error('Unsupported desktop recipe manifest');
+  if (!['rokbot-desktop-recipes/v1', 'grokbot-desktop-recipes/v1'].includes(manifest.schema)) throw new Error('Unsupported desktop recipe manifest');
   for (const entry of manifest.files) {
     const filename = relativePath(unpacked, entry.path);
     const source = entry.source === null ? Buffer.alloc(0) : await readFile(relativePath(unpacked, entry.source ?? entry.path));

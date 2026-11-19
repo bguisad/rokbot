@@ -1,4 +1,4 @@
-/* Grok Bot faces, the sign-in horizon and the overview stage. */
+/* RokBot faces, the sign-in horizon and the overview stage. */
 @property --lid { syntax: "<number>"; inherits: true; initial-value: 1; }
 .face {
   --size: 64px;
@@ -9,9 +9,21 @@
   flex: none;
   width: var(--size);
   height: var(--size);
-  border-radius: var(--shape, 50%);
+  border-radius: var(--shape, 46% 36% 48% 52% / 44% 38% 54% 52%);
   background: var(--skin);
   box-shadow: inset calc(var(--size) * -.05) calc(var(--size) * -.07) calc(var(--size) * .14) #0000002e;
+}
+.face:not([data-hue])::after {
+  content: "";
+  position: absolute;
+  top: 11%;
+  right: 17%;
+  width: 9%;
+  height: 9%;
+  border-radius: 50%;
+  background: var(--sand-bg-accent-primary);
+  box-shadow: 0 0 calc(var(--size) * .06) var(--sand-bg-accent-primary);
+  pointer-events: none;
 }
 .face[data-hue] {
   --eye: #101010db;
@@ -31,6 +43,7 @@
   top: 27%;
   left: 31%;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   width: 38%;
   height: 30%;
@@ -42,8 +55,11 @@
   height: 100%;
   border-radius: var(--radius-full);
   background: var(--eye);
-  transform: rotate(-22deg) scaleY(var(--lid));
+  transform: rotate(-26deg) scaleY(var(--lid));
   transition: transform 140ms var(--ease-out);
+}
+.face-eye:last-child {
+  height: 82%;
 }
 .face.blink .face-eye { --lid: .08; transition-duration: 60ms; }
 .face[data-state="closed"] .face-eye, .face[data-state="sleep"] .face-eye { --lid: .1; }

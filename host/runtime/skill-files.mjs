@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readJson } from '../server/storage.mjs';
 import { packagePath } from '../server/package-files.mjs';
 
-const root = '/workspace/.grokbot-skills';
+const root = '/workspace/.rokbot-skills';
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const checkFiles = `import sys,json,hashlib
 from pathlib import Path
@@ -28,7 +28,7 @@ source.chmod(0o444);os.replace(source,target)`;
 const owners = new WeakMap();
 
 /** The original Read tool runs on the execution node, which need not share Host storage. */
-export async function syncSkillFiles(options, library, data = process.env.GROKBOT_DATA_DIR) {
+export async function syncSkillFiles(options, library, data = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR) {
   const box = options.remoteBox;
   if (!data || !box) return new Map();
   const prior = owners.get(box) ?? Promise.resolve();

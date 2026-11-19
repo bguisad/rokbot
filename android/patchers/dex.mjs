@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 const BIN_DIR = path.resolve(__dirname, '../bin');
 
 const ROOT_DEX_REGEX = /^classes(\d*)\.dex$/;
-const COMPANION_CLASS_MARKER = Buffer.from('Ldev/grokbot/nativeapp/');
+const COMPANION_CLASS_MARKER = Buffer.from('Ldev/rokbot/nativeapp/');
 const JNI_ARM64_DIR = path.join(BIN_DIR, 'jniLibs', 'arm64-v8a');
 const TAILCAT_LIB_NAMES = ['libgroktailcat.so', 'libgroktailcatjni.so'];
 

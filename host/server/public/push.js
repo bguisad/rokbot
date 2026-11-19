@@ -10,7 +10,7 @@ export function createPushEditor({ api, toast, busy }) {
     <div class="card">
       ${row('启用 Apple APNs', '<input name="enabled" type="checkbox" role="switch" />')}
       ${row('认证方式', '<select name="mode"><option value="token">签名密钥（p8）</option><option value="certificate">证书与私钥（PEM）</option></select>')}
-      ${row('应用 Bundle ID', '<input name="topic" placeholder="com.example.GrokBot" maxlength="255" spellcheck="false" />', { hint: '<span class="row-hint">与客户端 Bundle ID 一致</span>' })}
+      ${row('应用 Bundle ID', '<input name="topic" placeholder="com.example.RokBot" maxlength="255" spellcheck="false" />', { hint: '<span class="row-hint">与客户端 Bundle ID 一致</span>' })}
       <div id="apns-token-fields">
         ${row('Team ID', '<input name="teamId" maxlength="10" spellcheck="false" placeholder="Apple 开发者 Team ID" />')}
         ${row('Key ID', '<input name="keyId" maxlength="10" spellcheck="false" placeholder="APNs 签名密钥 ID" />')}
@@ -19,7 +19,7 @@ export function createPushEditor({ api, toast, busy }) {
       <label id="apns-certificate-field" class="row" hidden><span class="row-copy"><span class="row-title">APNs 证书（PEM）</span><span id="apns-certificate-status" class="row-hint">PEM 格式</span></span><input id="apns-certificate-file" type="file" accept=".pem,.crt,.cer" /></label>
       <p id="apns-mode-note" class="hint" hidden></p>
       ${row('清除已保存的推送凭证', '<input name="clearCredentials" type="checkbox" />')}
-      ${row('Bark 图标地址', '<input name="barkIconUrl" type="url" maxlength="2048" placeholder="https://example.com/grok-bot-icon.png" spellcheck="false" />', { hint: '<span class="row-hint">留空使用官方图标；Bark 必须能访问此地址。</span>' })}
+      ${row('Bark 图标地址', '<input name="barkIconUrl" type="url" maxlength="2048" placeholder="https://example.com/rokbot-icon.png" spellcheck="false" />', { hint: '<span class="row-hint">留空使用官方图标；Bark 必须能访问此地址。</span>' })}
     </div>
     <div class="section-head"><h2 class="section-title">Android 后台推送（ntfy / FCM）</h2><span id="fcm-status" class="badge">正在读取</span></div>
     <div class="card">

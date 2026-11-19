@@ -136,7 +136,7 @@ export async function createCodexBridge({ profile, config, root, decideLocalUse,
         if (probe.exitCode !== 0) throw new Error('Project directory is unavailable');
       } catch {
         await client.request('command/exec/terminate', { processId }, 1000).catch(() => {});
-        throw new Error('Codex cannot access this project directory. Allow Grok Bot to access the folder in macOS Privacy & Security settings, or choose another project directory.');
+        throw new Error('Codex cannot access this project directory. Allow RokBot to access the folder in macOS Privacy & Security settings, or choose another project directory.');
       }
     }
     signal?.throwIfAborted();

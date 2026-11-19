@@ -1,5 +1,5 @@
 {
-  "schema": "grokbot-android-native/v1",
+  "schema": "rokbot-android-native/v1",
   "packageName": "ai.x.grok.bot",
   "supportedPackages": [
     "ai.x.grok.bot",
@@ -14,7 +14,8 @@
   ],
   "hbcVersion": 98,
   "hbcSha256": "3adbca71c42c9e39199c22ce9cc9c3d4dc168e45452c6e75c7a9ee9c00d2c632",
-  "companionDexSha256": "bafe281d287fc40b4bbe42fce05dc02a0182b29654be7f9ecb2242deddb1df69",
+  "companionDexSha256": "7a30999d662d65b4b8f88d7d9d5f2b1b8cf49bcd59d0fe7e2f4d2da011c5ef77",
+  "baseApkSha256": "929cac91ea14e2f6ba53a0eff2accac062393aada34baee16c5cb350cf0b235f",
   "bundleSize": 22390840,
   "compatibility": {
     "minSdk": 28,
@@ -35,17 +36,17 @@
     "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
   ],
   "components": {
-    "applicationName": "dev.grokbot.nativeapp.GrokBotApplication",
+    "applicationName": "dev.rokbot.nativeapp.RokBotApplication",
     "activities": [
       {
-        "name": "dev.grokbot.nativeapp.PairingActivity",
+        "name": "dev.rokbot.nativeapp.PairingActivity",
         "exported": true,
         "theme": "@android:style/Theme.Material.Light.NoActionBar"
       }
     ],
     "services": [
       {
-        "name": "dev.grokbot.nativeapp.NotificationService",
+        "name": "dev.rokbot.nativeapp.NotificationService",
         "exported": false,
         "foregroundServiceType": "dataSync"
       }

@@ -107,8 +107,8 @@ test('gateway reconnects real loopback SSE, ignores incomplete frames, resets an
 });
 
 // Opt-in real-time run; the deterministic 512-connection test stays in ordinary CI.
-if (process.env.PROKBOT_DESKTOP_SOAK_SECONDS) {
-  const seconds = Number(process.env.PROKBOT_DESKTOP_SOAK_SECONDS);
+if (process.env.ROKBOT_DESKTOP_SOAK_SECONDS) {
+  const seconds = Number(process.env.ROKBOT_DESKTOP_SOAK_SECONDS);
   assert.ok(Number.isSafeInteger(seconds) && seconds >= 60 && seconds <= 86400);
   test('wall-clock loopback session soak with short streams, stable streams and concurrent commands', { timeout: (seconds + 15) * 1000 }, async t => {
     let connections = 0, delivered = 0, requests = 0, gaps = 0, badCursors = 0, openStreams = 0, peakStreams = 0;

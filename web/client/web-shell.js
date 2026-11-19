@@ -1,5 +1,5 @@
 // Browser behaviour the Android shell provides natively, for the web client. Loaded after
-// bridge.js, which defines window.__grokbotAndroid:
+// bridge.js, which defines window.__rokbotAndroid:
 //
 // - the browser's back button and gesture close dialogs and return from a conversation to the
 //   Bot list on a phone, as the Android back key does, before they leave the page;
@@ -10,13 +10,13 @@
 import { subscribe } from './gateway.js';
 import { webState } from './native.js';
 
-const shell = window.__grokbotAndroid;
+const shell = window.__rokbotAndroid;
 const AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 // ---- back -------------------------------------------------------------------------------------
 
-const GUARD = { grokbotWeb: 'guard' };
-if (history.state?.grokbotWeb !== 'guard') history.pushState(GUARD, '');
+const GUARD = { rokbotWeb: 'guard' };
+if (history.state?.rokbotWeb !== 'guard') history.pushState(GUARD, '');
 addEventListener('popstate', () => {
   if (shell.back() === 'handled') history.pushState(GUARD, '');
   else history.back();
@@ -37,7 +37,7 @@ if (viewport) {
   let frame = 0;
   const apply = () => {
     frame = 0;
-    root.style.setProperty('--grokbot-viewport-height', `${Math.round(viewport.height)}px`);
+    root.style.setProperty('--rokbot-viewport-height', `${Math.round(viewport.height)}px`);
     // iOS scrolls the whole page to reveal a focused field; the page itself never scrolls.
     if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
   };
@@ -50,7 +50,7 @@ if (viewport) {
 // ---- notifications ----------------------------------------------------------------------------
 
 // Kept for the tab's session, so reloading the page does not repeat the last few notifications.
-const SHOWN = 'grokbot-web:notified';
+const SHOWN = 'rokbot-web:notified';
 const shown = new Set((() => { try { return JSON.parse(sessionStorage.getItem(SHOWN) ?? '[]'); } catch { return []; } })());
 const startedAt = Date.now();
 function notify(item) {
@@ -64,8 +64,8 @@ function notify(item) {
   try { sessionStorage.setItem(SHOWN, JSON.stringify([...shown].slice(-50))); } catch {}
   if (document.visibilityState === 'visible' && webState.viewingAgent === agentId) return;
   try {
-    const notification = new Notification(String(item.title || 'Grok Bot').slice(0, 200), {
-      body: String(item.body ?? '').slice(0, 1000), tag: `grokbot-${agentId}`,
+    const notification = new Notification(String(item.title || 'RokBot').slice(0, 200), {
+      body: String(item.body ?? '').slice(0, 1000), tag: `rokbot-${agentId}`,
     });
     notification.onclick = () => {
       window.focus();

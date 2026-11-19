@@ -8,9 +8,9 @@
 *.dylib binary
 *.a binary
 *.png binary
-host/bin/grokbot-tailcat binary
-host/bin/linux-arm64/grokbot-tailcat binary
-mac/dist/network/grokbot-tailcat binary
+host/bin/rokbot-tailcat binary
+host/bin/linux-arm64/rokbot-tailcat binary
+mac/dist/network/rokbot-tailcat binary
 
 # Windows batch files need CRLF; Gradle wrapper and Android packages are binary.
 *.bat text eol=crlf

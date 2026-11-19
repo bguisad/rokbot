@@ -11,8 +11,8 @@ import { runPatchPipeline } from '../release/patch-android.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '../../..');
-const FIXTURE_APK = path.join(REPO_ROOT, 'src/android/dist/grokbot-android-shell.apk');
+const REPO_ROOT = path.resolve(__dirname, '../..');
+const FIXTURE_APK = path.join(REPO_ROOT, 'android/bin/rokbot-native-base.apk');
 
 function createMaliciousZipWithEntry(maliciousPath) {
   const baseZip = readZip(fs.readFileSync(FIXTURE_APK));

@@ -1,13 +1,13 @@
 // Installs a web client bundle on a Host through its admin API, as the admin page's upload does.
-// The administrator password comes from GROKBOT_ADMIN_PASSWORD, a file or the terminal; it is
+// The administrator password comes from ROKBOT_ADMIN_PASSWORD, a file or the terminal; it is
 // never taken from the command line, where other users could read it.
 import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 
 export async function adminPassword(file) {
   if (file) return (await readFile(file, 'utf8')).replace(/\r?\n$/, '');
-  if (process.env.GROKBOT_ADMIN_PASSWORD) return process.env.GROKBOT_ADMIN_PASSWORD;
-  if (!process.stdin.isTTY) throw new Error('上传需要管理员密码：设置 GROKBOT_ADMIN_PASSWORD，或用 --password-file 指定文件。');
+  if (process.env.ROKBOT_ADMIN_PASSWORD) return process.env.ROKBOT_ADMIN_PASSWORD;
+  if (!process.stdin.isTTY) throw new Error('上传需要管理员密码：设置 ROKBOT_ADMIN_PASSWORD，或用 --password-file 指定文件。');
   return new Promise((resolve, reject) => {
     const terminal = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
     let masked = false;
@@ -30,7 +30,7 @@ export function hostOrigin(value) {
 async function call(origin, path, { method = 'GET', cookie, body, type = 'application/json' } = {}) {
   const response = await fetch(`${origin}${path}`, {
     method, redirect: 'error', signal: AbortSignal.timeout(10 * 60_000),
-    headers: { 'x-grokbot-csrf': '1', ...(body !== undefined ? { 'content-type': type } : {}), ...(cookie ? { cookie } : {}) },
+    headers: { 'x-rokbot-csrf': '1', ...(body !== undefined ? { 'content-type': type } : {}), ...(cookie ? { cookie } : {}) },
     ...(body !== undefined ? { body } : {}),
   });
   const value = await response.json().catch(() => null);

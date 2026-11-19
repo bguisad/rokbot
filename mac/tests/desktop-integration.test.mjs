@@ -7,7 +7,7 @@ import test from 'node:test';
 import * as desktop from '../clients/desktop/platform.mjs';
 
 async function fixture(t) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'prokbot-integration-'));
+  const dir = await mkdtemp(path.join(tmpdir(), 'rokbot-integration-'));
   t.after(() => rm(dir, { force: true, recursive: true }));
   const link = path.join(dir, 'Microsoft', 'Windows', 'Start Menu', 'Programs', desktop.SHORTCUT_NAME);
   await mkdir(path.dirname(link), { recursive: true });
@@ -46,7 +46,7 @@ test('isolated profiles and Windows side-by-side installations cannot claim OS i
   assert.equal(await permit({ isolatedProfile: true }), false);
   assert.equal(await permit({ platform: 'darwin', isolatedProfile: true }), false);
   assert.equal(await permit({}), true, 'portable install without a receipt');
-  const file = path.join(dir, '.grokbot-installation.json');
+  const file = path.join(dir, '.rokbot-installation.json');
   const receipt = { format: 1, appId: desktop.APP_USER_MODEL_ID, directory: dir };
   await writeFile(file, JSON.stringify({ ...receipt, sideBySideOf: path.join(dir, 'old') }));
   assert.equal(await permit({}), false);

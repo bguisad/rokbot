@@ -26,7 +26,7 @@ const next = () => {
 async function call(path, body) {
   const response = await fetch(path, {
     method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
-    headers: { 'content-type': 'application/json', 'x-grokbot-web': '1' },
+    headers: { 'content-type': 'application/json', 'x-rokbot-web': '1' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const value = await response.json().catch(() => null);

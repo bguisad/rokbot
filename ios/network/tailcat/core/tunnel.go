@@ -184,7 +184,7 @@ func (t *Tunnel) serve(config Config) error {
 
 // Diagnostic output is local only and disabled by default.
 func discard(format string, args ...any) {
-	if os.Getenv("GROKBOT_TAILCAT_DEBUG") == "1" {
+	if os.Getenv("ROKBOT_TAILCAT_DEBUG") == "1" {
 		log.Printf(format, args...)
 	}
 }

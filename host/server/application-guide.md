@@ -11,7 +11,7 @@ Workflow:
 
 ## Package
 
-`schemaVersion: 1`, `kind: "grokbot-app"`, stable lowercase `id`, semantic `version`, `name` and `description` (strings or `{ "en": "...", "zh-CN": "..." }`), optional `publisher`, `license`, `icon` file path, `files`, `runtime`, optional `configuration`, `skills`, `permissions`, `dependencies`, `auth`.
+`schemaVersion: 1`, `kind: "rokbot-app"`, stable lowercase `id`, semantic `version`, `name` and `description` (strings or `{ "en": "...", "zh-CN": "..." }`), optional `publisher`, `license`, `icon` file path, `files`, `runtime`, optional `configuration`, `skills`, `permissions`, `dependencies`, `auth`.
 
 Files are `{path,encoding:"utf8"|"base64",content}`. Relative paths only; at most 256 files / 10 MiB. Bundle extra dependencies into the entry file; the runtime supplies `@modelcontextprotocol/sdk` 1.32.1 and `zod` 4.6.7. Versions are immutable.
 
@@ -27,7 +27,7 @@ Configuration: `[{"key":"API_KEY","name":{"en":"API key","zh-CN":"API 密钥"},"
 ## Executable example
 
 ```json
-{"schemaVersion":1,"kind":"grokbot-app","id":"my-echo","version":"1.0.0","name":{"en":"Echo","zh-CN":"回声"},"description":{"en":"Return the supplied text.","zh-CN":"返回输入的文字。"},"runtime":{"kind":"node-stdio","entry":"index.mjs"},"dependencies":{"@modelcontextprotocol/sdk":"1.32.1","zod":"4.6.7"},"files":[{"path":"index.mjs","encoding":"utf8","content":"import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';\nimport {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';\nimport {z} from 'zod';\nconst server=new McpServer({name:'my-echo',version:'1.0.0'});\nserver.registerTool('echo',{description:'Return text',inputSchema:{text:z.string()}},async ({text})=>({content:[{type:'text',text}]}));\nawait server.connect(new StdioServerTransport());\n"}]}
+{"schemaVersion":1,"kind":"rokbot-app","id":"my-echo","version":"1.0.0","name":{"en":"Echo","zh-CN":"回声"},"description":{"en":"Return the supplied text.","zh-CN":"返回输入的文字。"},"runtime":{"kind":"node-stdio","entry":"index.mjs"},"dependencies":{"@modelcontextprotocol/sdk":"1.32.1","zod":"4.6.7"},"files":[{"path":"index.mjs","encoding":"utf8","content":"import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';\nimport {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';\nimport {z} from 'zod';\nconst server=new McpServer({name:'my-echo',version:'1.0.0'});\nserver.registerTool('echo',{description:'Return text',inputSchema:{text:z.string()}},async ({text})=>({content:[{type:'text',text}]}));\nawait server.connect(new StdioServerTransport());\n"}]}
 ```
 
 ## OAuth and Gmail-style applications
@@ -36,7 +36,7 @@ For code apps set top-level `auth` to `{ "type":"oauth2", "authorizationUrl":"ht
 
 Host adds `OAUTH_CLIENT_ID` and optional secret `OAUTH_CLIENT_SECRET` configuration fields for code apps. The user supplies their OAuth application credentials and registers the exact callback URL shown in Host Applications. Creating a provider application/verification may be required by the provider; submitting code does not perform that registration.
 
-Host handles PKCE, state, token exchange, expiry and refresh. Code reads `JSON.parse(process.env.GROKBOT_APP_AUTH_HEADERS || '{}')`, then passes these headers only to the declared external provider, e.g. `fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {headers})`. Never return authorization headers in tool results. Host restarts the application session when refreshed authorization changes. The same top-level auth supports `bearer` or `api-key` (with `headerName`).
+Host handles PKCE, state, token exchange, expiry and refresh. Code reads `JSON.parse(process.env.ROKBOT_APP_AUTH_HEADERS || '{}')`, then passes these headers only to the declared external provider, e.g. `fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {headers})`. Never return authorization headers in tool results. Host restarts the application session when refreshed authorization changes. The same top-level auth supports `bearer` or `api-key` (with `headerName`).
 
 ## Skills
 

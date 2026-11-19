@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * GrokBot Android Native Incremental Delta Update Generator & Applier (GBDELTA1).
+ * RokBot Android Native Incremental Delta Update Generator & Applier (RBDELTA1).
+ * Also supports reading legacy GBDELTA1 patches for backward compatibility.
  *
  * Format (inside a GZIP stream):
  *   Header (44 bytes, big-endian):
- *     [0..7]   ASCII magic "GBDELTA1"
+ *     [0..7]   ASCII magic "RBDELTA1" (legacy read-compat: "GBDELTA1")
  *     [8..15]  uint64 baseSize
  *     [16..23] uint64 targetSize
  *     [24..27] uint32 opCount (informational; stream terminates with OP_EOF)
@@ -25,7 +26,8 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 
-export const DELTA_MAGIC = Buffer.from('GBDELTA1', 'ascii');
+export const DELTA_MAGIC = Buffer.from('RBDELTA1', 'ascii');
+export const LEGACY_DELTA_MAGIC = Buffer.from('GBDELTA1', 'ascii');
 export const OP_EOF = 0x00;
 export const OP_COPY = 0x01;
 export const OP_INSERT = 0x02;
@@ -105,7 +107,7 @@ function matchLength(baseBuf, baseOff, targetBuf, targetOff) {
 }
 
 /**
- * Generates a GZIP-compressed GBDELTA1 binary delta from baseBuf -> targetBuf.
+ * Generates a GZIP-compressed RBDELTA1 binary delta from baseBuf -> targetBuf.
  */
 export function generateDelta(baseBuf, targetBuf) {
   if (!Buffer.isBuffer(baseBuf) || !Buffer.isBuffer(targetBuf)) {
@@ -242,7 +244,7 @@ export function generateDelta(baseBuf, targetBuf) {
 }
 
 /**
- * Applies a GZIP-compressed GBDELTA1 delta buffer onto baseBuf and returns the reconstructed Buffer.
+ * Applies a GZIP-compressed RBDELTA1 (or legacy GBDELTA1) delta buffer onto baseBuf and returns the reconstructed Buffer.
  */
 export function applyDelta(baseBuf, deltaGzipBuf) {
   if (!Buffer.isBuffer(baseBuf) || !Buffer.isBuffer(deltaGzipBuf)) {
@@ -252,7 +254,8 @@ export function applyDelta(baseBuf, deltaGzipBuf) {
   if (raw.length < 45) {
     throw new Error('Delta stream truncated');
   }
-  if (!raw.subarray(0, 8).equals(DELTA_MAGIC)) {
+  const magic = raw.subarray(0, 8);
+  if (!magic.equals(DELTA_MAGIC) && !magic.equals(LEGACY_DELTA_MAGIC)) {
     throw new Error('Invalid delta magic header');
   }
   const baseSize = Number(raw.readBigUInt64BE(8));
@@ -369,7 +372,7 @@ export function buildUpdateManifest({
 }) {
   const meta = inspectApkMetadata(apkPath);
   return {
-    schema: 'grokbot-android-native-update/v1',
+    schema: 'rokbot-android-native-update/v1',
     packageName: meta.packageName,
     versionName: meta.versionName,
     versionCode: meta.versionCode,
@@ -398,7 +401,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const toPath = getArg('--to');
     const outPath = getArg('--out');
     if (!fromPath || !toPath || !outPath) {
-      console.error('Usage: delta-update.mjs generate-delta --from old.apk --to new.apk --out patch.gbdelta');
+      console.error('Usage: delta-update.mjs generate-delta --from old.apk --to new.apk --out patch.rbdelta');
       process.exit(1);
     }
     const baseBuf = fs.readFileSync(fromPath);
@@ -425,7 +428,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const deltaPath = getArg('--delta');
     const outPath = getArg('--out');
     if (!fromPath || !deltaPath || !outPath) {
-      console.error('Usage: delta-update.mjs apply-delta --from old.apk --delta patch.gbdelta --out reconstructed.apk');
+      console.error('Usage: delta-update.mjs apply-delta --from old.apk --delta patch.rbdelta --out reconstructed.apk');
       process.exit(1);
     }
     const baseBuf = fs.readFileSync(fromPath);
@@ -443,7 +446,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const deltaUrl = getArg('--delta-url');
     const notes = getArg('--notes') || '';
     if (!apkPath || !fullUrl || !outPath) {
-      console.error('Usage: delta-update.mjs generate-manifest --apk new.apk --full-url <url> --out update.json [--from old.apk --delta patch.gbdelta --delta-url <url>]');
+      console.error('Usage: delta-update.mjs generate-manifest --apk new.apk --full-url <url> --out update.json [--from old.apk --delta patch.rbdelta --delta-url <url>]');
       process.exit(1);
     }
     const deltas = [];

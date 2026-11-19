@@ -4,7 +4,7 @@ import { check } from '../server/security.mjs';
 import { normalizeRecipe, shareDigest } from '../server/sharing-package.mjs';
 
 /** The importer uses the shipped transcript, skills, automation and memory stores. */
-export function decorateLocalSharingApi({ api, host, dataDir = process.env.GROKBOT_DATA_DIR ?? process.env.GROKBOT_STATE_DIR }) {
+export function decorateLocalSharingApi({ api, host, dataDir = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR }) {
   const active = new Map();
   async function perform({ agentId, recipe: input, digest }) {
     check(typeof agentId === 'string' && /^[a-f0-9]{8}-[a-f0-9-]{27}$/i.test(agentId), 400, 'Invalid imported Bot ID');

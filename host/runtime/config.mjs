@@ -19,32 +19,34 @@ function contextCapacity(value) {
 }
 
 function legacyConfig(values, env) {
-  const model = env.GROKBOT_MODEL ?? values.OPENAI_MODEL ?? 'deepseek-v4.1-flash';
+  const model = env.ROKBOT_MODEL ?? env.GROKBOT_MODEL ?? values.OPENAI_MODEL ?? 'deepseek-v4.1-flash';
   return {
     baseUrl: values.OPENAI_BASE_URL,
     apiKey: values.OPENAI_API_KEY,
     apiFormat: API_FORMATS.includes(values.MODEL_API_FORMAT) ? values.MODEL_API_FORMAT : 'openai',
     model,
     contextWindowTokens: contextCapacity(env.OPENAI_CONTEXT_WINDOW_TOKENS ?? values.OPENAI_CONTEXT_WINDOW_TOKENS),
-    policy: parseModelPolicy(values.GROKBOT_MODEL_POLICY, model),
+    policy: parseModelPolicy(values.ROKBOT_MODEL_POLICY ?? values.GROKBOT_MODEL_POLICY, model),
     jevApiKey: values.JEV_API_KEY || '',
   };
 }
 
 export async function loadModelConfig({ env = process.env } = {}) {
-  const path = env.GROKBOT_MODEL_ENV ?? resolve(root, '.runtime/model.env');
+  const path = env.ROKBOT_MODEL_ENV ?? env.GROKBOT_MODEL_ENV ?? resolve(root, '.runtime/model.env');
   const values = envValues(await readFile(path, 'utf8'));
   const legacy = legacyConfig(values, env);
+  const dataDir = env.ROKBOT_DATA_DIR ?? env.GROKBOT_DATA_DIR ?? resolve(path, '..');
   const common = {
     jevApiKey: legacy.jevApiKey,
-    usageDirectory: resolve(env.GROKBOT_DATA_DIR ?? resolve(path, '..'), 'usage'),
-    routingDirectory: resolve(env.GROKBOT_DATA_DIR ?? resolve(path, '..'), 'routing'),
+    usageDirectory: resolve(dataDir, 'usage'),
+    routingDirectory: resolve(dataDir, 'routing'),
   };
-  if (!values[MODEL_ROUTING_ENV]) {
+  const routingJson = values[MODEL_ROUTING_ENV] ?? values.GROKBOT_MODEL_ROUTING;
+  if (!routingJson) {
     if (!legacy.baseUrl || !legacy.apiKey) throw new Error('Missing model configuration');
     return { ...legacy, ...common, modelBaseUrls: [legacy.baseUrl] };
   }
-  const { config: modelRouting } = parseModelRouting(values[MODEL_ROUTING_ENV], legacy);
+  const { config: modelRouting } = parseModelRouting(routingJson, legacy);
   const route = modelRouteForAgent(modelRouting);
   if (!route.baseUrl || !route.apiKey || !route.model) throw new Error('Missing model configuration');
   // Auto-review intentionally remains on the global primary route. It does not inherit a Bot's

@@ -12,9 +12,9 @@ const readJson = async filename => {
 
 /** Reuse the original notification decider, replacing only its official-cloud sender. */
 export async function startLocalNotifications(context, library) {
-  const endpoint = process.env.GROKBOT_NOTIFICATION_URL;
-  const token = (await readFile(process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
-  const directory = process.env.GROKBOT_STATE_DIR ?? '/research/state';
+  const endpoint = process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
+  const token = (await readFile(process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, 'utf8')).trim();
+  const directory = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const filename = join(directory, 'notification-outbox.json');
   const pending = new Map((await readJson(filename)).map(item => [item.id, item]));
@@ -60,9 +60,9 @@ export async function startLocalNotifications(context, library) {
     const type = input.awaitingUserResponse ? 'attention' : 'message';
     const id = createHash('sha256').update(JSON.stringify([input.agentId, type, input.lastMessageId ?? ''])).digest('hex');
     const item = { id, type, agentId: input.agentId,
-      title: `${input.agentName || 'Grok Bot'}${type === 'attention' ? ' · 需要处理' : ''}`.slice(0, 160),
+      title: `${input.agentName || 'RokBot'}${type === 'attention' ? ' · 需要处理' : ''}`.slice(0, 160),
       body: String(input.messagePreview ?? '').slice(0, 1024), createdAt: new Date().toISOString(),
-      deepLink: `grokbot-local://agent/${encodeURIComponent(input.agentId)}` };
+      deepLink: `rokbot-local://agent/${encodeURIComponent(input.agentId)}` };
     try {
       await mutate(async () => { pending.set(id, item); await save(); });
       void flush();
@@ -75,7 +75,7 @@ export async function startLocalNotifications(context, library) {
   const unsubscribe = context.host.events.subscribe(event => {
     if (!event.kind.startsWith('notification-') || stopping) return;
     updates = updates.then(async () => {
-      frequency = (await readNotificationSettings(process.env.GROKBOT_DATA_DIR ?? directory)).frequency;
+      frequency = (await readNotificationSettings(process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? directory)).frequency;
       if (event.kind === 'notification-baseline') notifier.seedBaseline(event.agents);
       else if (event.kind === 'notification-agents') notifier.handleAgentsEvent(event.event, event.presence);
       else if (event.kind === 'notification-agent-upserted') notifier.handleAgentUpsertedEvent(event.event, event.presence);

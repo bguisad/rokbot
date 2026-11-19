@@ -8,7 +8,7 @@ const empty = () => ({
 /** Secrets and remote sessions stay in the management service. The original Host
  * still owns discovery, provider naming, approval and McpResult execution. */
 export async function createRemoteMcp(library) {
-  const base = process.env.GROKBOT_CONNECTORS_URL;
+  const base = process.env.ROKBOT_CONNECTORS_URL ?? process.env.GROKBOT_CONNECTORS_URL;
   let snapshot = empty();
   if (!base) return { enabled: false, snapshot: () => snapshot };
   const url = new URL(base);
@@ -24,7 +24,7 @@ export async function createRemoteMcp(library) {
     );
   }
   const token = (
-    await readFile(process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, "utf8")
+    await readFile(process.env.ROKBOT_INTERNAL_HOST_TOKEN_FILE ?? process.env.GROKBOT_INTERNAL_HOST_TOKEN_FILE, "utf8")
   ).trim();
   const request = async (method, args = {}) => {
     const response = await fetch(`${base.replace(/\/$/, "")}/${method}`, {

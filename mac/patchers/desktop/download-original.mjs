@@ -5,6 +5,25 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 
+const OFFICIAL_DESKTOP_DOWNLOAD_PREFIX = 'https://downloads.cursor.com/grokbot/stable/';
+
+export function resolveDesktopDownloadUrl(archiveUrl, downloadBase) {
+  const rawBase = typeof downloadBase === 'string' ? downloadBase.trim() : '';
+  if (!rawBase) return archiveUrl;
+  let parsed;
+  try { parsed = new URL(rawBase); } catch {
+    throw new Error('ROKBOT_DESKTOP_DOWNLOAD_BASE 无效。');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('ROKBOT_DESKTOP_DOWNLOAD_BASE 必须是无凭据的 http(s) URL。');
+  }
+  const base = parsed.href.replace(/\/+$/, '');
+  const relative = archiveUrl.startsWith(OFFICIAL_DESKTOP_DOWNLOAD_PREFIX)
+    ? archiveUrl.slice(OFFICIAL_DESKTOP_DOWNLOAD_PREFIX.length)
+    : path.posix.basename(new URL(archiveUrl).pathname);
+  return `${base}/${relative.replace(/^\/+/, '')}`;
+}
+
 async function matchesArchive(file, archive) {
   try {
     if ((await stat(file)).size !== archive.bytes) return false;
@@ -18,6 +37,7 @@ async function matchesArchive(file, archive) {
 }
 
 export async function acquireDesktopSource({ source, cacheDirectory, supported,
+  downloadBase = process.env.ROKBOT_DESKTOP_DOWNLOAD_BASE,
   fetchImpl = globalThis.fetch, onDownload = () => {} }) {
   if (source) {
     const file = path.resolve(source);
@@ -28,6 +48,7 @@ export async function acquireDesktopSource({ source, cacheDirectory, supported,
   const archive = supported.archive;
   if (!archive?.url || !archive.bytes || !/^[a-f0-9]{64}$/.test(archive.sha256))
     throw new Error('缺少原版下载信息。');
+  const downloadUrl = resolveDesktopDownloadUrl(archive.url, downloadBase);
   let temporary;
   try {
     await mkdir(cacheDirectory, { recursive: true });
@@ -35,10 +56,10 @@ export async function acquireDesktopSource({ source, cacheDirectory, supported,
     if (await matchesArchive(destination, archive)) return destination;
     temporary = await mkdtemp(path.join(cacheDirectory, '.download-'));
     const partial = path.join(temporary, 'original.dmg');
-    onDownload({ version: supported.version, url: archive.url });
-    const response = await fetchImpl(archive.url, {
+    onDownload({ version: supported.version, url: downloadUrl });
+    const response = await fetchImpl(downloadUrl, {
       signal: AbortSignal.timeout(10 * 60 * 1000),
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; ProkBot-Patcher)' },
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; RokBot-Patcher)' },
     });
     if (!response.ok || !response.body) {
       await response.body?.cancel();
@@ -57,7 +78,7 @@ export async function acquireDesktopSource({ source, cacheDirectory, supported,
     await rename(partial, destination);
     return destination;
   } catch (error) {
-    throw new Error(`${error.message}\n请自行准备 Grok Bot ${supported.version} 原版文件，使用 --source 指定。\n原版地址：${archive.url}`, { cause: error });
+    throw new Error(`${error.message}\n请自行准备 Grok Bot ${supported.version} 原版文件，使用 --source 指定。\n原版地址：${downloadUrl}`, { cause: error });
   } finally {
     if (temporary) await rm(temporary, { recursive: true, force: true });
   }

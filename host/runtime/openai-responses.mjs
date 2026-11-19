@@ -337,7 +337,7 @@ export async function* responsesTurn(context) {
       content.push({ type: 'reasoning', text, ...(entry.encrypted ? { signature: entry.encrypted } : {}),
         ...reasoningOptions(entry, Boolean(summary) || !entry.reasoning) });
     } else if (entry.type === 'message') {
-      if (entry.text) content.push({ type: 'text', text: entry.text, ...(entry.phase ? { providerOptions: { grokbot: { phase: entry.phase } } } : {}) });
+      if (entry.text) content.push({ type: 'text', text: entry.text, ...(entry.phase ? { providerOptions: { rokbot: { phase: entry.phase } } } : {}) });
     } else if (entry.type === 'function_call') {
       if (!entry.callId || !validFunctionName(entry.name)) throw new ModelRequestError('Model response included an invalid function name');
       const call = { type: 'tool-call', toolCallId: entry.callId, toolName: entry.name, args: parseToolArguments(entry.name, entry.arguments, tools) };

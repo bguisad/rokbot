@@ -11,7 +11,7 @@ const urls = {
 const pin = async path => JSON.parse(await readFile(new URL(`../${path}`, import.meta.url), 'utf8'));
 const [win, mac, ios, android] = await Promise.all([
   'windows/patchers/desktop/supported.json', 'mac/patchers/desktop/supported.json',
-  'ios/recipes/ios/manifest.json', 'android/patchers/supported.json',
+  'ios/recipes/ios/manifest.json', 'android/recipes/manifest.json',
 ].map(pin));
 const buildId = 'abc1'.repeat(10);
 const listing = 'https://apps.apple.com/us/app/grok-bot/id6794501026';
@@ -68,7 +68,7 @@ test('both release checks produce timestamped JSON from only three anonymous met
     assert.equal(out.code, 0);
     assert.equal(out.stderr, '');
     const { schema, checkedAt, phase: label, ok, artifactsVerified, channels } = JSON.parse(out.stdout);
-    assert.equal(schema, 'prokbot-official-channels/v1');
+    assert.equal(schema, 'rokbot-official-channels/v1');
     assert.equal(new Date(checkedAt).toISOString(), checkedAt);
     assert.equal(label, phase);
     assert.equal(ok, true);
@@ -89,9 +89,11 @@ test('both release checks produce timestamped JSON from only three anonymous met
     assert.equal(channels.ios.observed.publishedArchiveSha256, null);
     assert.equal(channels.ios.observed.listingUrl, listing);
     assert.deepEqual(channels.ios.comparison, { version: 'same', build: 'not-published', archiveSha256: 'not-published' });
-    assert.equal(channels.androidRenderer.sourceChannel, 'windows');
-    assert.equal(channels.androidRenderer.status, 'derived');
-    assert.equal(channels.androidRenderer.pinned.version, android.desktopVersion);
+    assert.equal(channels.android.status, 'not-discovered');
+    assert.equal(channels.android.source, null);
+    assert.equal(channels.android.observed, null);
+    assert.equal(channels.android.comparison, null);
+    assert.deepEqual(channels.android.pinned, { version: android.version, build: android.build });
     for (const key of ['host', 'box']) {
       assert.equal(channels[key].status, 'not-discovered');
       assert.equal(channels[key].source, null);
@@ -122,7 +124,7 @@ test('numeric version drift is informational; an explicit checksum is compared o
   assert.equal(phase, 'manual');
   assert.equal(channels.windows.comparison.version, 'newer');
   assert.equal(channels.windows.comparison.archiveSha256, 'different-artifact');
-  assert.equal(channels.androidRenderer.comparison.version, 'newer');
+  assert.equal(channels.android.status, 'not-discovered');
   assert.equal(channels.mac.comparison.archiveSha256, 'same');
   assert.equal(channels.ios.comparison.version, 'older');
   assert.equal(artifactsVerified, false);
@@ -153,7 +155,7 @@ test('desktop rejects another product, platform, version, origin, or malformed r
     assert.equal(ok, false);
     assert.equal(channels.windows.status, 'error');
     assert.equal(channels.windows.observed, null);
-    assert.equal(channels.androidRenderer.status, 'source-unavailable');
+    assert.equal(channels.android.status, 'not-discovered');
     assert.equal(channels.mac.status, 'observed');
     assert.equal(channels.ios.status, 'observed');
   });

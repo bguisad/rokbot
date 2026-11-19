@@ -105,7 +105,7 @@ test('parseBarkLink, parseNtfyUrl, and parsePushEndpoint reject SSRF hosts with 
   for (const origin of BLOCKED_HOSTS) {
     assertRejectsSsrf(() => parseBarkLink(`${origin}/barkkey12345/title/body`));
     assertRejectsSsrf(() => parseBarkLink(`curl -X POST "${origin}/push?device_key=barkkey12345"`));
-    assertRejectsSsrf(() => parseNtfyUrl(`${origin}/grokbot-topic`));
+    assertRejectsSsrf(() => parseNtfyUrl(`${origin}/rokbot-topic`));
     assertRejectsSsrf(() => parsePushEndpoint(`${origin}/up/endpoint-1`, 'UnifiedPush 端点'));
     assertRejectsSsrf(() => parsePushEndpoint(`${origin}/webhook`, 'Webhook 地址'));
   }
@@ -115,10 +115,10 @@ test('parseBarkLink, parseNtfyUrl, and parsePushEndpoint reject SSRF hosts with 
     key: 'barkkey12345',
     host: 'api.day.app',
   });
-  assert.deepEqual(parseNtfyUrl('https://ntfy.sh/grokbot-topic'), {
-    url: 'https://ntfy.sh/grokbot-topic',
+  assert.deepEqual(parseNtfyUrl('https://ntfy.sh/rokbot-topic'), {
+    url: 'https://ntfy.sh/rokbot-topic',
     baseUrl: 'https://ntfy.sh/',
-    topic: 'grokbot-topic',
+    topic: 'rokbot-topic',
     host: 'ntfy.sh',
   });
   assert.deepEqual(parsePushEndpoint('https://[2606:4700:4700::1111]:8443/hook', 'Webhook 地址'), {

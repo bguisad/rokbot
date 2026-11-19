@@ -1,6 +1,6 @@
-# Deploy ProkBot Plus
+# Deploy RokBot
 
-[简体中文](AI-INSTALL.md) · [Architecture and extensions](ARCHITECTURE.en.md) · [Split deployment](#split-host) · [Volume recovery](#volume-recovery)
+[简体中文](AI-INSTALL.md) · [Architecture and extensions](ARCHITECTURE.en.md) · [Rebranding & Compatibility](REBRAND_COMPAT.md) · [Split deployment](#split-host) · [Volume recovery](#volume-recovery)
 
 **One route for a person or their AI: choose a machine, check it, start the server, connect a model, then send a message.** A healthy container is not proof of a working conversation. Run server commands from the repository root or the equivalent directory in the Host release package.
 
@@ -10,7 +10,7 @@
 
 | Machines available | Deployment | What to expect |
 | --- | --- | --- |
-| One x86_64 Linux server | Default: native Host and execution desktop | Minimum 2 cores / 4 GB, recommended 4 cores / 8 GB; 2 cores / 2 GB failed in testing. See [server requirements](../README.en.md#server-requirements) |
+| One x86_64 Linux server | Default: native Host and execution desktop | Minimum 2 cores / 4 GB, recommended 4 cores / 8 GB; 2 cores / 2 GB failed in testing. See [capacity basis](ARCHITECTURE.en.md#capacity-evidence) |
 | One ARM64 Linux server, such as Oracle Ampere A1 | Default: native Host and amd64 desktop under QEMU | **Experimental**. The desktop is not native ARM. Run `doctor` first; performance depends on the workload |
 | ARM64 Linux plus an amd64 Linux machine | Put `--host-only` before `doctor` and `init` on the Host; put the desktop on the second machine | ARM does not download or emulate the desktop. Not retested on ARM with the current version |
 
@@ -21,7 +21,7 @@ If you saved the model first, Overview shows **Execution node required** and the
 
 Ask once: is this an installation or an upgrade? Which server and SSH access? How will clients reach it (local, private network, HTTPS domain)? Which model API, model ID and clients? Let the owner enter passwords and API keys in the console, not in chat, issues or logs. Do not change existing services, DNS, proxies or firewalls by default. Run upgrade, recovery and load tests only on dedicated, authorized non-production instances, never with production services, volumes or credentials.
 
-Requirements: Python 3.10+, access to a Linux Docker daemon, Compose supporting both `--wait` and `--wait-timeout` on `up`, and Git or an extracted Host package. With the desktop on the same machine, the minimum is 2 cores, 4 GB RAM and 30 GB free disk; 4 cores, 8 GB and 50 GB are recommended. Build caches and backups also consume disk; see [server requirements](../README.en.md#server-requirements) for the basis. A local ARM desktop also needs a registered x86-64 QEMU/binfmt interpreter; ask the owner before changing system configuration.
+Requirements: Python 3.10+, access to a Linux Docker daemon, Compose supporting both `--wait` and `--wait-timeout` on `up`, and Git or an extracted Host package. With the desktop on the same machine, the minimum is 2 cores, 4 GB RAM and 30 GB free disk; 4 cores, 8 GB and 50 GB are recommended. Build caches and backups also consume disk; see [capacity basis](ARCHITECTURE.en.md#capacity-evidence) for the basis. A local ARM desktop also needs a registered x86-64 QEMU/binfmt interpreter; ask the owner before changing system configuration.
 
 On fresh Ubuntu 24.04 install `docker.io docker-compose-v2 docker-buildx python3 git` from the distribution, enable Docker, grant the deployment user access and log in again. For a local ARM desktop only, install `qemu-user-static binfmt-support`, enable the interpreter with `sudo update-binfmts --enable qemu-x86_64`, then run `doctor`. Only fill gaps on existing installations; membership in the `docker` group grants administrative control of the host.
 
@@ -34,25 +34,25 @@ For SSH use Bash (Git Bash on Windows). Each SSH block starts a fresh session. U
 ```sh
 ssh USER@SERVER 'bash -s' <<'EOF'
 set -eu
-mkdir -p "$HOME/grokbot"
-git clone https://github.com/ferretgeek/prokbot-plus.git "$HOME/grokbot/src" < /dev/null
-cd "$HOME/grokbot/src"
+mkdir -p "$HOME/rokbot"
+git clone https://github.com/hongfaqiu/rokbot.git "$HOME/rokbot/src" < /dev/null
+cd "$HOME/rokbot/src"
 python3 host/deploy.py doctor < /dev/null
 EOF
 ```
 
-Do not clone over existing code. Without GitHub access on the server, run `git archive --format=tar.gz -o prokbot-host-src.tar.gz HEAD host` on the client, transfer only that archive, and extract it into a fresh source directory. Never upload your working tree or private files. Builds still require access to the pinned upstream inputs and dependencies.
+Do not clone over existing code. Without GitHub access on the server, run `git archive --format=tar.gz -o rokbot-host-src.tar.gz HEAD host` on the client, transfer only that archive, and extract it into a fresh source directory. Never upload your working tree or private files. Builds still require access to the pinned upstream inputs and dependencies.
 
 A successful `doctor` prints JSON with `ok: true`, the Host platform, desktop mode, resources and volumes. `hostDataVolumes` includes Host volumes under other project names. If you find an existing instance, confirm its `.env`, project name and topology, then **update** it. Do not change project names to reinstall. A failed probe stops before the large desktop download. For a new instance:
 
 ```sh
-cd "$HOME/grokbot/src"
+cd "$HOME/rokbot/src"
 python3 host/deploy.py init < /dev/null
 python3 host/deploy.py up < /dev/null
 python3 host/deploy.py status < /dev/null
 ```
 
-`init` creates `~/grokbot/.env` once. The default address `http://127.0.0.1:18080` is local to the server. **A remote phone cannot pair with the server's loopback address.** Choose your access method before `init`:
+`init` creates `~/rokbot/.env` once. The default address `http://127.0.0.1:18080` is local to the server. **A remote phone cannot pair with the server's loopback address.** Choose your access method before `init`:
 
 - Existing HTTPS reverse proxy: add `--public-url https://bot.example.org` to `init`, substituting your domain. Proxy to the loopback port and support WebSockets. There is no need to expose port 18080 publicly.
 - Private network or LAN: add `--listen PRIVATE_SERVER_IP --public-url http://PRIVATE_SERVER_IP:18080`. Bind the intended interface and restrict access to trusted devices. Do not send credentials or pairing codes over public HTTP.
@@ -63,7 +63,7 @@ python3 host/deploy.py status < /dev/null
 
 1. Run `python3 host/deploy.py setup-key` in a private terminal; do not forward the output to chat. Use it in the console to set a 12–128 character admin password. This first-use code is not a device pairing code.
 2. For a split deployment, connect the execution node in the console first. In Models, add each model service first (API format, endpoint, and key), then create profiles that bind a service and model ID. OpenAI Chat and Responses normally use a `/v1` base; Anthropic Messages accepts the root. Match the provider's actual API. After setting a default route, individual Bots can override the primary model, reasoning effort and ordered fallbacks (switching rules are in the [technical documentation](ARCHITECTURE.en.md#model-adapter-layer)), without a Jev key. Test each profile before saving and wait for the Host to connect. Search, image generation, voice and push are optional.
-3. Generate a 6-character, single-use pairing code in the console (valid for five minutes). Enter the same address as `GROKBOT_PUBLIC_URL` and the code in the client. Pair each device separately. Android and the web client need a private network address or HTTPS; they do not support Tailcat links.
+3. Generate a 6-character, single-use pairing code in the console (valid for five minutes). Enter the same address as `ROKBOT_PUBLIC_URL` and the code in the client. Pair each device separately. The web client needs a private network address or HTTPS and does not support Tailcat links; the native Android client supports Tailcat links as well as private-network or HTTPS addresses.
 
 <a id="client-packages"></a>
 **Choose a client package:** every ZIP includes this guide, but only the tools that platform needs. The paths below start at the root of the indicated ZIP. Use the matching patch release; other packages are not expected to contain these files.
@@ -73,12 +73,12 @@ python3 host/deploy.py status < /dev/null
 | Windows 10/11 x64 | Windows ZIP: `windows/README.en.md`. Build a portable client or installer from the official 1.1.0 x64 installer by default; if 1.1.0 does not work, add `--version 0.71.2` to use 0.71.2. Keep the shared `mac/` directory in the same package. |
 | Mac (Apple Silicon) | Mac ZIP: `mac/README.en.md`. Use the official Apple Silicon 0.71.2 original (the Mac patch does not support 1.1.0 yet). Local graphical control also requires suitable signing and OS permissions. |
 | iPhone | iOS ZIP: the Signing section of `ios/README.en.md`. Supply a decrypted 1.16.0 (23152) IPA and follow `extension-signing.json` to configure signing for the main app and each of its three extensions. |
-| Android 9+ | Android ZIP: `android/README.en.md`. Build an APK from the interface in the official Windows 1.1.0 installer (the same file as the Windows client) and the project shell by default; add `--version 0.71.2` if the 1.1.0 interface does not work. The official Android APK is not used. Back up your signing key separately; upgrades need the same key. |
-| Web client (any browser) | Web client ZIP: `web/README.en.md`. On a computer, build the interface bundle from the official Windows 1.1.0 installer (the same file as the Windows and Android clients) and add `--upload <GROKBOT_PUBLIC_URL>` to install and enable it on the Host (pass the administrator password through `GROKBOT_ADMIN_PASSWORD`), or upload it on the admin page's Web client page; add `--version 0.71.2` if the 1.1.0 interface does not work. Then open `<GROKBOT_PUBLIC_URL>/web/` in each device's browser and sign in with a pairing code. Keep the shared `android/`, `windows/` and `mac/` directories in the same package. The bundle contains the official interface: install it only on the owner's own Host and never forward or publish it. |
+| Android 9+ | Android ZIP: `android/README.en.md`. Patch an official Android `1.16.0` (build `1075`) `.xapk` / `.apks` / `.apk` (`ai.x.grok.bot` / `co.anysphere.sand`) using `node android/release/patch-android.mjs` to produce a 16KB-aligned signed APK (`android/bin/rokbot-native-base.apk` is only a patcher test fixture). Back up your signing key separately (`~/.rokbot-local/android-signing.json` target path; upgrades require the same key). |
+| Web client (any browser) | Web client ZIP: `web/README.en.md`. On a computer, build the interface bundle from the official Windows 1.1.0 installer (the same file as the Windows client) and add `--upload <ROKBOT_PUBLIC_URL>` to install and enable it on the Host (target RokBot convention passes the administrator password through `ROKBOT_ADMIN_PASSWORD`; if running before M1.4 finishes client rebranding, check [REBRAND_COMPAT.md](REBRAND_COMPAT.md#3-migration--compatibility-bridges) for the transitional Web uploader password env var), or upload it on the admin page's Web client page; add `--version 0.71.2` if the 1.1.0 interface does not work. Then open `<ROKBOT_PUBLIC_URL>/web/` in each device's browser and sign in with a pairing code. Keep the shared `windows/` and `mac/` directories in the same package. The bundle contains the official interface: install it only on the owner's own Host and never forward or publish it. |
 
-See the [client version table](../README.en.md#client-versions) before obtaining originals. The store and stable feeds can move ahead of the patches; the tools require the inputs in the right column. The Android shell has its own app version, separate from the renderer and minimum OS version.
+See the [repository layout & target baselines](../README.en.md#repository-layout) and each platform README before obtaining originals. The store and stable feeds can move ahead of the patches; the tools require the pinned inputs in each manifest. Native Android and iOS clients use their own official mobile package versions, separate from the desktop/web UI versions.
 
-For scripted administration, run `python3 host/deploy.py admin help`. Pass `GROKBOT_ADMIN_PASSWORD` and `MODEL_API_KEY` through the environment, not arguments; never print the environment. `admin session` checks initialization, `admin status` checks the core, and `admin model-set --test-only` tests the specified API, endpoint and model without saving.
+For scripted administration, run `python3 host/deploy.py admin help`. Pass `ROKBOT_ADMIN_PASSWORD` and `MODEL_API_KEY` through the environment, not arguments; never print the environment. `admin session` checks initialization, `admin status` checks the core, and `admin model-set --test-only` tests the specified API, endpoint and model without saving.
 
 **Acceptance**: ask a question from a client, then ask a follow-up about that answer. Have the Bot run `uname -m` on its execution desktop, return the result, and open its desktop view. These check chat, retained context and execution separately. On single-machine ARM, the desktop should report `x86_64` while Host `doctor` reports `linux/arm64`. Hand over the address, revision, mode, backup location, and passed or outstanding checks, never the credentials.
 

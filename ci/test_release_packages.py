@@ -19,6 +19,7 @@ from unittest.mock import patch
 import zipfile
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('release_packages', Path(__file__).with_name('release-packages.py'))
 r = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
@@ -44,7 +45,7 @@ def checksum_lines(files):
 class Packages(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        temp = tempfile.TemporaryDirectory(prefix='prokbot-release-fixture-')
+        temp = tempfile.TemporaryDirectory(prefix='rokbot-release-fixture-')
         cls.addClassCleanup(temp.cleanup)
         cls.base = Path(temp.name).resolve()
         cls.repo = cls.base / 'public-source'
@@ -57,7 +58,9 @@ class Packages(unittest.TestCase):
         paths = set(r.COMMON[:-1] + r.TOOLS + r.EXECUTABLES)
         for name in ('host', 'windows', 'mac', 'ios', 'android', 'web'):
             paths.update(f'{name}/{leaf}' for leaf in ('README.md', 'README.en.md', 'extra.fixture'))
-        paths.update(('docs/extra.fixture', 'ci/not-shipped', 'packages/not-shipped',
+        paths.update(('assets/logo/rokbot-icon-512.png', 'assets/logo/rokbot.ico', 'assets/logo/rokbot.icns',
+                      'assets/logo/android/mipmap-mdpi/ic_launcher.png', 'assets/logo/ios/AppIcon-180.png',
+                      'assets/other/not-shipped', 'docs/extra.fixture', 'ci/not-shipped', 'packages/not-shipped',
                       'tools/not-shipped', '.gitattributes', '.gitignore', 'windows/setup.bat'))
         policy = r.verifier()
         payloads = {name: (name + '\n').encode() for name in paths}
@@ -67,8 +70,13 @@ class Packages(unittest.TestCase):
         payloads['.gitignore'] = b'ignored.fixture\n'
         payloads['windows/setup.bat'] = b'@echo synthetic\r\n'
         payloads[policy.SHELL] = packet([('AndroidManifest.xml', b'fixture')])
-        payloads[policy.MANIFEST] = json.dumps({'shell': {'path': policy.SHELL,
-            'sha256': hashlib.sha256(payloads[policy.SHELL]).hexdigest()}}).encode()
+        payloads[policy.MANIFEST] = json.dumps({
+            'schema': 'rokbot-android-native/v1',
+            'packageName': 'ai.x.grok.bot',
+            'version': '1.16.0',
+            'build': '1075',
+            'baseApkSha256': hashlib.sha256(payloads[policy.SHELL]).hexdigest(),
+        }).encode()
         for name, data in payloads.items():
             dest = cls.repo / name
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -119,16 +127,19 @@ class Packages(unittest.TestCase):
             self.assertEqual(r.release(self.repo, self.sha, self.out, helper_sums=self.pins), self.tip)
         self.assertIn('verified packages=6', report.getvalue())
         data = files_at(self.out)
-        expected = {'host': {'host'}, 'windows': {'windows', 'mac'}, 'mac': {'mac'},
-                    'ios': {'ios'}, 'android': {'android', 'windows', 'mac'}, 'web': {'web', 'android', 'windows', 'mac'}}
-        common = {'LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md', 'docs'}
-        self.assertEqual(set(data), {f'prokbot-plus-{k}.zip' for k in expected} | {'SHA256SUMS.txt'})
+        expected = {'host': {'host', 'assets/logo'}, 'windows': {'windows', 'mac', 'assets/logo'},
+                    'mac': {'mac', 'assets/logo'}, 'ios': {'ios', 'assets/logo'},
+                    'android': {'android', 'windows', 'mac', 'assets/logo'}, 'web': {'web', 'windows', 'mac', 'assets/logo'}}
+        common = {'LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'SECURITY.md', 'docs'}
+        self.assertEqual(set(data), {f'rokbot-{k}.zip' for k in expected} | {'SHA256SUMS.txt'})
         self.assertEqual(data['SHA256SUMS.txt'], checksum_lines(data))
         for key, roots in expected.items():
-            with zipfile.ZipFile(io.BytesIO(data[f'prokbot-plus-{key}.zip'])) as z:
+            with zipfile.ZipFile(io.BytesIO(data[f'rokbot-{key}.zip'])) as z:
                 self.assertEqual(z.comment.decode(), self.sha)
                 files = {n for n in z.namelist() if not n.endswith('/')}
-                self.assertEqual(files, {n for n in self.payloads if n.partition('/')[0] in common | roots})
+                self.assertEqual(files, {n for n in self.payloads if r.in_roots(n, common | roots)})
+                self.assertIn('assets/logo/manifest.json', files)
+                self.assertNotIn('assets/other/not-shipped', files)
                 for n in files:
                     self.assertEqual(z.read(n), self.payloads[n])
                 for n in files.intersection(r.EXECUTABLES):
@@ -146,7 +157,7 @@ class Packages(unittest.TestCase):
         self.out.mkdir()
         with self.assertRaisesRegex(r.ReleaseError, 'new directory'):
             r.release(self.repo, self.sha, self.out)
-        path = self.out / 'prokbot-plus-android.zip'
+        path = self.out / 'rokbot-android.zip'
         path.write_bytes(b'caller-owned')
         with self.assertRaisesRegex(r.ReleaseError, 'nothing was overwritten'):
             r.release(self.repo, self.sha, self.out)
@@ -210,7 +221,7 @@ class Packages(unittest.TestCase):
         with self.assertRaisesRegex(r.ReleaseError, 'SHA256SUMS'):
             r.release(self.repo, self.sha, self.out, verify_only=True)
         self.assertEqual(manifest.read_bytes(), b'wrong\n')
-        path = self.out / 'prokbot-plus-host.zip'
+        path = self.out / 'rokbot-host.zip'
         with zipfile.ZipFile(path, 'a') as z:
             z.writestr('host/plausible-extra.txt', b'not committed')
         manifest.write_bytes(checksum_lines(files_at(self.out)))
@@ -219,7 +230,7 @@ class Packages(unittest.TestCase):
 
     def test_policy_failure_removes_only_our_output(self):
         bad = self.out.with_name('independent-pins.txt')
-        bad.write_bytes(b'0' * 64 + b'  host/bin/grokbot-tailcat\n')
+        bad.write_bytes(b'0' * 64 + b'  host/bin/rokbot-tailcat\n')
         with redirect_stderr(io.StringIO()) as report, self.assertRaisesRegex(r.ReleaseError, 'content policy'):
             r.release(self.repo, self.sha, self.out, helper_sums=bad)
         self.assertIn('category=helper-digest', report.getvalue())
@@ -227,7 +238,7 @@ class Packages(unittest.TestCase):
         self.assertTrue(bad.is_file())
 
     def test_collision_during_build_does_not_remove_foreign_file(self):
-        collision = self.out / 'prokbot-plus-windows.zip'
+        collision = self.out / 'rokbot-windows.zip'
         original = r.check_layout
         def collision_after_host(*args):
             original(*args)
@@ -237,7 +248,7 @@ class Packages(unittest.TestCase):
         self.assertEqual(files_at(self.out), {collision.name: b'not ours'})
 
     def test_incomplete_tree_and_forbidden_input_rejected_before_archiving(self):
-        records = self.real_git(self.repo, 'ls-tree', '-rtz', self.sha, '--', *r.COMMON, *r.PACKAGES).split(b'\0')[:-1]
+        records = self.real_git(self.repo, 'ls-tree', '-rtz', self.sha, '--', *r.all_roots()).split(b'\0')[:-1]
         policy = r.verifier()
         helper = b'\tmac/patchers/desktop/node_modules/.bin/asar'
         for kind in ('missing tool', 'wrong executable mode', 'disallowed file'):
@@ -269,6 +280,42 @@ class Packages(unittest.TestCase):
             archive.comment = self.sha.encode()
         with self.assertRaisesRegex(r.ReleaseError, 'missing committed'):
             r.check_layout(buf, name, self.sha, {'docs/tool': 0o100755})
+
+    def test_multi_segment_roots_exclude_unrelated_siblings(self):
+        roots = ('assets/logo',)
+        for included in ('assets/', 'assets/logo/', 'assets/logo/rokbot-logo.svg', 'assets/logo/android/mipmap-mdpi/ic_launcher.png'):
+            self.assertTrue(r.in_roots(included, roots), included)
+        for excluded in ('assets/other', 'assets/other/', 'assets/other/not-shipped', 'assets/logo-extra/x', 'assets/README.md'):
+            self.assertFalse(r.in_roots(excluded, roots), excluded)
+
+    def test_real_repository_manifest_and_jni_helpers(self):
+        policy = r.verifier()
+        manifest_bytes = (REPO_ROOT / policy.MANIFEST).read_bytes()
+        apk_bytes = (REPO_ROOT / policy.SHELL).read_bytes()
+        self.assertEqual(policy.pin(manifest_bytes), hashlib.sha256(apk_bytes).hexdigest())
+        jni_paths = (
+            'android/bin/jniLibs/arm64-v8a/libgroktailcat.so',
+            'android/bin/jniLibs/arm64-v8a/libgroktailcatjni.so',
+        )
+        entries = [(policy.MANIFEST, manifest_bytes), (policy.SHELL, apk_bytes)]
+        sums = bytearray()
+        for rel in jni_paths:
+            self.assertIn(rel, policy.HELPERS)
+            raw = (REPO_ROOT / rel).read_bytes()
+            entries.append((rel, raw))
+            sums.extend(hashlib.sha256(raw).hexdigest().encode() + b'  ' + rel.encode() + b'\n')
+        archive_bytes = packet(entries)
+        files = {
+            'android.zip': archive_bytes,
+            'sums': hashlib.sha256(archive_bytes).hexdigest().encode() + b'  android.zip\n',
+            'manifest': manifest_bytes,
+            'helpers': bytes(sums),
+        }
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = policy.main(['--sums', 'sums', '--shell-manifest', 'manifest', '--helper-sums', 'helpers', 'android.zip'],
+                             lambda p: io.BytesIO(files[str(p)]))
+        self.assertEqual((rc, out.getvalue(), err.getvalue()), (0, 'verified packages=1\n', ''))
 
 
 if __name__ == '__main__':

@@ -16,7 +16,17 @@ import { applyReleaseRecipes } from '../../../mac/patchers/desktop/release-recip
 import { extractNotificationPolicy } from '../../../mac/patchers/desktop/extract-policy.mjs';
 import { acquireDesktopSource } from '../../../mac/patchers/desktop/download-original.mjs';
 import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from '../../../mac/patchers/desktop/update-config.mjs';
-import { applicationIcon, replaceAsarIntegrity, stripAuthenticode } from './pe.mjs';
+import { replaceAsarIntegrity, stripAuthenticode } from './pe.mjs';
+import {
+  APP_DISPLAY_NAME,
+  APP_USER_MODEL_ID,
+  PROFILE_DISPLAY_PATH,
+  resolveRokBotWindowsLogoPaths,
+  resolveSetupStubSource,
+  resolveWindowsTailcatSource,
+  stageLocalClientWindowsIcons,
+  verifyRokBotWindowsIcons,
+} from './brand-assets.mjs';
 import { unpackOriginal } from './original.mjs';
 import { withInstallerDiagnostic } from './input-diagnostic.mjs';
 import { selectWindowsRelease, windowsReleases } from './inputs.mjs';
@@ -28,7 +38,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const windowsRoot = path.resolve(here, '../..');
 const repo = path.resolve(windowsRoot, '..');
 const releases = (await windowsReleases()).map(({ supported }) => supported.version);
-const APP = 'Grok Bot Local', EXE = 'Grok Bot.exe';
+const APP = APP_DISPLAY_NAME, EXE = 'Grok Bot.exe';
 const args = process.argv.slice(2);
 const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
 if (args.includes('--help')) {
@@ -62,14 +72,14 @@ function unpackedFiles(header, prefix = '') {
   return result;
 }
 
-const temporary = await mkdtemp(path.join(os.tmpdir(), 'grokbot-windows-patch-'));
+const temporary = await mkdtemp(path.join(os.tmpdir(), 'rokbot-windows-patch-'));
 let stage, createdRoot;
 async function build() {
   const explicitSource = arg('--source');
   const { directory, supported } = await selectWindowsRelease({ source: explicitSource, version: arg('--version') });
-  const portableZip = path.join(outputRoot, `GrokBotLocal-${supported.version}-x64-portable.zip`);
-  const setupExe = path.join(outputRoot, `GrokBotLocal-${supported.version}-x64-Setup.exe`);
-  const manifestPath = path.join(outputRoot, `GrokBotLocal-${supported.version}-x64.patch.json`);
+  const portableZip = path.join(outputRoot, `RokBotLocal-${supported.version}-x64-portable.zip`);
+  const setupExe = path.join(outputRoot, `RokBotLocal-${supported.version}-x64-Setup.exe`);
+  const manifestPath = path.join(outputRoot, `RokBotLocal-${supported.version}-x64.patch.json`);
   const source = await acquireDesktopSource({ source: explicitSource, cacheDirectory: path.join(windowsRoot, '.cache'), supported,
     onDownload: ({ version }) => console.error(`正在下载 Grok Bot ${version} Windows x64…`) });
   const app = await withInstallerDiagnostic(unpackOriginal(source, temporary, supported), explicitSource && source, supported, releases);
@@ -99,7 +109,7 @@ async function build() {
   if (args.includes('--verify-only')) return;
   await checkOutputLocation(source, outputRoot, targets);
   createdRoot = await mkdir(outputRoot, { recursive: true });
-  stage = await mkdtemp(path.join(outputRoot, '.grokbot-build-'));
+  stage = await mkdtemp(path.join(outputRoot, '.rokbot-build-'));
   const stagedApp = path.join(stage, APP);
   await cp(app, stagedApp, { recursive: true, filter: async name => {
     if ((await lstat(name)).isSymbolicLink()) throw new Error(`Source contains a link: ${name}`);
@@ -113,9 +123,8 @@ async function build() {
     filter: filename => path.basename(filename) !== 'notification-policy.mjs' });
   await writeFile(path.join(unpacked, 'local-client/notification-policy.mjs'), notificationPolicy);
   await cp(path.join(clients, 'shared'), path.join(unpacked, 'shared'), { recursive: true });
-  const icon = applicationIcon(await readFile(originalExe));
-  await writeFile(path.join(unpacked, 'local-client/icon.png'), icon.png);
-  await writeFile(path.join(unpacked, 'local-client/icon.ico'), icon.ico);
+  const { icoPath, iconPngPath } = resolveRokBotWindowsLogoPaths(repo);
+  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath });
 
   const outAsar = path.join(stagedApp, 'resources/app.asar');
   await rm(outAsar);
@@ -127,6 +136,7 @@ async function build() {
   const missing = [...originalUnpacked].filter(name => !patchedUnpacked.has(name));
   const extra = [...patchedUnpacked].filter(name => !originalUnpacked.has(name));
   if (missing.length || extra.length) throw new Error(`解包文件与原版不一致：${[...missing, ...extra].slice(0, 5).join(', ')}`);
+  const iconVerification = await verifyRokBotWindowsIcons({ icoPath, iconPngPath, outAsarPath: outAsar, asarModule: asar });
   const headerSha256 = sha(asar.getRawHeader(outAsar).headerString);
 
   // The executable embeds the expected ASAR header hash; its Authenticode signature
@@ -134,27 +144,27 @@ async function build() {
   const exePath = path.join(stagedApp, EXE);
   const exe = stripAuthenticode(replaceAsarIntegrity(await readFile(exePath), supported.asarHeaderSha256, headerSha256));
   await writeFile(exePath, exe);
-  await cp(path.join(windowsRoot, 'dist/network/grokbot-tailcat.exe'), path.join(stagedApp, 'resources/grokbot-tailcat.exe'));
+  await cp(resolveWindowsTailcatSource(windowsRoot), path.join(stagedApp, 'resources/rokbot-tailcat.exe'));
   await cp(path.join(repo, 'mac/network/TAILCAT-LICENSE'), path.join(stagedApp, 'resources/TAILCAT-LICENSE'));
   if (await hashFile(originalAsar) !== asarSha256) throw new Error('原版文件意外变化。');
 
   if (updateConfig) {
-    await writeFile(path.join(stagedApp, 'resources/grokbot-local-update.json'), JSON.stringify(updateConfig, null, 2) + '\n');
+    await writeFile(path.join(stagedApp, 'resources/rokbot-local-update.json'), JSON.stringify(updateConfig, null, 2) + '\n');
   }
   const manifest = { patchedAt: new Date().toISOString(), version: supported.version,
     architecture: supported.architecture, originalAsarSha256: asarSha256, patchedAsarSha256: await hashFile(outAsar),
-    asarHeaderSha256: headerSha256, originalEntry: previousMain, patchedEntry: pkg.main, appUserModelId: 'dev.grokbot.local',
+    asarHeaderSha256: headerSha256, originalEntry: previousMain, patchedEntry: pkg.main, appUserModelId: APP_USER_MODEL_ID,
     executable: { originalSha256: exeSha256, patchedSha256: sha(exe), signature: 'removed' },
-    profile: '%APPDATA%\\Grok Bot Local', automaticUpdates: Boolean(updateConfig), ...(updateConfig ?? {}), computerUse: 'unavailable on Windows',
-    unpackedFiles: patchedUnpacked.size, timings: { patchSeconds } };
-  await writeFile(path.join(stagedApp, 'resources/grokbot-local.patch.json'), JSON.stringify(manifest, null, 2));
+    profile: PROFILE_DISPLAY_PATH, automaticUpdates: Boolean(updateConfig), ...(updateConfig ?? {}), computerUse: 'unavailable on Windows',
+    ...iconVerification, unpackedFiles: patchedUnpacked.size, timings: { patchSeconds } };
+  await writeFile(path.join(stagedApp, 'resources/rokbot-local.patch.json'), JSON.stringify(manifest, null, 2));
   Object.assign(manifest, { source, output: appOutput }); // Machine paths belong only in the local build report.
 
   const staged = name => path.join(stage, path.basename(name));
   const zip = await writeZip(stagedApp, staged(portableZip), { prefix: APP, comment: supported.version });
   manifest.portableZip = { path: portableZip, bytes: zip.bytes, entries: zip.entries, sha256: await hashFile(staged(portableZip)) };
   if (!args.includes('--no-installer')) {
-    const stub = path.join(windowsRoot, 'dist/installer/grokbot-setup-stub.exe');
+    const stub = resolveSetupStubSource(windowsRoot);
     await writeSetup(stub, staged(portableZip), staged(setupExe), zip.bytes);
     manifest.installer = { path: setupExe, bytes: (await stat(staged(setupExe))).size, sha256: await hashFile(staged(setupExe)) };
   }

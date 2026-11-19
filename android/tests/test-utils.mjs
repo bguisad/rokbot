@@ -78,7 +78,7 @@ export class OkHttpInterceptorEmulator {
       return {
         status: 204,
         statusText: 'No Content',
-        headers: new Headers({ 'x-grokbot-telemetry-blocked': '1' }),
+        headers: new Headers({ 'x-rokbot-telemetry-blocked': '1' }),
         ok: true,
         text: async () => '',
         json: async () => ({})
@@ -87,7 +87,7 @@ export class OkHttpInterceptorEmulator {
 
     // Cloud endpoint redirection
     let targetUrl = requestUrl;
-    if (parsed.hostname === 'api.x.ai' || parsed.hostname === 'grok.com' || parsed.hostname === 'cloud.grokbot.local') {
+    if (parsed.hostname === 'api.x.ai' || parsed.hostname === 'grok.com' || parsed.hostname === 'cloud.rokbot.local') {
       targetUrl = `${this.gatewayUrl}${parsed.pathname}${parsed.search}`;
     }
 
@@ -96,7 +96,7 @@ export class OkHttpInterceptorEmulator {
     if (this.token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
-    headers.set('x-grokbot-client', 'android-native/1.16.0');
+    headers.set('x-rokbot-client', 'android-native/1.16.0');
 
     return globalThis.fetch(targetUrl, {
       ...options,
@@ -118,7 +118,7 @@ export class AxmlManifestEmulator {
       errors.push('android:usesCleartextTraffic must be true');
     }
     const hasPairingActivity = (manifest.activities || []).some(
-      a => a.name === 'dev.grokbot.nativeapp.PairingActivity'
+      a => a.name === 'dev.rokbot.nativeapp.PairingActivity'
     );
     if (!hasPairingActivity) {
       errors.push('Missing PairingActivity declaration');

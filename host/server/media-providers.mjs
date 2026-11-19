@@ -170,7 +170,7 @@ export async function collectMedia(result, kind, signal, download = downloadMedi
 
 export async function extractVideoFrames(videoBase64, mimeType, { maxFrames = 8, signal } = {}) {
   const count = Math.max(1, Math.min(16, Number.isInteger(maxFrames) ? maxFrames : 8));
-  const directory = await mkdtemp(join(tmpdir(), 'grokbot-video-'));
+  const directory = await mkdtemp(join(tmpdir(), 'rokbot-video-'));
   try {
     const extension = mimeType === 'video/webm' ? 'webm' : 'mp4';
     const inputPath = join(directory, `input.${extension}`);

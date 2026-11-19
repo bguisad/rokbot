@@ -58,8 +58,9 @@ test('Host /local/updates/fetch requires auth, blocks private/SSRF targets, and 
   const upstreamPort = upstream.address().port;
   const upstreamOrigin = `http://127.0.0.1:${upstreamPort}`;
 
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'grokbot-host-update-proxy-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-host-update-proxy-'));
   await mkdir(path.join(dir, 'deltas'), { recursive: true });
+  await writeFile(path.join(dir, 'deltas', 'local-mirror.rbdelta'), 'mirror-rbdelta-bytes');
   await writeFile(path.join(dir, 'deltas', 'local-mirror.gbdelta'), 'mirror-delta-bytes');
 
   const { server: hostServer, tracked } = makeServer({
@@ -111,7 +112,13 @@ test('Host /local/updates/fetch requires auth, blocks private/SSRF targets, and 
     assert.equal(Number(binRes.headers.get('content-length')), upstreamPayload.length);
     assert.ok(Buffer.from(await binRes.arrayBuffer()).equals(upstreamPayload));
 
-    // 4. Host local mirror directory serves matching update files directly without upstream hit.
+    // 4. Host local mirror directory serves matching .rbdelta and legacy .gbdelta files directly without upstream hit.
+    const rbMirrorRes = await fetch(`${hostBase}/local/updates/fetch?url=${encodeURIComponent('https://public.example/updates/deltas/local-mirror.rbdelta')}`, {
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    assert.equal(rbMirrorRes.status, 200);
+    assert.equal(await rbMirrorRes.text(), 'mirror-rbdelta-bytes');
+
     const mirrorRes = await fetch(`${hostBase}/local/updates/fetch?url=${encodeURIComponent('https://public.example/updates/deltas/local-mirror.gbdelta')}`, {
       headers: { authorization: 'Bearer valid-token' },
     });
@@ -123,4 +130,53 @@ test('Host /local/updates/fetch requires auth, blocks private/SSRF targets, and 
     await new Promise(resolve => upstream.close(resolve));
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('Host /local/updates/fetch reads ROKBOT_UPDATE_UPSTREAM_ORIGIN and ROKBOT_UPDATE_DIR with GROKBOT_* fallback', async t => {
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': 17 });
+    res.end('{"version":"2.0"}');
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const upstreamOrigin = `http://127.0.0.1:${upstream.address().port}`;
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-update-env-'));
+  await writeFile(path.join(dir, 'update.rbdelta'), 'env-rbdelta-bytes');
+
+  const prev = {
+    ROKBOT_UPDATE_UPSTREAM_ORIGIN: process.env.ROKBOT_UPDATE_UPSTREAM_ORIGIN,
+    GROKBOT_UPDATE_UPSTREAM_ORIGIN: process.env.GROKBOT_UPDATE_UPSTREAM_ORIGIN,
+    ROKBOT_UPDATE_DIR: process.env.ROKBOT_UPDATE_DIR,
+    GROKBOT_UPDATE_DIR: process.env.GROKBOT_UPDATE_DIR,
+  };
+  t.after(async () => {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    await new Promise(resolve => upstream.close(resolve));
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const { server } = makeServer({
+    lookupImpl: async () => [{ address: '93.184.216.34', family: 4 }],
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const hostBase = `http://127.0.0.1:${server.address().port}`;
+
+  process.env.GROKBOT_UPDATE_UPSTREAM_ORIGIN = upstreamOrigin;
+  process.env.GROKBOT_UPDATE_DIR = dir;
+  const legacyRes = await fetch(`${hostBase}/local/updates/fetch?url=${encodeURIComponent(`${upstreamOrigin}/updates/update.rbdelta`)}`, {
+    headers: { authorization: 'Bearer valid-token' },
+  });
+  assert.equal(legacyRes.status, 200);
+  assert.equal(await legacyRes.text(), 'env-rbdelta-bytes');
+
+  process.env.ROKBOT_UPDATE_UPSTREAM_ORIGIN = upstreamOrigin;
+  process.env.ROKBOT_UPDATE_DIR = path.join(dir, 'nonexistent');
+  const rokbotRes = await fetch(`${hostBase}/local/updates/fetch?url=${encodeURIComponent(`${upstreamOrigin}/updates/feed.json`)}`, {
+    headers: { authorization: 'Bearer valid-token' },
+  });
+  assert.equal(rokbotRes.status, 200);
+  assert.deepEqual(await rokbotRes.json(), { version: '2.0' });
 });

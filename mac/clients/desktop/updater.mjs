@@ -9,7 +9,8 @@ import {
   sha256File,
 } from '../shared/delta.mjs';
 
-export const DESKTOP_UPDATE_SCHEMA = 'grokbot-desktop-update/v1';
+export const DESKTOP_UPDATE_SCHEMA = 'rokbot-desktop-update/v1';
+const SUPPORTED_DESKTOP_UPDATE_SCHEMAS = new Set([DESKTOP_UPDATE_SCHEMA, 'grokbot-desktop-update/v1']);
 
 export function createTailcatUpdateFetch({
   isTunneled = () => false,
@@ -78,7 +79,7 @@ export function canonicalDesktopPayload(record) {
 }
 
 export function verifyDesktopManifest(manifest, publicKeySpkiBase64) {
-  if (!manifest || manifest.schema !== DESKTOP_UPDATE_SCHEMA) throw new Error('Malformed desktop update feed');
+  if (!manifest || !SUPPORTED_DESKTOP_UPDATE_SCHEMAS.has(manifest.schema)) throw new Error('Malformed desktop update feed');
   const key = createPublicKey({ key: Buffer.from(normalizeEcPublicKey(publicKeySpkiBase64), 'base64'), format: 'der', type: 'spki' });
   const ok = verify(
     'sha256',
@@ -134,6 +135,9 @@ export function compareVersions(a, b) {
 
 export async function loadDesktopUpdateConfig({ resourcesDir, profileDir } = {}) {
   for (const candidate of [
+    resourcesDir && path.join(resourcesDir, 'rokbot-local-update.json'),
+    resourcesDir && path.join(resourcesDir, 'rokbot-local.patch.json'),
+    profileDir && path.join(profileDir, 'rokbot-local-update.json'),
     resourcesDir && path.join(resourcesDir, 'grokbot-local-update.json'),
     resourcesDir && path.join(resourcesDir, 'grokbot-local.patch.json'),
     profileDir && path.join(profileDir, 'grokbot-local-update.json'),
@@ -357,7 +361,7 @@ export function createDesktopUpdater({
 
     if (!isCurrentGen()) return null;
     emit({ type: 'available', version: manifest.version });
-    const tmpDelta = path.join(updatesDir, `asar-${activeTrack}-${manifest.version}.gbdelta.tmp-${process.pid}`);
+    const tmpDelta = path.join(updatesDir, `asar-${activeTrack}-${manifest.version}.rbdelta.tmp-${process.pid}`);
     const ok = await downloadVerifiedFile({
       fetchImpl,
       url: matching.url,
@@ -408,7 +412,7 @@ export function createDesktopUpdater({
     verifyDesktopDeltasManifest(manifest, config.updatePublicKey);
     if (!isCurrentGen()) return false;
     emit({ type: 'available', version: manifest.version });
-    const tmpDelta = `${target}.gbdelta.tmp-${process.pid}`;
+    const tmpDelta = `${target}.rbdelta.tmp-${process.pid}`;
     const ok = await downloadVerifiedFile({
       fetchImpl,
       url: found.delta.url,

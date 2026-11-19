@@ -2,6 +2,7 @@
 // API format. Formats share request selection, cancellation, usage and completion.
 import { randomUUID } from 'node:crypto';
 import { ModelRequestError } from './model-common.mjs';
+import { optimizeMessageImages } from './image-context.mjs';
 import { chatEndpoint, chatTurn, convertChatMessages, convertChatTools } from './openai-chat.mjs';
 import { responsesEndpoint, responsesTurn } from './openai-responses.mjs';
 import { anthropicEndpoint, anthropicTurn } from './anthropic-messages.mjs';
@@ -149,7 +150,7 @@ function usageValues(raw = {}, contextWindowTokens = 0) {
 export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFormat = 'openai', policy,
   fetchImpl = globalThis.fetch, headers = {}, requestOptions = {}, contextWindowTokens = 0,
   summaryThresholdTokens = 0, mapError = error => error, onUsage = async () => {}, selectRequest,
-  onFallback = async () => {}, idleTimeoutMs = 300_000, profileId, providerId, efforts } = {}) {
+  onFallback = async () => {}, idleTimeoutMs = 300_000, profileId, providerId, efforts, imageContext } = {}) {
   if (typeof model !== 'string' || !model.trim() || model !== model.trim() || model.length > 256 || /[\r\n\0]/.test(model)) {
     throw new TypeError('model must be an explicitly selected, nonempty model ID');
   }
@@ -248,6 +249,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
           const requestContext = { contextWindowTokens: primary.contextWindowTokens,
             summaryThresholdTokens: primary.summaryThresholdTokens };
           if (trackModel) { selectedContext = requestContext; earlyCompaction = undefined; }
+          const requestMessages = await optimizeMessageImages(messages, { ...imageContext, signal: controller.signal });
           let turn;
           let activeIterator;
           for (let attempt = 0; attempt < candidates.length; attempt++) {
@@ -272,7 +274,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
             reportedCandidate = candidate;
             try {
               const iterator = format.turn({ fetchImpl, endpoint: format.endpoint(candidate.baseUrl), apiKey: candidate.apiKey,
-                headers, model: candidate.model, messages, tools,
+                headers, model: candidate.model, messages: requestMessages, tools,
                 effort: candidate.effort ?? candidate.requestOptions?.reasoning_effort,
                 efforts: candidate.efforts ?? effortsFor(candidate.model), maxTokens: options.maxTokens,
                 requestOptions: candidate.requestOptions, signal: attemptSignal, waitForIO: attemptWaitForIO,

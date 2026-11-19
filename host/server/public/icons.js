@@ -1,4 +1,4 @@
-// Line icons drawn on a 24px grid with 1.6px strokes, matching the Grok Bot settings icons.
+// Line icons drawn on a 24px grid with 1.6px strokes, matching the RokBot settings icons.
 const paths = {
   overview: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
   model: '<path d="M11 3.5 12.9 9l5.6 2-5.6 2-1.9 5.5L9.1 13l-5.6-2 5.6-2z"/><path d="m18.5 15.5.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6z"/>',

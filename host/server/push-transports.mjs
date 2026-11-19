@@ -38,7 +38,7 @@ export function apnsPayload(item) {
 }
 export function boundedJsonPushPayload(item, maxBytes = 3800) {
   const payload = {
-    grokbot: 1,
+    rokbot: 1,
     notificationId: item.id,
     type: item.type,
     agentId: item.agentId,
@@ -196,7 +196,7 @@ export class PushTransports {
       connLabel: 'Bark',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ device_key: device.bark.key, title: item.title, body: item.body,
-        group: 'Grok Bot', ...(device.iconUrl ? { icon: device.iconUrl } : {}), url: item.deepLink, isArchive: '1' }),
+        group: 'RokBot', ...(device.iconUrl ? { icon: device.iconUrl } : {}), url: item.deepLink, isArchive: '1' }),
       signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(15000)]),
     });
     // Do not retain arbitrary response text, which may contain the credential URL.
@@ -216,7 +216,7 @@ export class PushTransports {
       title: item.title,
       message: item.body || item.title,
       priority: ['attention', 'failed'].includes(item.type) ? 4 : 3,
-      tags: ['grokbot'],
+      tags: ['rokbot'],
       click: item.deepLink,
       ...(device.iconUrl ? { icon: device.iconUrl } : {}),
     });
@@ -268,7 +268,7 @@ export class PushTransports {
     const headers = { 'content-type': 'application/json' };
     if (device.webhook.secret) {
       headers.authorization = `Bearer ${device.webhook.secret}`;
-      headers['x-grokbot-signature-256'] = `sha256=${createHmac('sha256', device.webhook.secret).update(body).digest('hex')}`;
+      headers['x-rokbot-signature-256'] = `sha256=${createHmac('sha256', device.webhook.secret).update(body).digest('hex')}`;
     }
     const response = await this.postPublicEndpoint(device.webhook.endpoint, {
       urlLabel: 'Webhook 地址',

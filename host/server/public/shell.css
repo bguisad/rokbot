@@ -3,6 +3,7 @@
 .brand-mark { width: 28px; height: 28px; flex: none; }
 .brand-mark .brand-face { fill: var(--sand-bg-primary); }
 .brand-mark .brand-eye { fill: var(--sand-text-inverted); }
+.brand-mark .brand-accent { fill: var(--sand-bg-accent-primary); }
 
 /* The column background continues the sidebar below the sticky panel on long pages. */
 .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100dvh; background: linear-gradient(to right, var(--sand-bg-sidebar) 232px, var(--sand-bg-pane) 232px); }
