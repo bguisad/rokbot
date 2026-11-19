@@ -86,10 +86,10 @@ public final class DeltaPatcher {
                 } else if (op == OP_COPY) {
                     long baseOff = in.readLong();
                     int len = in.readInt();
-                    if (len < 0 || baseOff < 0 || baseOff + len > actualBaseSize) {
+                    if (len < 0 || baseOff < 0 || baseOff > actualBaseSize || len > actualBaseSize - baseOff) {
                         throw new IOException("OP_COPY out of base bounds: off=" + baseOff + " len=" + len);
                     }
-                    if (written + len > targetSize) {
+                    if (len > targetSize - written) {
                         throw new IOException("OP_COPY exceeds target size");
                     }
                     baseRaf.seek(baseOff);
@@ -107,7 +107,7 @@ public final class DeltaPatcher {
                     }
                 } else if (op == OP_INSERT) {
                     int len = in.readInt();
-                    if (len < 0 || written + len > targetSize) {
+                    if (len < 0 || len > targetSize - written) {
                         throw new IOException("OP_INSERT invalid length: " + len);
                     }
                     int rem = len;

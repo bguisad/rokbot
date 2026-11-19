@@ -10,7 +10,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 
-import { ANDROID_NS, extractManifestInfo, parseAxml, patchManifest, serializeAxml } from '../patchers/manifest.mjs';
+import { ANDROID_NS, KNOWN_RES_IDS, extractManifestInfo, parseAxml, patchManifest, serializeAxml } from '../patchers/manifest.mjs';
+import { findMipmapResourceId } from '../patchers/arsc.mjs';
 import { loadBytepatchRecipe, loadGatewayTemplateMetadata, patchHermesBundleSafely } from '../patchers/hermes.mjs';
 import { createEntry, entryBytes, readZip, verifyApk, writeZip } from '../patchers/signing.mjs';
 import { registerHooks } from 'node:module';
@@ -90,6 +91,7 @@ test('M2-Manifest: injects RokBotInitProvider, all 9 Activities, 2 foreground se
     'dev.rokbot.nativeapp.UsageActivity',
     'dev.rokbot.nativeapp.ComputersActivity',
     'dev.rokbot.nativeapp.ComputerViewerActivity',
+    'dev.rokbot.nativeapp.ModelsActivity',
     'dev.rokbot.nativeapp.ShareTargetActivity',
   ];
   for (const actName of expectedActivities) {
@@ -3144,7 +3146,69 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
     const baseApk = path.join(NATIVE_ROOT, 'bin/rokbot-native-base.apk');
     const baseZip = readZip(fs.readFileSync(baseApk));
 
-    // Seed 6 existing -v4/*.webp entries (like official 1.16.0 APK) and leave the other 9 absent
+    // Seed 6 existing -v4/*.webp entries (like official 1.16.0 APK), leave the other 9 absent,
+    // and seed adaptive icon XMLs (with old @color/iconBackground + <monochrome>)
+    const makeAdaptiveXml = () => serializeAxml({
+      namespaces: [{ prefix: 'android', uri: ANDROID_NS, lineNumber: 2 }],
+      rootNodes: [{
+        type: 'element',
+        name: 'adaptive-icon',
+        namespace: null,
+        lineNumber: 2,
+        attributes: [],
+        children: [
+          {
+            type: 'element',
+            name: 'background',
+            namespace: null,
+            lineNumber: 3,
+            attributes: [{
+              name: 'drawable',
+              namespace: ANDROID_NS,
+              resourceId: KNOWN_RES_IDS.drawable,
+              type: 0x01,
+              rawValue: null,
+              value: 0x7f06009f,
+              data: 0x7f06009f,
+            }],
+            children: [],
+          },
+          {
+            type: 'element',
+            name: 'foreground',
+            namespace: null,
+            lineNumber: 4,
+            attributes: [{
+              name: 'drawable',
+              namespace: ANDROID_NS,
+              resourceId: KNOWN_RES_IDS.drawable,
+              type: 0x01,
+              rawValue: null,
+              value: 0x7f100001,
+              data: 0x7f100001,
+            }],
+            children: [],
+          },
+          {
+            type: 'element',
+            name: 'monochrome',
+            namespace: null,
+            lineNumber: 5,
+            attributes: [{
+              name: 'drawable',
+              namespace: ANDROID_NS,
+              resourceId: KNOWN_RES_IDS.drawable,
+              type: 0x01,
+              rawValue: null,
+              value: 0x7f080001,
+              data: 0x7f080001,
+            }],
+            children: [],
+          },
+        ],
+      }],
+    });
+
     const preseededEntries = [
       ...baseZip.entries,
       createEntry('res/mipmap-mdpi-v4/ic_launcher.webp', Buffer.from('OLD_MDPI_LAUNCHER')),
@@ -3153,6 +3217,8 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
       createEntry('res/mipmap-xxhdpi-v4/ic_launcher.webp', Buffer.from('OLD_XXHDPI_LAUNCHER')),
       createEntry('res/mipmap-xxxhdpi-v4/ic_launcher.webp', Buffer.from('OLD_XXXHDPI_LAUNCHER')),
       createEntry('res/mipmap-xxxhdpi-v4/ic_launcher_round.webp', Buffer.from('OLD_XXXHDPI_ROUND')),
+      createEntry('res/mipmap-anydpi-v26/ic_launcher.xml', makeAdaptiveXml()),
+      createEntry('res/mipmap-anydpi-v26/ic_launcher_round.xml', makeAdaptiveXml()),
     ];
     const inApk = path.join(tmpDir, 'with-partial-mipmaps.apk');
     const outApk = path.join(tmpDir, 'patched-with-logo.apk');
@@ -3168,6 +3234,7 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
     assert.equal(report.schema, 'rokbot-android-patch-report/v1');
     assert.equal(report.launcherIconsReplaced, 6);
     assert.equal(report.launcherIconsInserted, 9);
+    assert.equal(report.adaptiveIconsPatched, 2);
 
     const outBytes = fs.readFileSync(outApk);
     const sigCheck = verifyApk(outBytes);
@@ -3178,6 +3245,24 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
     const outZip = readZip(outBytes);
     const byName = new Map(outZip.entries.map(e => [e.name, e]));
     const sha = buf => crypto.createHash('sha256').update(buf).digest('hex');
+
+    // Verify application android:label="RokBot"
+    const manifestAst = parseAxml(entryBytes(byName.get('AndroidManifest.xml')));
+    const appEl = manifestAst.rootNodes.find(n => n.name === 'manifest')?.children?.find(c => c.name === 'application');
+    assert.equal(getAndroidAttr(appEl, 'label')?.value, 'RokBot', 'Patched manifest must set application android:label=RokBot');
+
+    // Verify adaptive icon XMLs have #ff101218 background and zero <monochrome>
+    for (const xmlPath of ['res/mipmap-anydpi-v26/ic_launcher.xml', 'res/mipmap-anydpi-v26/ic_launcher_round.xml']) {
+      assert.ok(byName.has(xmlPath), `Adaptive icon XML must remain present: ${xmlPath}`);
+      const xmlAst = parseAxml(entryBytes(byName.get(xmlPath)));
+      const adaptiveRoot = xmlAst.rootNodes.find(n => n.name === 'adaptive-icon');
+      assert.ok(adaptiveRoot, `${xmlPath} must have <adaptive-icon> root`);
+      assert.equal(adaptiveRoot.children.some(c => c.name === 'monochrome'), false, `${xmlPath} must strip <monochrome>`);
+      const bgNode = adaptiveRoot.children.find(c => c.name === 'background');
+      const bgAttr = getAndroidAttr(bgNode, 'drawable');
+      assert.equal(bgAttr?.type, 0x1c, `${xmlPath} background drawable must be TYPE_INT_COLOR_ARGB8`);
+      assert.equal(bgAttr?.data >>> 0, 0xff101218, `${xmlPath} background color must be #ff101218`);
+    }
 
     // Verify all 6 preseeded -v4/*.webp entries kept their exact entry paths & matched RokBot PNG SHA-256
     const replacedMap = [
@@ -3209,6 +3294,99 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test(
+  'M4-Real-XAPK: patches grok-bot-1.16.0.xapk with adaptive icons, RokBot label, ModelsActivity, apksigner & zipalign',
+  {
+    skip: !TRACK_A_XAPK_PATH &&
+      'Official grok-bot-1.16.0.xapk not found; set ROKBOT_ANDROID_TEST_XAPK or place in inputs/android/',
+  },
+  async () => {
+    const sdkRoot = [process.env.ANDROID_HOME, '/Users/lianqishi/Library/Android/sdk', '/Volumes/ORICO/android/sdk']
+      .find(d => d && fs.existsSync(path.join(d, 'build-tools/36.0.0/apksigner')) && fs.existsSync(path.join(d, 'build-tools/36.0.0/zipalign')));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-m4-real-xapk-'));
+    try {
+      const outApk = path.join(tmpDir, 'rokbot-real-patched.apk');
+      const keystore = path.join(tmpDir, 'signing.json');
+      const report = await runPatchPipeline({
+        inputApk: TRACK_A_XAPK_PATH,
+        outputApk: outApk,
+        packageName: 'dev.rokbot.nativeapp',
+        host: 'http://127.0.0.1:18080',
+        pairingCode: 'K7M9P2',
+        keystore,
+        force: true,
+      });
+
+      assert.equal(report.pinMatched, true);
+      assert.equal(report.bundlePatched, true);
+      assert.equal(report.launcherIconsReplaced, 15);
+      assert.equal(report.launcherIconsInserted, 0);
+      assert.equal(report.adaptiveIconsPatched, 2);
+
+      const outBytes = fs.readFileSync(outApk);
+      const v = verifyApk(outBytes);
+      assert.equal(v.verified, true);
+      assert.equal(v.hasV2, true);
+      assert.equal(v.hasV3, true);
+
+      const outZip = readZip(outBytes);
+      const byName = new Map(outZip.entries.map(e => [e.name, e]));
+      const arscBytes = entryBytes(byName.get('resources.arsc'));
+      const fgId = findMipmapResourceId(arscBytes, 'ic_launcher_foreground');
+      assert.equal(fgId, 0x7f100001, 'resources.arsc mipmap/ic_launcher_foreground must resolve to 0x7f100001');
+
+      // Verify manifest contains ModelsActivity, ApkUpdateProvider, BootReceiver, and label="RokBot"
+      const manifestAst = parseAxml(entryBytes(byName.get('AndroidManifest.xml')));
+      const manifestNode = manifestAst.rootNodes.find(n => n.name === 'manifest');
+      const appNode = manifestNode.children.find(c => c.name === 'application');
+      assert.equal(getAndroidAttr(appNode, 'label')?.value, 'RokBot');
+      assert.ok(appNode.children.some(c => c.name === 'activity' && getAndroidAttr(c, 'name')?.value === 'dev.rokbot.nativeapp.ModelsActivity'));
+      assert.ok(appNode.children.some(c => c.name === 'provider' && getAndroidAttr(c, 'name')?.value === 'dev.rokbot.nativeapp.ApkUpdateProvider'));
+      assert.ok(appNode.children.some(c => c.name === 'receiver' && getAndroidAttr(c, 'name')?.value === 'dev.rokbot.nativeapp.BootReceiver'));
+
+      // Verify all 15 mipmap entries have PNG magic and match assets/logo/android/
+      const logoDir = path.join(PROJECT_ROOT, 'assets/logo/android');
+      const sha = buf => crypto.createHash('sha256').update(buf).digest('hex');
+      for (const d of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+        for (const k of ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground']) {
+          const entry = byName.get(`res/mipmap-${d}-v4/${k}.webp`);
+          assert.ok(entry, `Missing mipmap entry res/mipmap-${d}-v4/${k}.webp`);
+          const bytes = entryBytes(entry);
+          assert.deepEqual([...bytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], 'Replaced icon must have PNG magic');
+          const expected = fs.readFileSync(path.join(logoDir, `mipmap-${d}`, `${k}.png`));
+          assert.equal(sha(bytes), sha(expected));
+        }
+      }
+
+      // Verify adaptive icon XMLs
+      for (const xmlPath of ['res/mipmap-anydpi-v26/ic_launcher.xml', 'res/mipmap-anydpi-v26/ic_launcher_round.xml']) {
+        const xmlAst = parseAxml(entryBytes(byName.get(xmlPath)));
+        const adaptiveRoot = xmlAst.rootNodes.find(n => n.name === 'adaptive-icon');
+        assert.ok(adaptiveRoot);
+        assert.equal(adaptiveRoot.children.some(c => c.name === 'monochrome'), false);
+        const bgAttr = getAndroidAttr(adaptiveRoot.children.find(c => c.name === 'background'), 'drawable');
+        const fgAttr = getAndroidAttr(adaptiveRoot.children.find(c => c.name === 'foreground'), 'drawable');
+        assert.equal(bgAttr?.type, 0x1c);
+        assert.equal(bgAttr?.data >>> 0, 0xff101218);
+        assert.equal(fgAttr?.type, 0x01);
+        assert.equal(fgAttr?.data >>> 0, 0x7f100001);
+      }
+
+      if (sdkRoot) {
+        cp.execFileSync(path.join(sdkRoot, 'build-tools/36.0.0/apksigner'), [
+          'verify', '-v', '--min-sdk-version', '28', '--max-sdk-version', '35', outApk,
+        ], { stdio: 'pipe' });
+        cp.execFileSync(path.join(sdkRoot, 'build-tools/36.0.0/zipalign'), [
+          '-c', '-v', '-P', '16', '4', outApk,
+        ], { stdio: 'pipe' });
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }
+);
+
 
 
 

@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -36,6 +37,7 @@ public class ProfileActivity extends Activity {
     private TextView mCheckUpdateBtn;
     private TextView mInstallUpdateBtn;
     private File mStagedUpdateApk = null;
+    private boolean mPendingInstallAfterPerm = false;
     private String mAvatarDataUrl = null;
     private final Handler mMain = new Handler(Looper.getMainLooper());
 
@@ -45,6 +47,21 @@ public class ProfileActivity extends Activity {
         super.onCreate(savedInstanceState);
         buildUi();
         load();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (mPendingInstallAfterPerm && mStagedUpdateApk != null && mStagedUpdateApk.isFile()) {
+            if (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls()) {
+                mPendingInstallAfterPerm = false;
+                try {
+                    UpdateManager.launchInstaller(this, mStagedUpdateApk);
+                } catch (Throwable t) {
+                    Toast.makeText(this, Localize.t(this, "拉起安装器失败：", "Installer error: ") + t.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            }
+        }
     }
 
     private void buildUi() {
@@ -275,9 +292,12 @@ public class ProfileActivity extends Activity {
         try {
             boolean launched = UpdateManager.launchInstaller(this, mStagedUpdateApk);
             if (!launched) {
+                mPendingInstallAfterPerm = true;
                 Toast.makeText(this, Localize.t(this,
-                        "请先授予“安装未知应用”权限，返回后再点安装",
-                        "Allow installing unknown apps, then tap Install again"), Toast.LENGTH_LONG).show();
+                        "请先授予“安装未知应用”权限，返回后将自动继续安装",
+                        "Allow installing unknown apps; installer will resume automatically on return"), Toast.LENGTH_LONG).show();
+            } else {
+                mPendingInstallAfterPerm = false;
             }
         } catch (Throwable t) {
             Toast.makeText(this, Localize.t(this, "拉起安装器失败：", "Installer error: ") + t.getMessage(), Toast.LENGTH_LONG).show();

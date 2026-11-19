@@ -10,6 +10,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,6 +30,9 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -61,6 +65,21 @@ public class PairingActivity extends Activity {
     private String mDraftHost = null;
     private String mDraftCode = null;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    private volatile boolean mDestroyed = false;
+    private static volatile boolean sSessionAutoUpdateChecked = false;
+
+    private LinearLayout mNeedsModelBanner;
+    private LinearLayout mUpdateBannerCard;
+    private TextView mUpdateTitleText;
+    private TextView mUpdateNotesText;
+    private TextView mUpdateStatusText;
+    private ProgressBar mUpdateProgressBar;
+    private TextView mInstallUpdateBtn;
+    private TextView mCheckUpdatesBtn;
+    private UpdateManager.UpdateManifestInfo mAvailableUpdate = null;
+    private File mStagedUpdateApk = null;
+    private boolean mUpdateStaging = false;
+    private boolean mPendingInstallAfterPerm = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,7 +92,7 @@ public class PairingActivity extends Activity {
         if (Storage.isPaired(this) && !showSettings) {
             String rnCls = discoverOriginalReactActivity();
             if (rnCls != null) {
-                returnToMainApp();
+                routePairedLaunchWithModelCheck();
                 return;
             }
         }
@@ -86,6 +105,62 @@ public class PairingActivity extends Activity {
             mDraftCode = savedInstanceState.getString("state_code");
         }
         renderScreen();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (mPendingInstallAfterPerm && mStagedUpdateApk != null && mStagedUpdateApk.isFile()) {
+            if (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls()) {
+                mPendingInstallAfterPerm = false;
+                try {
+                    UpdateManager.launchInstaller(this, mStagedUpdateApk);
+                } catch (Throwable t) {
+                    Toast.makeText(this, Localize.t(this, "拉起安装器失败：", "Installer error: ") + t.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            }
+        }
+        if (Storage.isPaired(this) && !mEditingConnection && mNeedsModelBanner != null) {
+            refreshNeedsModelBanner();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        mDestroyed = true;
+        mMainHandler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    private void routePairedLaunchWithModelCheck() {
+        UiChrome.Palette p = UiChrome.palette(this);
+        LinearLayout loading = new LinearLayout(this);
+        loading.setGravity(Gravity.CENTER);
+        loading.setBackgroundColor(p.bgPaper);
+        loading.addView(new ProgressBar(this));
+        setContentView(loading);
+        UiChrome.applyRootInsets(this, loading);
+
+        new Thread(() -> {
+            boolean needsModel = false;
+            try {
+                JSONObject status = HostApiClient.getHostStatus(this);
+                needsModel = status != null && status.optBoolean("needsModel", false);
+            } catch (Throwable ignored) {}
+            final boolean shouldOnboardModel = needsModel;
+            if (mDestroyed) return;
+            mMainHandler.post(() -> {
+                if (mDestroyed || isFinishing()) return;
+                if (shouldOnboardModel) {
+                    Intent i = new Intent(this, ModelsActivity.class);
+                    i.putExtra(ModelsActivity.EXTRA_ONBOARDING, true);
+                    startActivity(i);
+                    finish();
+                } else {
+                    returnToMainApp();
+                }
+            });
+        }, "RokBotPairedLaunchCheck").start();
     }
 
     @Override
@@ -277,6 +352,87 @@ public class PairingActivity extends Activity {
         card.addView(devTv);
         root.addView(card);
 
+        // Non-blocking needsModel onboarding banner
+        mNeedsModelBanner = UiChrome.makeCard(this, p);
+        mNeedsModelBanner.setContentDescription("needs_model_banner");
+        LinearLayout.LayoutParams nmbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nmbLp.topMargin = UiChrome.dp(this, 10);
+        mNeedsModelBanner.setLayoutParams(nmbLp);
+        TextView nmbTitle = new TextView(this);
+        nmbTitle.setText(Localize.t(this, "● 尚未配置对话模型", "● Model setup required"));
+        nmbTitle.setTextColor(p.warning);
+        nmbTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        nmbTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        mNeedsModelBanner.addView(nmbTitle);
+        TextView nmbDesc = new TextView(this);
+        nmbDesc.setText(Localize.t(this,
+                "配置一个模型服务（如 OpenAI / Anthropic）即可开始对话。",
+                "Configure a model provider (e.g. OpenAI or Anthropic) to start chatting."));
+        nmbDesc.setTextColor(p.textSecondary);
+        nmbDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        nmbDesc.setPadding(0, UiChrome.dp(this, 4), 0, UiChrome.dp(this, 10));
+        mNeedsModelBanner.addView(nmbDesc);
+        TextView nmbBtn = UiChrome.makePillButton(this,
+                Localize.t(this, "立即配置模型", "Configure Model"), true, p,
+                v -> {
+                    Intent i = new Intent(this, ModelsActivity.class);
+                    i.putExtra(ModelsActivity.EXTRA_ONBOARDING, true);
+                    startActivity(i);
+                });
+        nmbBtn.setContentDescription("configure_model_banner_button");
+        mNeedsModelBanner.addView(nmbBtn);
+        mNeedsModelBanner.setVisibility(View.GONE);
+        root.addView(mNeedsModelBanner);
+
+        // Update banner card (shown when update available or checking manually)
+        mUpdateBannerCard = UiChrome.makeCard(this, p);
+        mUpdateBannerCard.setContentDescription("update_banner_card");
+        LinearLayout.LayoutParams ubLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ubLp.topMargin = UiChrome.dp(this, 10);
+        mUpdateBannerCard.setLayoutParams(ubLp);
+
+        mUpdateTitleText = new TextView(this);
+        mUpdateTitleText.setTextColor(p.textPrimary);
+        mUpdateTitleText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        mUpdateTitleText.setTypeface(Typeface.DEFAULT_BOLD);
+        mUpdateBannerCard.addView(mUpdateTitleText);
+
+        mUpdateNotesText = new TextView(this);
+        mUpdateNotesText.setTextColor(p.textSecondary);
+        mUpdateNotesText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        mUpdateNotesText.setPadding(0, UiChrome.dp(this, 4), 0, 0);
+        mUpdateNotesText.setVisibility(View.GONE);
+        mUpdateBannerCard.addView(mUpdateNotesText);
+
+        mUpdateStatusText = new TextView(this);
+        mUpdateStatusText.setContentDescription("update_status_text");
+        mUpdateStatusText.setTextColor(p.textSecondary);
+        mUpdateStatusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        mUpdateStatusText.setPadding(0, UiChrome.dp(this, 6), 0, UiChrome.dp(this, 8));
+        mUpdateBannerCard.addView(mUpdateStatusText);
+
+        mUpdateProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        mUpdateProgressBar.setContentDescription("update_progress_bar");
+        mUpdateProgressBar.setMax(100);
+        LinearLayout.LayoutParams pbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pbLp.bottomMargin = UiChrome.dp(this, 8);
+        mUpdateProgressBar.setLayoutParams(pbLp);
+        mUpdateProgressBar.setVisibility(View.GONE);
+        mUpdateBannerCard.addView(mUpdateProgressBar);
+
+        mInstallUpdateBtn = UiChrome.makePillButton(this,
+                Localize.t(this, "下载并安装更新", "Download & Install"), true, p,
+                v -> onInstallUpdateButtonClicked());
+        mInstallUpdateBtn.setContentDescription("install_update_button");
+        mInstallUpdateBtn.setVisibility(View.GONE);
+        mUpdateBannerCard.addView(mInstallUpdateBtn);
+
+        mUpdateBannerCard.setVisibility(View.GONE);
+        root.addView(mUpdateBannerCard);
+
         String originalReact = discoverOriginalReactActivity();
         if (mFromRnModal || originalReact != null) {
             addSpacing(root, 18);
@@ -334,13 +490,31 @@ public class PairingActivity extends Activity {
         View sp3 = new View(this);
         sp3.setLayoutParams(new LinearLayout.LayoutParams(UiChrome.dp(this, 8), 1));
         quickGrid3.addView(sp3);
+        TextView modelsBtn = UiChrome.makePillButton(this, Localize.t(this, "模型设置", "Model Settings"), false, p,
+                v -> startActivity(new Intent(this, ModelsActivity.class)));
+        modelsBtn.setContentDescription("model_settings_button");
+        modelsBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        quickGrid3.addView(modelsBtn);
+        root.addView(quickGrid3);
+
+        addSpacing(root, 8);
+        LinearLayout quickGrid4 = new LinearLayout(this);
+        quickGrid4.setOrientation(LinearLayout.HORIZONTAL);
+        mCheckUpdatesBtn = UiChrome.makePillButton(this, Localize.t(this, "检查更新", "Check for Updates"), false, p,
+                v -> runUpdateCheck(true));
+        mCheckUpdatesBtn.setContentDescription("check_for_updates_button");
+        mCheckUpdatesBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        quickGrid4.addView(mCheckUpdatesBtn);
+        View sp4 = new View(this);
+        sp4.setLayoutParams(new LinearLayout.LayoutParams(UiChrome.dp(this, 8), 1));
+        quickGrid4.addView(sp4);
         TextView editBtn = UiChrome.makePillButton(this, Localize.t(this, "修改连接", "Edit Connection"), false, p, v -> {
             mEditingConnection = true;
             renderScreen();
         });
         editBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid3.addView(editBtn);
-        root.addView(quickGrid3);
+        quickGrid4.addView(editBtn);
+        root.addView(quickGrid4);
 
         addSpacing(root, 16);
         TextView unpairBtn = UiChrome.makePillButton(this,
@@ -348,6 +522,10 @@ public class PairingActivity extends Activity {
                     TailcatManager.get().clear();
                     Storage.clearCredentials(this);
                     RokBotBootstrap.clearPairedBundle(this);
+                    mAvailableUpdate = null;
+                    mStagedUpdateApk = null;
+                    mPendingInstallAfterPerm = false;
+                    sSessionAutoUpdateChecked = false;
                     PushManager.getInstance(this).onForegroundChanged(false);
                     NotificationService.sync(this);
                     RokBotBootstrap.reloadReactHost(this);
@@ -359,6 +537,252 @@ public class PairingActivity extends Activity {
 
         setContentView(scroll);
         UiChrome.applyRootInsets(this, scroll);
+
+        refreshNeedsModelBanner();
+        if (mAvailableUpdate != null) {
+            renderAvailableUpdateBanner(mAvailableUpdate);
+        } else if (!sSessionAutoUpdateChecked) {
+            sSessionAutoUpdateChecked = true;
+            runUpdateCheck(false);
+        }
+    }
+
+    private void refreshNeedsModelBanner() {
+        new Thread(() -> {
+            boolean needsModel = false;
+            try {
+                JSONObject st = HostApiClient.getHostStatus(this);
+                needsModel = st != null && st.optBoolean("needsModel", false);
+            } catch (Throwable ignored) {}
+            final boolean show = needsModel;
+            if (mDestroyed) return;
+            mMainHandler.post(() -> {
+                if (mDestroyed || mNeedsModelBanner == null) return;
+                mNeedsModelBanner.setVisibility(show ? View.VISIBLE : View.GONE);
+            });
+        }, "RokBotConnectedModelCheck").start();
+    }
+
+    private void runUpdateCheck(final boolean userInitiated) {
+        if (mUpdateStaging) return;
+        String feedUrl = UpdateManager.resolveDefaultFeedUrl(this);
+        if (feedUrl.isEmpty()) {
+            if (userInitiated) {
+                Toast.makeText(this, Localize.t(this, "未配置更新源地址", "No update feed URL configured"), Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        if (userInitiated) {
+            UiChrome.Palette p = UiChrome.palette(this);
+            if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(false);
+            if (mUpdateBannerCard != null) mUpdateBannerCard.setVisibility(View.VISIBLE);
+            if (mUpdateTitleText != null) mUpdateTitleText.setText(Localize.t(this, "正在检查更新…", "Checking for updates…"));
+            if (mUpdateNotesText != null) mUpdateNotesText.setVisibility(View.GONE);
+            if (mUpdateStatusText != null) {
+                mUpdateStatusText.setTextColor(p.textSecondary);
+                mUpdateStatusText.setText(Localize.t(this, "当前版本: ", "Current: ") + UpdateManager.getCurrentVersionLabel(this));
+            }
+            if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
+            if (mInstallUpdateBtn != null) mInstallUpdateBtn.setVisibility(View.GONE);
+        }
+        UpdateManager.checkManifestAsync(this, feedUrl, new UpdateManager.CheckCallback() {
+            @Override
+            public void onUpToDate(String currentVersion, String shortSha) {
+                if (mDestroyed) return;
+                mMainHandler.post(() -> {
+                    if (mDestroyed) return;
+                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
+                    mAvailableUpdate = null;
+                    if (userInitiated && mUpdateBannerCard != null) {
+                        UiChrome.Palette p = UiChrome.palette(PairingActivity.this);
+                        mUpdateBannerCard.setVisibility(View.VISIBLE);
+                        mUpdateTitleText.setText(Localize.t(PairingActivity.this, "● 已是最新版本", "● Up to date"));
+                        mUpdateNotesText.setVisibility(View.GONE);
+                        mUpdateStatusText.setTextColor(p.success);
+                        mUpdateStatusText.setText(currentVersion + " [" + shortSha + "]");
+                        mUpdateProgressBar.setVisibility(View.GONE);
+                        mInstallUpdateBtn.setVisibility(View.GONE);
+                    }
+                });
+            }
+
+            @Override
+            public void onUpdateAvailable(UpdateManager.UpdateManifestInfo info) {
+                if (mDestroyed) return;
+                mMainHandler.post(() -> {
+                    if (mDestroyed) return;
+                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
+                    mAvailableUpdate = info;
+                    mStagedUpdateApk = info.alreadyStaged ? info.stagedFile : null;
+                    renderAvailableUpdateBanner(info);
+                });
+            }
+
+            @Override
+            public void onError(String message) {
+                if (mDestroyed) return;
+                mMainHandler.post(() -> {
+                    if (mDestroyed) return;
+                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
+                    if (userInitiated && mUpdateBannerCard != null) {
+                        UiChrome.Palette p = UiChrome.palette(PairingActivity.this);
+                        mUpdateBannerCard.setVisibility(View.VISIBLE);
+                        mUpdateTitleText.setText(Localize.t(PairingActivity.this, "检查更新失败", "Update check failed"));
+                        mUpdateNotesText.setVisibility(View.GONE);
+                        mUpdateStatusText.setTextColor(p.danger);
+                        mUpdateStatusText.setText(message);
+                        mUpdateProgressBar.setVisibility(View.GONE);
+                        mInstallUpdateBtn.setVisibility(View.GONE);
+                    }
+                });
+            }
+        });
+    }
+
+    private void renderAvailableUpdateBanner(UpdateManager.UpdateManifestInfo info) {
+        if (mUpdateBannerCard == null || info == null) return;
+        UiChrome.Palette p = UiChrome.palette(this);
+        mUpdateBannerCard.setVisibility(View.VISIBLE);
+        mUpdateTitleText.setText(Localize.t(this, "发现新版本: ", "Update Available: ")
+                + info.currentVersionLabel + " → " + info.versionLabel);
+        if (info.releaseNotes != null && !info.releaseNotes.isEmpty()) {
+            mUpdateNotesText.setText(info.releaseNotes);
+            mUpdateNotesText.setVisibility(View.VISIBLE);
+        } else {
+            mUpdateNotesText.setVisibility(View.GONE);
+        }
+        String sizeSummary;
+        if (mStagedUpdateApk != null && mStagedUpdateApk.isFile()) {
+            sizeSummary = Localize.t(this, "更新包已下载校验完成，点击立即安装。", "Update verified and ready to install.");
+            mInstallUpdateBtn.setText(Localize.t(this, "立即安装更新", "Install Now"));
+        } else if (info.hasDelta) {
+            int savedPct = (int) Math.max(0, Math.round((1.0 - (double) info.deltaSize / (double) Math.max(1L, info.fullSize)) * 100.0));
+            sizeSummary = Localize.t(this,
+                    "增量补丁: " + UpdateManager.formatBytes(info.deltaSize) + " / 完整包 "
+                            + UpdateManager.formatBytes(info.fullSize) + "（节省 " + savedPct + "%）",
+                    "Delta: " + UpdateManager.formatBytes(info.deltaSize) + " / Full: "
+                            + UpdateManager.formatBytes(info.fullSize) + " (saves " + savedPct + "%)");
+            mInstallUpdateBtn.setText(Localize.t(this, "下载并安装更新", "Download & Install"));
+        } else {
+            sizeSummary = Localize.t(this,
+                    "完整安装包: " + UpdateManager.formatBytes(info.fullSize),
+                    "Full APK: " + UpdateManager.formatBytes(info.fullSize));
+            mInstallUpdateBtn.setText(Localize.t(this, "下载并安装更新", "Download & Install"));
+        }
+        mUpdateStatusText.setTextColor(p.blueAccent);
+        mUpdateStatusText.setText(sizeSummary);
+        mUpdateProgressBar.setVisibility(View.GONE);
+        mInstallUpdateBtn.setVisibility(View.VISIBLE);
+        mInstallUpdateBtn.setEnabled(true);
+    }
+
+    private void onInstallUpdateButtonClicked() {
+        if (mUpdateStaging) return;
+        if (mStagedUpdateApk != null && mStagedUpdateApk.isFile()) {
+            launchStagedInstaller();
+            return;
+        }
+        if (mAvailableUpdate == null) {
+            runUpdateCheck(true);
+            return;
+        }
+        UiChrome.Palette p = UiChrome.palette(this);
+        mUpdateStaging = true;
+        if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(false);
+        if (mInstallUpdateBtn != null) mInstallUpdateBtn.setEnabled(false);
+        if (mUpdateProgressBar != null) {
+            mUpdateProgressBar.setVisibility(View.VISIBLE);
+            mUpdateProgressBar.setIndeterminate(false);
+            mUpdateProgressBar.setProgress(5);
+        }
+        UpdateManager.stageFromInfoAsync(this, mAvailableUpdate, new UpdateManager.Callback() {
+            @Override
+            public void onStage(String message, int progressPercent) {
+                if (mDestroyed) return;
+                mMainHandler.post(() -> {
+                    if (mDestroyed) return;
+                    if (mUpdateStatusText != null) {
+                        mUpdateStatusText.setTextColor(p.blueAccent);
+                        mUpdateStatusText.setText(message + " (" + progressPercent + "%)");
+                    }
+                    if (mUpdateProgressBar != null) {
+                        mUpdateProgressBar.setVisibility(View.VISIBLE);
+                        mUpdateProgressBar.setProgress(Math.max(0, Math.min(100, progressPercent)));
+                    }
+                });
+            }
+
+            @Override
+            public void onUpToDate(String currentVersion, String shortSha) {
+                if (mDestroyed) return;
+                mMainHandler.post(() -> {
+                    if (mDestroyed) return;
+                    mUpdateStaging = false;
+                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
+                    if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
+                    if (mUpdateStatusText != null) {
+                        mUpdateStatusText.setTextColor(p.success);
+                        mUpdateStatusText.setText(Localize.t(PairingActivity.this, "已是最新版本", "Already up to date"));
+                    }
+                });
+            }
+
+            @Override
+            public void onReady(File stagedApk, String versionLabel, boolean usedDelta, long downloadBytes, long fullBytes, String notes) {
+                if (mDestroyed) return;
+                mMainHandler.post(() -> {
+                    if (mDestroyed) return;
+                    mUpdateStaging = false;
+                    mStagedUpdateApk = stagedApk;
+                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
+                    if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
+                    if (mInstallUpdateBtn != null) {
+                        mInstallUpdateBtn.setEnabled(true);
+                        mInstallUpdateBtn.setText(Localize.t(PairingActivity.this, "立即安装更新", "Install Now"));
+                    }
+                    if (mUpdateStatusText != null) {
+                        mUpdateStatusText.setTextColor(p.success);
+                        mUpdateStatusText.setText(Localize.t(PairingActivity.this,
+                                "更新包已校验就绪，正在拉起安装器…",
+                                "Update verified. Launching installer…"));
+                    }
+                    launchStagedInstaller();
+                });
+            }
+
+            @Override
+            public void onError(String message) {
+                if (mDestroyed) return;
+                mMainHandler.post(() -> {
+                    if (mDestroyed) return;
+                    mUpdateStaging = false;
+                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
+                    if (mInstallUpdateBtn != null) mInstallUpdateBtn.setEnabled(true);
+                    if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
+                    if (mUpdateStatusText != null) {
+                        mUpdateStatusText.setTextColor(p.danger);
+                        mUpdateStatusText.setText(Localize.t(PairingActivity.this, "更新失败：", "Update failed: ") + message);
+                    }
+                });
+            }
+        });
+    }
+
+    private void launchStagedInstaller() {
+        if (mStagedUpdateApk == null || !mStagedUpdateApk.isFile()) return;
+        try {
+            boolean launched = UpdateManager.launchInstaller(this, mStagedUpdateApk);
+            if (!launched) {
+                mPendingInstallAfterPerm = true;
+                Toast.makeText(this, Localize.t(this,
+                        "请先授予“安装未知应用”权限，返回后将自动继续安装",
+                        "Allow installing unknown apps; installer will resume automatically on return"), Toast.LENGTH_LONG).show();
+            } else {
+                mPendingInstallAfterPerm = false;
+            }
+        } catch (Throwable t) {
+            Toast.makeText(this, Localize.t(this, "拉起安装器失败：", "Installer error: ") + t.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void buildPairingUi() {
@@ -783,6 +1207,7 @@ public class PairingActivity extends Activity {
                     RokBotBootstrap.reloadReactHost(this);
                     mEditingConnection = false;
                     mMainHandler.post(() -> {
+                        if (mDestroyed || isFinishing()) return;
                         Toast.makeText(this, Localize.t(this, "连接已验证", "Connection verified!"), Toast.LENGTH_SHORT).show();
                         renderScreen();
                     });
@@ -799,7 +1224,10 @@ public class PairingActivity extends Activity {
                 try {
                     String resolved = HostApiClient.resolveServer(this);
                     if (HermesPatcher.hasGatewayTemplate(this)) {
-                        mMainHandler.post(() -> mStatusText.setText(Localize.t(this, "正在配置本地运行时…", "Preparing runtime bundle…")));
+                        mMainHandler.post(() -> {
+                            if (mDestroyed || isFinishing()) return;
+                            mStatusText.setText(Localize.t(this, "正在配置本地运行时…", "Preparing runtime bundle…"));
+                        });
                         HermesPatcher.generatePairedBundle(this, resolved, res.token);
                     }
                 } catch (Throwable ignored) {}
@@ -807,12 +1235,29 @@ public class PairingActivity extends Activity {
                 NotificationService.sync(this, true);
                 PushManager.getInstance(this).syncDeviceAsync(RokBotBootstrap.isForeground(), true);
 
+                boolean needsModel = false;
+                try {
+                    JSONObject hostStatus = HostApiClient.getHostStatus(this);
+                    needsModel = hostStatus != null && hostStatus.optBoolean("needsModel", false);
+                } catch (Throwable ignored) {}
+                final boolean shouldOnboardModel = needsModel;
+
                 mMainHandler.post(() -> {
+                    if (mDestroyed || isFinishing()) return;
                     Toast.makeText(this, Localize.t(this, "配对成功", "Pairing Successful!"), Toast.LENGTH_SHORT).show();
-                    returnToMainApp();
+                    if (shouldOnboardModel) {
+                        RokBotBootstrap.reloadReactHost(this);
+                        Intent i = new Intent(this, ModelsActivity.class);
+                        i.putExtra(ModelsActivity.EXTRA_ONBOARDING, true);
+                        startActivity(i);
+                        finish();
+                    } else {
+                        returnToMainApp();
+                    }
                 });
             } catch (Exception e) {
                 mMainHandler.post(() -> {
+                    if (mDestroyed || isFinishing()) return;
                     mPairButton.setEnabled(true);
                     mProgress.setVisibility(View.GONE);
                     mStatusText.setTextColor(p.danger);

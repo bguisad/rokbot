@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
-import { parseAxml, patchManifest, extractManifestInfo, ANDROID_NS } from '../patchers/manifest.mjs';
+import { parseAxml, serializeAxml, patchManifest, extractManifestInfo, ANDROID_NS, KNOWN_RES_IDS } from '../patchers/manifest.mjs';
+import { findMipmapResourceId } from '../patchers/arsc.mjs';
 import {
   dexEntriesContainClass,
   injectCompanionDex,
@@ -37,10 +38,37 @@ const LOGO_ANDROID_DIR = path.resolve(ROOT_DIR, 'assets/logo/android');
 const ICON_DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
 const ICON_KINDS = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'];
 const MIPMAP_ICON_RE = /^res\/mipmap-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi)(?:-v\d+)?\/(ic_launcher(?:_round|_foreground)?)\.(?:png|webp)$/i;
+const ADAPTIVE_ICON_XML_RE = /^res\/mipmap-anydpi(?:-v\d+)?\/ic_launcher(?:_round)?\.xml$/i;
+const ADAPTIVE_ICON_BG_COLOR = 0xff101218;
+
+function setAdaptiveDrawableAttr(node, type, data) {
+  node.attributes = node.attributes || [];
+  let attr = node.attributes.find(
+    a => a.resourceId === KNOWN_RES_IDS.drawable || (a.name === 'drawable' && a.namespace === ANDROID_NS)
+  );
+  if (!attr) {
+    attr = {
+      name: 'drawable',
+      namespace: ANDROID_NS,
+      resourceId: KNOWN_RES_IDS.drawable,
+      type,
+      rawValue: null,
+      value: data >>> 0,
+      data: data >>> 0,
+    };
+    node.attributes.push(attr);
+  } else {
+    attr.resourceId = KNOWN_RES_IDS.drawable;
+    attr.type = type;
+    attr.rawValue = null;
+    attr.value = data >>> 0;
+    attr.data = data >>> 0;
+  }
+}
 
 export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
   if (!logoDir || !fs.existsSync(logoDir)) {
-    return { entries, replaced: 0, inserted: 0 };
+    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0 };
   }
   const iconMap = new Map();
   for (const density of ICON_DENSITIES) {
@@ -52,12 +80,42 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     }
   }
   if (iconMap.size === 0) {
-    return { entries, replaced: 0, inserted: 0 };
+    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0 };
   }
+
+  const arscEntry = entries.find(e => e.name === 'resources.arsc');
+  const fgMipmapId = arscEntry ? findMipmapResourceId(entryBytes(arscEntry), 'ic_launcher_foreground') : null;
 
   const matchedKeys = new Set();
   let replaced = 0;
+  let adaptiveIconsPatched = 0;
   const updated = entries.map(entry => {
+    if (ADAPTIVE_ICON_XML_RE.test(entry.name)) {
+      try {
+        const ast = parseAxml(entryBytes(entry));
+        const root = (ast.rootNodes || []).find(n => n.name === 'adaptive-icon');
+        if (root) {
+          root.children = (root.children || []).filter(c => c.name !== 'monochrome');
+          const bgNode = root.children.find(c => c.name === 'background');
+          if (bgNode) {
+            setAdaptiveDrawableAttr(bgNode, 0x1c, ADAPTIVE_ICON_BG_COLOR);
+          }
+          if (fgMipmapId != null) {
+            const fgNode = root.children.find(c => c.name === 'foreground');
+            if (fgNode) {
+              setAdaptiveDrawableAttr(fgNode, 0x01, fgMipmapId);
+            }
+          }
+          const patchedXml = serializeAxml(ast);
+          adaptiveIconsPatched++;
+          return createEntry(entry.name, patchedXml, { store: false });
+        }
+      } catch {
+        // Leave malformed XML untouched rather than crashing non-adaptive builds
+      }
+      return entry;
+    }
+
     const m = MIPMAP_ICON_RE.exec(entry.name);
     if (!m) return entry;
     const key = `${m[1].toLowerCase()}:${m[2].toLowerCase()}`;
@@ -76,7 +134,7 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     inserted++;
   }
 
-  return { entries: updated, replaced, inserted };
+  return { entries: updated, replaced, inserted, adaptiveIconsPatched };
 }
 
 const PAIRING_CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/i;
@@ -559,6 +617,7 @@ export async function runPatchPipeline(options) {
     preconfiguredHost: Boolean(options.host),
     launcherIconsReplaced: iconResult.replaced,
     launcherIconsInserted: iconResult.inserted,
+    adaptiveIconsPatched: iconResult.adaptiveIconsPatched,
   };
 
   const reportPath = path.join(path.dirname(outPath), 'patch-report.json');
@@ -582,6 +641,7 @@ Options:
   --bundle-id <id>        Alias for --package-name
   --host <url>            Pre-configured Host address (e.g. http://192.168.1.100:18080 or tailcat://connect/...)
   --pairing-code <code>   Pre-configured 6-character pairing code
+  --update-url <url>      Default incremental update feed URL baked into assets/recipes/update-config.json
   --keystore <path>       Persistent JSON signing identity path (default ~/.rokbot-local/android-signing.json)
   --unsigned              Output aligned unsigned APK
   --verify-only           Validate input APK/XAPK and recipe pins without writing output

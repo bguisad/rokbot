@@ -166,6 +166,20 @@ export class MockHostServer {
         publishedByCurrentUser: false,
       },
     ];
+    this.needsModel = Boolean(options.needsModel);
+    this.routingMigrated = Boolean(options.routingMigrated);
+    this.configuredOverride = options.configured !== undefined ? options.configured : undefined;
+    this.canConfigureModel = options.canConfigureModel !== false;
+    this.requireStepUpPassword = Boolean(options.requireStepUpPassword);
+    this.modelConfig = this._defaultModelConfig();
+    this.modelReload = {
+      revision: 'rev-init-1',
+      status: 'applied',
+      error: null,
+      updatedAt: new Date().toISOString(),
+    };
+    this.androidUpdateManifest = options.androidUpdateManifest || null;
+    this.androidUpdateArtifacts = new Map();
 
     // SSE client sets
     this.eventsClients = new Set(); // { res, deviceId, lastEventId, subscribedChannels, slimAvatars }
@@ -499,6 +513,78 @@ export class MockHostServer {
     this.hostSettings = this._defaultHostSettings();
     this.agents = this._defaultAgents();
     this.connectors = this._defaultConnectors();
+    this.needsModel = Boolean(this.options.needsModel);
+    this.routingMigrated = Boolean(this.options.routingMigrated);
+    this.configuredOverride = this.options.configured !== undefined ? this.options.configured : undefined;
+    this.canConfigureModel = this.options.canConfigureModel !== false;
+    this.requireStepUpPassword = Boolean(this.options.requireStepUpPassword);
+    this.modelConfig = this._defaultModelConfig();
+    this.modelReload = {
+      revision: 'rev-init-1',
+      status: 'applied',
+      error: null,
+      updatedAt: new Date().toISOString(),
+    };
+    this.androidUpdateManifest = this.options.androidUpdateManifest || null;
+    this.androidUpdateArtifacts.clear();
+  }
+
+  _defaultModelConfig() {
+    if (this.options.needsModel) {
+      return { version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {} };
+    }
+    return {
+      version: 1,
+      providers: [
+        {
+          id: 'default',
+          name: 'OpenAI',
+          apiFormat: 'openai',
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'sk-mock-secret-key',
+        },
+      ],
+      profiles: [
+        {
+          id: 'default',
+          name: 'GPT-5',
+          providerId: 'default',
+          model: 'gpt-5',
+          efforts: ['minimal', 'low', 'medium', 'high'],
+          contextWindowTokens: 400000,
+          summaryThresholdTokens: 160000,
+        },
+      ],
+      defaultRoute: { profileId: 'default', effort: 'default', fallbacks: [] },
+      botRoutes: {},
+    };
+  }
+
+  _publicModelConfig() {
+    const providers = (this.modelConfig.providers || []).map(({ apiKey, ...rest }) => ({
+      ...rest,
+      hasApiKey: Boolean(apiKey),
+    }));
+    return {
+      version: 1,
+      providers,
+      profiles: structuredClone(this.modelConfig.profiles || []),
+      defaultRoute: this.modelConfig.defaultRoute ? structuredClone(this.modelConfig.defaultRoute) : null,
+      botRoutes: structuredClone(this.modelConfig.botRoutes || {}),
+    };
+  }
+
+  _isModelConfigConfigured() {
+    if (this.configuredOverride !== undefined) return Boolean(this.configuredOverride);
+    const providers = this.modelConfig.providers || [];
+    const profiles = this.modelConfig.profiles || [];
+    return providers.length > 0 && providers.every(p => Boolean(p.apiKey)) && profiles.length > 0 && Boolean(this.modelConfig.defaultRoute);
+  }
+
+  _isModelConfigAuthorized(req) {
+    const stepUp = req.headers['x-rokbot-admin-password'];
+    if (stepUp === this.adminPassword) return true;
+    return this.canConfigureModel && !this.requireStepUpPassword;
   }
 
   _readBody(req) {
@@ -559,7 +645,7 @@ export class MockHostServer {
     // CORS Headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-rokbot-foreground, x-sand-slim-avatars, Last-Event-ID');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-rokbot-foreground, x-rokbot-client, x-rokbot-admin-password, x-sand-slim-avatars, Last-Event-ID');
     if (method === 'OPTIONS') {
       res.writeHead(204);
       return res.end();
@@ -703,8 +789,220 @@ export class MockHostServer {
         deviceName: device.deviceName,
         platform: device.platform,
         connected: true,
+        needsModel: this.needsModel,
+        brand: 'RokBot',
         lastSeenAt: device.lastSeenAt
       });
+    }
+
+    // Local Status: GET /local/status
+    if (pathname === '/local/status' && method === 'GET') {
+      return this._json(res, 200, {
+        ok: true,
+        initialized: true,
+        needsModel: this.needsModel,
+        canConfigureModel: this._isModelConfigAuthorized(req),
+        hostVersion: '2bb5e41',
+        defaultMachineId: '',
+      });
+    }
+
+    // Local Model Config: GET/PUT /local/model
+    if (pathname === '/local/model' && (method === 'GET' || method === 'PUT')) {
+      if (!this._isModelConfigAuthorized(req)) {
+        return this._json(res, 403, { error: '当前设备未授权修改模型配置，请提供管理员密码' });
+      }
+      if (method === 'GET') {
+        const configured = this._isModelConfigConfigured();
+        return this._json(res, 200, {
+          ok: true,
+          config: this._publicModelConfig(),
+          configured,
+          needsModel: !configured || this.needsModel,
+          routingMigrated: this.routingMigrated,
+          reload: this.modelReload,
+          canConfigureModel: true,
+        });
+      }
+      const raw = await this._readBody(req);
+      let body;
+      try { body = JSON.parse(raw.toString('utf-8')); } catch { return this._json(res, 400, { error: 'Invalid JSON' }); }
+      if (!body || body.version !== 1 || !Array.isArray(body.providers) || !body.providers.length
+          || !Array.isArray(body.profiles) || !body.profiles.length || !body.defaultRoute?.profileId) {
+        return this._json(res, 400, { error: '模型配置无效：需要至少一个服务商、模型档案和默认路由' });
+      }
+      if (this.routingMigrated && body.migrateLegacyRouting !== true) {
+        return this._json(res, 409, { error: '检测到旧版模型配置。请在模型页确认迁移后再保存。' });
+      }
+      const prevMap = new Map((this.modelConfig.providers || []).map(p => [p.id, p]));
+      const nextProviders = [];
+      for (const p of body.providers) {
+        const supplied = typeof p.apiKey === 'string' && p.apiKey.trim() ? p.apiKey.trim() : '';
+        const mergedKey = supplied || prevMap.get(p.id)?.apiKey || '';
+        if (!mergedKey) {
+          return this._json(res, 400, { error: `API Key is required for ${p.id}` });
+        }
+        nextProviders.push({
+          id: p.id,
+          name: p.name,
+          apiFormat: p.apiFormat || 'openai',
+          baseUrl: p.baseUrl,
+          apiKey: mergedKey,
+        });
+      }
+      const provIds = new Set(nextProviders.map(p => p.id));
+      for (const pf of body.profiles) {
+        if (!provIds.has(pf.providerId)) {
+          return this._json(res, 400, { error: `Unknown provider: ${pf.providerId}` });
+        }
+      }
+      const profMap = new Map(body.profiles.map(pf => [pf.id, pf]));
+      const defPf = profMap.get(body.defaultRoute.profileId);
+      if (!defPf) {
+        return this._json(res, 400, { error: `Unknown profile: ${body.defaultRoute.profileId}` });
+      }
+      const defEffort = body.defaultRoute.effort || 'default';
+      if (defEffort !== 'default' && Array.isArray(defPf.efforts) && !defPf.efforts.includes(defEffort)) {
+        return this._json(res, 400, { error: `模型配置无效：Unsupported effort for ${defPf.id}` });
+      }
+      this.modelConfig = {
+        version: 1,
+        providers: nextProviders,
+        profiles: body.profiles,
+        defaultRoute: body.defaultRoute,
+        botRoutes: body.botRoutes && typeof body.botRoutes === 'object' ? body.botRoutes : {},
+      };
+      this.needsModel = false;
+      this.routingMigrated = false;
+      this.configuredOverride = undefined;
+      this.modelReload = {
+        revision: crypto.randomUUID(),
+        status: 'applied',
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+      const configured = this._isModelConfigConfigured();
+      return this._json(res, 200, {
+        ok: true,
+        config: this._publicModelConfig(),
+        configured,
+        needsModel: !configured,
+        reload: this.modelReload,
+        canConfigureModel: true,
+      });
+    }
+
+    // Local Model Catalog: POST /local/model/catalog
+    if (pathname === '/local/model/catalog' && method === 'POST') {
+      if (!this._isModelConfigAuthorized(req)) {
+        return this._json(res, 403, { error: '当前设备未授权访问模型目录' });
+      }
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch { return this._json(res, 400, { error: 'Invalid JSON' }); }
+      const prevMap = new Map((this.modelConfig.providers || []).map(p => [p.id, p]));
+      const prov = body.provider || prevMap.get(body.providerId) || this.modelConfig.providers?.[0];
+      if (!prov) {
+        return this._json(res, 400, { error: 'Provider required' });
+      }
+      const effectiveKey = (typeof prov.apiKey === 'string' && prov.apiKey.trim())
+        ? prov.apiKey.trim()
+        : (prevMap.get(prov.id)?.apiKey || '');
+      if (!effectiveKey) {
+        return this._json(res, 400, { error: `API Key is required for ${prov.id}` });
+      }
+      return this._json(res, 200, {
+        ok: true,
+        models: [
+          {
+            id: 'gpt-5',
+            efforts: ['minimal', 'low', 'medium', 'high'],
+            source: 'provider',
+            contextWindowTokens: 400000,
+            summaryThresholdTokens: 160000,
+          },
+          {
+            id: 'claude-sonnet-4-5',
+            efforts: ['low', 'medium', 'high'],
+            source: 'reference',
+            contextWindowTokens: 200000,
+            summaryThresholdTokens: 120000,
+          },
+        ],
+      });
+    }
+
+    // Local Model Test: POST /local/model/test
+    if (pathname === '/local/model/test' && method === 'POST') {
+      if (!this._isModelConfigAuthorized(req)) {
+        return this._json(res, 403, { error: '当前设备未授权测试模型' });
+      }
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch { return this._json(res, 400, { error: 'Invalid JSON' }); }
+      const hasConfig = Array.isArray(body.providers) || Boolean(body.defaultRoute) || body.version === 1;
+      if (hasConfig && this.routingMigrated && body.migrateLegacyRouting !== true) {
+        return this._json(res, 409, { error: '检测到旧版模型配置。请在模型页确认迁移后再保存。' });
+      }
+      const profiles = Array.isArray(body.profiles) ? body.profiles : (this.modelConfig.profiles || []);
+      const targetId = body.profileId || body.defaultRoute?.profileId || this.modelConfig.defaultRoute?.profileId;
+      const profile = profiles.find(p => p.id === targetId) || profiles[0];
+      if (!profile) {
+        return this._json(res, 400, { error: 'No model profile to test' });
+      }
+      const testEffort = body.defaultRoute?.effort || 'default';
+      if (hasConfig && targetId === body.defaultRoute?.profileId && testEffort !== 'default'
+          && Array.isArray(profile.efforts) && !profile.efforts.includes(testEffort)) {
+        return this._json(res, 400, { error: `模型配置无效：Unsupported effort for ${profile.id}` });
+      }
+      return this._json(res, 200, {
+        ok: true,
+        profileId: profile.id,
+        model: profile.model,
+        reply: 'OK',
+        latencyMs: 28,
+        message: '模型接口已完成真实请求',
+      });
+    }
+
+    // Host Android Update Proxy: GET /local/updates/fetch?url=...
+    if (pathname === '/local/updates/fetch' && method === 'GET') {
+      const target = url.searchParams.get('url');
+      if (!target || (!target.startsWith('http://') && !target.startsWith('https://'))) {
+        return this._json(res, 400, { error: 'Invalid update URL' });
+      }
+      try {
+        const proxied = await fetch(target);
+        const buf = Buffer.from(await proxied.arrayBuffer());
+        res.writeHead(proxied.status, {
+          'Content-Type': proxied.headers.get('content-type') || 'application/octet-stream',
+          'Content-Length': buf.length,
+        });
+        return res.end(buf);
+      } catch (err) {
+        return this._json(res, 502, { error: err?.message || 'Proxy fetch failed' });
+      }
+    }
+
+    // Host Android Update Manifest & Artifacts: GET /local/updates/android.json & /local/updates/files/android/:filename
+    if (pathname === '/local/updates/android.json' && method === 'GET') {
+      if (!this.androidUpdateManifest) {
+        return this._json(res, 404, { error: 'No Android update published' });
+      }
+      return this._json(res, 200, this.androidUpdateManifest);
+    }
+    if (pathname.startsWith('/local/updates/files/android/') && method === 'GET') {
+      const filename = decodeURIComponent(pathname.slice('/local/updates/files/android/'.length));
+      const buf = this.androidUpdateArtifacts.get(filename);
+      if (!buf) {
+        return this._json(res, 404, { error: 'Artifact not found' });
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': buf.length,
+        'Accept-Ranges': 'bytes',
+      });
+      return res.end(buf);
     }
 
     // Bot List: POST /api/listAgents

@@ -31,8 +31,8 @@ async function main() {
   console.log(`${DIM}Mock Host server initialized and listening at: ${BOLD}${host.origin}${RESET}\n`);
 
   const tiers = [
-    { id: 'Tier 1', name: 'Feature Coverage (F1-F20)', runner: runTier1Tests, minRequired: 100 },
-    { id: 'Tier 2', name: 'Boundary & Corner Cases (F1-F20)', runner: runTier2Tests, minRequired: 100 },
+    { id: 'Tier 1', name: 'Feature Coverage (F1-F22)', runner: runTier1Tests, minRequired: 110 },
+    { id: 'Tier 2', name: 'Boundary & Corner Cases (F1-F22)', runner: runTier2Tests, minRequired: 110 },
     { id: 'Tier 3', name: 'Cross-Feature Combinations', runner: runTier3Tests, minRequired: 20 },
     { id: 'Tier 4', name: 'Real-World Application Scenarios', runner: runTier4Tests, minRequired: 10 }
   ];

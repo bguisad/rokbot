@@ -30,6 +30,7 @@ export const KNOWN_RES_IDS = {
   mimeType: 0x01010026,
   scheme: 0x01010027,
   host: 0x01010028,
+  drawable: 0x01010199,
   targetActivity: 0x01010202,
   minSdkVersion: 0x0101020c,
   versionCode: 0x0101021b,
@@ -715,6 +716,26 @@ export function patchManifest(axmlBuffer, options = {}) {
     }
   }
 
+  // 2a. Set application android:label to RokBot (unless explicitly disabled)
+  if (options.appLabel !== false) {
+    const appLabel = typeof options.appLabel === 'string' && options.appLabel.trim()
+      ? options.appLabel.trim()
+      : 'RokBot';
+    let labelAttr = appNode.attributes.find(
+      a => (a.resourceId === KNOWN_RES_IDS.label) ||
+           (a.name === 'label' && a.namespace === ANDROID_NS)
+    );
+    if (!labelAttr) {
+      appNode.attributes.push(makeAttrStr('label', appLabel));
+    } else {
+      labelAttr.type = 0x03;
+      labelAttr.rawValue = appLabel;
+      labelAttr.value = appLabel;
+      labelAttr.resourceId = KNOWN_RES_IDS.label;
+      delete labelAttr.data;
+    }
+  }
+
   // 2b. Disable Expo Updates metadata if present in host APK manifest
   for (const child of appNode.children || []) {
     if (child.name !== 'meta-data') continue;
@@ -867,6 +888,12 @@ export function patchManifest(axmlBuffer, options = {}) {
 
   upsertAppChild('activity', 'dev.rokbot.nativeapp.ComputerViewerActivity', [
     makeAttrStr('name', 'dev.rokbot.nativeapp.ComputerViewerActivity'),
+    makeAttrBool('exported', false),
+    makeAttrHex('windowSoftInputMode', 0x00000010),
+  ]);
+
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.ModelsActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.ModelsActivity'),
     makeAttrBool('exported', false),
     makeAttrHex('windowSoftInputMode', 0x00000010),
   ]);

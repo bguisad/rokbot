@@ -46,6 +46,7 @@ public class RokBotBootstrap {
     private static volatile boolean sInitialized = false;
     private static volatile boolean sAppCreated = false;
     private static volatile boolean sInitialPairingModalShown = false;
+    private static volatile boolean sInitialModelOnboardingChecked = false;
     private static volatile int sStartedCount = 0;
     private static volatile String sViewingAgentId = null;
     private static volatile String sLastAgentId = null;
@@ -97,6 +98,24 @@ public class RokBotBootstrap {
                         intent.putExtra(PairingActivity.EXTRA_FROM_RN_MODAL, true);
                         activity.startActivity(intent);
                     }
+                } else if (isReactActivity(activity) && Storage.isPaired(activity) && !sInitialModelOnboardingChecked) {
+                    sInitialModelOnboardingChecked = true;
+                    final WeakReference<Activity> actRef = new WeakReference<>(activity);
+                    new Thread(() -> {
+                        try {
+                            org.json.JSONObject status = HostApiClient.getHostStatus(app);
+                            if (status != null && status.optBoolean("needsModel", false)) {
+                                getMainHandler().post(() -> {
+                                    Activity target = actRef.get();
+                                    if (target != null && !target.isFinishing() && !target.isDestroyed()) {
+                                        Intent intent = new Intent(target, ModelsActivity.class);
+                                        intent.putExtra(ModelsActivity.EXTRA_ONBOARDING, true);
+                                        target.startActivity(intent);
+                                    }
+                                });
+                            }
+                        } catch (Throwable ignored) {}
+                    }, "RokBotModelOnboardingCheck").start();
                 }
             }
 
@@ -201,6 +220,7 @@ public class RokBotBootstrap {
     }
 
     public static synchronized void clearPairedBundle(Context context) {
+        sInitialModelOnboardingChecked = false;
         if (context == null) return;
         try {
             File dir = new File(context.getFilesDir(), "RokBotPaired");

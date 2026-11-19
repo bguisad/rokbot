@@ -395,3 +395,70 @@ export function mergeResourcesArsc(baseArscBuf, splitArscBuffers = []) {
 
   return Buffer.concat([tableHeader, globalPoolBuf, ...pkgBuffers, ...base.trailingChunks], totalSize);
 }
+
+/**
+ * Look up a resource ID (e.g. 0x7f100001) for a given type (e.g. 'mipmap') and entry name
+ * (e.g. 'ic_launcher_foreground') in a resources.arsc buffer. Returns null if not found.
+ */
+export function findResourceId(arscBuf, typeName, entryName) {
+  if (!Buffer.isBuffer(arscBuf) || arscBuf.length < 12 || !typeName || !entryName) {
+    return null;
+  }
+  try {
+    const parsed = parseArsc(arscBuf);
+    for (const pkg of parsed.packages) {
+      const typeIdx = pkg.typeStrings.strings.indexOf(typeName);
+      if (typeIdx < 0) continue;
+      const targetTid = typeIdx + 1;
+      for (const chunk of pkg.chunks) {
+        if (chunk.type !== RES_TABLE_TYPE_TYPE || chunk.tid !== targetTid) continue;
+        const buf = chunk.raw;
+        if (buf.length < 20) continue;
+        const chunkHeaderSize = buf.readUInt16LE(2);
+        const flags = buf[9];
+        const entryCount = buf.readUInt32LE(12);
+        const entriesStart = buf.readUInt32LE(16);
+        const offsetsPos = chunkHeaderSize;
+        const isSparse = (flags & FLAG_SPARSE) !== 0;
+        const isOffset16 = (flags & FLAG_OFFSET16) !== 0;
+
+        for (let i = 0; i < entryCount; i++) {
+          let entryIdx = i;
+          let relOff;
+          if (isSparse) {
+            if (offsetsPos + i * 4 + 4 > buf.length) break;
+            entryIdx = buf.readUInt16LE(offsetsPos + i * 4);
+            relOff = buf.readUInt16LE(offsetsPos + i * 4 + 2) * 4;
+          } else if (isOffset16) {
+            if (offsetsPos + i * 2 + 2 > buf.length) break;
+            const o16 = buf.readUInt16LE(offsetsPos + i * 2);
+            if (o16 === 0xffff) continue;
+            relOff = o16 * 4;
+          } else {
+            if (offsetsPos + i * 4 + 4 > buf.length) break;
+            relOff = buf.readUInt32LE(offsetsPos + i * 4);
+            if (relOff === NO_ENTRY) continue;
+          }
+
+          const entryPos = entriesStart + relOff;
+          if (entryPos + 8 > buf.length) continue;
+          const entrySizeOrKey = buf.readUInt16LE(entryPos);
+          const entryFlags = buf.readUInt16LE(entryPos + 2);
+          const keyIdx = (entryFlags & FLAG_COMPACT) !== 0
+            ? entrySizeOrKey
+            : buf.readUInt32LE(entryPos + 4);
+          if (pkg.keyStrings.strings[keyIdx] === entryName) {
+            return (((pkg.pkgId & 0xff) << 24) | ((targetTid & 0xff) << 16) | (entryIdx & 0xffff)) >>> 0;
+          }
+        }
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function findMipmapResourceId(arscBuf, entryName) {
+  return findResourceId(arscBuf, 'mipmap', entryName);
+}

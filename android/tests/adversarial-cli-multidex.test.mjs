@@ -368,6 +368,7 @@ test('ADV-DEX-4: Companion DEX contains only dev.rokbot.nativeapp and dev.grokbo
   assert.ok(classes.includes('Ldev/rokbot/nativeapp/UsageActivity;'));
   assert.ok(classes.includes('Ldev/rokbot/nativeapp/ComputersActivity;'));
   assert.ok(classes.includes('Ldev/rokbot/nativeapp/ComputerViewerActivity;'));
+  assert.ok(classes.includes('Ldev/rokbot/nativeapp/ModelsActivity;'));
   assert.ok(classes.includes('Ldev/rokbot/nativeapp/ShareTargetActivity;'));
   assert.ok(classes.includes('Ldev/grokbot/local/TailcatBridge;'));
   for (const forbidden of [

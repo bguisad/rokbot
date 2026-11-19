@@ -1342,5 +1342,163 @@ export async function runTier1Tests(host) {
     assert.equal(res.status, 400);
   });
 
+  // ==========================================
+  // F21: In-App Model Config & needsModel Onboarding (5 tests)
+  // ==========================================
+  test('F21.1: GET /local/status reports needsModel and canConfigureModel for paired device', async () => {
+    const device = await pairTestDevice('F21-Device-1');
+    host.needsModel = true;
+    try {
+      const res = await fetch(`${BASE_URL}/local/status`, {
+        headers: { 'Authorization': `Bearer ${device.token}` }
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.ok, true);
+      assert.equal(data.needsModel, true);
+      assert.equal(data.canConfigureModel, true);
+    } finally {
+      host.needsModel = false;
+    }
+  });
+
+  test('F21.2: GET /local/model strips apiKey and exposes hasApiKey + reload', async () => {
+    const device = await pairTestDevice('F21-Device-2');
+    const res = await fetch(`${BASE_URL}/local/model`, {
+      headers: { 'Authorization': `Bearer ${device.token}` }
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.ok(data.config.providers.length > 0);
+    assert.equal(data.config.providers[0].apiKey, undefined);
+    assert.equal(data.config.providers[0].hasApiKey, true);
+    assert.equal(data.reload.status, 'applied');
+  });
+
+  test('F21.3: PUT /local/model preserves existing apiKey when blank and clears needsModel', async () => {
+    const device = await pairTestDevice('F21-Device-3');
+    host.needsModel = true;
+    const payload = {
+      version: 1,
+      providers: [{ id: 'default', name: 'OpenAI Updated', apiFormat: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: '' }],
+      profiles: [{ id: 'default', name: 'GPT-5', providerId: 'default', model: 'gpt-5', efforts: ['low', 'high'], contextWindowTokens: 400000, summaryThresholdTokens: 160000 }],
+      defaultRoute: { profileId: 'default', effort: 'high', fallbacks: [] },
+      botRoutes: {},
+    };
+    const res = await fetch(`${BASE_URL}/local/model`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.config.providers[0].name, 'OpenAI Updated');
+    assert.equal(data.config.providers[0].hasApiKey, true);
+    assert.equal(host.needsModel, false);
+  });
+
+  test('F21.4: POST /local/model/catalog returns available models list', async () => {
+    const device = await pairTestDevice('F21-Device-4');
+    const res = await fetch(`${BASE_URL}/local/model/catalog`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'default' })
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.ok(Array.isArray(data.models) && data.models.length >= 1);
+    assert.ok(data.models.some(m => m.id === 'gpt-5'));
+  });
+
+  test('F21.5: POST /local/model/test runs preflight check and returns reply + latencyMs', async () => {
+    const device = await pairTestDevice('F21-Device-5');
+    const res = await fetch(`${BASE_URL}/local/model/test`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId: 'default' })
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.reply, 'OK');
+    assert.ok(typeof data.latencyMs === 'number');
+  });
+
+  // ==========================================
+  // F22: Host Android Auto-Update Endpoint (5 tests)
+  // ==========================================
+  test('F22.1: GET /local/updates/android.json requires Bearer auth', async () => {
+    const res = await fetch(`${BASE_URL}/local/updates/android.json`);
+    assert.equal(res.status, 401);
+  });
+
+  test('F22.2: GET /local/updates/android.json serves rokbot-android-native-update/v1 nested latest manifest', async () => {
+    const device = await pairTestDevice('F22-Device-2');
+    const sampleSha = 'a'.repeat(64);
+    host.androidUpdateManifest = {
+      schema: 'rokbot-android-native-update/v1',
+      latest: {
+        versionName: '1.16.1',
+        versionCode: 1076,
+        packageName: 'dev.rokbot.nativeapp',
+        certificateSha256: 'b'.repeat(64),
+        apkUrl: `${BASE_URL}/local/updates/files/android/RokBotLocal-1.16.1-android.apk`,
+        apkSha256: sampleSha,
+        apkSize: 123456,
+        releaseNotes: 'Bug fixes',
+        deltas: []
+      }
+    };
+    try {
+      const res = await fetch(`${BASE_URL}/local/updates/android.json`, {
+        headers: { 'Authorization': `Bearer ${device.token}` }
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.schema, 'rokbot-android-native-update/v1');
+      assert.equal(data.latest.versionName, '1.16.1');
+      assert.equal(data.latest.versionCode, 1076);
+    } finally {
+      host.androidUpdateManifest = null;
+    }
+  });
+
+  test('F22.3: GET /local/updates/files/android/:file streams artifact with Content-Length', async () => {
+    const device = await pairTestDevice('F22-Device-3');
+    const payload = Buffer.from('RBDELTA1-sample-artifact');
+    host.androidUpdateArtifacts.set('sample.rbdelta', payload);
+    try {
+      const res = await fetch(`${BASE_URL}/local/updates/files/android/sample.rbdelta`, {
+        headers: { 'Authorization': `Bearer ${device.token}` }
+      });
+      assert.equal(res.status, 200);
+      assert.equal(Number(res.headers.get('content-length')), payload.length);
+      const got = Buffer.from(await res.arrayBuffer());
+      assert.ok(got.equals(payload));
+    } finally {
+      host.androidUpdateArtifacts.delete('sample.rbdelta');
+    }
+  });
+
+  test('F22.4: GET /local/updates/android.json returns 404 when no release published', async () => {
+    const device = await pairTestDevice('F22-Device-4');
+    host.androidUpdateManifest = null;
+    const res = await fetch(`${BASE_URL}/local/updates/android.json`, {
+      headers: { 'Authorization': `Bearer ${device.token}` }
+    });
+    assert.equal(res.status, 404);
+  });
+
+  test('F22.5: GET /local/updates/files/android/:missing returns 404', async () => {
+    const device = await pairTestDevice('F22-Device-5');
+    const res = await fetch(`${BASE_URL}/local/updates/files/android/missing.apk`, {
+      headers: { 'Authorization': `Bearer ${device.token}` }
+    });
+    assert.equal(res.status, 404);
+  });
+
   return tests;
 }

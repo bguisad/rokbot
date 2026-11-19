@@ -24,6 +24,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.text.Normalizer;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -238,7 +239,8 @@ public class HostApiClient {
                     false);
             JSONObject json = parseJsonObject(res.body);
             if (res.code < 200 || res.code >= 300) {
-                String msg = json != null ? json.optString("error", "") : "";
+                String msg = json != null ? UiChrome.jsonStr(json, "error") : "";
+                if (msg.isEmpty()) msg = json != null ? UiChrome.jsonStr(json, "message") : "";
                 if (msg.isEmpty()) {
                     if (res.code == 401) {
                         msg = byPassword
@@ -255,12 +257,10 @@ public class HostApiClient {
             if (json == null) {
                 throw new ApiException(502, Localize.t(context, "Host 返回了无效的 JSON。", "Host returned invalid JSON."));
             }
-            String token = json.optString("token", "");
-            String deviceId = json.optString("deviceId", "");
-            String gatewayRaw = json.isNull("gatewayUrl") ? "" : json.optString("gatewayUrl", "").trim();
-            String notificationUrl = json.isNull("notificationUrl")
-                    ? (server + "/notifications/events")
-                    : json.optString("notificationUrl", server + "/notifications/events");
+            String token = UiChrome.jsonStr(json, "token");
+            String deviceId = UiChrome.jsonStr(json, "deviceId");
+            String gatewayRaw = UiChrome.jsonStr(json, "gatewayUrl").trim();
+            String notificationUrl = UiChrome.jsonStr(json, "notificationUrl", server + "/notifications/events");
             if (token.length() < 16 || deviceId.isEmpty()) {
                 throw new ApiException(502, Localize.t(context, "Host 返回了无效的设备凭证。", "Host returned invalid device credentials."));
             }
@@ -282,6 +282,54 @@ public class HostApiClient {
     public static JSONObject checkStatus(String server, String token) throws Exception {
         String normalized = normalizeServerUrl(server);
         HttpResult res = rawRequest(normalized + "/connect/status", "GET", token, null, null, 10000, 20000, false);
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject getHostStatus(Context context) throws Exception {
+        HttpResult res = authedRequest(context, "GET", "/local/status", null, 8000, null);
+        return requireJsonObject(res);
+    }
+
+    private static Map<String, String> adminStepUpHeaders(String adminPassword) {
+        if (adminPassword == null || adminPassword.isEmpty()) return null;
+        return Collections.singletonMap("x-rokbot-admin-password", adminPassword);
+    }
+
+    public static JSONObject getModelConfig(Context context, String adminPassword) throws Exception {
+        HttpResult res = authedRequest(context, "GET", "/local/model", null, 20000, adminStepUpHeaders(adminPassword));
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject saveModelConfig(Context context, JSONObject configPayload, String adminPassword) throws Exception {
+        HttpResult res = authedRequest(
+                context,
+                "PUT",
+                "/local/model",
+                configPayload != null ? configPayload : new JSONObject(),
+                30000,
+                adminStepUpHeaders(adminPassword));
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject fetchModelCatalog(Context context, JSONObject requestPayload, String adminPassword) throws Exception {
+        HttpResult res = authedRequest(
+                context,
+                "POST",
+                "/local/model/catalog",
+                requestPayload != null ? requestPayload : new JSONObject(),
+                25000,
+                adminStepUpHeaders(adminPassword));
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject testModelConfig(Context context, JSONObject requestPayload, String adminPassword) throws Exception {
+        HttpResult res = authedRequest(
+                context,
+                "POST",
+                "/local/model/test",
+                requestPayload != null ? requestPayload : new JSONObject(),
+                125000,
+                adminStepUpHeaders(adminPassword));
         return requireJsonObject(res);
     }
 
@@ -1157,17 +1205,29 @@ public class HostApiClient {
     }
 
     private static HttpResult authedRequest(Context context, String method, String path, JSONObject body, int readTimeoutMs) throws Exception {
+        return authedRequest(context, method, path, body, readTimeoutMs, null);
+    }
+
+    private static HttpResult authedRequest(Context context, String method, String path, JSONObject body,
+                                            int readTimeoutMs, Map<String, String> extraHeaders) throws Exception {
         String server = resolveServer(context);
         String token = Storage.getToken(context);
         if (server == null || server.isEmpty() || token == null || token.isEmpty()) {
             throw new ApiException(401, Localize.t(context, "设备尚未配对。", "Device is not paired."));
         }
         byte[] payload = body != null ? body.toString().getBytes(StandardCharsets.UTF_8) : null;
-        return rawRequest(server + path, method, token, payload, payload != null ? "application/json" : null, 15000, readTimeoutMs, RokBotBootstrap.isForeground());
+        return rawRequest(server + path, method, token, payload, payload != null ? "application/json" : null,
+                15000, readTimeoutMs, RokBotBootstrap.isForeground(), extraHeaders);
     }
 
     public static HttpResult rawRequest(String urlStr, String method, String token, byte[] body, String contentType,
                                         int connectTimeoutMs, int readTimeoutMs, boolean foreground) throws IOException {
+        return rawRequest(urlStr, method, token, body, contentType, connectTimeoutMs, readTimeoutMs, foreground, null);
+    }
+
+    public static HttpResult rawRequest(String urlStr, String method, String token, byte[] body, String contentType,
+                                        int connectTimeoutMs, int readTimeoutMs, boolean foreground,
+                                        Map<String, String> extraHeaders) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod(method);
@@ -1178,6 +1238,15 @@ public class HostApiClient {
         conn.setRequestProperty("x-rokbot-client", "android-native/1.16.0");
         if (foreground) conn.setRequestProperty("x-rokbot-foreground", "1");
         if (token != null && !token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
+        if (extraHeaders != null) {
+            for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
+                String k = entry.getKey();
+                String v = sanitizeHeaderValue(entry.getValue());
+                if (k != null && !k.isEmpty() && !v.isEmpty()) {
+                    conn.setRequestProperty(k, v);
+                }
+            }
+        }
         if (body != null) {
             conn.setDoOutput(true);
             if (contentType != null) conn.setRequestProperty("Content-Type", contentType);
@@ -1230,7 +1299,8 @@ public class HostApiClient {
     private static String extractErrorMessage(int code, byte[] body) {
         JSONObject err = parseJsonObject(body);
         if (err != null) {
-            String m = err.optString("error", err.optString("message", ""));
+            String m = UiChrome.jsonStr(err, "error");
+            if (m.isEmpty()) m = UiChrome.jsonStr(err, "message");
             if (!m.isEmpty()) return m;
         }
         return "HTTP " + code;

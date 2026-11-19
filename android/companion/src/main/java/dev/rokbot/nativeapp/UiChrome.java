@@ -111,7 +111,21 @@ public final class UiChrome {
         0xFF2563EB, 0xFF7C3AED, 0xFF059669, 0xFFD97706, 0xFFDB2777, 0xFF0891B2, 0xFF4F46E5
     };
 
-    private static final LruCache<String, Bitmap> sAvatarCache = new LruCache<>(64);
+    private static volatile LruCache<String, Bitmap> sAvatarCache;
+
+    private static LruCache<String, Bitmap> getAvatarCache() {
+        LruCache<String, Bitmap> c = sAvatarCache;
+        if (c == null) {
+            synchronized (UiChrome.class) {
+                c = sAvatarCache;
+                if (c == null) {
+                    c = new LruCache<>(64);
+                    sAvatarCache = c;
+                }
+            }
+        }
+        return c;
+    }
 
     private UiChrome() {}
 
@@ -464,13 +478,13 @@ public final class UiChrome {
         String safeLabel = (label != null && !label.trim().isEmpty()) ? label.trim() : "G";
         boolean hasDataUri = avatarDataUrl != null && avatarDataUrl.startsWith("data:");
         String cacheKey = (hasDataUri ? ("img:" + avatarDataUrl.hashCode()) : ("mono:" + safeLabel)) + "@" + px;
-        Bitmap cached = sAvatarCache.get(cacheKey);
+        Bitmap cached = getAvatarCache().get(cacheKey);
         if (cached != null && !cached.isRecycled()) return cached;
 
         Bitmap src = hasDataUri ? decodeDataUrlBitmap(avatarDataUrl) : null;
         if (src == null && hasDataUri) {
             cacheKey = "mono:" + safeLabel + "@" + px;
-            Bitmap monoCached = sAvatarCache.get(cacheKey);
+            Bitmap monoCached = getAvatarCache().get(cacheKey);
             if (monoCached != null && !monoCached.isRecycled()) return monoCached;
         }
 
@@ -503,7 +517,7 @@ public final class UiChrome {
             float cy = px / 2f - (fm.ascent + fm.descent) / 2f;
             canvas.drawText(initial, px / 2f, cy, textPaint);
         }
-        sAvatarCache.put(cacheKey, out);
+        getAvatarCache().put(cacheKey, out);
         return out;
     }
 

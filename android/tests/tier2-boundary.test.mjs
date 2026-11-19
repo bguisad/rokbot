@@ -1213,5 +1213,159 @@ export async function runTier2Tests(host) {
     assert.ok(data.duration > 0);
   });
 
+  // ==========================================
+  // F21 Boundary: Model Config Auth, Step-Up & Validation (5 tests)
+  // ==========================================
+  test('F21.B1: GET /local/model returns 403 without x-rokbot-admin-password when step-up required', async () => {
+    const device = await pairTestDevice('F21B-Device-1');
+    host.requireStepUpPassword = true;
+    try {
+      const denied = await fetch(`${BASE_URL}/local/model`, {
+        headers: { 'Authorization': `Bearer ${device.token}` }
+      });
+      assert.equal(denied.status, 403);
+      const allowed = await fetch(`${BASE_URL}/local/model`, {
+        headers: {
+          'Authorization': `Bearer ${device.token}`,
+          'x-rokbot-admin-password': host.adminPassword
+        }
+      });
+      assert.equal(allowed.status, 200);
+    } finally {
+      host.requireStepUpPassword = false;
+    }
+  });
+
+  test('F21.B2: PUT /local/model rejects new provider missing apiKey with 400', async () => {
+    const device = await pairTestDevice('F21B-Device-2');
+    const res = await fetch(`${BASE_URL}/local/model`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        version: 1,
+        providers: [{ id: 'brand_new_prov', name: 'New', apiFormat: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: '' }],
+        profiles: [{ id: 'p1', name: 'P1', providerId: 'brand_new_prov', model: 'gpt-5', efforts: ['low'] }],
+        defaultRoute: { profileId: 'p1', effort: 'default', fallbacks: [] }
+      })
+    });
+    assert.equal(res.status, 400);
+  });
+
+  test('F21.B3: PUT /local/model rejects unknown profileId in defaultRoute with 400', async () => {
+    const device = await pairTestDevice('F21B-Device-3');
+    const res = await fetch(`${BASE_URL}/local/model`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        version: 1,
+        providers: [{ id: 'default', name: 'OpenAI', apiFormat: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: '' }],
+        profiles: [{ id: 'default', name: 'GPT-5', providerId: 'default', model: 'gpt-5', efforts: ['low'] }],
+        defaultRoute: { profileId: 'nonexistent_profile', effort: 'default', fallbacks: [] }
+      })
+    });
+    assert.equal(res.status, 400);
+  });
+
+  test('F21.B4: POST /local/model/catalog reuses saved apiKey when draft provider omits apiKey', async () => {
+    const device = await pairTestDevice('F21B-Device-4');
+    const res = await fetch(`${BASE_URL}/local/model/catalog`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: { id: 'default', name: 'OpenAI', apiFormat: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: '' }
+      })
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+  });
+
+  test('F21.B5: Unpaired request to /local/status returns 401', async () => {
+    const res = await fetch(`${BASE_URL}/local/status`);
+    assert.equal(res.status, 401);
+  });
+
+  // ==========================================
+  // F22 Boundary: Android Update Manifest & Artifact Auth (5 tests)
+  // ==========================================
+  test('F22.B1: GET /local/updates/files/android/:file rejects unauthenticated request with 401', async () => {
+    const res = await fetch(`${BASE_URL}/local/updates/files/android/app.apk`);
+    assert.equal(res.status, 401);
+  });
+
+  test('F22.B2: GET /local/updates/android.json rejects invalid Bearer token with 401', async () => {
+    const res = await fetch(`${BASE_URL}/local/updates/android.json`, {
+      headers: { 'Authorization': 'Bearer invalid-token-00000000000000000000000000' }
+    });
+    assert.equal(res.status, 401);
+  });
+
+  test('F22.B3: Manifest with RBDELTA1 delta preserves fromApkSha256 and fromVersionCode fields', async () => {
+    const device = await pairTestDevice('F22B-Device-3');
+    host.androidUpdateManifest = {
+      schema: 'rokbot-android-native-update/v1',
+      latest: {
+        versionName: '1.16.0',
+        versionCode: 1075,
+        packageName: 'dev.rokbot.nativeapp',
+        certificateSha256: 'c'.repeat(64),
+        apkUrl: `${BASE_URL}/local/updates/files/android/RokBotLocal-1.16.0.apk`,
+        apkSha256: 'd'.repeat(64),
+        apkSize: 54321,
+        releaseNotes: 'Companion repatch',
+        deltas: [{
+          fromVersionCode: 1075,
+          fromApkSha256: 'e'.repeat(64),
+          format: 'RBDELTA1',
+          url: `${BASE_URL}/local/updates/files/android/patch.rbdelta`,
+          sha256: 'f'.repeat(64),
+          size: 4096,
+        }],
+      }
+    };
+    try {
+      const res = await fetch(`${BASE_URL}/local/updates/android.json`, {
+        headers: { 'Authorization': `Bearer ${device.token}` }
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.latest.deltas[0].format, 'RBDELTA1');
+      assert.equal(data.latest.deltas[0].fromApkSha256, 'e'.repeat(64));
+      assert.equal(data.latest.deltas[0].fromVersionCode, 1075);
+    } finally {
+      host.androidUpdateManifest = null;
+    }
+  });
+
+  test('F22.B4: URL-encoded artifact filename decodes cleanly on /local/updates/files/android/', async () => {
+    const device = await pairTestDevice('F22B-Device-4');
+    const payload = Buffer.from('apk-bytes');
+    host.androidUpdateArtifacts.set('RokBot Local-1.16.0.apk', payload);
+    try {
+      const res = await fetch(`${BASE_URL}/local/updates/files/android/${encodeURIComponent('RokBot Local-1.16.0.apk')}`, {
+        headers: { 'Authorization': `Bearer ${device.token}` }
+      });
+      assert.equal(res.status, 200);
+      const got = Buffer.from(await res.arrayBuffer());
+      assert.ok(got.equals(payload));
+    } finally {
+      host.androidUpdateArtifacts.delete('RokBot Local-1.16.0.apk');
+    }
+  });
+
+  test('F22.B5: Invalid JSON body on PUT /local/model returns 400 without corrupting state', async () => {
+    const device = await pairTestDevice('F22B-Device-5');
+    const res = await fetch(`${BASE_URL}/local/model`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${device.token}`, 'Content-Type': 'application/json' },
+      body: '{not-valid-json'
+    });
+    assert.equal(res.status, 400);
+    const check = await fetch(`${BASE_URL}/local/model`, {
+      headers: { 'Authorization': `Bearer ${device.token}` }
+    });
+    assert.equal(check.status, 200);
+  });
+
   return tests;
 }
