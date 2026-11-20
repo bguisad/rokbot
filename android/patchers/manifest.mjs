@@ -208,6 +208,18 @@ export function parseAxml(buffer) {
   return { rootNodes, namespaces, strings, resMap, isUtf8 };
 }
 
+export function sortAttributesByResourceId(attributes) {
+  return attributes
+    .map((attr, index) => ({ attr, index, resId: attr.resourceId ? attr.resourceId >>> 0 : 0 }))
+    .sort((a, b) => {
+      if (a.resId && b.resId) return a.resId - b.resId || a.index - b.index;
+      if (a.resId) return -1;
+      if (b.resId) return 1;
+      return a.index - b.index;
+    })
+    .map(item => item.attr);
+}
+
 export function serializeAxml(ast) {
   const { rootNodes, namespaces = [] } = ast;
 
@@ -349,7 +361,12 @@ export function serializeAxml(ast) {
   }
 
   function serializeNode(node) {
-    const attrs = node.attributes || [];
+    // Android's attribute lookup (AssetManager RetrieveAttributes / XmlAttributeFinder) walks element
+    // attributes assuming ascending resource IDs, exactly as aapt2 emits them. Attributes appended out
+    // of order (e.g. an injected android:usesCleartextTraffic after android:enableOnBackInvokedCallback)
+    // are silently ignored by PackageParser, so keep resource-ID attributes sorted and put the
+    // non-resource attributes after them in their original order.
+    const attrs = sortAttributesByResourceId(node.attributes || []);
     const attrSize = 20;
     const elemHeaderSize = 16;
     const elemExtraSize = 20;

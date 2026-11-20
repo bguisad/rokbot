@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { parseAxml, serializeAxml, patchManifest, extractManifestInfo, ANDROID_NS, KNOWN_RES_IDS } from '../patchers/manifest.mjs';
-import { findMipmapResourceId } from '../patchers/arsc.mjs';
+import { findMipmapResourceId, findResourceId } from '../patchers/arsc.mjs';
 import {
   dexEntriesContainClass,
   injectCompanionDex,
@@ -39,7 +39,11 @@ const ICON_DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
 const ICON_KINDS = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'];
 const MIPMAP_ICON_RE = /^res\/mipmap-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi)(?:-v\d+)?\/(ic_launcher(?:_round|_foreground)?)\.(?:png|webp)$/i;
 const ADAPTIVE_ICON_XML_RE = /^res\/mipmap-anydpi(?:-v\d+)?\/ic_launcher(?:_round)?\.xml$/i;
-const ADAPTIVE_ICON_BG_COLOR = 0xff101218;
+function getDrawableAttr(node) {
+  return (node.attributes || []).find(
+    a => a.resourceId === KNOWN_RES_IDS.drawable || (a.name === 'drawable' && a.namespace === ANDROID_NS)
+  );
+}
 
 function setAdaptiveDrawableAttr(node, type, data) {
   node.attributes = node.attributes || [];
@@ -96,9 +100,14 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
         const root = (ast.rootNodes || []).find(n => n.name === 'adaptive-icon');
         if (root) {
           root.children = (root.children || []).filter(c => c.name !== 'monochrome');
+          // Keep the original <background> resource reference (official @color/iconBackground, #ff252525).
+          // Live emulator verification (Android 17 / Pixel Launcher) showed that rewriting it to an inline
+          // TYPE_INT_COLOR_ARGB8 literal makes the launcher reject the adaptive icon and fall back to the
+          // generic system icon, even though Settings > App info still renders it.
           const bgNode = root.children.find(c => c.name === 'background');
-          if (bgNode) {
-            setAdaptiveDrawableAttr(bgNode, 0x1c, ADAPTIVE_ICON_BG_COLOR);
+          if (bgNode && !getDrawableAttr(bgNode)) {
+            const bgColorId = arscEntry ? findResourceId(entryBytes(arscEntry), 'color', 'iconBackground') : null;
+            if (bgColorId != null) setAdaptiveDrawableAttr(bgNode, 0x01, bgColorId);
           }
           if (fgMipmapId != null) {
             const fgNode = root.children.find(c => c.name === 'foreground');

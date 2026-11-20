@@ -71,6 +71,22 @@ test('AXML: patchManifest injects usesCleartextTraffic, PairingActivity, Notific
   assert.ok(cleartext, 'usesCleartextTraffic attribute must exist');
   assert.equal(cleartext.value, true);
 
+  // Android ignores attributes that are out of resource-ID order (live emulator: "Cleartext HTTP traffic
+  // not permitted" because usesCleartextTraffic was appended after enableOnBackInvokedCallback).
+  const walk = (node) => {
+    const ids = (node.attributes || []).map(a => a.resourceId >>> 0).filter(Boolean);
+    for (let i = 1; i < ids.length; i++) {
+      assert.ok(ids[i - 1] < ids[i], `<${node.name}> attributes must be sorted by resource ID (0x${ids[i - 1].toString(16)} before 0x${ids[i].toString(16)})`);
+    }
+    const firstPlain = (node.attributes || []).findIndex(a => !a.resourceId);
+    if (firstPlain >= 0) {
+      assert.ok((node.attributes || []).slice(firstPlain).every(a => !a.resourceId), `<${node.name}> resource-ID attributes must precede plain ones`);
+    }
+    for (const child of node.children || []) walk(child);
+  };
+  walk(manifest);
+  const cleartextIdx = app.attributes.indexOf(cleartext);
+  assert.ok(app.attributes[cleartextIdx - 1].resourceId < KNOWN_RES_IDS.usesCleartextTraffic);
   // Verify PairingActivity
   const hasPairing = app.children.some(
     c => c.name === 'activity' && c.attributes.some(a => a.name === 'name' && a.value === 'dev.rokbot.nativeapp.PairingActivity')

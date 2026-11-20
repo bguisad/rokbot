@@ -3251,7 +3251,8 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
     const appEl = manifestAst.rootNodes.find(n => n.name === 'manifest')?.children?.find(c => c.name === 'application');
     assert.equal(getAndroidAttr(appEl, 'label')?.value, 'RokBot', 'Patched manifest must set application android:label=RokBot');
 
-    // Verify adaptive icon XMLs have #ff101218 background and zero <monochrome>
+    // Verify adaptive icon XMLs keep their original @color background reference (an inline color literal
+    // makes Pixel Launcher fall back to the generic icon) and have zero <monochrome>
     for (const xmlPath of ['res/mipmap-anydpi-v26/ic_launcher.xml', 'res/mipmap-anydpi-v26/ic_launcher_round.xml']) {
       assert.ok(byName.has(xmlPath), `Adaptive icon XML must remain present: ${xmlPath}`);
       const xmlAst = parseAxml(entryBytes(byName.get(xmlPath)));
@@ -3260,8 +3261,8 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
       assert.equal(adaptiveRoot.children.some(c => c.name === 'monochrome'), false, `${xmlPath} must strip <monochrome>`);
       const bgNode = adaptiveRoot.children.find(c => c.name === 'background');
       const bgAttr = getAndroidAttr(bgNode, 'drawable');
-      assert.equal(bgAttr?.type, 0x1c, `${xmlPath} background drawable must be TYPE_INT_COLOR_ARGB8`);
-      assert.equal(bgAttr?.data >>> 0, 0xff101218, `${xmlPath} background color must be #ff101218`);
+      assert.equal(bgAttr?.type, 0x01, `${xmlPath} background drawable must stay a resource reference`);
+      assert.equal(bgAttr?.data >>> 0, 0x7f06009f, `${xmlPath} background must keep @color/iconBackground`);
     }
 
     // Verify all 6 preseeded -v4/*.webp entries kept their exact entry paths & matched RokBot PNG SHA-256
@@ -3367,8 +3368,8 @@ test(
         assert.equal(adaptiveRoot.children.some(c => c.name === 'monochrome'), false);
         const bgAttr = getAndroidAttr(adaptiveRoot.children.find(c => c.name === 'background'), 'drawable');
         const fgAttr = getAndroidAttr(adaptiveRoot.children.find(c => c.name === 'foreground'), 'drawable');
-        assert.equal(bgAttr?.type, 0x1c);
-        assert.equal(bgAttr?.data >>> 0, 0xff101218);
+        assert.equal(bgAttr?.type, 0x01);
+        assert.equal(bgAttr?.data >>> 0, 0x7f06009f);
         assert.equal(fgAttr?.type, 0x01);
         assert.equal(fgAttr?.data >>> 0, 0x7f100001);
       }
