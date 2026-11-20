@@ -1,0 +1,93 @@
+# Prebuilt-image deployment for RokBot (Host control plane + Sand-Box execution container).
+# Drop this file and .env into any directory, or run install-images.sh, then:
+#   docker compose --env-file .env -f docker-compose.images.yml up -d
+#
+# By default, host uses ghcr.io/hongfaqiu/rokbot/host:latest (linux/amd64 + linux/arm64)
+# and box uses ghcr.io/hongfaqiu/rokbot/box:2bb5e41 (linux/amd64).
+# Set ROKBOT_HOST_IMAGE / ROKBOT_BOX_IMAGE in .env to pin a release tag or mirror.
+name: rokbot
+
+x-proxy-environment: &proxy-environment
+  HTTP_PROXY: ${HTTP_PROXY:-${http_proxy:-}}
+  HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
+  NO_PROXY: ${NO_PROXY:-${no_proxy:-}}
+  http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+  https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+  no_proxy: ${no_proxy:-${NO_PROXY:-}}
+
+services:
+  host:
+    image: ${ROKBOT_HOST_IMAGE:-ghcr.io/hongfaqiu/rokbot/host:latest}
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Omit `user:` so the image's default user initializes the `/data` named volume without EACCES.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${ROKBOT_LISTEN_ADDRESS:-${ROKBOT_BIND:-127.0.0.1}}:${ROKBOT_PUBLIC_PORT:-${ROKBOT_PORT:-18080}}:8000"
+    environment:
+      <<: *proxy-environment
+      ROKBOT_PORT: "8000"
+      ROKBOT_BIND: "0.0.0.0"
+      ROKBOT_PUBLIC_URL: ${ROKBOT_PUBLIC_URL:-}
+      ROKBOT_BOX_HOST: box
+      ROKBOT_BOX_TOKEN: ${ROKBOT_BOX_TOKEN:-local}
+      ROKBOT_VNC_URL: http://box:6080
+      ROKBOT_FORK_VNC_URL: http://box:6081
+      ROKBOT_DEFAULT_MACHINE_ID: ${ROKBOT_DEFAULT_MACHINE_ID:-}
+      ROKBOT_ALLOW_DEVICE_MODEL_CONFIG: ${ROKBOT_ALLOW_DEVICE_MODEL_CONFIG:-1}
+      ROKBOT_UPDATE_DIR: ${ROKBOT_UPDATE_DIR:-/data/updates}
+      ROKBOT_UPDATE_UPSTREAM_ORIGIN: ${ROKBOT_UPDATE_UPSTREAM_ORIGIN:-}
+      SAND_BOX_MAX_WINDOWS: ${SAND_BOX_MAX_WINDOWS:-100}
+      TZ: ${TZ:-Asia/Singapore}
+    volumes:
+      - host-data:/data
+    networks:
+      - rokbot
+    depends_on:
+      - box
+    stop_grace_period: 25s
+    healthcheck:
+      test: ["CMD", "/exec-daemon/node", "deploy/healthcheck.mjs"]
+      interval: 15s
+      timeout: 15s
+      start_period: 90s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  box:
+    image: ${ROKBOT_BOX_IMAGE:-ghcr.io/hongfaqiu/rokbot/box:2bb5e41}
+    platform: linux/amd64
+    restart: unless-stopped
+    # /usr/local/bin/start-sand-box requires default container privileges to start X11/VNC/box user services.
+    shm_size: ${ROKBOT_BOX_SHM_SIZE:-1gb}
+    mem_limit: ${ROKBOT_BOX_MEM_LIMIT:-0}
+    environment:
+      <<: *proxy-environment
+    volumes:
+      - box-home:/home/box
+      - box-workspace:/workspace
+    networks:
+      - rokbot
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  host-data:
+  box-home:
+  box-workspace:
+
+networks:
+  rokbot:
+    driver: bridge

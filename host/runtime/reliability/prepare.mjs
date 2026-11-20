@@ -12,7 +12,7 @@ export async function prepareHostReliability(stateDirectory) {
     const bytes = await readFile(new URL(file.name, seed));
     if (createHash('sha256').update(bytes).digest('hex') !== file.sha256)
       throw new Error('Prepared runtime integrity failure: ' + file.name);
-    await cp(new URL(file.name, seed), file.name === 'host-library-reliable.cjs'
+    await cp(new URL(file.name, seed), file.name === 'host-library-reliable.cjs' || file.name === 'sand-eval-library-reliable.cjs'
       ? join(stateDirectory, file.name) : join(directory, file.name));
   }
   return { directory, libraryPath: join(stateDirectory, 'host-library-reliable.cjs'), status: manifest.status };

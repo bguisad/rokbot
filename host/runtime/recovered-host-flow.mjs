@@ -23,13 +23,23 @@ function memoryExecutor(executor) {
 
 export function constructRecoveredHostFlow(library, directory) {
   const original = library.getHostFlowRecoveryBindings();
-  if (typeof original.runTurnMemory !== 'function') throw new TypeError('Missing Host flow dependency: runTurnMemory');
-  return constructRecoveredModules(library.hostFlowRecoveryPlan, { ...original,
-    runTurnMemory(store, progress, session, ...turnArgs) {
+  const overrides = {};
+  if (typeof original.runMemoryExtraction === 'function') {
+    overrides.runMemoryExtraction = (memoryStore, session, ...rest) => {
+      const memorySession = { ...session, getExecutor: (...args) => memoryExecutor(session.getExecutor(...args)) };
+      return original.runMemoryExtraction(memoryStore, memorySession, ...rest);
+    };
+  }
+  if (typeof original.runTurnMemory === 'function') {
+    overrides.runTurnMemory = (store, progress, session, ...turnArgs) => {
       const memorySession = { getExecutor: (...args) => memoryExecutor(session.getExecutor(...args)) };
       return original.runTurnMemory(store, progress, memorySession, ...turnArgs);
-    },
-  }, directory, 'Host flow');
+    };
+  }
+  if (Object.keys(overrides).length === 0) {
+    throw new TypeError('Missing Host flow dependency: runMemoryExtraction');
+  }
+  return constructRecoveredModules(library.hostFlowRecoveryPlan, { ...original, ...overrides }, directory, 'Host flow');
 }
 
 export async function installRecoveredHostFlow(library, directory) {

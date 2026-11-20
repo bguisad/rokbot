@@ -20,17 +20,18 @@ patch_host = importlib.util.module_from_spec(PATCH_HOST_SPEC)
 PATCH_HOST_SPEC.loader.exec_module(patch_host)
 
 
-def pinned_host_archive():
+def pinned_host_archive(member_name='sand-host/host-main.cjs'):
+    manifest = json.loads((Path(__file__).resolve().parents[1] / 'recipes' / 'host' / 'manifest.json').read_text())
     configured = os.environ.get('ROKBOT_TEST_HOST_ARCHIVE') or os.environ.get('PROKBOT_TEST_HOST_ARCHIVE')
     candidates = [Path(configured).expanduser()] if configured else [
-        Path(__file__).resolve().parents[2] / 'inputs' / 'host' / 'sand-host-bundle-d0a4baa.tgz',
+        Path(__file__).resolve().parents[2] / 'inputs' / 'host' / f"sand-host-bundle-{manifest['archive']['version']}.tgz",
     ]
     for path in candidates:
-        if path.is_file() and bytepatch.file_digest(path) == 'b03894dc9a29eadc6ee1b7265424fe5695d77c5af0cdc022f27338cd69f73d0f':
+        if path.is_file() and bytepatch.file_digest(path) == manifest['archive']['sha256']:
             with tarfile.open(path, 'r:gz') as archive:
-                member = archive.extractfile('sand-host/host-main.cjs')
+                member = archive.extractfile(member_name)
                 if member is None:
-                    raise ValueError('Pinned Host archive has no sand-host/host-main.cjs')
+                    raise ValueError(f'Pinned Host archive has no {member_name}')
                 return member.read()
     return None
 
@@ -90,24 +91,44 @@ class PinnedPatchTests(unittest.TestCase):
         recipe = bytepatch.load(Path(__file__).resolve().parents[1] / 'recipes' / 'host' /
                                 'release-reliability__engine-tool-stream-executor.mjs.gbp.gz')
         additions = b''.join(base64.b64decode(operation[1]) for operation in recipe['ops'] if operation[0] == 'add')
-        self.assertIn(b'await Promise.allSettled([stream1.throw(e), stream22.close()]', additions)
+        self.assertIn(b'1.throw(error63), stream22.close()]', additions)
         self.assertIn(b'.catch(() => interactionHandler.invocationId)', additions)
+        source = pinned_host_archive('sand-host/sand-eval-runner.cjs')
+        if source is not None:
+            applied = bytepatch.apply(source, recipe)
+            self.assertIn(b'await Promise.allSettled([stream1.throw(error63), stream22.close()])', applied)
 
-    def test_accepts_both_rokbot_and_legacy_grokbot_bytepatch_schemas(self):
+    def test_rejects_legacy_grokbot_and_unknown_bytepatch_schemas(self):
         self.assertEqual(self.recipe['schema'], 'rokbot-bytepatch/v1')
-        self.assertEqual(bytepatch.apply(self.raw, {**self.recipe, 'schema': 'grokbot-bytepatch/v1'}), self.target)
-        with self.assertRaisesRegex(ValueError, 'Unsupported patch schema'):
-            bytepatch.apply(self.raw, {**self.recipe, 'schema': 'other-schema/v1'})
+        for unsupported in ('grokbot-bytepatch/v1', 'other-schema/v1'):
+            with self.subTest(schema=unsupported), self.assertRaisesRegex(ValueError, 'Unsupported patch schema'):
+                bytepatch.apply(self.raw, {**self.recipe, 'schema': unsupported})
+
+    def test_all_manifest_recipes_use_rokbot_schema_without_legacy_grokbot_shims(self):
+        recipes_dir = Path(__file__).resolve().parents[1] / 'recipes' / 'host'
+        manifest = json.loads((recipes_dir / 'manifest.json').read_text())
+        self.assertEqual(manifest['archive']['version'], '2bb5e41')
+        disk_recipes = sorted(p.name for p in recipes_dir.glob('*.gbp.gz'))
+        manifest_recipes = sorted(entry['patch'] for entry in manifest['files'])
+        self.assertEqual(disk_recipes, manifest_recipes)
+        forbidden = (b'grokbot-bytepatch', b'/opt/grokbot', b'GROKBOT_RUNTIME_DIR',
+                     b'GROKBOT_EXECUTION_URL', b'__grokbotPromptPolicy')
+        for entry in manifest['files']:
+            recipe = bytepatch.load(recipes_dir / entry['patch'])
+            self.assertEqual(recipe['schema'], 'rokbot-bytepatch/v1', entry['patch'])
+            additions = b''.join(base64.b64decode(op[1]) for op in recipe['ops'] if op[0] == 'add')
+            for token in forbidden:
+                self.assertNotIn(token, additions, f'{entry["patch"]} contains {token!r}')
 
     def test_bot_id_injection_applies_to_the_complete_pinned_harness_target(self):
-        source = pinned_host_archive()
+        source = pinned_host_archive('sand-host/sand-eval-runner.cjs')
         if source is None:
             self.skipTest('set ROKBOT_TEST_HOST_ARCHIVE to run the pinned Host recipe check')
         expected = {
             'recovered-core__stable__harness-turn-run-shell.mjs.gbp.gz': (
-                '23657bba5e9d8a5b9cb90553312be1793b568bbe89af3d377c31cd681195911d', 769, (418, 449)),
+                '8d6999cabcbe16c735fb35d4f66013dca22166c642429f1fdb4bc3ce0c639d5f', 1506, ()),
             'release-reliability__harness-turn-run-shell.mjs.gbp.gz': (
-                'b402f015e19eae49b730ae202bd6dae3ddd16cc26f82b308a15fef87d13a48bd', 776, (421, 453)),
+                'f84d9b1fee5d0a6e74044fd67a0b547ed1276b9c1f2601406e43790706a795f7', 1514, (869,)),
         }
         recipes = Path(__file__).resolve().parents[1] / 'recipes' / 'host'
         for name, (digest, lines, positions) in expected.items():

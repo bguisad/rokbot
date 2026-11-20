@@ -6,8 +6,9 @@ import { join, resolve } from 'node:path';
 import { mkdtemp, mkdir, symlink, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
+import { createLocalExecBridge } from '../runtime/local-exec-bridge.mjs';
 import { previousImageLink, provisionResources } from '../runtime/host-resources.mjs';
-import { installDefaultMachineRouting } from '../runtime/host-computers.mjs';
+import { installDefaultMachineRouting, observeHostComputers } from '../runtime/host-computers.mjs';
 import { checkDeploymentHealth } from '../deploy/healthcheck.mjs';
 import { HostSupervisor } from '../deploy/host-supervisor.mjs';
 
@@ -48,6 +49,12 @@ test('remote Host health follows the same execution-node setup gate as its super
   assert.equal(await checkDeploymentHealth(env), false, 'a configured deployment must not mask a missing Host');
   await writeFile(nodeFile, '{');
   assert.equal(await checkDeploymentHealth(env), false, 'unreadable configuration is not a setup state');
+
+  const source = await readFile(new URL('../deploy/healthcheck.mjs', import.meta.url), 'utf8');
+  const match = source.match(/timeoutMs\s*=\s*([\d_]+)/);
+  assert.ok(match, 'healthcheck.mjs must configure a timeoutMs default');
+  const timeoutMs = Number(match[1].replaceAll('_', ''));
+  assert.ok(timeoutMs >= 10_000 && timeoutMs <= 15_000, `expected timeoutMs in [10000, 15000], got ${timeoutMs}`);
 });
 
 test('installDefaultMachineRouting keeps empty/unset ROKBOT_DEFAULT_MACHINE_ID unset', () => {
@@ -65,6 +72,20 @@ test('installDefaultMachineRouting keeps empty/unset ROKBOT_DEFAULT_MACHINE_ID u
   assert.equal(installDefaultMachineRouting(configuredBridge, 'mac-1'), 'mac-1');
   assert.deepEqual(configuredBridge.resolveProvider(undefined), { id: 'mac-1' });
   assert.ok(resolveCalls.includes('mac-1'));
+
+  const multiBridge = createLocalExecBridge();
+  const sent = [];
+  const d1 = multiBridge.registerProvider(f => sent.push(f));
+  const p1 = sent.at(-1).providerId;
+  multiBridge.submitResponses({ providerId: p1, frames: [{ kind: 'hello', computerId: 'mac-1', label: 'Mac' }] });
+  const d2 = multiBridge.registerProvider(f => sent.push(f));
+  const p2 = sent.at(-1).providerId;
+  multiBridge.submitResponses({ providerId: p2, frames: [{ kind: 'hello', computerId: 'win-1', label: 'Win' }] });
+  installDefaultMachineRouting(multiBridge, 'win-1');
+  assert.equal(multiBridge.userComputers.resolve(undefined)?.id, 'win-1');
+  assert.equal(multiBridge.resolveProvider(undefined)?.computerId, 'win-1');
+  d1();
+  d2();
 });
 
 test('shutdown while writing startup status must not spawn a new Host', async t => {

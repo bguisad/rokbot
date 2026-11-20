@@ -17,6 +17,8 @@ import { startLocalWebhooks } from './host-webhooks.mjs';
 import { startLocalFederation } from './host-federation.mjs';
 import { createLocalServiceRuntime } from './media-runtime.mjs';
 import { modelRouteForAgent } from './model-routing.mjs';
+import { createLocalExecBridge } from './local-exec-bridge.mjs';
+import { decorateHostExtensionsFor2bb5e41 } from './local-harness-bridge.mjs';
 
 const unsubscribe = () => () => {};
 export function unavailable(capability) {
@@ -36,18 +38,47 @@ function localAuth() {
     getLastRenewalEvent: () => null,
     subscribeToRenewal: unsubscribe,
     getUserFullName: () => undefined,
+    holdCredentialRenewals: () => () => {},
+    setCredentialRenewalTimeoutReader() {},
+    getBoxCredentialMint: () => null,
   };
 }
 
-function localIdentity() {
+function localIdentity(context) {
   return {
     isWriteEnabled: async () => false,
     ensureServerBacked: rejectCapability('Server agent identity'),
-    createRemoteAgentFirst: rejectCapability('Server agent creation'),
+    createRemoteAgentFirst: async (_fields, options) => {
+      if (options?.harness === 'temporal') throw unavailable('Server agent creation');
+      return null;
+    },
     createAgentFromTemplate: rejectCapability('Published bot templates'),
     rollbackRemoteAgent: rejectCapability('Server agent rollback'),
+    adoptServerAgent: rejectCapability('Server agent identity'),
+    adoptServerAgentById: async (agentId) => {
+      const store = context?.deps?.session?.store;
+      if (typeof store?.agentDirExists === 'function' && !store.agentDirExists(agentId)) {
+        return 'missing';
+      }
+      return 'bound';
+    },
+    ensureServerRoomMembers: async () => {},
+    reconcileBeforeStartupResume: async () => ({ reconciled: true }),
+    reconcileBeforeResume: async () => ({ reconciled: true }),
+    getHarnessMigrationCoverage: async () => ({}),
+    deleteAgents: async (agentIds = []) => {
+      const ids = [...new Set(agentIds)];
+      const local = ids.length > 0 && typeof context?.deps?.transcript?.deleteAgents === 'function'
+        ? await context.deps.transcript.deleteAgents(ids)
+        : null;
+      return { deletedIds: ids, refusedIds: [], failedIds: [], local };
+    },
+    subscribeTemporalMirrorsDropped: unsubscribe,
+    flushPendingEdits: async () => {},
+    expectLocalEdit: (_agentId, write) => (typeof write === 'function' ? write() : undefined),
+    clearGeneratedRoomNameStamps: async () => ({ outcome: 'already_done', clearedIds: [] }),
     noteAgentImported() {}, noteAgentMinted() {}, async noteAgentDeleted() {},
-    async reconcileNow() {},
+    async reconcileNow() { return false; },
   };
 }
 
@@ -87,6 +118,7 @@ export function createInference(config, library, services, { fetchImpl, sessionF
     createWebSearch: services.createWebSearch,
     createWebFetch: services.createWebFetch,
     transcribeAudio: transcribeLocalAudio,
+    previewVoice: rejectCapability('Voice preview'),
   };
 }
 
@@ -96,14 +128,43 @@ export function createExtensionStarter(library, modelConfig) {
   const apis = new Map();
   const replacements = {
     auth: () => localAuth(),
-    'agent-identity': () => localIdentity(),
+    'agent-identity': context => localIdentity(context),
+    orbit: () => ({}),
+    'identity-socket': () => ({ isEnabled: false }),
+    'user-skills-cache': () => ({ isEnabled: false }),
+    'team-admin-policy': () => ({
+      isCloudAgentsDisabled: () => true,
+      getSnapshot: () => undefined,
+      peekSnapshot: () => undefined,
+      isLocalEgressRequired: () => false,
+      subscribeLocalEgressRequired: unsubscribe,
+      noteLocalEgressInputsChanged() {},
+      whenLocalEgressRecordSettled: async () => {},
+      subscribe: unsubscribe,
+      prefetch() {},
+      invalidate() {},
+      dispose() {},
+    }),
+    'local-exec': context => createLocalExecBridge({
+      gate: {
+        blockedReason: id => apis.get('local-tool-permission')?.blockedReason?.(id),
+        requiresApproval: id => apis.get('local-tool-permission')?.requiresApproval?.(id) ?? false,
+      },
+      logs: context.deps.telemetry?.logs,
+      onComputerAttached: () => void context.host.events.emit('local-exec.computer-attached', {}),
+      library,
+    }),
     'managed-setup': startLocalManagedSkills,
     'bot-template-share': () => localTemplates(),
     'remote-agent-messaging': context => startLocalFederation(context, { extensions: id => apis.get(id) }),
     inference: () => createInference(modelConfig, library, services),
     mcp: context => startLocalHostMcp(context, library, { nativeEnabled: () => capabilities.get().macComputer,
       permission: () => apis.get('local-tool-permission') }),
-    'auto-review': context => startLocalAutoReview(context, library, modelConfig),
+    'auto-review': context => startLocalAutoReview(context, library, modelConfig, {
+      auth: apis.get('auth'),
+      settings: apis.get('settings'),
+      telemetry: apis.get('telemetry'),
+    }),
     ...(process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL
       ? { notifications: context => startLocalNotifications(context, library) } : {}),
   };
@@ -113,16 +174,28 @@ export function createExtensionStarter(library, modelConfig) {
     services = await createLocalServiceRuntime(extensionDir);
     const startExtension = async (extension, context) => {
       host.log(`starting extension ${extension.id}`);
-      if (extension.id === 'memory') return startLocalMemory(context, extension, capabilities);
+      if (extension.id === 'memory') {
+        const api = await startLocalMemory(context, extension, capabilities);
+        return decorateHostExtensionsFor2bb5e41(extension, api, {
+          context, library, apis, getInferenceReady: () => apis.get('inference')?.isReady?.() ?? true,
+        });
+      }
       const api = await (replacements[extension.id] ? replacements[extension.id](context) : extension.start(context));
       if (extension.id === 'attachments') return services.decorateAttachments(api);
       if (extension.id === 'experiments') {
         context.onStop(() => capabilities.close());
         return capabilities.experiments(api);
       }
+      if (extension.id === 'turn-execution' || extension.id === 'transcript') {
+        return decorateHostExtensionsFor2bb5e41(extension, api, {
+          context, library, apis, getInferenceReady: () => apis.get('inference')?.isReady?.() ?? true,
+        });
+      }
       if (extension.id !== 'automations') return api;
-      const automations = await decorateLocalHostAutomations(context, library, api);
-      const webhooks = await startLocalWebhooks(context);
+      const turnExecution = apis.get('turn-execution');
+      const settings = apis.get('settings');
+      const automations = await decorateLocalHostAutomations(context, library, api, { turnExecution, settings });
+      const webhooks = await startLocalWebhooks(context, { turnExecution });
       return { ...automations,
         ...(webhooks.getWebhookCredential ? { getWebhookCredential: webhooks.getWebhookCredential } : {}),
         async suspendWakes() { webhooks.suspend(); apis.get('remote-agent-messaging')?.suspend?.(); return automations.suspendWakes(); },

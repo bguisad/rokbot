@@ -61,6 +61,8 @@ function definitionRemoved(claim) {
 export async function decorateLocalHostAutomations(context, library, originalApi, {
   stateDirectory = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state',
   clock = realClock,
+  turnExecution = context.deps?.['turn-execution'],
+  settings = context.deps?.settings,
 } = {}) {
   const claimsPath = join(stateDirectory, 'local-automation-claims.json');
   const statusPath = join(stateDirectory, 'local-automations-status.json');
@@ -175,10 +177,10 @@ export async function decorateLocalHostAutomations(context, library, originalApi
     trackedDefinitions = definitions.length;
     nextDueAt = null;
     localAuthority = hasLocalAuthority();
-    runReady = await context.deps['turn-execution'].isRunReady();
+    runReady = typeof turnExecution?.isRunReady === 'function' ? await turnExecution.isRunReady() : false;
     if (!active(epoch)) return;
     localAuthority = hasLocalAuthority();
-    const timeZone = context.deps.settings.getUserTimeZone();
+    const timeZone = settings?.getUserTimeZone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     const eligible = definitions.filter(({ agentId, automation }) =>
       automation.isEnabled && automation.trigger?.type === 'cron' && isBoxLocal(agentId));
     eligibleDefinitions = eligible.length;

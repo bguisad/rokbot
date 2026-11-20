@@ -9,8 +9,7 @@ import json
 from pathlib import Path
 
 SCHEMA = 'rokbot-bytepatch/v1'
-# Accept legacy grokbot-bytepatch/v1 until M2 regenerates d0a4baa recipes for 2bb5e41.
-ACCEPTED_SCHEMAS = (SCHEMA, 'grokbot-bytepatch/v1')
+ACCEPTED_SCHEMAS = (SCHEMA,)
 MAX_BYTES = 512 * 1024 * 1024
 
 

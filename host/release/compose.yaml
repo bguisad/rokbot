@@ -13,19 +13,27 @@ services:
       ROKBOT_VNC_URL: http://box:6080
       ROKBOT_FORK_VNC_URL: http://box:6081
       ROKBOT_DEFAULT_MACHINE_ID: ${ROKBOT_DEFAULT_MACHINE_ID:-${GROKBOT_DEFAULT_MACHINE_ID:-}}
+      ROKBOT_ALLOW_DEVICE_MODEL_CONFIG: ${ROKBOT_ALLOW_DEVICE_MODEL_CONFIG:-1}
+      ROKBOT_UPDATE_DIR: ${ROKBOT_UPDATE_DIR:-/data/updates}
       SAND_BOX_MAX_WINDOWS: ${SAND_BOX_MAX_WINDOWS:-100}
       TZ: ${TZ:-Asia/Singapore}
     volumes:
       - host-data:/data
     depends_on:
       - box
+    healthcheck:
+      test: ["CMD", "/exec-daemon/node", "deploy/healthcheck.mjs"]
+      interval: 15s
+      timeout: 15s
+      start_period: 90s
+      retries: 3
     stop_grace_period: 25s
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
   box:
     # Override with ROKBOT_BOX_IMAGE=ghcr.io/hongfaqiu/rokbot/box:latest when using prebuilt images.
-    image: ${ROKBOT_BOX_IMAGE:-${GROKBOT_BOX_IMAGE:-rokbot-box-input:9d2ac1b}}
+    image: ${ROKBOT_BOX_IMAGE:-${GROKBOT_BOX_IMAGE:-rokbot-box-input:2bb5e41}}
     platform: linux/amd64
     restart: unless-stopped
     shm_size: ${ROKBOT_BOX_SHM_SIZE:-${GROKBOT_BOX_SHM_SIZE:-1gb}}

@@ -79,6 +79,14 @@ export function createModelPage({ api, toast, busy, refresh }) {
       <p id="model-error" class="error" role="alert" hidden></p>
       <div class="actions"><span id="model-apply-title" class="status-text" role="status"></span><button type="submit" class="btn btn-primary">保存配置</button></div>
     </form>
+    <section class="section" id="model-device-policy">
+      <div class="section-head"><h2 class="section-title">客户端模型配置权限</h2></div>
+      <div class="card">
+        <label class="row"><span class="row-copy"><span class="row-title">允许客户端 App 内配置模型</span><span class="row-hint">启用后，已配对的桌面与移动端 App 可直接查看与修改 Host 模型路由</span></span><input id="allow-device-model-config" type="checkbox" role="switch" aria-label="允许客户端 App 内配置模型" /></label>
+        <label class="row"><span class="row-copy"><span class="row-title">允许配对码设备直接修改模型</span><span class="row-hint">关闭时，仅使用管理员密码配对或提供管理密码的设备可修改模型</span></span><input id="allow-guest-model-config" type="checkbox" role="switch" aria-label="允许配对码设备直接修改模型" /></label>
+        <p id="device-model-policy-env-hint" class="hint" hidden>环境变量 ROKBOT_ALLOW_DEVICE_MODEL_CONFIG=0 已强制禁用客户端模型配置。</p>
+      </div>
+    </section>
     <section class="section"><div class="section-head"><h2 class="section-title">模型路由记录</h2><div class="section-actions"><button id="refresh-routing" class="icon-btn" type="button" aria-label="刷新"></button></div></div><div id="routing-log" class="card"></div></section>`);
   const form = $('#model-form'), providersRoot = $('#model-providers'), profilesRoot = $('#model-profiles');
   const defaultRoot = $('#model-default-route'), botsRoot = $('#model-bot-routes'), routingLog = createRoutingLog({ api });
@@ -155,7 +163,38 @@ export function createModelPage({ api, toast, busy, refresh }) {
       ? t('当前仍使用旧版按任务难度路由（Jev）。保存后会迁移为按 Bot 路由，并移除智能路由界面；如需保留旧配置，请不要保存。')
       : t('当前是旧版单模型配置。保存后会转成服务和档案的格式，模型、API Key 和思考强度不变。');
     $('#model-apply-title').textContent = applyText(value);
+    renderDevicePolicy(value.devicePolicy);
   }
+  const allowDeviceSwitch = $('#allow-device-model-config'), allowGuestSwitch = $('#allow-guest-model-config');
+  function renderDevicePolicy(policy) {
+    const current = policy ?? { allowDeviceModelConfig: true, allowGuestModelConfig: false, envDisabled: false };
+    allowDeviceSwitch.checked = current.allowDeviceModelConfig !== false;
+    allowGuestSwitch.checked = current.allowGuestModelConfig === true;
+    allowDeviceSwitch.disabled = Boolean(current.envDisabled);
+    allowGuestSwitch.disabled = Boolean(current.envDisabled) || !allowDeviceSwitch.checked;
+    $('#device-model-policy-env-hint').hidden = !current.envDisabled;
+  }
+  async function saveDevicePolicy(changed) {
+    allowDeviceSwitch.disabled = true;
+    allowGuestSwitch.disabled = true;
+    try {
+      const updated = await api('/admin/api/model/policy', {
+        method: 'PUT',
+        body: {
+          allowDeviceModelConfig: allowDeviceSwitch.checked,
+          allowGuestModelConfig: allowGuestSwitch.checked,
+        },
+      });
+      renderDevicePolicy(updated);
+      toast(t('配置已保存'));
+    } catch (error) {
+      changed.checked = !changed.checked;
+      renderDevicePolicy({ allowDeviceModelConfig: allowDeviceSwitch.checked, allowGuestModelConfig: allowGuestSwitch.checked });
+      toast(error.message, true);
+    }
+  }
+  allowDeviceSwitch.onchange = () => saveDevicePolicy(allowDeviceSwitch);
+  allowGuestSwitch.onchange = () => saveDevicePolicy(allowGuestSwitch);
   function providerOptions(select, selected) {
     choice(select, config.providers.map(provider => [provider.id, provider.name]), selected);
   }

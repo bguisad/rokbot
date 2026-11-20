@@ -58,7 +58,7 @@ export async function summarizeAgent(host, _library, agentId) {
           hidden: true,
           requestSource: 'event',
           advanceChainOnDelivery: false,
-        });
+        }, { kind: 'all' });
         check(!result?.aborted && !result?.pausedForUpgrade, 409, '上下文压缩被中断，请稍后重试');
       } finally {
         // Do not overwrite a newer replacement if a future Harness version

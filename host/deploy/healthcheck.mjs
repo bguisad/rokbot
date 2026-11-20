@@ -3,13 +3,14 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { internalCredential } from "./credentials.mjs";
 
-export async function checkDeploymentHealth(env = process.env) {
+export async function checkDeploymentHealth(env = process.env, { timeoutMs = 12_000 } = {}) {
   try {
+    const signal = AbortSignal.timeout(timeoutMs);
     // Primary ROKBOT_* env vars with GROKBOT_* fallback for smooth .env migration.
     const response = await fetch(
       `http://127.0.0.1:${env.ROKBOT_PORT || env.GROKBOT_PORT || 8000}/healthz`,
       {
-        signal: AbortSignal.timeout(1500),
+        signal,
         redirect: "error",
       },
     );
@@ -50,7 +51,7 @@ export async function checkDeploymentHealth(env = process.env) {
       ),
       {
         headers: { authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(1500),
+        signal,
         redirect: "error",
       },
     );

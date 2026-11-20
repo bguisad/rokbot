@@ -19,7 +19,10 @@ export async function loadRecoveredHostCore(library, directory) {
   const modules = [];
   for (const filename of ['provenance.json', 'acceptance-provenance.json', 'handoff-provenance.json', 'host-flow-provenance.json', 'storage-provenance.json', 'worker-pool-provenance.json', 'tool-framework-provenance.json', 'engine-provenance.json', 'computer-provenance.json', 'prompt-tools-provenance.json', 'harness-provenance.json', 'host-execution-provenance.json', 'host-session-provenance.json', 'host-kernel-provenance.json']) {
     const manifest = JSON.parse(await readFile(join(directory, filename), 'utf8'));
-    if (manifest.sourceSha256 !== inputs.sourceSha256['host-main.cjs']) {
+    const expectedSource = manifest.source?.endsWith('sand-eval-runner.cjs')
+      ? inputs.sourceSha256['sand-eval-runner.cjs']
+      : inputs.sourceSha256['host-main.cjs'];
+    if (manifest.sourceSha256 !== expectedSource) {
       throw new Error(`Unexpected recovered source: ${filename}`);
     }
     for (const entry of manifest.modules) {
@@ -33,12 +36,30 @@ export async function loadRecoveredHostCore(library, directory) {
   const [scheduler, acceptance, handoff] = await Promise.all([
     load('run-scheduler.mjs'), load('prompt-acceptance.mjs'), load('box-handoff.mjs'),
   ]);
-  handoff.configureBoxHandoffProtocol({ computerUseExecutorResource: library.computerUseExecutorResource,
-    ComputerUseArgs: library.ComputerUseArgs, ComputerUseAction: library.ComputerUseAction,
-    ScreenshotAction: library.ScreenshotAction });
-  acceptance.configureAcceptanceRuntime({ PromptAcceptanceRejectedError: library.PromptAcceptanceRejectedError,
-    PromptAcceptanceDigestMismatchError: library.PromptAcceptanceDigestMismatchError,
-    reportHostDiagnostic: library.reportHostDiagnostic });
+  handoff.configureBoxHandoffProtocol({
+    computerUseExecutorResource: library.computerUseExecutorResource,
+    ComputerUseArgs: library.ComputerUseArgs,
+    ComputerUseAction: library.ComputerUseAction,
+    ScreenshotAction: library.ScreenshotAction,
+    assertValidSandAgentId: library.assertValidSandAgentId,
+    brandedHost: library.brandedHost,
+    brandedId: library.brandedId,
+    createCounter: library.createCounter,
+    decideBoxHandBack: library.decideBoxHandBack,
+    errorLogTag: library.errorLogTag,
+    loggerKey: library.loggerKey,
+    userFormDomainMetricTag: library.userFormDomainMetricTag,
+  });
+  acceptance.configureAcceptanceRuntime({
+    reportHostDiagnostic: library.reportHostDiagnostic,
+    PROMPT_ACCEPTANCE_STATUSES: library.PROMPT_ACCEPTANCE_STATUSES,
+    SAND_DATA_JSON_MAX_BYTES: library.SAND_DATA_JSON_MAX_BYTES,
+    parseAgentId: library.parseAgentId,
+    readSandDataFileIfPresentSync: library.readSandDataFileIfPresentSync,
+    removeSandDataFileSync: library.removeSandDataFileSync,
+    reportFallbackUnlessAbsent: library.reportFallbackUnlessAbsent,
+    writeSandDataFileSync: library.writeSandDataFileSync,
+  });
   const bindings = library.installRecoveredCore({ SandRunScheduler: scheduler.SandRunScheduler,
     PromptAcceptanceLedger: acceptance.PromptAcceptanceLedger, BoxHandoffService: handoff.BoxHandoffService });
   const hostFlow = await installRecoveredHostFlow(library, directory);

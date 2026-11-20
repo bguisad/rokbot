@@ -76,9 +76,9 @@ export function withLocalLibraryRunner(BaseRunner, library) {
       } });
       this.localRunnerOptions = options;
     }
-    async run(prompt, turn = {}) {
+    async run(prompt, turn = {}, scope = { kind: 'all' }, ...rest) {
       await syncTurnAttachments(this.localRunnerOptions, turn, library);
-      return super.run(prompt, turn);
+      return super.run(prompt, turn, scope, ...rest);
     }
     setSkillStore(store) { super.setSkillStore(withSkillDependencies(store)); }
   };

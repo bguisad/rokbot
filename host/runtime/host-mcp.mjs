@@ -39,9 +39,30 @@ async function atomicJson(path, value) {
   await rename(temporary, path);
 }
 const idFor = name => (BigInt(`0x${createHash('sha256').update(`local-mcp:${name}`).digest('hex').slice(0, 15)}`) + 1n).toString();
+const settleWithin = (promises, ms) => new Promise(resolve => {
+  const timer = setTimeout(resolve, ms);
+  timer.unref?.();
+  Promise.allSettled(promises).then(() => { clearTimeout(timer); resolve(); });
+});
 
-/** One config owner per Exec; retain original manager, tools, settings and transport. */
-export async function startLocalHostMcp(context, library, { nativeEnabled = () => true, permission = () => context.deps['local-tool-permission'] } = {}) {
+const APPLY_RETRY_MS = 2_000;
+const APPLY_RETRY_MAX_MS = 30_000;
+const STOP_DRAIN_MS = 3_000;
+
+/** One config owner per Exec; retain original manager, tools, settings and transport.
+ *
+ * Applying the stdio MCP registry needs the remote Exec daemon. The original
+ * Exec client waits up to 90s per call for that daemon, so the configuration is
+ * applied in the background: Host readiness (and model reloads) must not depend
+ * on the execution box having finished booting. Failed applies are retried
+ * with backoff until the box answers. */
+export async function startLocalHostMcp(context, library, {
+  nativeEnabled = () => true,
+  permission = () => context.deps['local-tool-permission'],
+  applyRetryMs = APPLY_RETRY_MS,
+  applyRetryMaxMs = APPLY_RETRY_MAX_MS,
+  stopDrainMs = STOP_DRAIN_MS,
+} = {}) {
   const stateDir = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
   const configPath = join(stateDir, 'mcp.json');
   const ownerPath = join(stateDir, 'mcp-owned.json');
@@ -129,19 +150,49 @@ export async function startLocalHostMcp(context, library, { nativeEnabled = () =
     await atomicJson(statusPath, { ready: false, pid: process.pid, revision,
       updatedAt: new Date().toISOString(), error: error.message, retainedServers: Object.keys(config.mcpServers) });
   }
-  const reload = () => {
-    operations = operations.catch(() => {}).then(async () => {
-      if (stopped) return;
-      try {
-        const next = validateLocalMcp(await jsonFile(configPath, empty()));
-        if (rejected || JSON.stringify(next) !== JSON.stringify(config)) await apply(next);
-      } catch (error) {
-        await reject(error);
-      }
-    });
+  // `desired` is the last valid configuration; `configError` is the latest
+  // validation failure of mcp.json, reported after the retained config applies.
+  let desired = requested, configError = startupError;
+  let retryTimer = null, retryDelay = 0;
+  const enqueue = task => {
+    operations = operations.catch(() => {}).then(async () => { if (!stopped) await task(); });
+    return operations;
   };
-  try { await apply(requested); if (startupError) await reject(startupError); }
-  catch (error) { await reject(error); }
+  const clearRetry = () => { clearTimeout(retryTimer); retryTimer = null; };
+  const scheduleRetry = () => {
+    if (stopped || retryTimer) return;
+    retryDelay = Math.min(retryDelay ? retryDelay * 2 : applyRetryMs, applyRetryMaxMs);
+    retryTimer = setTimeout(() => { retryTimer = null; void enqueue(applyDesired); }, retryDelay);
+    retryTimer.unref?.();
+  };
+  async function applyDesired() {
+    clearRetry();
+    try {
+      await apply(desired);
+    } catch (error) {
+      if (stopped) return;
+      await reject(error).catch(() => {});
+      // Exec may still be booting (or restarting); keep the request alive.
+      scheduleRetry();
+      return;
+    }
+    retryDelay = 0;
+    if (configError) await reject(configError);
+  }
+  const reload = () => void enqueue(async () => {
+    let next;
+    try { next = validateLocalMcp(await jsonFile(configPath, empty())); }
+    catch (error) { configError = error; await reject(error); return; }
+    configError = undefined;
+    if (rejected || JSON.stringify(next) !== JSON.stringify(config)) {
+      desired = next;
+      await applyDesired();
+    }
+  });
+  await atomicJson(statusPath, { ready: false, pending: true, pid: process.pid, revision,
+    updatedAt: new Date().toISOString(), retainedServers: [] }).catch(() => {});
+  // Do not await: the Exec daemon may take minutes to answer on a cold box.
+  void enqueue(applyDesired);
   watchFile(configPath, { interval: 500, persistent: false }, reload);
   let refreshing = false;
   const remoteTimer = remote.enabled ? setInterval(() => {
@@ -160,12 +211,14 @@ export async function startLocalHostMcp(context, library, { nativeEnabled = () =
   }
   context.onStop(async () => {
     stopped = true;
+    clearRetry();
     clearInterval(remoteTimer);
     unwatchFile(configPath, reload);
-    await operations;
-    await registryOperations.catch(() => {});
+    // An apply blocked on an unreachable Exec daemon must not hold shutdown hostage.
+    await settleWithin([operations, registryOperations], stopDrainMs);
     listeners.clear();
-    await applications.close();
+    // Closing applications re-pushes the registry, which also needs the Exec daemon.
+    await settleWithin([applications.close()], stopDrainMs);
     await hostMcp.dispose();
   });
   return {

@@ -49,6 +49,8 @@ for (const entry of [
   "blob-worker-library.cjs",
   "host-library-provenance.json",
   "host-library.cjs",
+  "sand-eval-library-provenance.json",
+  "sand-eval-library.cjs",
   "recovered-core",
   "recovered-worker",
 ]) {
@@ -60,6 +62,7 @@ for (const entry of [
 let supervisor;
 const service = await createSelfHostServer({
   computers: () => supervisor?.getComputers() ?? { available: false, computers: [] },
+  onModelSaved: () => supervisor?.wake(),
 });
 const address = await service.start();
 console.log(
@@ -72,7 +75,7 @@ supervisor = new HostSupervisor({
   entry: join(root, "runtime/host.mjs"),
   env: process.env,
   isConfigured: async () => {
-    const model = await service.models.current();
+    const model = await service.models.currentOrEmpty();
     return Boolean(model.baseUrl && model.apiKey && model.model) &&
       ((process.env.ROKBOT_REQUIRE_EXECUTION_NODE ?? process.env.GROKBOT_REQUIRE_EXECUTION_NODE) !== '1' || service.executionNode.store.value.config.enabled);
   },

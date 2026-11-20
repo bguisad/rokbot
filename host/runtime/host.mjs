@@ -35,8 +35,6 @@ const executionTransport = await connectExecutionNode(await loadExecutionNode(da
 const executionNode = executionTransport.config;
 if (executionNode?.enabled) {
   process.env.ROKBOT_EXECUTION_URL = executionNode.url;
-  // Compatibility bridge for d0a4baa .gbp.gz recipes (computer-box-remote-accessor.mjs & host-library-reliable.cjs) until M2.
-  process.env.GROKBOT_EXECUTION_URL = executionNode.url;
   process.env.ROKBOT_BOX_HOST = new URL(executionNode.url).hostname;
   process.env.ROKBOT_BOX_TOKEN = executionNode.token;
 }
@@ -63,7 +61,10 @@ const core = recovered ? await loadRecoveredHostCore(library, repaired.directory
 if (recovered) core.reliability = repaired.status;
 library.activateHostLocale();
 const prompts = await installLocalPromptPolicy(dataDir, library, { revision });
-const host = new library.SandHost({ startExtensions: createExtensionStarter(library, model) });
+const host = new library.SandHost({
+  environment: library.readSandHostEnvironment(process.env),
+  startExtensions: createExtensionStarter(library, model),
+});
 let gateway, computers;
 let stopping = false;
 async function saveHostStatus(status) {
@@ -116,7 +117,6 @@ try {
     getHealth: () => host.getHealth(), startedAt: host.startedAt,
     host: process.env.ROKBOT_HOST_BIND ?? process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.ROKBOT_HOST_PORT ?? process.env.GROKBOT_HOST_PORT ?? 1340),
     ...(internalToken ? { authToken: internalToken } : {}),
-    onEventStreamClosed: () => host.noteEventStreamClosed(),
     onDesktopContact: () => host.noteDesktopContact(),
     prepareForUpgrade: async () => {
       if (internalToken) {
@@ -130,7 +130,7 @@ try {
       return host.prepareForUpgrade();
     },
     localExec: computers.bridge, webauthn: host.getWebAuthnBridge(),
-    cookieOriginApproval: host.getCookieOriginApprovalBridge(),
+    sseGzipDisabled: host.environment?.gatewaySseGzipDisabled ?? false,
     onCommandError: report => host.reportGatewayCommandError(report),
     onCommandComplete: report => host.reportGatewayCommandSuccess(report),
   });

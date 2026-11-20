@@ -2,14 +2,14 @@ import { catalogContextPolicy, defaultPolicy, effortLevels, parseModelPolicy, va
 import { createModelRouter } from '../runtime/model-router.mjs';
 import { anthropicEndpoint, anthropicHeaders } from '../runtime/anthropic-messages.mjs';
 import { createModelSession } from '../runtime/model-session.mjs';
-import { API_FORMATS, MODEL_ROUTING_ENV, isConfiguredModelRouting, modelRouteForAgent, modelRouteForProfile,
+import { API_FORMATS, MODEL_ROUTING_ENV, emptyModelRouting, isConfiguredModelRouting, modelRouteForAgent, modelRouteForProfile,
   parseModelRouting, publicModelRouting, validateModelProvider, validateModelRouting } from '../runtime/model-routing.mjs';
 import { recordUsage } from '../runtime/usage-ledger.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { check } from './security.mjs';
-import { readJson, writePrivate } from './storage.mjs';
+import { JsonStore, readJson, writePrivate } from './storage.mjs';
 
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value ?? {}, key);
 const clean = (value, label, maximum = 2048) => {
@@ -17,6 +17,25 @@ const clean = (value, label, maximum = 2048) => {
     `${label}不能为空，也不能包含换行`);
   return value.trim();
 };
+
+function redactSecrets(message, secrets = []) {
+  let out = String(message ?? '');
+  const unique = [...new Set(secrets.filter(item => typeof item === 'string' && item.length > 0))]
+    .sort((a, b) => b.length - a.length);
+  for (const secret of unique) {
+    out = out.split(secret).join('[redacted]');
+  }
+  return out;
+}
+
+async function safeReadJsonObject(filePath) {
+  try {
+    const value = await readJson(filePath, null);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 function valuesFrom(source) {
   return Object.fromEntries(source.split(/\r?\n/).filter(line => line.includes('=') && !line.startsWith('#'))
@@ -62,10 +81,52 @@ function compatibilityPolicy(route) {
   return policy;
 }
 
+export class DeviceModelSettings {
+  constructor(dataDir) {
+    this.store = new JsonStore(join(dataDir, 'model-settings.json'), {
+      version: 1,
+      allowDeviceModelConfig: true,
+      allowGuestModelConfig: false,
+    });
+  }
+  async load() {
+    await this.store.load();
+    return this;
+  }
+  envAllowed() {
+    return (process.env.ROKBOT_ALLOW_DEVICE_MODEL_CONFIG ?? process.env.GROKBOT_ALLOW_DEVICE_MODEL_CONFIG) !== '0';
+  }
+  current() {
+    const envAllowed = this.envAllowed();
+    return {
+      allowDeviceModelConfig: this.store.value.allowDeviceModelConfig !== false,
+      allowGuestModelConfig: this.store.value.allowGuestModelConfig === true,
+      envAllowed,
+      envDisabled: !envAllowed,
+    };
+  }
+  async save(input = {}) {
+    check(input && typeof input === 'object' && !Array.isArray(input), 400, '客户端模型配置策略无效');
+    if (own(input, 'allowDeviceModelConfig')) {
+      check(typeof input.allowDeviceModelConfig === 'boolean', 400, '允许客户端配置模型开关无效');
+    }
+    if (own(input, 'allowGuestModelConfig')) {
+      check(typeof input.allowGuestModelConfig === 'boolean', 400, '允许配对码设备配置模型开关无效');
+    }
+    await this.store.mutate(state => {
+      if (own(input, 'allowDeviceModelConfig')) state.allowDeviceModelConfig = input.allowDeviceModelConfig;
+      if (own(input, 'allowGuestModelConfig')) state.allowGuestModelConfig = input.allowGuestModelConfig;
+    });
+    return this.current();
+  }
+}
+
 export class Models {
-  constructor(dataDir, { filename = join(dataDir, 'model.env') } = {}) {
+  constructor(dataDir, { filename = join(dataDir, 'model.env'), onModelSaved = null, getReloadStatus = null } = {}) {
     this.filename = filename;
     this.dataDir = dataDir;
+    this.onModelSaved = onModelSaved;
+    this.getReloadStatus = getReloadStatus;
     this.tail = Promise.resolve();
   }
   async current() {
@@ -83,8 +144,30 @@ export class Models {
       ...(primary ? { baseUrl: primary.baseUrl, apiKey: primary.apiKey, apiFormat: primary.apiFormat,
         model: primary.model, contextWindowTokens: primary.contextWindowTokens, policy: compatibilityPolicy(primary) } : {}) };
   }
+  emptyCurrent({ corruptConfig = false } = {}) {
+    return {
+      apiFormat: 'openai',
+      baseUrl: '',
+      model: '',
+      apiKey: '',
+      contextWindowTokens: 0,
+      policy: defaultPolicy(),
+      jevApiKey: '',
+      routing: emptyModelRouting(),
+      routingMigrated: false,
+      legacyAdaptiveRouting: false,
+      ...(corruptConfig ? { corruptConfig: true } : {}),
+    };
+  }
+  async currentOrEmpty() {
+    try {
+      return await this.current();
+    } catch {
+      return this.emptyCurrent({ corruptConfig: true });
+    }
+  }
   async publicConfig() {
-    const current = await this.current();
+    const current = await this.currentOrEmpty();
     const { apiKey, jevApiKey, routing, ...summary } = current;
     return {
       ...publicModelRouting(routing),
@@ -94,16 +177,67 @@ export class Models {
       reload: await this.reloadStatus(),
     };
   }
-  async reloadStatus() {
-    const request = await readJson(join(this.dataDir, 'model-reload-request.json'), null);
-    const status = await readJson(join(this.dataDir, 'model-reload-status.json'), null);
-    if (!request) return status ?? { status: 'none' };
-    if (status?.revision === request.revision) {
-      const allowed = ['applied', 'waiting', 'error', 'pending'];
-      return { revision: status.revision, status: allowed.includes(status.status) ? status.status : 'pending',
-        updatedAt: status.updatedAt, message: status.status === 'error' ? 'Host 未能应用配置，请检查服务日志' : undefined };
+  async statusSummary() {
+    try {
+      const current = await this.current();
+      const configured = isConfiguredModelRouting(current.routing);
+      return { configured, needsModel: !configured };
+    } catch {
+      return { configured: false, needsModel: true };
     }
-    return { revision: request.revision, status: 'pending', updatedAt: request.requestedAt };
+  }
+  async localReloadStatus() {
+    const raw = this.getReloadStatus ? await this.getReloadStatus() : await this.reloadStatus();
+    const rawStatus = raw?.status ?? 'none';
+    const status = rawStatus === 'pending'
+      ? 'waiting'
+      : (['none', 'waiting', 'applied', 'error'].includes(rawStatus) ? rawStatus : 'waiting');
+    return {
+      revision: raw?.revision ?? null,
+      status,
+      error: status === 'error' ? (raw?.error ?? raw?.message ?? 'Host 未能应用配置，请检查服务日志') : null,
+      updatedAt: raw?.updatedAt ?? null,
+    };
+  }
+  async reloadStatus() {
+    const request = await safeReadJsonObject(join(this.dataDir, 'model-reload-request.json'));
+    const status = await safeReadJsonObject(join(this.dataDir, 'model-reload-status.json'));
+    const sanitizeMessage = value => {
+      if (typeof value !== 'string') return undefined;
+      const cleaned = value.replace(/[\r\n\0]+/g, ' ').trim().slice(0, 300);
+      return cleaned || undefined;
+    };
+    const allowed = ['applied', 'waiting', 'error', 'pending'];
+    const requestRevision = typeof request?.revision === 'string' && request.revision.length > 0
+      ? request.revision
+      : null;
+    if (!requestRevision) {
+      if (!status) return { status: 'none' };
+      const normalizedStatus = allowed.includes(status.status) ? status.status : 'none';
+      if (normalizedStatus === 'none') return { status: 'none' };
+      const msg = sanitizeMessage(status.error ?? status.message);
+      return {
+        ...(typeof status.revision === 'string' ? { revision: status.revision } : {}),
+        status: normalizedStatus,
+        ...(typeof status.updatedAt === 'string' ? { updatedAt: status.updatedAt } : {}),
+        ...(normalizedStatus === 'error' ? { message: msg ?? 'Host 未能应用配置，请检查服务日志' } : (msg ? { message: msg } : {})),
+      };
+    }
+    if (status && typeof status.revision === 'string' && status.revision === requestRevision) {
+      const normalizedStatus = allowed.includes(status.status) ? status.status : 'pending';
+      const msg = sanitizeMessage(status.error ?? status.message);
+      return {
+        revision: status.revision,
+        status: normalizedStatus,
+        ...(typeof status.updatedAt === 'string' ? { updatedAt: status.updatedAt } : {}),
+        ...(normalizedStatus === 'error' ? { message: msg ?? 'Host 未能应用配置，请检查服务日志' } : (msg ? { message: msg } : {})),
+      };
+    }
+    return {
+      revision: requestRevision,
+      status: 'pending',
+      ...(typeof request.requestedAt === 'string' ? { updatedAt: request.requestedAt } : {}),
+    };
   }
   legacyRouting(input, previous) {
     const apiFormat = input.apiFormat ?? previous.apiFormat;
@@ -111,13 +245,15 @@ export class Models {
     const baseUrl = serviceUrl(input.baseUrl ?? previous.baseUrl);
     const model = clean(input.model ?? previous.model, '模型名称', 256);
     const active = (() => { try { return modelRouteForAgent(previous.routing); } catch { return undefined; } })();
-    const apiKey = clean(input.apiKey || active?.apiKey || previous.apiKey, 'API Key', 8192);
+    const suppliedKey = typeof input.apiKey === 'string' && input.apiKey.trim() ? input.apiKey.trim() : '';
+    const apiKey = clean(suppliedKey || active?.apiKey || previous.apiKey, 'API Key', 8192);
     const contextWindowTokens = context(input.contextWindowTokens ?? active?.contextWindowTokens ?? previous.contextWindowTokens);
     let policy;
     try {
       policy = validatePolicy(input.policy ?? (previous.model === model ? previous.policy : defaultPolicy(model)), model);
     } catch (error) { check(false, 400, error.message); }
-    check(policy.mode !== 'adaptive' || (input.jevApiKey || previous.jevApiKey), 400, '请填写 Jev API Key');
+    const hasJevKey = typeof input.jevApiKey === 'string' && input.jevApiKey.trim().length > 0;
+    check(policy.mode !== 'adaptive' || (hasJevKey || previous.jevApiKey), 400, '请填写 Jev API Key');
     const providerId = active?.providerId ?? 'default', profileId = active?.profileId ?? 'default';
     const capability = policy.models.find(item => item.id === model) ?? { efforts: effortLevels(model) };
     const providers = (previous.routing.providers ?? []).filter(item => item.id !== providerId);
@@ -132,20 +268,25 @@ export class Models {
         defaultRoute: { profileId, effort: policy.effort, fallbacks: previous.routing.defaultRoute?.fallbacks ?? [] },
         botRoutes: previous.routing.botRoutes ?? {} }, { previous: previous.routing });
     } catch (error) { check(false, 400, publicError(error)); }
-    return { routing, jevApiKey: input.jevApiKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey,
+    return { routing, jevApiKey: hasJevKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey,
       ...(previous.routingMigrated ? { legacy: { apiFormat, baseUrl, apiKey, model, contextWindowTokens, policy } } : {}) };
   }
   async validated(input = {}) {
     check(input && typeof input === 'object' && !Array.isArray(input), 400, '模型配置无效');
-    const previous = await this.current();
+    const previous = await this.currentOrEmpty();
     const multiProvider = Array.isArray(input.providers) || own(input, 'defaultRoute') || input.version === 1;
     if (!multiProvider) return this.legacyRouting(input, previous);
-    check(!previous.routingMigrated || input.migrateLegacyRouting === true, 409,
+    const hasLegacyConfig = previous.routingMigrated && (
+      previous.routing.providers.length > 0 ||
+      Boolean(previous.baseUrl || previous.apiKey || previous.model || previous.jevApiKey)
+    );
+    check(!hasLegacyConfig || input.migrateLegacyRouting === true, 409,
       '检测到旧版模型配置。请在模型页确认迁移后再保存。');
     let routing;
     try { routing = validateModelRouting(input, { previous: previous.routing }); }
     catch (error) { check(false, 400, publicError(error)); }
-    return { routing, jevApiKey: input.jevApiKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey };
+    const hasJevKey = typeof input.jevApiKey === 'string' && input.jevApiKey.trim().length > 0;
+    return { routing, jevApiKey: hasJevKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey };
   }
   async write(config) {
     if (config.legacy) {
@@ -182,20 +323,28 @@ export class Models {
       await this.write(config);
       const request = { revision: randomUUID(), requestedAt: new Date().toISOString() };
       await writePrivate(join(this.dataDir, 'model-reload-request.json'), `${JSON.stringify(request)}\n`);
+      if (this.onModelSaved) await this.onModelSaved({ revision: request.revision, requestedAt: request.requestedAt, config });
       return this.publicConfig();
     });
     this.tail = pending.catch(() => {});
     return pending;
   }
   async routeFor(input = {}, { profileId, direct = false } = {}) {
-    const hasConfig = Array.isArray(input.providers) || own(input, 'defaultRoute') || input.version === 1 || own(input, 'baseUrl');
-    const config = hasConfig ? await this.validated(input) : { routing: (await this.current()).routing };
-    if (profileId) return { config, route: modelRouteForProfile(config.routing, profileId) };
-    const route = modelRouteForAgent(config.routing);
-    return { config, route: direct ? { ...route, fallbacks: [] } : route };
+    const hasConfig = Array.isArray(input.providers) || own(input, 'defaultRoute') || input.version === 1 || own(input, 'baseUrl') || own(input, 'model') || own(input, 'apiKey');
+    const current = hasConfig ? null : await this.currentOrEmpty();
+    const config = hasConfig
+      ? await this.validated(input)
+      : { routing: current.routing, jevApiKey: current.jevApiKey };
+    try {
+      if (profileId) return { config, route: modelRouteForProfile(config.routing, profileId) };
+      const route = modelRouteForAgent(config.routing);
+      return { config, route: direct ? { ...route, fallbacks: [] } : route };
+    } catch (error) {
+      check(false, 400, publicError(error));
+    }
   }
   async catalog(input = {}) {
-    const previous = await this.current();
+    const previous = await this.currentOrEmpty();
     let provider;
     if (input.provider) {
       try { provider = validateModelProvider(input.provider, { previous: previous.routing }); }
@@ -216,8 +365,8 @@ export class Models {
       });
     } catch { check(false, 502, '无法读取模型列表'); }
     check(response.ok, 502, `Model catalog HTTP ${response.status}`);
-    const body = await response.json();
-    check(Array.isArray(body.data), 502, '模型列表格式不兼容');
+    const body = await response.json().catch(() => null);
+    check(Array.isArray(body?.data), 502, '模型列表格式不兼容');
     const seen = new Set();
     const entries = [];
     for (const item of body.data) {
@@ -256,6 +405,7 @@ export class Models {
     let usage;
     const session = createModelSession({ ...route, policy: compatibilityPolicy(route),
       onUsage: async value => { usage = value; }, selectRequest: async () => ({ ...route, fallbacks: [] }) });
+    const startedAt = Date.now();
     const result = session.getExecutor([{ role: 'user', content: 'Reply with OK.' }])
       .stream({ signal: AbortSignal.timeout(120_000) }, 'model-test', []);
     let text = '';
@@ -263,13 +413,27 @@ export class Models {
       for await (const part of result.fullStream) if (part.type === 'text-delta') text += part.textDelta;
       await result.response;
     } catch (error) {
+      const secrets = [
+        route.apiKey,
+        ...(route.fallbacks ?? []).map(item => item?.apiKey),
+        ...(config?.routing?.providers ?? []).map(item => item?.apiKey),
+        config?.jevApiKey,
+      ];
+      const safeMessage = redactSecrets(error?.message ?? error, secrets).slice(0, 300);
       check(false, 502, error.name === 'TimeoutError' || error.name === 'AbortError' ? '模型服务连接超时，请检查地址与网络'
-        : error.status ? `模型服务返回 HTTP ${error.status}：${String(error.message).slice(0, 300)}`
-          : `模型请求失败：${String(error.message).slice(0, 300)}`);
+        : error.status ? `模型服务返回 HTTP ${error.status}：${safeMessage}`
+          : `模型请求失败：${safeMessage}`);
     } finally {
       if (usage) await recordUsage(join(this.dataDir, 'usage'), { ...usage, kind: 'test' }).catch(() => {});
     }
     check(text.trim(), 502, '模型没有返回文字内容');
-    return { ok: true, profileId: route.profileId, model: route.model, message: '模型接口已完成真实请求' };
+    return {
+      ok: true,
+      profileId: route.profileId,
+      model: route.model,
+      reply: text.trim(),
+      latencyMs: Math.max(0, Date.now() - startedAt),
+      message: '模型接口已完成真实请求',
+    };
   }
 }

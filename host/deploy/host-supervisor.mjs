@@ -3,6 +3,15 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { readJson, writePrivate } from "../server/storage.mjs";
 
+async function safeReadJsonObject(filePath) {
+  try {
+    const value = await readJson(filePath, null);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** One child, one lifecycle loop. Model reloads require an atomic idle acknowledgement from Host. */
 export class HostSupervisor {
   constructor({
@@ -32,6 +41,8 @@ export class HostSupervisor {
       log,
     });
     this.controller = new AbortController();
+    this.sleepController = null;
+    this.wakeRequested = false;
     this.stopping = false;
     this.child = null;
     this.nextStartAt = 0;
@@ -57,7 +68,7 @@ export class HostSupervisor {
       .then(() =>
         writePrivate(
           join(this.dataDir, "model-reload-status.json"),
-          `${JSON.stringify({ revision, status, updatedAt: new Date().toISOString(), ...(message ? { message } : {}) })}\n`,
+          `${JSON.stringify({ revision, status, updatedAt: new Date().toISOString(), ...(message ? { message } : {}), ...(status === "error" && message ? { error: message } : {}) })}\n`,
         ),
       );
     this.statusTail = pending.catch((error) => {
@@ -143,11 +154,13 @@ export class HostSupervisor {
     }
   }
   async tick() {
-    const request = await readJson(
+    const request = await safeReadJsonObject(
       join(this.dataDir, "model-reload-request.json"),
-      null,
     );
-    const revision = request?.revision ?? "initial";
+    const revision =
+      typeof request?.revision === "string" && request.revision.length > 0
+        ? request.revision
+        : "initial";
     if (this.stopping) return;
     if (!this.child) {
       if (
@@ -209,9 +222,14 @@ export class HostSupervisor {
     await this.stopHost();
     this.nextStartAt = 0;
   }
+  wake() {
+    this.wakeRequested = true;
+    this.sleepController?.abort();
+  }
   start() {
     this.running = (async () => {
       while (!this.stopping) {
+        this.wakeRequested = false;
         try {
           await this.tick();
         } catch (error) {
@@ -222,10 +240,21 @@ export class HostSupervisor {
             "Host 启动或配置应用失败，请检查容器日志",
           ).catch(() => {});
         }
-        if (!this.stopping)
-          await delay(this.pollMs, undefined, {
-            signal: this.controller.signal,
-          }).catch(() => {});
+        if (!this.stopping && !this.wakeRequested) {
+          this.sleepController = new AbortController();
+          try {
+            await delay(this.pollMs, undefined, {
+              signal: AbortSignal.any([
+                this.controller.signal,
+                this.sleepController.signal,
+              ]),
+            });
+          } catch {
+            // Interrupted by wake() or stop().
+          } finally {
+            this.sleepController = null;
+          }
+        }
       }
     })();
     return this;

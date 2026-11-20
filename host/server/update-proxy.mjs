@@ -12,8 +12,12 @@ export const MAX_UPDATE_PROXY_BYTES = 512 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Map([
   ['.json', 'application/json; charset=utf-8'],
   ['.apk', 'application/vnd.android.package-archive'],
+  ['.ipa', 'application/octet-stream'],
   ['.exe', 'application/vnd.microsoft.portable-executable'],
   ['.dmg', 'application/x-apple-diskimage'],
+  ['.zip', 'application/zip'],
+  ['.asar', 'application/octet-stream'],
+  ['.plist', 'application/xml; charset=utf-8'],
   ['.rbdelta', 'application/octet-stream'],
   ['.gbdelta', 'application/octet-stream'],
 ]);

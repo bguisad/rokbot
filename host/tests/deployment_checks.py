@@ -144,6 +144,25 @@ class DeploymentTests(unittest.TestCase):
         with patch.object(deploy, 'run') as called: deploy.build(args, 'candidate')
         self.assertEqual(called.call_args.args[0][-3:], ['--host-only', '--host-archive', str(archive.resolve())])
 
+    def test_2bb5e41_release_containers_and_healthcheck_timeout(self):
+        manifest = json.loads((HOST / 'recipes/host/manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['archive']['version'], '2bb5e41')
+        self.assertEqual(manifest['box']['localTag'], 'rokbot-box-input:2bb5e41')
+        self.assertIn('sand-eval-runner.cjs', manifest['sourceSha256'])
+        dockerfile = (HOST / 'release/Dockerfile.host').read_text(encoding='utf-8')
+        self.assertIn('ARG RUNTIME_IMAGE=rokbot-box-input:2bb5e41', dockerfile)
+        self.assertIn('ROKBOT_ALLOW_DEVICE_MODEL_CONFIG=1', dockerfile)
+        self.assertIn('ROKBOT_UPDATE_DIR=/data/updates', dockerfile)
+        self.assertIn('--timeout=15s', dockerfile)
+        self.assertNotIn('/opt/grokbot', dockerfile)
+        self.assertNotIn('GROKBOT_RUNTIME_DIR', dockerfile)
+        for rel in ('release/compose.yaml', 'release/compose.host.yaml'):
+            text = (HOST / rel).read_text(encoding='utf-8')
+            self.assertIn('timeout: 15s', text, rel)
+        for rel in ('release/compose.yaml', 'release/compose.execution.yaml'):
+            text = (HOST / rel).read_text(encoding='utf-8')
+            self.assertIn('rokbot-box-input:2bb5e41', text, rel)
+
 
 class ComposeMountTests(unittest.TestCase):
     dc = ['docker', 'compose', '-p', 'demo']

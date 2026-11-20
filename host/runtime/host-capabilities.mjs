@@ -45,18 +45,23 @@ export async function createLocalCapabilities(directory) {
 
 export async function startLocalMemory(context, extension, capabilities) {
   let enable;
-  const experiments = new Proxy(context.deps.experiments, { get(target, key) {
-    if (key === 'pinGateOnAuthenticatedBootstrap') return (name, callback) => {
-      if (name === 'sand_memory_dreaming') { enable = callback; return () => {}; }
-      return target.pinGateOnAuthenticatedBootstrap(name, callback);
-    };
-    const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
-  } });
-  const service = await extension.start({ ...context, deps: { ...context.deps, experiments } });
+  const baseExperiments = context.deps?.experiments;
+  const experiments = baseExperiments && typeof baseExperiments === 'object'
+    ? new Proxy(baseExperiments, { get(target, key) {
+        if (key === 'pinGateOnAuthenticatedBootstrap') return (name, callback) => {
+          if (name === 'sand_memory_dreaming') { enable = callback; return () => {}; }
+          return target.pinGateOnAuthenticatedBootstrap(name, callback);
+        };
+        const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
+      } })
+    : undefined;
+  const service = await extension.start(
+    experiments ? { ...context, deps: { ...context.deps, experiments } } : context,
+  );
   const apply = ({ dreaming }) => {
     if (dreaming) enable?.(true);
-    else {
-      service.synthesisService?.dispose();
+    else if (service && 'synthesisService' in service) {
+      service.synthesisService?.dispose?.();
       service.synthesisService = null;
     }
   };

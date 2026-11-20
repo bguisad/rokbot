@@ -15,7 +15,13 @@ async function textOnlyTurn(store, _progress, session, ctx, _time, exchange) {
     const executor = session.getExecutor();
     executor.appendMessages({ role: 'user', content: exchange.user });
     const parts = await Array.fromAsync(executor.stream(ctx).fullStream);
-    store.addMemory(parts.filter(part => part.type === 'text-delta').map(part => part.textDelta).join(''));
+    store.addMemory(
+      parts
+        .filter(part => part.type === 'text-delta')
+        .map(part => part.textDelta)
+        .join('')
+        .replace(/^[a-z][a-z0-9_]*:\s*/i, ''),
+    );
   } catch { /* The upstream collector treats extraction as best effort. */ }
 }
 
@@ -46,7 +52,7 @@ function resetReply() {
   }, { highWaterMark: 0 }));
 }
 
-export async function exerciseMemory(finishTurn, sanitize, mode) {
+export async function exerciseMemory(finishTurn, sanitize, mode, { checkStoreError, createContext = () => ({}) } = {}) {
   let requests = 0;
   const saved = [];
   const store = { recall: () => ({ profile: [], recent: [] }), listMemories: () => [],
@@ -58,7 +64,7 @@ export async function exerciseMemory(finishTurn, sanitize, mode) {
         void Promise.reject(new Error('unrelated rejection during memory extraction'));
         await tick();
       }
-      return requests === 2 ? new Response(chunk('fact from next turn') + completion) : resetReply();
+      return requests === 2 ? new Response(chunk('profile: fact from next turn') + completion) : resetReply();
     },
   }));
   await finishTurn(store, session);
@@ -71,7 +77,7 @@ export async function exerciseMemory(finishTurn, sanitize, mode) {
   assert.equal(requests, 2);
 
   // The shared session must still deliver a foreground failure to every consumer.
-  const foreground = session.getExecutor().stream({});
+  const foreground = session.getExecutor().stream(createContext());
   const outcomes = Promise.allSettled(derived.map(key => foreground[key]));
   let foregroundError;
   await assert.rejects(Array.fromAsync(foreground.fullStream), error => {
@@ -83,8 +89,12 @@ export async function exerciseMemory(finishTurn, sanitize, mode) {
     assert.equal(outcome.reason, foregroundError);
   }
   const evidenceError = new Error('evidence store failed');
-  await assert.rejects(finishTurn({ recordMemoryEvidence() { throw evidenceError; } }, session),
-    error => error === evidenceError);
+  if (checkStoreError) {
+    await checkStoreError(session, evidenceError);
+  } else {
+    await assert.rejects(finishTurn({ recordMemoryEvidence() { throw evidenceError; } }, session),
+      error => error === evidenceError);
+  }
   assert.equal(requests, 3);
   console.log('next memory saved; foreground and evidence errors preserved');
 }
@@ -95,13 +105,43 @@ export async function run(mode, seed) {
     const library = createRequire(import.meta.url)(resolve(seed, 'host-library.cjs'));
     await installRecoveredHostFlow(library, join(seed, 'release-reliability'));
     const { createTurnSettle, sanitizePromptSessionUsage } = library.getHarnessRecoveryBindings();
-    return exerciseMemory(async (memoryStore, session) => {
-      const settle = createTurnSettle({ latestPromptMessages: () => [], isRunSuperseded: () => false }, { memoryStore });
-      settle.collectors.collectText('completed chat reply');
-      await settle.settleCompletedTurn({ session, baseCtx: library.createContext(), finalState: { turnTimings: [] },
-        turnStartedAtMs: Date.now(), trimmedPrompt: 'Please remember my preference.', skipLabeling: true });
-      assert.equal(settle.buildResult({ aborted: false }).text, 'completed chat reply');
-    }, sanitizePromptSessionUsage, mode);
+    const { enabledMemoryTypes } = library.getPromptToolsRecoveryBindings();
+    const { runMemoryExtraction } = library.getHostFlowRecoveryBindings();
+    return exerciseMemory(
+      async (memoryStore, session) => {
+        const settle = createTurnSettle(
+          { latestPromptMessages: () => [], isRunSuperseded: () => false, memoryTypes: enabledMemoryTypes() },
+          { memoryStore },
+        );
+        settle.collectors.collectText('completed chat reply');
+        await settle.settleCompletedTurn({
+          session,
+          baseCtx: library.createContext(),
+          finalState: { turnTimings: [] },
+          turnStartedAtMs: Date.now(),
+          trimmedPrompt: 'Please remember my preference.',
+          skipLabeling: true,
+        });
+        assert.equal(settle.buildResult({ aborted: false }).text, 'completed chat reply');
+      },
+      sanitizePromptSessionUsage,
+      mode,
+      {
+        createContext: () => library.createContext(),
+        checkStoreError: async (session, evidenceError) => {
+          const outcome = await runMemoryExtraction(
+            { recall() { throw evidenceError; }, listMemories: () => [], addMemory() {} },
+            session,
+            library.createContext(),
+            { user: 'Please remember my preference.', agent: 'Noted.' },
+            'main',
+            { memoryTypes: enabledMemoryTypes() },
+          );
+          assert.equal(outcome.ok, false);
+          assert.equal(outcome.error, evidenceError);
+        },
+      },
+    );
   }
   const filename = fileURLToPath(import.meta.url);
   const dependencies = ['runTurnMemory'];

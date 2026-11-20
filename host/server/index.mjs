@@ -7,8 +7,10 @@ import { readdirSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Auth, handleConnectPair } from "./auth.mjs";
-import { Models } from "./models.mjs";
+import { Auth, handleConnectPair, isAdminPairedDevice } from "./auth.mjs";
+import { DeviceModelSettings, Models } from "./models.mjs";
+import { isConfiguredModelRouting, publicModelRouting } from "../runtime/model-routing.mjs";
+import { UpdatesManager } from "./updates.mjs";
 import { Speech } from "./speech.mjs";
 import { VoiceConfig } from './voice-config.mjs';
 import { VoiceSynthesis } from './voice-synthesis.mjs';
@@ -71,11 +73,13 @@ import {
   RateLimit,
   securityHeaders,
   sendJson,
+  verifyPassword,
 } from "./security.mjs";
+import { readJson } from "./storage.mjs";
 
 const publicDir = fileURLToPath(new URL("./public/", import.meta.url));
 const assetTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
-const pages = new Map([["/", "index.html"], ["/admin", "index.html"], ["/connectors/result", "connector-result.html"], ["/web/login", "web-login.html"]]);
+const pages = new Map([["/", "index.html"], ["/admin", "index.html"], ["/admin/", "index.html"], ["/connectors/result", "connector-result.html"], ["/web/login", "web-login.html"]]);
 // Admin assets are served from a fixed listing taken at startup.
 const publicAssets = new Set(readdirSync(publicDir).filter((name) => [".js", ".css", ".svg"].includes(extname(name))));
 const adminCookie = "rokbot_admin";
@@ -158,7 +162,15 @@ export async function createSelfHostServer(options = {}) {
   const webClient = await new WebClient(dataDir, { auth }).load();
   const models = new Models(dataDir, {
     filename: options.modelFile ?? process.env.ROKBOT_MODEL_ENV ?? process.env.GROKBOT_MODEL_ENV,
+    onModelSaved: options.onModelSaved,
+    getReloadStatus: options.getReloadStatus,
   });
+  const modelSettings = await new DeviceModelSettings(dataDir).load();
+  const updates = await new UpdatesManager(dataDir, {
+    updateDir: options.updateDir,
+    maxUploadBytes: options.maxUploadBytes,
+    maxDeltaBytes: options.maxDeltaBytes,
+  }).load();
   const library = await new Library(dataDir).load();
   const speech = await new Speech(dataDir).load();
   const voiceConfig = await new VoiceConfig(dataDir, { speech }).load();
@@ -209,6 +221,39 @@ export async function createSelfHostServer(options = {}) {
     check(found && (!browser || found.platform === "web"), 401, "设备凭证无效，请重新配对");
     void auth.touch(found.id).catch(() => {});
     return found;
+  }
+  function resolveDefaultMachineId() {
+    const raw = process.env.ROKBOT_DEFAULT_MACHINE_ID ?? process.env.GROKBOT_DEFAULT_MACHINE_ID ?? "";
+    return raw.trim() || null;
+  }
+  async function readHostVersion() {
+    if (options.hostVersion) return options.hostVersion;
+    const stateDir = resolve(process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? join(dataDir, "runtime"));
+    const status = await readJson(join(stateDir, "host-status.json"), null).catch(() => null);
+    if (typeof status?.revision === "string" && status.revision.trim()) return status.revision.trim();
+    const originalDir = resolve(process.env.ROKBOT_ORIGINAL_HOST ?? process.env.GROKBOT_ORIGINAL_HOST ?? "/research/original-host");
+    const versionText = await readFile(join(originalDir, "version"), "utf8").catch(() => "");
+    if (versionText.trim()) return versionText.trim();
+    const manifest = await readJson(fileURLToPath(new URL("../recipes/host/manifest.json", import.meta.url)), null).catch(() => null);
+    if (typeof manifest?.archive?.version === "string" && manifest.archive.version.trim()) return manifest.archive.version.trim();
+    return null;
+  }
+  function canDeviceConfigureModel(found) {
+    const policy = modelSettings.current();
+    return Boolean(policy.envAllowed && policy.allowDeviceModelConfig && (isAdminPairedDevice(found) || policy.allowGuestModelConfig));
+  }
+  async function authorizeDeviceModel(request, found) {
+    const policy = modelSettings.current();
+    check(policy.envAllowed && policy.allowDeviceModelConfig, 403, "Host 已禁用客户端模型配置");
+    if (isAdminPairedDevice(found) || policy.allowGuestModelConfig) return;
+    const stepUp = request.headers["x-rokbot-admin-password"];
+    if (typeof stepUp === "string" && stepUp.length > 0) {
+      limiter.check(`local-model-pw:${request.socket.remoteAddress}`, 5);
+      limiter.check(`local-model-pw:device:${found.id}`, 5);
+      check(auth.initialized && await verifyPassword(stepUp, auth.store.value.admin), 403, "管理员密码不正确，无权修改模型配置");
+      return;
+    }
+    throw new HttpError(403, "当前设备无权配置模型，请使用管理员密码配对或提供管理密码");
   }
   function admin(request) {
     check(
@@ -382,7 +427,7 @@ export async function createSelfHostServer(options = {}) {
     check(agent, 404, "Bot 不存在");
     return agent;
   }
-  async function adminRoutes(request, response, path, origin) {
+  async function adminRoutes(request, response, path, origin, url) {
     const method = request.method;
     if (method !== "GET") adminMutation(request, origin);
     if (method === "GET" && path === "/admin/api/session") {
@@ -459,7 +504,7 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, {
         startedAt: bootAt,
         publicUrl: origin,
-        model,
+        model: { ...model, devicePolicy: modelSettings.current() },
         host: { ...host, waitingForExecutionNode: !host.connected &&
           (process.env.ROKBOT_REQUIRE_EXECUTION_NODE ?? process.env.GROKBOT_REQUIRE_EXECUTION_NODE) === '1' && !executionNode.store.value.config.enabled },
         devices: push.devices(),
@@ -484,14 +529,18 @@ export async function createSelfHostServer(options = {}) {
     if (method === "GET" && path === "/admin/api/model/routing-log")
       return sendJson(response, 200, { items: await recentRouting(join(dataDir, 'routing')) });
     if (method === "GET" && path === "/admin/api/model")
-      return sendJson(response, 200, await models.publicConfig());
+      return sendJson(response, 200, { ...(await models.publicConfig()), devicePolicy: modelSettings.current() });
+    if (method === "GET" && path === "/admin/api/model/policy")
+      return sendJson(response, 200, modelSettings.current());
+    if (method === "PUT" && path === "/admin/api/model/policy")
+      return sendJson(response, 200, await modelSettings.save(await jsonBody(request)));
     if (method === "GET" && path === "/admin/api/usage")
       return sendJson(response, 200, await usage(new URL(request.url, origin).searchParams.get('timeZone') || process.env.TZ || 'UTC'));
     if (method === "PUT" && path === "/admin/api/model")
       return sendJson(
         response,
         200,
-        await models.save(await jsonBody(request)),
+        { ...(await models.save(await jsonBody(request))), devicePolicy: modelSettings.current() },
       );
     if (method === "POST" && path === "/admin/api/model/catalog") {
       return sendJson(response, 200, await models.catalog(await jsonBody(request)));
@@ -588,6 +637,19 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, {
         items: notifications.list().slice(-100).reverse(),
       });
+    if (method === "GET" && path === "/admin/api/updates")
+      return sendJson(response, 200, updates.adminOverview(origin));
+    if (method === "GET" && path === "/admin/api/updates/signing-key")
+      return sendJson(response, 200, updates.signingKeySummary());
+    if (["PATCH", "PUT"].includes(method) && path === "/admin/api/updates/settings")
+      return sendJson(response, 200, await updates.setSettings(await jsonBody(request)));
+    if (method === "POST" && path === "/admin/api/updates/upload")
+      return sendJson(response, 201, await updates.handleUpload(request, url));
+    if (method === "POST" && path === "/admin/api/updates/publish")
+      return sendJson(response, 201, await updates.publish(await jsonBody(request), origin));
+    const deleteUpdate = /^\/admin\/api\/updates\/([^/]+)\/([A-Za-z0-9_-]{1,128})$/.exec(path);
+    if (method === "DELETE" && deleteUpdate)
+      return sendJson(response, 200, await updates.remove(decodeURIComponent(deleteUpdate[1]), decodeURIComponent(deleteUpdate[2])));
     throw new HttpError(404, "接口不存在");
   }
   async function handle(request, response) {
@@ -604,7 +666,7 @@ export async function createSelfHostServer(options = {}) {
     request.rokbotOrigin = origin;
     const url = new URL(request.url, origin);
     if (path.startsWith("/admin/api/"))
-      return adminRoutes(request, response, path, origin);
+      return adminRoutes(request, response, path, origin, url);
     if ((path === "/web" || path.startsWith("/web/")) && path !== "/web/login")
       return webRoutes(request, response, path, origin, url);
     if (path === "/local-client/icon.png" && request.method === "GET") {
@@ -786,13 +848,97 @@ export async function createSelfHostServer(options = {}) {
       })
     ) return;
     if (request.method === "GET" && path === "/connect/status") {
+      const hasCredential = request.headers.authorization !== undefined || Boolean(cookie(request, "rokbot_web"));
+      const summary = await models.statusSummary();
+      if (!hasCredential) {
+        return sendJson(response, 200, {
+          ok: true,
+          brand: "RokBot",
+          initialized: auth.initialized,
+          needsModel: summary.needsModel,
+          configured: summary.configured,
+          connected: false,
+          hostName: profile.current().hostName,
+        });
+      }
       const found = device(request);
       return sendJson(response, 200, {
+        ok: true,
+        brand: "RokBot",
+        initialized: auth.initialized,
+        needsModel: summary.needsModel,
+        configured: summary.configured,
+        connected: true,
         deviceId: found.id,
         deviceName: found.name,
         platform: found.platform,
-        connected: true,
       });
+    }
+    if (request.method === "GET" && path === "/local/status") {
+      const found = device(request);
+      const [summary, reload, hostVersion] = await Promise.all([
+        models.statusSummary(),
+        models.localReloadStatus(),
+        readHostVersion(),
+      ]);
+      return sendJson(response, 200, {
+        ok: true,
+        brand: "RokBot",
+        initialized: auth.initialized,
+        configured: summary.configured,
+        needsModel: summary.needsModel,
+        canConfigureModel: canDeviceConfigureModel(found),
+        pairedWith: found.pairedWith ?? null,
+        hostVersion,
+        defaultMachineId: resolveDefaultMachineId(),
+        deviceId: found.id,
+        deviceName: found.name,
+        platform: found.platform,
+        hostName: profile.current().hostName,
+        reload,
+      });
+    }
+    if (request.method === "GET" && path === "/local/model") {
+      const found = device(request);
+      await authorizeDeviceModel(request, found);
+      const current = await models.currentOrEmpty();
+      const configured = isConfiguredModelRouting(current.routing);
+      return sendJson(response, 200, {
+        ok: true,
+        config: publicModelRouting(current.routing),
+        configured,
+        needsModel: !configured,
+        routingMigrated: current.routingMigrated,
+        ...(current.corruptConfig ? { corruptConfig: true } : {}),
+        reload: await models.localReloadStatus(),
+        canConfigureModel: true,
+      });
+    }
+    if (request.method === "PUT" && path === "/local/model") {
+      const found = device(request);
+      await authorizeDeviceModel(request, found);
+      const saved = await models.save(await jsonBody(request));
+      const current = await models.currentOrEmpty();
+      return sendJson(response, 200, {
+        ok: true,
+        config: publicModelRouting(current.routing),
+        configured: saved.configured,
+        needsModel: !saved.configured,
+        reload: await models.localReloadStatus(),
+        canConfigureModel: true,
+      });
+    }
+    if (request.method === "POST" && path === "/local/model/catalog") {
+      const found = device(request);
+      await authorizeDeviceModel(request, found);
+      limiter.check(`local-model-catalog:${found.id}`, 30);
+      return sendJson(response, 200, { ok: true, ...(await models.catalog(await jsonBody(request))) });
+    }
+    if (request.method === "POST" && path === "/local/model/test") {
+      const found = device(request);
+      await authorizeDeviceModel(request, found);
+      limiter.check(`local-model-test:${found.id}`, 10);
+      return sendJson(response, 200, await models.test(await jsonBody(request)));
     }
     if (["GET", "PUT"].includes(request.method) && path === "/local/device") {
       const found = device(request);
@@ -812,6 +958,28 @@ export async function createSelfHostServer(options = {}) {
       );
     }
     if (await handleUpdateProxy(request, response, path, url, { device, connections })) return;
+    const localUpdateFeed = /^\/local\/updates\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
+    if (request.method === "GET" && localUpdateFeed) {
+      device(request);
+      return sendJson(response, 200, updates.manifestFor(`${localUpdateFeed[1]}.json`, origin));
+    }
+    const localUpdateFile = /^\/local\/updates\/files\/([^/]+)\/([^/]+)$/.exec(path);
+    if (localUpdateFile) {
+      device(request);
+      return updates.serveFile(request, response, decodeURIComponent(localUpdateFile[1]), localUpdateFile[2]);
+    }
+    const iosPlist = /^\/updates\/ios\/([^/]+)\/manifest\.plist$/.exec(path);
+    if (iosPlist) {
+      return updates.serveIosManifestPlist(request, response, decodeURIComponent(iosPlist[1]), origin);
+    }
+    const iosAltStore = /^\/updates\/ios\/([^/]+)\/altstore\.json$/.exec(path);
+    if (iosAltStore) {
+      return updates.serveIosAltStoreJson(request, response, decodeURIComponent(iosAltStore[1]), origin);
+    }
+    const iosFile = /^\/updates\/ios\/([^/]+)\/([^/]+)$/.exec(path);
+    if (iosFile) {
+      return updates.serveIosTokenArtifact(request, response, decodeURIComponent(iosFile[1]), iosFile[2]);
+    }
     if (request.method === "POST" && path === "/local/device/push/test") {
       const found = device(request);
       limiter.check(`local-push-test:${found.id}`, 10);
@@ -958,13 +1126,17 @@ export async function createSelfHostServer(options = {}) {
       return response.end(request.method === "HEAD" ? undefined : bytes);
     }
     const asset = pages.get(path) ?? (publicAssets.has(path.slice(1)) ? path.slice(1) : null);
-    if (asset && request.method === "GET") {
+    if (asset && ["GET", "HEAD"].includes(request.method)) {
+      const bytes = await readFile(join(publicDir, asset));
       response.setHeader(
         "content-security-policy",
         "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
       );
-      response.writeHead(200, { "content-type": `${assetTypes[extname(asset)]}; charset=utf-8` });
-      return response.end(await readFile(join(publicDir, asset)));
+      response.writeHead(200, {
+        "content-type": `${assetTypes[extname(asset)]}; charset=utf-8`,
+        "content-length": bytes.length,
+      });
+      return response.end(request.method === "HEAD" ? undefined : bytes);
     }
     throw new HttpError(404, "页面不存在");
   }
@@ -977,7 +1149,7 @@ export async function createSelfHostServer(options = {}) {
         console.error(`[selfhost] request failed: ${error.code ?? error.name}`);
     });
   });
-  server.requestTimeout = 120_000;
+  server.requestTimeout = 600_000;
   server.headersTimeout = 30_000;
   server.on("connection", (socket) => {
     sockets.add(socket);
@@ -1016,6 +1188,8 @@ export async function createSelfHostServer(options = {}) {
     server,
     auth,
     models,
+    modelSettings,
+    updates,
     speech,
     voice, voiceConfig, synthesis,
     mediaSettings, webSettings, mediaServices,
@@ -1068,6 +1242,8 @@ export async function createSelfHostServer(options = {}) {
       await Promise.all([
         auth.store.tail,
         models.tail,
+        modelSettings.store.tail,
+        updates.store.tail,
         notifications.store.tail,
         notificationSettings.store.tail,
         library.tail,

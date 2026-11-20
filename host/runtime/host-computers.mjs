@@ -1,4 +1,5 @@
 const patchedRawBridges = new WeakSet();
+const patchedUserComputers = new WeakSet();
 
 function patchRawLocalExecBridge(bridge, defaultMachineId) {
   if (!bridge || typeof bridge.resolveProvider !== 'function' || typeof bridge.requireProvider !== 'function') {
@@ -68,11 +69,9 @@ export function installDefaultMachineRouting(localExec, rawDefaultMachineId) {
     : undefined;
   if (!localExec) return defaultMachineId;
 
-  if (patchRawLocalExecBridge(localExec, defaultMachineId)) {
-    return defaultMachineId;
-  }
+  const isRawBridge = patchRawLocalExecBridge(localExec, defaultMachineId);
 
-  let rawPatched = false;
+  let rawPatched = isRawBridge;
   const origResolve = localExec.userComputers?.resolve?.bind(localExec.userComputers);
   const ensureRawBridgePatched = () => {
     if (rawPatched) return true;
@@ -92,7 +91,8 @@ export function installDefaultMachineRouting(localExec, rawDefaultMachineId) {
     return false;
   };
 
-  if (localExec.userComputers && typeof origResolve === 'function') {
+  if (localExec.userComputers && typeof origResolve === 'function' && !patchedUserComputers.has(localExec.userComputers)) {
+    patchedUserComputers.add(localExec.userComputers);
     localExec.userComputers.resolve = function resolve(id, scope) {
       ensureRawBridgePatched();
       if (id === undefined && defaultMachineId !== undefined) {
@@ -101,6 +101,10 @@ export function installDefaultMachineRouting(localExec, rawDefaultMachineId) {
       }
       return origResolve(id, scope);
     };
+  }
+
+  if (isRawBridge) {
+    return defaultMachineId;
   }
 
   if (typeof localExec.registerProvider === 'function') {

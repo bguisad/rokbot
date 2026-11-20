@@ -19,6 +19,7 @@ const publicDevice = ({
   platform,
   clientDeviceId,
   bundleId,
+  pairedWith,
   createdAt,
   revokedAt,
   lastSeenAt,
@@ -28,10 +29,14 @@ const publicDevice = ({
   platform,
   clientDeviceId: clientDeviceId ?? null,
   bundleId: bundleId ?? null,
+  pairedWith: pairedWith ?? null,
   createdAt,
   revokedAt,
   lastSeenAt,
 });
+export function isAdminPairedDevice(device) {
+  return device?.pairedWith === "password" || device?.pairedWith === "admin-web";
+}
 const normalizeKey = (value) =>
   typeof value === "string" ? value.replace(/[\s-]/g, "").toUpperCase() : "";
 const validDeviceName = (value) =>
@@ -214,6 +219,7 @@ export class Auth {
       );
     }
     const kind = web ? "web" : platform === "desktop" && clientKind === "android" ? "android" : platform;
+    const pairedWith = hasPassword ? "password" : "pairing-key";
     return this.addDevice(
       deviceName,
       kind,
@@ -231,6 +237,7 @@ export class Auth {
         clientDeviceId: normalizedClientDeviceId,
         bundleId: normalizedBundleId,
         legacyBundleIdFor,
+        pairedWith,
       },
     );
   }
@@ -239,13 +246,14 @@ export class Auth {
     const normalizedClientDeviceId = normalizeClientDeviceId(clientDeviceId);
     return this.addDevice(deviceName, "web", () => () => {}, {
       clientDeviceId: normalizedClientDeviceId,
+      pairedWith: "admin-web",
     });
   }
   async addDevice(
     deviceName,
     platform,
     authorize,
-    { clientDeviceId = null, bundleId = null, legacyBundleIdFor = null } = {},
+    { clientDeviceId = null, bundleId = null, legacyBundleIdFor = null, pairedWith = null } = {},
   ) {
     validDeviceName(deviceName);
     const trimmedName = deviceName.trim();
@@ -285,6 +293,7 @@ export class Auth {
         primary.hash = hash(token);
         primary.clientDeviceId = clientDeviceId;
         if (bundleId) primary.bundleId = bundleId;
+        primary.pairedWith = pairedWith;
         primary.lastSeenAt = now;
         finalId = primary.id;
         reused = true;
@@ -306,6 +315,7 @@ export class Auth {
           platform,
           clientDeviceId,
           bundleId,
+          pairedWith,
           hash: hash(token),
           createdAt: now,
           revokedAt: null,

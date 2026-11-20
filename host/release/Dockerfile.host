@@ -1,5 +1,5 @@
 ARG PATCH_IMAGE=rokbot-patch-base:local
-ARG RUNTIME_IMAGE=rokbot-box-input:9d2ac1b
+ARG RUNTIME_IMAGE=rokbot-box-input:2bb5e41
 FROM ${PATCH_IMAGE} AS patch
 COPY inputs/host.tgz /inputs/host.tgz
 RUN python3 release/patch-host.py --archive /inputs/host.tgz --output /generated
@@ -10,15 +10,12 @@ WORKDIR /opt/rokbot
 COPY --from=patch /opt/rokbot /opt/rokbot
 COPY --from=patch /generated/original artifacts/host-${HOST_REVISION}/sand-host/
 COPY --from=patch /generated/seed seed/
-# Compatibility bridge for d0a4baa .gbp.gz recipes (which import /opt/grokbot/runtime/... and
-# read GROKBOT_RUNTIME_DIR in agent-store-worker.cjs.gbp.gz) until M2 regenerates 2bb5e41 recipes.
-RUN ln -s /opt/rokbot /opt/grokbot
 ENV NODE_PATH=/opt/sand/deps:/opt/rokbot/artifacts/host-${HOST_REVISION}/sand-host/node_modules:/opt/sand/sand-host/node_modules:/exec-daemon/node_modules \
     ROKBOT_DATA_DIR=/data ROKBOT_STATE_DIR=/data/runtime \
     ROKBOT_MODEL_ENV=/data/model.env ROKBOT_HOST_DATA_DIR=/data/runtime/host-data \
     ROKBOT_ORIGINAL_HOST=/opt/rokbot/artifacts/host-${HOST_REVISION}/sand-host \
     ROKBOT_RUNTIME_DIR=/opt/rokbot/runtime ROKBOT_RECOVERED_CORE=1 \
-    GROKBOT_RUNTIME_DIR=/opt/rokbot/runtime \
+    ROKBOT_ALLOW_DEVICE_MODEL_CONFIG=1 ROKBOT_UPDATE_DIR=/data/updates \
     ROKBOT_HOST_BIND=127.0.0.1 ROKBOT_HOST_PORT=1340 \
     ROKBOT_INTERNAL_HOST_URL=http://127.0.0.1:1340 \
     ROKBOT_INTERNAL_HOST_TOKEN_FILE=/data/internal-host-token \
@@ -26,5 +23,5 @@ ENV NODE_PATH=/opt/sand/deps:/opt/rokbot/artifacts/host-${HOST_REVISION}/sand-ho
     ROKBOT_TAILCAT_BINARY=/opt/rokbot/bin/rokbot-tailcat
 EXPOSE 8000
 VOLUME ["/data"]
-HEALTHCHECK --interval=15s --timeout=4s --start-period=90s --retries=3 CMD ["/exec-daemon/node", "deploy/healthcheck.mjs"]
+HEALTHCHECK --interval=15s --timeout=15s --start-period=90s --retries=3 CMD ["/exec-daemon/node", "deploy/healthcheck.mjs"]
 ENTRYPOINT ["/exec-daemon/node", "/opt/rokbot/deploy/supervisor.mjs"]

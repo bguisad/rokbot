@@ -10,9 +10,17 @@ services:
     environment:
       ROKBOT_PUBLIC_URL: ${ROKBOT_PUBLIC_URL:-${GROKBOT_PUBLIC_URL:-}}
       ROKBOT_REQUIRE_EXECUTION_NODE: "1"
+      ROKBOT_ALLOW_DEVICE_MODEL_CONFIG: ${ROKBOT_ALLOW_DEVICE_MODEL_CONFIG:-1}
+      ROKBOT_UPDATE_DIR: ${ROKBOT_UPDATE_DIR:-/data/updates}
       TZ: ${TZ:-Asia/Singapore}
     volumes:
       - host-data:/data
+    healthcheck:
+      test: ["CMD", "/exec-daemon/node", "deploy/healthcheck.mjs"]
+      interval: 15s
+      timeout: 15s
+      start_period: 90s
+      retries: 3
     stop_grace_period: 25s
     logging:
       driver: json-file

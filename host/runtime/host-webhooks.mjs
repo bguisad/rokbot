@@ -14,7 +14,7 @@ function publicOrigin(configured, fallbackOrigin) {
 }
 
 /** A claimed event enters the original event-automation runtime, never the user-send API. */
-export async function startLocalWebhooks(context, { call, interval = 1500, directory = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR } = {}) {
+export async function startLocalWebhooks(context, { call, interval = 1500, directory = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR, turnExecution = context.deps?.['turn-execution'] } = {}) {
   let baseOrigin = 'http://127.0.0.1:8000';
   if (!call) {
     const notificationUrl = process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
@@ -124,7 +124,8 @@ export async function startLocalWebhooks(context, { call, interval = 1500, direc
           pendingFinish = null;
           activeKey = null;
         }
-        if (!await context.deps['turn-execution'].isRunReady() || stopped || suspended) return;
+        const ready = typeof turnExecution?.isRunReady === 'function' ? await turnExecution.isRunReady() : false;
+        if (!ready || stopped || suspended) return;
         while (!stopped && !suspended) {
           const ranHook = await drainChannel('webhooks', runHookEvent);
           const ranAuto = await drainChannel('automation-webhooks', runAutomationWebhookEvent);

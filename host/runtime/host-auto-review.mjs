@@ -140,20 +140,31 @@ export function createLocalClassifier(config, library, { fetchImpl = globalThis.
   };
 }
 
-export function startLocalAutoReview(context, library, config) {
+export function startLocalAutoReview(context, library, config, deps = {}) {
+  const auth = deps.auth ?? context.deps?.auth;
+  const settings = deps.settings ?? context.deps?.settings;
+  const telemetry = deps.telemetry ?? context.deps?.telemetry;
+  const transcript = deps.transcript ?? context.deps?.transcript;
+  const createClassifierExecutor = () =>
+    createLocalClassifier(config, library, { log: message => context.host.log(message) });
   const service = new library.AutoReviewService({
-    auth: context.deps.auth,
+    auth,
     experiments: { checkFeatureGate: () => true },
-    settings: context.deps.settings,
-    telemetry: context.deps.telemetry.logs,
-    awaitingSink: context.deps.transcript.createAwaitingStateSink(),
-    transcript: context.deps.transcript,
+    settings,
+    telemetry: telemetry?.logs,
+    awaitingSink: transcript.createAwaitingStateSink(),
+    transcript,
     hostGeneration: randomUUID(), localMode: 'enforce',
-    createClassifierExecutor: () => createLocalClassifier(config, library, { log: message => context.host.log(message) }),
+    createClassifierExecutor,
   });
-  context.onStop(() => service.stop());
+  if (typeof service.createClassifierExecutor !== 'function') {
+    service.createClassifierExecutor = createClassifierExecutor;
+  }
+  if (typeof service.stop === 'function') {
+    context.onStop(() => service.stop());
+  }
   const startedAt = Date.now();
-  const sweep = () => service.sweepStaleAwaitingBadges(() => context.deps.transcript.listAgentIds(), startedAt);
-  void context.deps.transcript.expireAllPendingAutoReviewApprovalCards().then(sweep, sweep);
+  const sweep = () => service.sweepStaleAwaitingBadges(() => transcript.listAgentIds(), startedAt);
+  void transcript.expireAllPendingAutoReviewApprovalCards().then(sweep, sweep);
   return service;
 }
