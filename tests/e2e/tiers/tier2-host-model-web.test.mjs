@@ -216,9 +216,9 @@ export function registerTests(test, ctx) {
     });
 
     await pairPasswordDevice(client, ctx);
-    const created = await client.apiCall('createAgent', { name: 'File Boundary Bot' });
+    const created = await client.createAgent({ name: 'File Boundary Bot' });
     ctx.assert.assertStatus(created, 200);
-    const agentId = created.json.id;
+    const agentId = created.agentId;
     t.after(async () => {
       await client.apiCall('deleteAgents', { ids: [agentId] }).catch(() => {});
     });

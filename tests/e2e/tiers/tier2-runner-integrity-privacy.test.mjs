@@ -437,12 +437,12 @@ export function registerTests(test, ctx) {
       if (loc.json?.needsModel) {
         t.skip('Live Host has needsModel=true; cannot stream sendPrompt');
       }
-      const created = await client.apiCall('createAgent', { name: 'SSE Cursor Bot', description: '' });
+      const created = await client.createAgent({ name: 'SSE Cursor Bot', description: '' });
       if (created.status === 503) {
         t.skip('Live Host core is disconnected (503)');
       }
       ctx.assert.assertStatus(created, 200);
-      liveAgentId = created.json?.id;
+      liveAgentId = created.agentId;
       ctx.assert.ok(typeof liveAgentId === 'string' && liveAgentId.length > 0);
       t.after(() => client.apiCall('deleteAgents', { ids: [liveAgentId] }).catch(() => {}));
     }

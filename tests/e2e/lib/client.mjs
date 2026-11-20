@@ -384,6 +384,21 @@ export class RokBotE2EClient {
     return this.request('POST', `/api/${method}`, { body, ...opts });
   }
 
+  /**
+   * createAgent normalized across the harness and the live 2bb5e41 Host.
+   * The live Host requires `description: string` and answers `{ agent: { id, ... } }`, while the harness
+   * answers a bare agent object. The returned response keeps `status`/`json` and adds `agent` + `agentId`.
+   */
+  async createAgent(fields = {}, opts = {}) {
+    const res = await this.apiCall('createAgent', { description: '', ...fields }, opts);
+    const agent = res.json && typeof res.json === 'object'
+      ? (res.json.agent && typeof res.json.agent === 'object' ? res.json.agent : res.json)
+      : null;
+    res.agent = agent;
+    res.agentId = typeof agent?.id === 'string' ? agent.id : null;
+    return res;
+  }
+
   getComputers(opts = {}) {
     return this.request('GET', '/local/computers', opts);
   }

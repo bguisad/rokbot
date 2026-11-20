@@ -889,9 +889,9 @@ export function registerTests(test, ctx) {
     ctx.assert.equal(explicitExec.json.machineId, 'win-box-1');
 
     // Create dedicated agent -> seed attachment -> library CRUD -> SSE chat -> delete agent
-    const agentRes = await client.apiCall('createAgent', { name: 'Workspace Assistant' });
+    const agentRes = await client.createAgent({ name: 'Workspace Assistant' });
     ctx.assert.assertStatus(agentRes, 200);
-    const agentId = agentRes.json.id;
+    const agentId = agentRes.agentId;
 
     const iconRes = await client.getIcon();
     ctx.assert.assertStatus(iconRes, 200);

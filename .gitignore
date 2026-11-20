@@ -48,3 +48,4 @@ auth.json
 host/server/node_modules/
 android/companion/build/
 android/test-target/build/
+ios/.runtime/

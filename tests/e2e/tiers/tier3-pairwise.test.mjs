@@ -1166,9 +1166,9 @@ export function registerTests(test, ctx) {
     ctx.assert.assertStatus(unknownExec, 404);
 
     // Agent creation + file upload + cascade delete
-    const created = await client.apiCall('createAgent', { name: 'Cascade Agent' });
+    const created = await client.createAgent({ name: 'Cascade Agent' });
     ctx.assert.assertStatus(created, 200);
-    const agentId = created.json.id;
+    const agentId = created.agentId;
 
     const up = await client.uploadFile({
       agentId,

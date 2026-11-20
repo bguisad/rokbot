@@ -184,12 +184,12 @@ export function registerTests(test, ctx) {
     await resetHarnessState(ctx);
     const client = await ensurePasswordPairedClient(ctx, t, { deviceName: 'F04 Agent CRUD' });
 
-    const created = await client.apiCall('createAgent', { name: 'RokBot Tier1 Agent' });
+    const created = await client.createAgent({ name: 'RokBot Tier1 Agent' });
     ctx.assert.assertStatus(created, 200);
-    const agentId = created.json?.id;
+    const agentId = created.agentId;
     ctx.assert.ok(typeof agentId === 'string' && agentId.length > 0);
     t.after(() => client.apiCall('deleteAgents', { ids: [agentId] }).catch(() => {}));
-    ctx.assert.equal(created.json.name, 'RokBot Tier1 Agent');
+    ctx.assert.equal(created.agent?.name, 'RokBot Tier1 Agent');
 
     const list1 = await client.apiCall('listAgents');
     ctx.assert.assertStatus(list1, 200);
@@ -229,12 +229,12 @@ export function registerTests(test, ctx) {
       if (loc.json?.needsModel) {
         t.skip('Live Host has needsModel=true; skipping live sendPrompt');
       }
-      const created = await client.apiCall('createAgent', { name: 'SSE Tier1 Bot', description: '' });
+      const created = await client.createAgent({ name: 'SSE Tier1 Bot', description: '' });
       if (created.status === 503) {
         t.skip('Live Host core is disconnected (503)');
       }
       ctx.assert.assertStatus(created, 200);
-      liveAgentId = created.json?.id;
+      liveAgentId = created.agentId;
       ctx.assert.ok(typeof liveAgentId === 'string' && liveAgentId.length > 0);
       t.after(() => client.apiCall('deleteAgents', { ids: [liveAgentId] }).catch(() => {}));
     }
@@ -315,9 +315,9 @@ export function registerTests(test, ctx) {
     await resetHarnessState(ctx);
     const client = await ensurePasswordPairedClient(ctx, t, { deviceName: 'F04 Files Client' });
 
-    const created = await client.apiCall('createAgent', { name: 'Files Bot' });
+    const created = await client.createAgent({ name: 'Files Bot' });
     ctx.assert.assertStatus(created, 200);
-    const agentId = created.json.id;
+    const agentId = created.agentId;
     t.after(() => client.apiCall('deleteAgents', { ids: [agentId] }).catch(() => {}));
 
     const payload = Buffer.from('RokBot library payload 🚀\nline2', 'utf8');
