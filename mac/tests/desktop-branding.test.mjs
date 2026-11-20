@@ -76,7 +76,7 @@ test('brand-assets applies Info.plist, wires RokBot icons into app.asar & bundle
   await mkdir(path.join(unpacked, 'local-client'), { recursive: true });
   await mkdir(outResources, { recursive: true });
   await writeFile(path.join(unpacked, 'package.json'), JSON.stringify({ name: 'rokbot', main: 'local-client/main.mjs' }));
-  await writeFile(path.join(outResources, 'Assets.car'), 'stale-0.71.2-asset-catalog');
+  await writeFile(path.join(outResources, 'Assets.car'), 'stale-1.2.3-asset-catalog');
   await writeFile(path.join(outResources, 'icon.icns'), 'stale-official-icns');
 
   await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath });
@@ -108,6 +108,20 @@ test('brand-assets applies Info.plist, wires RokBot icons into app.asar & bundle
     }),
     /icon\.icns/,
   );
+
+  // Leftover Assets.car must fail closed.
+  await writeFile(path.join(outResources, 'Assets.car'), 'unexpected-asset-catalog');
+  await assert.rejects(
+    verifyRokBotIcons({
+      icnsPath,
+      iconPngPath,
+      outIconPath: path.join(outResources, 'icon.icns'),
+      outAsarPath: outAsar,
+      asarModule: asar,
+    }),
+    /Assets\.car/,
+  );
+  await installBundleIcon({ outResources, icnsPath });
 
   // Restore bundle icon, then tamper ASAR local-client/icon.png -> must fail closed.
   await installBundleIcon({ outResources, icnsPath });

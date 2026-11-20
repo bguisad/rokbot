@@ -28,7 +28,7 @@ import {
 } from '../clients/desktop/updater.mjs';
 
 test('desktop updater stays disabled without manifest config', async () => {
-  const updater = createDesktopUpdater({ appVersion: '0.71.2', profileDir: os.tmpdir(), config: null });
+  const updater = createDesktopUpdater({ appVersion: '1.2.3', profileDir: os.tmpdir(), config: null });
   assert.equal(updater.status().state.type, 'disabled');
   assert.equal(updater.status().delivery, 'package-manager');
   assert.equal((await updater.check()).state.type, 'disabled');
@@ -38,16 +38,16 @@ test('desktop updater verifies signature, downloads artifact, verifies checksum,
   const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-desktop-updater-'));
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
-    const installerBytes = Buffer.from('fake-desktop-installer-payload-0.72.0');
+    const installerBytes = Buffer.from('fake-desktop-installer-payload-1.2.4');
     const sha256 = createHash('sha256').update(installerBytes).digest('hex');
 
     const manifest = signDesktopUpdateManifest({
       platform: 'win32-x64',
       track: 'stable',
-      version: '0.72.0',
+      version: '1.2.4',
       sha256,
       size: installerBytes.length,
-      url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
+      url: 'https://updates.example/RokBotLocal-1.2.4-x64-Setup.exe',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
 
@@ -55,7 +55,7 @@ test('desktop updater verifies signature, downloads artifact, verifies checksum,
     const states = [];
     const installed = [];
     const updater = createDesktopUpdater({
-      appVersion: '0.71.2',
+      appVersion: '1.2.3',
       platformId: 'win32-x64',
       profileDir: dir,
       config: { updateUrl: 'https://updates.example', updatePublicKey: key.publicKeySpkiBase64 },
@@ -79,22 +79,22 @@ test('desktop updater verifies signature, downloads artifact, verifies checksum,
     corruptBody = false;
     const ready = await updater.check();
     assert.equal(ready.state.type, 'ready');
-    assert.equal(ready.state.version, '0.72.0');
+    assert.equal(ready.state.version, '1.2.4');
     assert.ok(states.includes('checking'));
     assert.ok(states.includes('staging'));
 
-    const installRes = await updater.quitAndInstall({ expectedVersion: '0.72.0' });
+    const installRes = await updater.quitAndInstall({ expectedVersion: '1.2.4' });
     assert.deepEqual(installRes, { status: 'requested' });
-    assert.deepEqual(installed, [{ bytes: installerBytes.length, version: '0.72.0' }]);
+    assert.deepEqual(installed, [{ bytes: installerBytes.length, version: '1.2.4' }]);
 
-    const supersededRes = await updater.quitAndInstall({ expectedVersion: '0.71.9' });
+    const supersededRes = await updater.quitAndInstall({ expectedVersion: '1.2.3' });
     assert.deepEqual(supersededRes, { status: 'superseded' });
 
     updater.setTrack({ track: 'nightly' });
     updater.setAutoUpdateWhenIdle({ enabled: true });
     await new Promise(resolve => setTimeout(resolve, 15));
     const reloaded = createDesktopUpdater({
-      appVersion: '0.71.2',
+      appVersion: '1.2.3',
       platformId: 'win32-x64',
       profileDir: dir,
       config: { updateUrl: 'https://updates.example', updatePublicKey: key.publicKeySpkiBase64 },
@@ -115,15 +115,15 @@ test('desktop updater discards in-flight check result if setTrack switches track
     const manifest = signDesktopUpdateManifest({
       platform: 'win32-x64',
       track: 'stable',
-      version: '0.72.0',
+      version: '1.2.4',
       sha256: createHash('sha256').update(installerBytes).digest('hex'),
       size: installerBytes.length,
-      url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
+      url: 'https://updates.example/RokBotLocal-1.2.4-x64-Setup.exe',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
     const gate = Promise.withResolvers();
     const updater = createDesktopUpdater({
-      appVersion: '0.71.2',
+      appVersion: '1.2.3',
       platformId: 'win32-x64',
       profileDir: dir,
       config: { updateUrl: 'https://updates.example', updatePublicKey: key.publicKeySpkiBase64 },
@@ -170,33 +170,33 @@ test('desktop updater stages installer binary delta without downloading full ins
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
     const sharedTail = Buffer.alloc(128 * 1024, 0x41);
-    const oldInstaller = Buffer.concat([Buffer.from('OLD-HDR-0.71.2-'), sharedTail, Buffer.from('-END')]);
-    const newInstaller = Buffer.concat([Buffer.from('NEW-HDR-0.72.0-'), sharedTail, Buffer.from('-PATCHED')]);
+    const oldInstaller = Buffer.concat([Buffer.from('OLD-HDR-1.2.3-'), sharedTail, Buffer.from('-END')]);
+    const newInstaller = Buffer.concat([Buffer.from('NEW-HDR-1.2.4-'), sharedTail, Buffer.from('-PATCHED')]);
     const deltaBytes = createDeltaBuffer(oldInstaller, newInstaller);
     assert.ok(deltaBytes.length < 4096, `expected tiny delta, got ${deltaBytes.length}`);
 
     const updatesDir = path.join(dir, 'updates');
     await mkdir(updatesDir, { recursive: true });
-    await writeFile(path.join(updatesDir, 'ready-stable-0.71.2.exe'), oldInstaller);
+    await writeFile(path.join(updatesDir, 'ready-stable-1.2.3.exe'), oldInstaller);
 
     const signed = signDesktopDeltas(
       signDesktopUpdateManifest({
         platform: 'win32-x64',
         track: 'stable',
-        version: '0.72.0',
+        version: '1.2.4',
         sha256: createHash('sha256').update(newInstaller).digest('hex'),
         size: newInstaller.length,
-        url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
+        url: 'https://updates.example/RokBotLocal-1.2.4-x64-Setup.exe',
         publishedAt: '2026-11-16T12:00:00.000Z',
       }, key.privateKey)
         ? {
             ...signDesktopUpdateManifest({
               platform: 'win32-x64',
               track: 'stable',
-              version: '0.72.0',
+              version: '1.2.4',
               sha256: createHash('sha256').update(newInstaller).digest('hex'),
               size: newInstaller.length,
-              url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
+              url: 'https://updates.example/RokBotLocal-1.2.4-x64-Setup.exe',
               publishedAt: '2026-11-16T12:00:00.000Z',
             }, key.privateKey),
             deltas: [{
@@ -204,7 +204,7 @@ test('desktop updater stages installer binary delta without downloading full ins
               baseSize: oldInstaller.length,
               sha256: createHash('sha256').update(deltaBytes).digest('hex'),
               size: deltaBytes.length,
-              url: 'https://updates.example/deltas/0720.rbdelta',
+              url: 'https://updates.example/deltas/1240.rbdelta',
             }],
           }
         : {},
@@ -214,7 +214,7 @@ test('desktop updater stages installer binary delta without downloading full ins
     const fetched = [];
     const installed = [];
     const updater = createDesktopUpdater({
-      appVersion: '0.71.2',
+      appVersion: '1.2.3',
       platformId: 'win32-x64',
       profileDir: dir,
       config: { updateUrl: 'https://updates.example', updatePublicKey: key.publicKeySpkiBase64 },
@@ -222,16 +222,16 @@ test('desktop updater stages installer binary delta without downloading full ins
       fetchImpl: async url => {
         fetched.push(url);
         if (url.includes('/win32-x64.json')) return new Response(JSON.stringify(signed), { status: 200 });
-        if (url.includes('0720.rbdelta')) return new Response(deltaBytes, { status: 200, headers: { 'content-length': String(deltaBytes.length) } });
+        if (url.includes('1240.rbdelta')) return new Response(deltaBytes, { status: 200, headers: { 'content-length': String(deltaBytes.length) } });
         return new Response(newInstaller, { status: 200, headers: { 'content-length': String(newInstaller.length) } });
       },
     });
 
     const ready = await updater.check();
     assert.equal(ready.state.type, 'ready');
-    assert.equal(fetched.some(u => u.includes('0720.rbdelta')), true);
+    assert.equal(fetched.some(u => u.includes('1240.rbdelta')), true);
     assert.equal(fetched.some(u => u.includes('Setup.exe')), false);
-    await updater.quitAndInstall({ expectedVersion: '0.72.0' });
+    await updater.quitAndInstall({ expectedVersion: '1.2.4' });
     assert.equal(installed.length, 1);
     assert.ok(installed[0].bytes.equals(newInstaller));
 
@@ -243,14 +243,14 @@ test('desktop updater stages installer binary delta without downloading full ins
       const tamperedSigned = { ...signed, deltasSignature: 'AAAA' };
       const fetched2 = [];
       const updater2 = createDesktopUpdater({
-        appVersion: '0.71.2',
+        appVersion: '1.2.3',
         platformId: 'win32-x64',
         profileDir: profile2,
         config: { updateUrl: 'https://updates.example', updatePublicKey: key.publicKeySpkiBase64 },
         fetchImpl: async url => {
           fetched2.push(url);
           if (url.includes('/win32-x64.json')) return new Response(JSON.stringify(tamperedSigned), { status: 200 });
-          if (url.includes('0720.rbdelta')) throw new Error('should not download delta with bad deltasSignature');
+          if (url.includes('1240.rbdelta')) throw new Error('should not download delta with bad deltasSignature');
           return new Response(newInstaller, { status: 200, headers: { 'content-length': String(newInstaller.length) } });
         },
       });
@@ -284,10 +284,10 @@ test('desktop updater stages ASAR incremental delta and passes header hashes to 
     const baseManifest = signDesktopUpdateManifest({
       platform: 'darwin-arm64',
       track: 'stable',
-      version: '0.72.0',
+      version: '1.2.4',
       sha256: createHash('sha256').update(fullInstaller).digest('hex'),
       size: fullInstaller.length,
-      url: 'https://updates.example/RokBotLocal-0.72.0-arm64.dmg',
+      url: 'https://updates.example/RokBotLocal-1.2.4-arm64.dmg',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
     const signed = signDesktopDeltas({
@@ -308,7 +308,7 @@ test('desktop updater stages ASAR incremental delta and passes header hashes to 
     const asarInstalls = [];
     const fetched = [];
     const updater = createDesktopUpdater({
-      appVersion: '0.71.2',
+      appVersion: '1.2.3',
       platformId: 'darwin-arm64',
       profileDir,
       resourcesDir: resDir,
@@ -328,7 +328,7 @@ test('desktop updater stages ASAR incremental delta and passes header hashes to 
     assert.equal(ready.state.type, 'ready');
     assert.equal(fetched.some(u => u.includes('mac-asar.rbdelta')), true);
     assert.equal(fetched.some(u => u.includes('.dmg')), false);
-    await updater.quitAndInstall({ expectedVersion: '0.72.0' });
+    await updater.quitAndInstall({ expectedVersion: '1.2.4' });
     assert.equal(asarInstalls.length, 1);
     assert.equal(asarInstalls[0].headerSha256, newAsar.headerSha256);
     assert.equal(asarInstalls[0].baseHeaderSha256, oldAsar.headerSha256);
@@ -351,14 +351,14 @@ test('createTailcatUpdateFetch routes manifest and installer downloads through H
   const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-tailcat-updater-'));
   try {
     const key = await loadManifestSigningKey(path.join(dir, 'manifest.json'));
-    const installerBytes = Buffer.from('tailcat-tunneled-installer-0.72.0');
+    const installerBytes = Buffer.from('tailcat-tunneled-installer-1.2.4');
     const manifest = signDesktopUpdateManifest({
       platform: 'win32-x64',
       track: 'stable',
-      version: '0.72.0',
+      version: '1.2.4',
       sha256: createHash('sha256').update(installerBytes).digest('hex'),
       size: installerBytes.length,
-      url: 'https://updates.example/RokBotLocal-0.72.0-x64-Setup.exe',
+      url: 'https://updates.example/RokBotLocal-1.2.4-x64-Setup.exe',
       publishedAt: '2026-11-16T12:00:00.000Z',
     }, key.privateKey);
 
@@ -381,7 +381,7 @@ test('createTailcatUpdateFetch routes manifest and installer downloads through H
     });
 
     const updater = createDesktopUpdater({
-      appVersion: '0.71.2',
+      appVersion: '1.2.3',
       platformId: 'win32-x64',
       profileDir: dir,
       config: { updateUrl: 'https://updates.example', updatePublicKey: key.publicKeySpkiBase64 },

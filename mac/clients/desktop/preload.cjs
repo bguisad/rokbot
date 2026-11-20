@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('localBot', {
   },
   pair: args => ipcRenderer.invoke('rokbot-local:pair', args),
   disconnect: () => ipcRenderer.invoke('rokbot-local:disconnect'),
+  getLocalStatus: () => ipcRenderer.invoke('rokbot-local:local-status'),
+  getModelConfig: () => ipcRenderer.invoke('rokbot-local:model-get'),
+  updateModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-put', payload),
+  fetchModelCatalog: payload => ipcRenderer.invoke('rokbot-local:model-catalog', payload),
+  testModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-test', payload),
   onConnectionChanged: callback => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on('rokbot-local:connection-changed', listener);

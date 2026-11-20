@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { carveSevenZip } from '../patchers/desktop/original.mjs';
@@ -141,17 +141,26 @@ test('Host attachment file URLs stay POSIX paths on Windows', () => {
   assert.equal(remoteAttachmentPath('file:///data/a%2Fb.png'), null);
 });
 
-test('the Windows command daemon gets its UTF-8 console option', async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'daemon-test-'));
-  try {
-    const file = path.join(directory, 'main.cjs');
-    // Same shape as the shipped 0.71.2 Windows daemon: the sixth argument is powershellUtf8Console.
-    await writeFile(file, `class e3 { constructor(e, r, n, i, s, o, a) { this.utf8 = o; this.keep = a; } }
+test('the Windows command daemon gets its UTF-8 console option', async t => {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'daemon-test-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'main.cjs');
+  // Same shape as the shipped 0.71.2 Windows daemon: the sixth argument is powershellUtf8Console.
+  await writeFile(file, `class e3 { constructor(e, r, n, i, s, o, a) { this.utf8 = o; this.keep = a; } }
 function iZe(t) { let i = {}, s = !0; return new e3(i,t,t,void 0,void 0,void 0,s); }
 module.exports = { make: iZe, dir: __dirname };`);
-    const windows = loadLocalExecDaemon(file, 'win32');
-    assert.deepEqual([windows.make('w').utf8, windows.make('w').keep, windows.dir], [true, true, directory]);
-    // Other platforms load the daemon unchanged.
-    assert.equal(loadLocalExecDaemon(file, 'darwin').make('m').utf8, undefined);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  const windows = loadLocalExecDaemon(file, 'win32');
+  assert.deepEqual([windows.make('w').utf8, windows.make('w').keep, windows.dir], [true, true, directory]);
+  // Other platforms load the daemon unchanged.
+  assert.equal(loadLocalExecDaemon(file, 'darwin').make('m').utf8, undefined);
+
+  // 1.2.3 built-in PowerShell UTF-8 console check must load with zero warnings on win32.
+  const file123 = path.join(directory, 'main-123.cjs');
+  await writeFile(file123, `function make(h, n) { return { utf8Console: h && n?.powershellUtf8Console === !0 }; }
+module.exports = { make, dir: __dirname };`);
+  const warnMock = t.mock.method(console, 'warn', () => {});
+  const win123 = loadLocalExecDaemon(file123, 'win32');
+  assert.equal(warnMock.mock.callCount(), 0);
+  assert.equal(win123.make(true, { powershellUtf8Console: true }).utf8Console, true);
+  assert.equal(win123.dir, directory);
 });

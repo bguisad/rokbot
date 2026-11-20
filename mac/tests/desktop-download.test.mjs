@@ -21,7 +21,7 @@ async function fixture(t) {
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
     await rm(cacheDirectory, { recursive: true, force: true });
   });
-  const supported = { version: '0.71.2', archive: {
+  const supported = { version: '1.2.3', archive: {
     url: `http://127.0.0.1:${server.address().port}/original.dmg`, bytes: body.length,
     sha256: createHash('sha256').update(body).digest('hex'),
   } };
@@ -70,22 +70,27 @@ test('an explicit DMG must match its entire archive pin before it is mounted', a
 });
 
 test('ROKBOT_DESKTOP_DOWNLOAD_BASE rewrites download URLs, enforces bytes/sha256, and fails closed on invalid bases', async t => {
+  const macSupported = JSON.parse(await readFile(new URL('../patchers/desktop/supported.json', import.meta.url), 'utf8'));
   assert.equal(
-    resolveDesktopDownloadUrl('https://downloads.cursor.com/grokbot/stable/darwin-arm64/0.71.2/Grok_Bot_0.71.2.dmg', 'https://mirror.example/assets/'),
-    'https://mirror.example/assets/darwin-arm64/0.71.2/Grok_Bot_0.71.2.dmg',
+    resolveDesktopDownloadUrl(macSupported.archive.url, 'https://mirror.example/assets/'),
+    `https://mirror.example/assets/darwin-arm64/${macSupported.version}/Grok_Bot_${macSupported.version}.dmg`,
   );
   assert.equal(
-    resolveDesktopDownloadUrl('https://other.example/custom/Grok_Bot_0.71.2.dmg', 'http://127.0.0.1:8080/mirror///'),
-    'http://127.0.0.1:8080/mirror/Grok_Bot_0.71.2.dmg',
+    resolveDesktopDownloadUrl('https://downloads.cursor.com/grokbot/stable/darwin-arm64/1.2.3/Grok_Bot_1.2.3.dmg', 'https://mirror.example/assets/'),
+    'https://mirror.example/assets/darwin-arm64/1.2.3/Grok_Bot_1.2.3.dmg',
+  );
+  assert.equal(
+    resolveDesktopDownloadUrl('https://other.example/custom/Grok_Bot_1.2.3.dmg', 'http://127.0.0.1:8080/mirror///'),
+    'http://127.0.0.1:8080/mirror/Grok_Bot_1.2.3.dmg',
   );
 
   const requested = [];
   const f = await fixture(t);
   const mirrorPort = new URL(f.options.supported.archive.url).port;
   const cursorSupported = {
-    version: '0.71.2',
+    version: '1.2.3',
     archive: {
-      url: 'https://downloads.cursor.com/grokbot/stable/darwin-arm64/0.71.2/Grok_Bot_0.71.2.dmg',
+      url: 'https://downloads.cursor.com/grokbot/stable/darwin-arm64/1.2.3/Grok_Bot_1.2.3.dmg',
       bytes: body.length,
       sha256: createHash('sha256').update(body).digest('hex'),
     },
@@ -99,10 +104,10 @@ test('ROKBOT_DESKTOP_DOWNLOAD_BASE rewrites download URLs, enforces bytes/sha256
       return new Response(body, { status: 200 });
     },
   });
-  assert.equal(path.basename(fetched), 'Grok_Bot_0.71.2.dmg');
+  assert.equal(path.basename(fetched), 'Grok_Bot_1.2.3.dmg');
   assert.deepEqual(await readFile(fetched), body);
   assert.deepEqual(requested, [{
-    url: `http://127.0.0.1:${mirrorPort}/mirror/darwin-arm64/0.71.2/Grok_Bot_0.71.2.dmg`,
+    url: `http://127.0.0.1:${mirrorPort}/mirror/darwin-arm64/1.2.3/Grok_Bot_1.2.3.dmg`,
     userAgent: 'Mozilla/5.0 (compatible; RokBot-Patcher)',
   }]);
 

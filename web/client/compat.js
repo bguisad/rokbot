@@ -235,6 +235,20 @@
     }, 'crypto.randomUUID');
   }
 
+  // AbortSignal.timeout (Chromium 103): used by shared model-bridge requests.
+  if (typeof AbortSignal === 'function' && typeof AbortController === 'function') {
+    define(AbortSignal, 'timeout', function timeout(ms) {
+      var controller = new AbortController();
+      setTimeout(function () {
+        var reason;
+        try { reason = new DOMException('The operation timed out.', 'TimeoutError'); }
+        catch (error) { reason = new Error('The operation timed out.'); reason.name = 'TimeoutError'; }
+        controller.abort(reason);
+      }, ms);
+      return controller.signal;
+    }, 'AbortSignal.timeout');
+  }
+
   // Popover API (Chromium 114): menus and tooltips call showPopover() directly. Without the
   // top layer an open popover is approximated by a fixed element above the page.
   if (typeof HTMLElement === 'function' && !('showPopover' in HTMLElement.prototype)) {

@@ -7,10 +7,11 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import vm from 'node:vm';
 import { BUNDLE_SCHEMA, WEB_TAGS, bundleFiles, bundleZip, readWebIcons, resolveWebIcons, webIndexHtml } from '../patchers/patch.mjs';
+import { RENDERER_PATCHES, applyPinnedRendererPatch, patchRendererFile, rendererPatches } from '../patchers/renderer-patches.mjs';
 import { adminPassword, hostOrigin, uploadBundle } from '../patchers/upload.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -82,16 +83,49 @@ test('assets/logo RokBot icons match manifest.json and readWebIcons fails closed
   await assert.rejects(() => readWebIcons(badRoot), /Unexpected RokBot icon dimensions/);
 });
 
+test('supported.json pins 1.2.3 and rendererPatches validates 1.2.3 targets fail-closed', async () => {
+  const supported = JSON.parse(await readFile(path.join(repo, 'web/patchers/supported.json'), 'utf8'));
+  assert.equal(supported.schema, 'rokbot-web-build/v1');
+  assert.equal(supported.desktopVersion, '1.2.3');
+  assert.equal(supported.rendererIndexSha256, 'c89a91707b4f52a8a0caeca184efcfa1dc01141ec7867f554765e3cae97ea91e');
+  assert.equal(supported.preloadSha256, '69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2');
+  assert.equal(supported.vncPreloadSha256, 'a2d9c610b7b11ae5cc99551f1e139c7b1e8632990793a7687fee40e88a6be24b');
+  assert.deepEqual((supported.fallback ?? []).map(item => item.desktopVersion), ['0.71.2']);
+
+  const patches = rendererPatches('1.2.3');
+  assert.equal(patches.length, 3);
+  assert.deepEqual(patches.map(p => p.file), [
+    'assets/index.eager-app-DodVIpEt.js',
+    'assets/chunk-computer-screen-preview-D0gd83rN.js',
+    'assets/chunk-view-xV8CbwrQ.js',
+  ]);
+  assert.ok(RENDERER_PATCHES['1.1.0'] && RENDERER_PATCHES['0.71.2']);
+
+  // applyPinnedRendererPatch fails closed on wrong sha256, missing anchor, duplicate anchor, noop edit, or empty edits.
+  const viewPatch = patches[2];
+  assert.throws(() => applyPinnedRendererPatch(viewPatch, Buffer.from('wrong-bytes')), /版本不一致/);
+  const fakeAnchor = viewPatch.edits[0][0];
+  assert.throws(() => applyPinnedRendererPatch({ file: viewPatch.file, sha256: sha(Buffer.from('no-anchor')), edits: viewPatch.edits }, Buffer.from('no-anchor')), /缺少锚点/);
+  const dup = Buffer.from(`${fakeAnchor} ${fakeAnchor}`);
+  assert.throws(() => applyPinnedRendererPatch({ file: viewPatch.file, sha256: sha(dup), edits: viewPatch.edits }, dup), /锚点不唯一/);
+  const valid = Buffer.from(`prefix;${fakeAnchor};suffix`);
+  assert.throws(() => applyPinnedRendererPatch({ file: viewPatch.file, sha256: sha(valid), edits: [[fakeAnchor, fakeAnchor]] }, valid), /没有修改/);
+  assert.throws(() => applyPinnedRendererPatch({ file: viewPatch.file, sha256: sha(valid), edits: [] }, valid), /没有修改/);
+  const patched = applyPinnedRendererPatch({ file: viewPatch.file, sha256: sha(valid), edits: viewPatch.edits }, valid);
+  assert.match(patched.toString('utf8'), /__rokbotAndroidBoot\?\.updateStatus\?\.delivery==="in-app"/);
+  assert.equal(patchRendererFile('assets/not-patched.js', Buffer.from('x'), '1.2.3'), null);
+});
+
 test('the bundle carries the interface, the shared bridge and the browser layer, with a manifest of every file', async t => {
-  const build = { rendererVersion: '1.1.0', recommended: true, sourceAsarSha256: 'a'.repeat(64), builtAt: '2026-01-01T00:00:00.000Z' };
+  const build = { rendererVersion: '1.2.3', recommended: true, sourceAsarSha256: 'a'.repeat(64), builtAt: '2026-01-01T00:00:00.000Z' };
   const dist = await fakeDist(t);
   const { icon, icon512 } = await readWebIcons(repo);
   const files = await bundleFiles({ dist, preload: 'module.exports = {};', vncPreload: 'module.exports = {};',
     icon, icon512, build });
   for (const name of ['renderer/index.html', 'renderer/assets/index-Demo.js', 'client/bridge.js', 'client/gateway.js', 'client/vnc-bridge.js',
     'client/android.css', 'client/boot-data.js', 'client/web-shell.js', 'client/web.css', 'client/desktop/workspace.css',
-    'client/desktop/workspace-keys.js', 'client/desktop/sand-machines.mjs', 'client/official-preload.js', 'client/vnc-preload.js',
-    'client/icon.png', 'client/icon-512.png', 'client/build.json'])
+    'client/desktop/workspace-keys.js', 'client/desktop/sand-machines.mjs', 'client/desktop/model-bridge.mjs',
+    'client/official-preload.js', 'client/vnc-preload.js', 'client/icon.png', 'client/icon-512.png', 'client/build.json'])
     assert.ok(files.has(name), name);
   // The Android shell's own pages stay out; the browser's native layer replaces the shell's.
   for (const name of ['client/connect.html', 'client/connect.js', 'client/connect.css']) assert.equal(files.has(name), false, name);
@@ -117,7 +151,7 @@ test('the bundle carries the interface, the shared bridge and the browser layer,
   if (!existsSync(host)) return t.diagnostic('host/server/web-client.mjs not present; Host acceptance not checked');
   const { readBundleZip, verifyBundle, BUNDLE_SCHEMA: hostSchema } = await import('../../host/server/web-client.mjs');
   assert.equal(hostSchema, BUNDLE_SCHEMA);
-  assert.equal(verifyBundle(readBundleZip(zip)).rendererVersion, '1.1.0');
+  assert.equal(verifyBundle(readBundleZip(zip)).rendererVersion, '1.2.3');
 });
 
 test('uploading signs in, installs, enables and signs out without putting the password on the command line', async t => {
@@ -398,7 +432,215 @@ test('pinned installers verify as web client sources', { skip: !sources.length &
   const entries = readBundleZip(await readFile(built.output));
   const manifest = verifyBundle(entries);
   assert.equal(manifest.schema, 'rokbot-web-bundle/v1');
+  assert.ok(entries.has('client/desktop/model-bridge.mjs'), 'model-bridge.mjs must be packaged');
+  if (built.rendererVersion === '1.2.3') {
+    const eager = entries.get('renderer/assets/index.eager-app-DodVIpEt.js')?.toString('utf8') ?? '';
+    assert.ok(eager.includes('function kE(e){return!0}'));
+    assert.ok(eager.includes('rokbotActivityTime'));
+    const screen = entries.get('renderer/assets/chunk-computer-screen-preview-D0gd83rN.js')?.toString('utf8') ?? '';
+    assert.ok(screen.includes('--rokbot-anchor-top'));
+    const view = entries.get('renderer/assets/chunk-view-xV8CbwrQ.js')?.toString('utf8') ?? '';
+    assert.ok(view.includes('__rokbotAndroidBoot?.updateStatus?.delivery==="in-app"'));
+  }
   const { icon, icon512 } = await readWebIcons(repo);
   assert.equal(sha(entries.get('client/icon.png')), sha(icon));
   assert.equal(sha(entries.get('client/icon-512.png')), sha(icon512));
+
+  // Execute the real wrapped client/official-preload.js through client/bridge.js and
+  // the real wrapped client/vnc-preload.js through client/vnc-bridge.js.
+  if (built.rendererVersion === '1.2.3') {
+    const clientStage = path.join(outDir, 'extracted-client');
+    for (const [entryName, entryBytes] of entries) {
+      if (!entryName.startsWith('client/')) continue;
+      const dest = path.join(clientStage, entryName.slice('client/'.length));
+      await mkdir(path.dirname(dest), { recursive: true });
+      await writeFile(dest, entryBytes);
+    }
+
+    const savedGlobals = new Map();
+    const setGlobal = (key, value) => {
+      if (!savedGlobals.has(key)) savedGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+      Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+    };
+    t.after(() => {
+      for (const [key, desc] of savedGlobals) {
+        if (desc) Object.defineProperty(globalThis, key, desc);
+        else delete globalThis[key];
+      }
+    });
+
+    const store = new Map();
+    const classes = new Set();
+    const eventListeners = new Map();
+    const docEl = {
+      nodeType: 1,
+      localName: 'html',
+      lang: 'en',
+      style: { colorScheme: '' },
+      classList: {
+        add: (...xs) => xs.forEach(x => classes.add(x)),
+        toggle: (x, force) => (force ? classes.add(x) : classes.delete(x)),
+      },
+    };
+    setGlobal('localStorage', {
+      getItem: k => store.get(k) ?? null,
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: k => { store.delete(k); },
+    });
+    setGlobal('document', {
+      readyState: 'complete',
+      visibilityState: 'visible',
+      documentElement: docEl,
+      head: { append() {}, appendChild() {} },
+      body: { append() {}, appendChild() {} },
+      activeElement: null,
+      hasFocus: () => true,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      getElementById: () => null,
+      createElement: () => ({ style: {}, setAttribute() {}, addEventListener() {}, remove() {}, append() {}, appendChild() {} }),
+      addEventListener() {},
+    });
+    setGlobal('location', {
+      origin: 'https://host.test',
+      href: 'https://host.test/web/renderer/index.html',
+      pathname: '/web/renderer/index.html',
+      search: '',
+      hash: '',
+      assign() {},
+      reload() {},
+    });
+    setGlobal('history', { state: null, replaceState() {} });
+    setGlobal('navigator', { userAgent: 'Mozilla/5.0 Chrome/126.0', language: 'en-US', platform: 'Linux', maxTouchPoints: 0 });
+    setGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    setGlobal('CSS', { supports: () => true });
+    setGlobal('Node', { ELEMENT_NODE: 1 });
+    setGlobal('Element', class FakeElement {});
+    setGlobal('HTMLElement', class FakeHTMLElement {});
+    setGlobal('MutationObserver', class FakeMutationObserver { observe() {} disconnect() {} });
+    setGlobal('getComputedStyle', () => ({ backgroundColor: 'rgb(255, 255, 255)', visibility: 'visible' }));
+    setGlobal('requestAnimationFrame', () => 1);
+    setGlobal('addEventListener', (type, fn) => {
+      if (!eventListeners.has(type)) eventListeners.set(type, new Set());
+      eventListeners.get(type).add(fn);
+    });
+    t.after(() => {
+      for (const fn of eventListeners.get('pagehide') ?? []) fn();
+    });
+    setGlobal('fetch', async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    setGlobal('window', globalThis);
+
+    vm.runInThisContext(await readFile(path.join(clientStage, 'boot-data.js'), 'utf8'));
+    await import(pathToFileURL(path.join(clientStage, 'bridge.js')).href);
+
+    const desktop = globalThis.window.desktop;
+    const localBot = globalThis.window.localBot;
+    assert.ok(desktop, 'real 1.2.3 official-preload.js must expose window.desktop');
+    assert.equal(desktop.environment.systemVersion, '');
+    assert.equal(desktop.environment.platform, 'android');
+    assert.equal(desktop.boot?.experiments?.featureGates?.sand_client_pause, false);
+    assert.equal(typeof desktop.local?.getZoomFactor, 'function');
+    assert.equal(desktop.local.getZoomFactor(), 1);
+    assert.ok(globalThis.window.coordinatorPort, 'real 1.2.3 official-preload.js must expose window.coordinatorPort');
+    assert.ok(localBot && Object.isFrozen(localBot), 'window.localBot must be exposed and frozen');
+
+    const snapshot = await desktop.main.getExperimentsSnapshot();
+    assert.equal(snapshot.featureGates.sand_client_pause, false);
+
+    const desktopHandlers = [
+      'getMessagesCapabilities',
+      'setMessagesCapabilities',
+      'getMacMailSendEnabled',
+      'setMacMailSendEnabled',
+      'getLocalToolActionGrant',
+      'setLocalToolActionGrant',
+      'getDesktopNotificationPermission',
+      'requestDesktopNotificationPermission',
+      'openDesktopNotificationSettings',
+    ];
+    for (const handler of desktopHandlers) {
+      assert.equal(typeof desktop.main?.[handler], 'function', `desktop.main.${handler} must be exposed`);
+    }
+    assert.deepEqual(await desktop.main.getMessagesCapabilities(), { read: false, send: false });
+    await assert.rejects(() => desktop.main.setMessagesCapabilities({ read: true }), /Messages service unavailable|信息服务不可用/);
+    assert.equal(await desktop.main.getMacMailSendEnabled(), false);
+    await assert.rejects(() => desktop.main.setMacMailSendEnabled({ enabled: true }), /Mail send service unavailable|邮件发送服务不可用/);
+    assert.deepEqual(await desktop.main.getLocalToolActionGrant({ action: 'send-imessage' }), { granted: false });
+    assert.deepEqual(await desktop.main.setLocalToolActionGrant({ action: 'send-imessage', granted: true }), { stored: false });
+    assert.deepEqual(await desktop.main.getDesktopNotificationPermission(), { status: 'granted', canOpenSettings: false });
+    assert.deepEqual(await desktop.main.requestDesktopNotificationPermission(), { status: 'granted', canOpenSettings: false });
+    assert.equal(await desktop.main.openDesktopNotificationSettings(), false);
+
+    // Execute real wrapped client/vnc-preload.js through client/vnc-bridge.js.
+    const parentMessages = [];
+    const vncWarnings = [];
+    const vncHead = { appended: [], append(node) { this.appended.push(node); } };
+    const vncSandbox = {
+      Error,
+      TypeError,
+      RangeError,
+      Promise,
+      Set,
+      Map,
+      Array,
+      Object,
+      JSON,
+      Math,
+      Number,
+      String,
+      Boolean,
+      Date,
+      URL,
+      TextEncoder,
+      TextDecoder,
+      Uint8Array,
+      ArrayBuffer,
+      RegExp,
+      AbortController,
+      performance: { now: () => 0 },
+      queueMicrotask,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      requestAnimationFrame: () => 1,
+      MutationObserver: class FakeMutationObserver { observe() {} disconnect() {} },
+      navigator: { platform: 'Linux', userAgent: 'Chrome/126.0', language: 'en-US' },
+      location: { pathname: '/vnc/desktop/1/vnc.html', origin: 'https://host.test' },
+      console: {
+        log() {},
+        info() {},
+        warn(...args) { vncWarnings.push(args); },
+        error(...args) { vncWarnings.push(args); },
+      },
+      document: {
+        readyState: 'complete',
+        visibilityState: 'visible',
+        head: vncHead,
+        documentElement: { classList: { contains: () => false }, append(node) { vncHead.append(node); } },
+        getElementById: () => null,
+        createElement: tag => ({ tagName: tag.toUpperCase(), textContent: '' }),
+        addEventListener() {},
+      },
+      addEventListener() {},
+    };
+    vncSandbox.parent = { postMessage: (msg, origin) => parentMessages.push({ msg, origin }) };
+    vncSandbox.window = vncSandbox;
+    vncSandbox.globalThis = vncSandbox;
+    vncSandbox.__rokbotAppOrigin = 'https://host.test';
+    const vncContext = vm.createContext(vncSandbox);
+    vm.runInContext(await readFile(path.join(clientStage, 'vnc-bridge.js'), 'utf8'), vncContext);
+    assert.ok(vncSandbox.__rokbotVncPreload, 'vnc-bridge.js must initialize __rokbotVncPreload');
+    vm.runInContext(await readFile(path.join(clientStage, 'vnc-preload.js'), 'utf8'), vncContext);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const unexpectedVncWarnings = vncWarnings.filter(
+      args => !/experimental-vm-modules|dynamic import callback/i.test(String(args[2] ?? '')),
+    );
+    assert.deepEqual(unexpectedVncWarnings, [], 'real 1.2.3 vnc-preload.js must execute without unexpected warnings or errors');
+    assert.ok(parentMessages.some(m => m.origin === 'https://host.test' && m.msg?.rokbotWebview === 1 && m.msg?.type === 'ready'));
+    assert.ok(vncHead.appended.some(node => node.tagName === 'STYLE'), 'vnc-preload.js should inject noVNC hide CSS via webFrame.insertCSS');
+  }
 });

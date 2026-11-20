@@ -177,19 +177,65 @@ export function createGateway({ onUnauthorized, onConnected, onStateChanged, str
     }
   };
 
-  async function request(endpoint, args, signal, method = 'POST') {
+  let checking;
+  const sessionStatus = () => checking ??= (async () => {
+    const combined = combineSignals([timeout(15000), lifetime.signal]);
+    let result;
+    try {
+      const response = await fetch('/connect/status', {
+        credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        headers: { 'x-rokbot-web': '1' },
+        signal: combined.signal,
+      });
+      if (response.status === 200) {
+        const value = await response.json().catch(() => null);
+        result = { status: 200, connected: value?.connected };
+      } else {
+        void response.body?.cancel?.().catch(() => {});
+        result = { status: response.status, connected: null };
+      }
+    } catch {
+      result = { status: 0, connected: null };
+    } finally {
+      combined.dispose();
+    }
+    if (!lifetime.signal.aborted && (result.status === 401 || result.status === 404 || (result.status === 200 && result.connected === false))) {
+      onUnauthorized?.();
+    }
+    return result;
+  })().finally(() => { checking = undefined; });
+
+  async function unauthorized() {
+    if (lifetime.signal.aborted) return;
+    await sessionStatus();
+  }
+
+  async function request(endpoint, args, signal, method = 'POST', extraHeaders = null) {
     if (lifetime.signal.aborted) throw closed();
     const combined = combineSignals([signal, lifetime.signal]);
+    const mergedHeaders = {};
+    if (extraHeaders && typeof extraHeaders === 'object') {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (value === undefined || value === null) continue;
+        const lower = key.toLowerCase();
+        if (lower === 'authorization' || lower === 'content-type' || lower === 'x-rokbot-web' || lower === 'cookie') continue;
+        mergedHeaders[key] = String(value);
+      }
+    }
     try {
       const response = await fetch(endpoint, {
         method, credentials: 'same-origin', cache: 'no-store', redirect: 'error',
-        headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
+        headers: {
+          ...mergedHeaders,
+          'x-rokbot-web': '1',
+          ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }),
+        },
         ...(method === 'GET' ? {} : { body: JSON.stringify(args ?? {}) }),
         signal: combined.signal,
       });
       if (combined.signal.aborted) throw combined.signal.reason;
-      if (response.status === 401) onUnauthorized?.();
       if (!response.ok) {
+        if (response.status === 401) await unauthorized();
         const value = await response.json().catch(() => null);
         throw Object.assign(new Error(value?.message ?? value?.error ?? `HTTP ${response.status}`),
           { httpStatus: response.status, failureCode: value?.failureCode, transportKind: value?.transportKind });

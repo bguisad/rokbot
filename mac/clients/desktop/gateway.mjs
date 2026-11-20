@@ -49,11 +49,20 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
     if (status === 401) revoked();
     else if (status === 404) onUnauthorized?.();
   }
-  async function request(endpoint, args, signal, method = 'POST') {
+  async function request(endpoint, args, signal, method = 'POST', extraHeaders = null) {
     if (lifetime.signal.aborted) throw new Error(rokText('已退出连接，请重新连接。', 'Disconnected. Connect again.'));
     const active = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
+    const mergedHeaders = {};
+    if (extraHeaders && typeof extraHeaders === 'object') {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (value === undefined || value === null) continue;
+        const lower = key.toLowerCase();
+        if (lower === 'authorization' || lower === 'content-type') continue;
+        mergedHeaders[key] = String(value);
+      }
+    }
     const response = await fetch(`${config.server}${endpoint}`, {
-      method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.token}` },
+      method, headers: { ...mergedHeaders, 'Content-Type': 'application/json', Authorization: `Bearer ${config.token}` },
       ...(method === 'GET' ? {} : { body: JSON.stringify(args) }),
       signal: active, redirect: 'error',
     });

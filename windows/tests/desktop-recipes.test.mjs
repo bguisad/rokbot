@@ -32,6 +32,14 @@ test('the committed Windows recipes are the spec entries in path order', async (
   }
   const names = (await readdir(new URL('recipes/', desktop))).sort();
   assert.deepEqual(names, [...manifest.files.map(entry => entry.recipe), 'manifest.json'].sort());
+
+  const byRecipe = new Map(committed.map(item => [item.entry.recipe, addedBytes(item.recipe).toString('utf8')]));
+  assert.match(byRecipe.get('014.gbp.gz') ?? '', /RokNeedsModelBanner/);
+  assert.match(byRecipe.get('014.gbp.gz') ?? '', /RokModelConfigHost/);
+  assert.match(byRecipe.get('005.gbp.gz') ?? '', /RokModelSettings/);
+  assert.match(byRecipe.get('005.gbp.gz') ?? '', /RokModelConfigModal/);
+  assert.match(byRecipe.get('012.gbp.gz') ?? '', /GrokLocalVersion/);
+  assert.match(byRecipe.get('012.gbp.gz') ?? '', /'1\.2\.3'/);
 });
 
 test('every extension source is carried verbatim by a recipe', async () => {

@@ -21,7 +21,8 @@ import { mintVoiceCredential, createVoiceAvailability } from './voice.mjs';
 import { externalHttpUrl } from './external-url.mjs';
 import { installExternalLinks } from './external-links.mjs';
 import { auth, boot, theme, language, experiments, createLocalServices, desktopEdges, probeLocalMethod } from './local-services.mjs';
-import { createDesktopUpdater, createTailcatUpdateFetch, loadDesktopUpdateConfig } from './updater.mjs';
+import { createModelBridge } from './model-bridge.mjs';
+import { createDesktopUpdater, createTailcatUpdateFetch, resolveDesktopUpdateSource } from './updater.mjs';
 import { applyAsarUpdateAndRestart, canApplyAsarUpdate } from './asar-install.mjs';
 
 const clientRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -195,7 +196,11 @@ async function showWorkspace() {
     profileDir: profile,
     resourcesDir: process.resourcesPath,
     execPath: process.execPath,
-    config: await loadDesktopUpdateConfig({ resourcesDir: process.resourcesPath, profileDir: profile }),
+    config: await resolveDesktopUpdateSource({
+      resourcesDir: process.resourcesPath,
+      profileDir: profile,
+      server: activeConfig?.server,
+    }),
     fetchImpl: createTailcatUpdateFetch({
       isTunneled: () => activeConfig?.tailcat === true,
       getServerUrl: () => activeConfig?.server ?? '',
@@ -273,12 +278,38 @@ async function showWorkspace() {
   finishPairingWindow(pairingWindow, connectWindow, connectionError);
 }
 
+const modelBridge = createModelBridge({
+  getGateway: () => gateway,
+  getConnected: () => Boolean(transport && config && gateway),
+  text: localText,
+});
+
 ipcMain.on('rokbot-local:locale', event => { event.returnValue = trusted(event, mainWindow) || trusted(event, connectWindow) ? (clientSettings.language === 'system' ? app.getLocale() : clientSettings.language) : 'en'; });
 ipcMain.on('sand:boot-snapshot-sync', event => { event.returnValue = trusted(event, mainWindow) ? boot : {}; });
 ipcMain.handle('rokbot-local:status', async event => {
   requireConnection(event);
   if (config && accountProfile) await accountProfile.refresh().catch(() => {});
   return connectionStatus();
+});
+ipcMain.handle('rokbot-local:local-status', event => {
+  if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
+  return modelBridge.getLocalStatus();
+});
+ipcMain.handle('rokbot-local:model-get', event => {
+  if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
+  return modelBridge.getModelConfig();
+});
+ipcMain.handle('rokbot-local:model-put', (event, payload) => {
+  if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
+  return modelBridge.updateModelConfig(payload);
+});
+ipcMain.handle('rokbot-local:model-catalog', (event, payload) => {
+  if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
+  return modelBridge.fetchModelCatalog(payload);
+});
+ipcMain.handle('rokbot-local:model-test', (event, payload) => {
+  if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
+  return modelBridge.testModelConfig(payload);
 });
 ipcMain.handle('rokbot-local:voice-credential', async (event, agentId) => {
   if (!trusted(event, mainWindow) || !config || !gateway) throw new Error('Unexpected renderer');

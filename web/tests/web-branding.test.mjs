@@ -61,8 +61,8 @@ const ALLOWED_GROK_TOKENS = [
   // Category-B input / installer / official renderer strings
   { file: /^patchers\/patch\.mjs$/, re: /Grok_Bot_\$\{recommended\}_Setup\.exe|Grok Bot\.exe|Grok Bot \$\{version\}|Grok Bot Windows|Grok Bot/g },
   { file: /^patchers\/renderer-patches\.mjs$/, re: /"Get Grok Bot for mobile"|GrokLocalVersion|GrokOriginalUpdateSettings/g },
-  { file: /^README(?:\.en)?\.md$/, re: /Grok_Bot_1\.1\.0_Setup\.exe/g },
-  { file: /^tests\/web-patch\.test\.mjs$/, re: /https:\/\/grok\.com|<title>Grok Bot<\/title>|\['GROKBOT', 'ADMIN_PASSWORD'\]/g },
+  { file: /^README(?:\.en)?\.md$/, re: /Grok_Bot_1\.2\.3_Setup\.exe/g },
+  { file: /^tests\/web-patch\.test\.mjs$/, re: /https:\/\/grok\.com|<title>Grok Bot<\/title>|\['GROKBOT', 'ADMIN_PASSWORD'\]|GrokLocalVersion/g },
 
   // Category-B Electron preload / renderer / RPC / CSS identifiers
   { file: /^client\/bridge\.js$/, re: /grok_bot_box_harness_turns_blocked|Grok Bot Computer Use/g },

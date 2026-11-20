@@ -17,7 +17,7 @@ const UTF8_BUILT_IN = '{keepBackgroundJobs:!0,powershellUtf8Console:!0,powershel
 export function loadLocalExecDaemon(file, platform = process.platform) {
   if (platform !== 'win32') return createRequire(import.meta.url)(file);
   const source = readFileSync(file, 'utf8');
-  if (source.includes(UTF8_BUILT_IN)) return createRequire(import.meta.url)(file);
+  if (source.includes(UTF8_BUILT_IN) || source.includes('powershellUtf8Console')) return createRequire(import.meta.url)(file);
   if (!source.includes(UTF8_CONSOLE.from)) {
     console.warn('[local-exec] UTF-8 console option not found; command output keeps the system code page');
     return createRequire(import.meta.url)(file);

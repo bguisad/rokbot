@@ -19,9 +19,21 @@ export function createTailcatUpdateFetch({
   fetchImpl = fetch,
 } = {}) {
   return async (targetUrl, init = {}) => {
-    const serverUrl = isTunneled() ? String(getServerUrl() ?? '').trim().replace(/\/+$/, '') : '';
-    const token = isTunneled() ? String(getToken() ?? '').trim() : '';
-    if (!serverUrl || !token) {
+    const serverUrl = String(getServerUrl() ?? '').trim().replace(/\/+$/, '');
+    const token = String(getToken() ?? '').trim();
+    let sameOrigin = false;
+    if (serverUrl) {
+      try {
+        sameOrigin = new URL(targetUrl).origin === new URL(serverUrl).origin;
+      } catch {}
+    }
+    if (sameOrigin) {
+      if (!token) return fetchImpl(targetUrl, init);
+      const headers = new Headers(init.headers ?? {});
+      headers.set('authorization', `Bearer ${token}`);
+      return fetchImpl(targetUrl, { ...init, headers });
+    }
+    if (!isTunneled() || !serverUrl || !token) {
       return fetchImpl(targetUrl, init);
     }
     const proxyUrl = `${serverUrl}/local/updates/fetch?url=${encodeURIComponent(targetUrl)}`;
@@ -41,6 +53,8 @@ export function createTailcatUpdateFetch({
   };
 }
 
+export { createTailcatUpdateFetch as createDesktopUpdateFetch };
+
 const SHA_HEX_RE = /^[a-f0-9]{64}$/i;
 const MAX_INSTALLER_BYTES = 512 * 1024 * 1024;
 
@@ -56,13 +70,58 @@ export function normalizeEcPublicKey(input) {
   return key.export({ format: 'der', type: 'spki' }).toString('base64');
 }
 
-export function validUpdateUrl(raw) {
+export function validUpdateUrl(raw, { allowOrigin } = {}) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   let parsed;
   try { parsed = new URL(raw.trim()); } catch { return null; }
   if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) return null;
-  if (parsed.protocol === 'http:' && parsed.hostname !== '127.0.0.1') return null;
+  if (parsed.protocol === 'http:' && parsed.hostname !== '127.0.0.1' && (!allowOrigin || parsed.origin !== allowOrigin)) {
+    return null;
+  }
   return parsed.href.replace(/\/+$/, '');
+}
+
+function resolveManifestUrl(rawUrl, feedUrl, allowOrigin) {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+  const trimmed = rawUrl.trim();
+  const direct = validUpdateUrl(trimmed, { allowOrigin });
+  if (direct) return direct;
+  if (!feedUrl) return null;
+  try {
+    const resolved = new URL(trimmed, feedUrl).href;
+    return validUpdateUrl(resolved, { allowOrigin });
+  } catch {
+    return null;
+  }
+}
+
+function platformMatches(manifestPlatform, platformId) {
+  if (typeof manifestPlatform !== 'string' || !manifestPlatform) return false;
+  if (manifestPlatform === platformId) return true;
+  if (platformId.startsWith('darwin-') && manifestPlatform === 'macos') return true;
+  if (platformId.startsWith('win32-') && manifestPlatform === 'windows') return true;
+  return false;
+}
+
+function flattenManifestForVerification(manifest) {
+  if (!manifest || typeof manifest !== 'object') return manifest;
+  const latest = manifest.latest && typeof manifest.latest === 'object' ? manifest.latest : null;
+  if (!latest) return manifest;
+  return {
+    ...manifest,
+    platform: manifest.platform ?? latest.platform,
+    track: manifest.track ?? latest.track,
+    version: manifest.version ?? latest.version,
+    sha256: manifest.sha256 ?? latest.sha256,
+    size: manifest.size ?? latest.size,
+    url: manifest.url ?? latest.url,
+    publishedAt: manifest.publishedAt ?? latest.publishedAt,
+    asarSha256: manifest.asarSha256 ?? latest.asarSha256,
+    asarHeaderSha256: manifest.asarHeaderSha256 ?? latest.asarHeaderSha256,
+    deltas: manifest.deltas ?? latest.deltas,
+    asarDeltas: manifest.asarDeltas ?? latest.asarDeltas,
+    deltasSignature: manifest.deltasSignature ?? latest.deltasSignature,
+  };
 }
 
 export function canonicalDesktopPayload(record) {
@@ -80,10 +139,14 @@ export function canonicalDesktopPayload(record) {
 
 export function verifyDesktopManifest(manifest, publicKeySpkiBase64) {
   if (!manifest || !SUPPORTED_DESKTOP_UPDATE_SCHEMAS.has(manifest.schema)) throw new Error('Malformed desktop update feed');
+  if (manifest.signatureAlgorithm !== undefined && manifest.signatureAlgorithm !== 'ecdsa-p256-sha256') {
+    throw new Error('Unsupported desktop update signature algorithm');
+  }
+  const flat = flattenManifestForVerification(manifest);
   const key = createPublicKey({ key: Buffer.from(normalizeEcPublicKey(publicKeySpkiBase64), 'base64'), format: 'der', type: 'spki' });
   const ok = verify(
     'sha256',
-    Buffer.from(canonicalDesktopPayload(manifest), 'utf8'),
+    Buffer.from(canonicalDesktopPayload(flat), 'utf8'),
     key,
     Buffer.from(String(manifest.signature || ''), 'base64'),
   );
@@ -91,31 +154,34 @@ export function verifyDesktopManifest(manifest, publicKeySpkiBase64) {
   return manifest;
 }
 
-export function verifyDesktopDeltasManifest(manifest, publicKeySpkiBase64) {
+export function verifyDesktopDeltasManifest(manifest, publicKeySpkiBase64, { feedUrl, allowOrigin } = {}) {
   verifyDesktopManifest(manifest, publicKeySpkiBase64);
-  if (typeof manifest.deltasSignature !== 'string' || !manifest.deltasSignature) {
+  const flat = flattenManifestForVerification(manifest);
+  if (typeof flat.deltasSignature !== 'string' || !flat.deltasSignature) {
     throw new Error('Missing desktop delta signature');
   }
   const key = createPublicKey({ key: Buffer.from(normalizeEcPublicKey(publicKeySpkiBase64), 'base64'), format: 'der', type: 'spki' });
   const ok = verify(
     'sha256',
-    Buffer.from(canonicalDesktopDeltasPayload(manifest), 'utf8'),
+    Buffer.from(canonicalDesktopDeltasPayload(flat), 'utf8'),
     key,
-    Buffer.from(manifest.deltasSignature, 'base64'),
+    Buffer.from(flat.deltasSignature, 'base64'),
   );
   if (!ok) throw new Error('Invalid desktop delta signature');
 
-  for (const d of manifest.deltas ?? []) {
+  for (const d of flat.deltas ?? []) {
     if (!d || !SHA_HEX_RE.test(String(d.baseSha256 || '')) || !Number.isSafeInteger(d.baseSize) || d.baseSize <= 0 ||
-        !SHA_HEX_RE.test(String(d.sha256 || '')) || !Number.isSafeInteger(d.size) || d.size <= 0 || !validUpdateUrl(d.url)) {
+        !SHA_HEX_RE.test(String(d.sha256 || '')) || !Number.isSafeInteger(d.size) || d.size <= 0 ||
+        !resolveManifestUrl(d.url, feedUrl, allowOrigin)) {
       throw new Error('Malformed installer delta record');
     }
   }
-  for (const a of manifest.asarDeltas ?? []) {
+  for (const a of flat.asarDeltas ?? []) {
     if (!a || !SHA_HEX_RE.test(String(a.baseSha256 || '')) || !Number.isSafeInteger(a.baseSize) || a.baseSize <= 0 ||
         !SHA_HEX_RE.test(String(a.targetSha256 || '')) || !Number.isSafeInteger(a.targetSize) || a.targetSize <= 0 ||
         !SHA_HEX_RE.test(String(a.targetHeaderSha256 || '')) ||
-        !SHA_HEX_RE.test(String(a.sha256 || '')) || !Number.isSafeInteger(a.size) || a.size <= 0 || !validUpdateUrl(a.url)) {
+        !SHA_HEX_RE.test(String(a.sha256 || '')) || !Number.isSafeInteger(a.size) || a.size <= 0 ||
+        !resolveManifestUrl(a.url, feedUrl, allowOrigin)) {
       throw new Error('Malformed ASAR delta record');
     }
   }
@@ -155,6 +221,30 @@ export async function loadDesktopUpdateConfig({ resourcesDir, profileDir } = {})
     } catch {}
   }
   return null;
+}
+
+export async function resolveDesktopUpdateSource({
+  resourcesDir,
+  profileDir,
+  server,
+  platform = process.platform,
+} = {}) {
+  const staticConfig = await loadDesktopUpdateConfig({ resourcesDir, profileDir });
+  if (staticConfig) return staticConfig;
+  if (typeof server !== 'string' || !server.trim()) return null;
+  let parsed;
+  try { parsed = new URL(server.trim()); } catch { return null; }
+  if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) return null;
+  const serverOrigin = parsed.origin;
+  const updateUrl = `${parsed.href.replace(/\/+$/, '')}/local/updates`;
+  const feedFile = String(platform).startsWith('win32') ? 'windows.json' : 'macos.json';
+  return {
+    updateUrl,
+    feedFile,
+    allowOrigin: serverOrigin,
+    hostOrigin: serverOrigin,
+    allowHostManifestKey: true,
+  };
 }
 
 async function downloadVerifiedFile({
@@ -274,7 +364,10 @@ export function createDesktopUpdater({
   canUseAsarUpdate = null,
   fetchImpl = fetch,
 } = {}) {
-  const enabled = Boolean(config?.updateUrl && config?.updatePublicKey);
+  const enabled = Boolean(
+    config?.updateUrl &&
+    (config?.updatePublicKey || (config?.allowHostManifestKey === true && config?.hostOrigin)),
+  );
   const prefsFile = enabled && profileDir ? path.join(profileDir, 'updater-prefs.json') : null;
   let savedPrefs = {};
   if (prefsFile) {
@@ -320,7 +413,33 @@ export function createDesktopUpdater({
     return snap;
   };
 
-  async function tryStageAsarDelta({ manifest, updatesDir, activeTrack, isCurrentGen }) {
+  const resolveVerificationKey = (rawManifest, feedUrl) => {
+    const manifestKeyRaw = rawManifest?.publicKeyPem ?? rawManifest?.publicKeySpkiBase64;
+    if (config.updatePublicKey) {
+      const pinnedKey = normalizeEcPublicKey(config.updatePublicKey);
+      if (manifestKeyRaw !== undefined && manifestKeyRaw !== null && String(manifestKeyRaw).trim() !== '') {
+        const manifestKey = normalizeEcPublicKey(manifestKeyRaw);
+        if (manifestKey !== pinnedKey) {
+          throw new Error('Manifest public key does not match pinned update key');
+        }
+      }
+      return pinnedKey;
+    }
+    if (config.allowHostManifestKey === true && config.hostOrigin) {
+      let feedOrigin = '';
+      try { feedOrigin = new URL(feedUrl).origin; } catch {}
+      if (feedOrigin !== config.hostOrigin) {
+        throw new Error('Host manifest key rejected for non-paired origin');
+      }
+      if (!manifestKeyRaw || String(manifestKeyRaw).trim() === '') {
+        throw new Error('Missing Host manifest public key');
+      }
+      return normalizeEcPublicKey(manifestKeyRaw);
+    }
+    throw new Error('No trusted update public key');
+  };
+
+  async function tryStageAsarDelta({ manifest, rawManifest, verifyKey, feedUrl, updatesDir, activeTrack, isCurrentGen }) {
     if (!resourcesDir || typeof onInstallAsar !== 'function' || !Array.isArray(manifest.asarDeltas) || manifest.asarDeltas.length === 0) {
       return null;
     }
@@ -351,9 +470,9 @@ export function createDesktopUpdater({
 
     const currentAsarSha = await sha256File(currentAsar);
     const matching = candidates.find(a => a.baseSha256.toLowerCase() === currentAsarSha);
-    if (!matching) return null;
+    if (!matching || !matching.url) return null;
 
-    verifyDesktopDeltasManifest(manifest, config.updatePublicKey);
+    verifyDesktopDeltasManifest(rawManifest, verifyKey, { feedUrl, allowOrigin: config.allowOrigin });
     const currentHeader = await readAsarHeaderInfo(currentAsar);
     if (matching.baseHeaderSha256 && matching.baseHeaderSha256.toLowerCase() !== currentHeader.headerSha256) {
       return null;
@@ -399,17 +518,20 @@ export function createDesktopUpdater({
       await writeFile(metaTmp, JSON.stringify(meta, null, 2));
       await rename(metaTmp, asarMetaPath);
       return meta;
+    } catch (err) {
+      await rm(targetAsar, { force: true }).catch(() => {});
+      throw err;
     } finally {
       await rm(tmpDelta, { force: true }).catch(() => {});
     }
   }
 
-  async function tryStageInstallerDelta({ manifest, updatesDir, target, isCurrentGen }) {
+  async function tryStageInstallerDelta({ manifest, rawManifest, verifyKey, feedUrl, updatesDir, target, isCurrentGen }) {
     if (!Array.isArray(manifest.deltas) || manifest.deltas.length === 0) return false;
     const found = await findMatchingBaseInstaller(updatesDir, manifest.deltas);
-    if (!found) return false;
+    if (!found || !found.delta.url) return false;
 
-    verifyDesktopDeltasManifest(manifest, config.updatePublicKey);
+    verifyDesktopDeltasManifest(rawManifest, verifyKey, { feedUrl, allowOrigin: config.allowOrigin });
     if (!isCurrentGen()) return false;
     emit({ type: 'available', version: manifest.version });
     const tmpDelta = `${target}.rbdelta.tmp-${process.pid}`;
@@ -448,22 +570,53 @@ export function createDesktopUpdater({
     const promise = (async () => {
       emit({ type: 'checking' });
       try {
-        const feedName = activeTrack === 'stable' ? `${platformId}.json` : `${platformId}-${activeTrack}.json`;
-        const feedUrl = `${config.updateUrl}/${feedName}?t=${Date.now()}`;
-        const res = await fetchImpl(feedUrl, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+        const baseFeedName = activeTrack === 'stable' ? `${platformId}.json` : `${platformId}-${activeTrack}.json`;
+        const primaryFeedName = config.feedFile
+          ? (activeTrack === 'stable'
+              ? config.feedFile
+              : config.feedFile.endsWith('.json')
+                ? `${config.feedFile.slice(0, -5)}-${activeTrack}.json`
+                : `${config.feedFile}-${activeTrack}.json`)
+          : baseFeedName;
+        const baseUpdateUrl = config.updateUrl.replace(/\/+$/, '');
+        let feedUrl = `${baseUpdateUrl}/${primaryFeedName}?t=${Date.now()}`;
+        let res = await fetchImpl(feedUrl, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
         if (!isCurrentGen()) return status();
+        if (res.status === 404 && config.feedFile && primaryFeedName !== baseFeedName) {
+          await res.body?.cancel?.().catch(() => {});
+          feedUrl = `${baseUpdateUrl}/${baseFeedName}?t=${Date.now()}`;
+          res = await fetchImpl(feedUrl, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+          if (!isCurrentGen()) return status();
+        }
         if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { kind: 'feed_http_status', httpStatus: res.status });
-        let manifest;
-        try { manifest = await res.json(); } catch { throw Object.assign(new Error('Invalid feed JSON'), { kind: 'feed_malformed' }); }
-        if (!manifest || typeof manifest.url !== 'string' || !validUpdateUrl(manifest.url) ||
-            !SHA_HEX_RE.test(String(manifest.sha256 || '')) || !Number.isSafeInteger(manifest.size) || manifest.size <= 0) {
+        let rawManifest;
+        try { rawManifest = await res.json(); } catch { throw Object.assign(new Error('Invalid feed JSON'), { kind: 'feed_malformed' }); }
+        const flat = flattenManifestForVerification(rawManifest);
+        const resolvedUrl = flat ? resolveManifestUrl(flat.url, feedUrl, config.allowOrigin) : null;
+        if (!flat || typeof flat.version !== 'string' || !flat.version.trim() || !resolvedUrl ||
+            !SHA_HEX_RE.test(String(flat.sha256 || '')) || !Number.isSafeInteger(flat.size) || flat.size <= 0) {
           throw Object.assign(new Error('Invalid manifest fields'), { kind: 'feed_malformed' });
         }
-        try { verifyDesktopManifest(manifest, config.updatePublicKey); }
-        catch (err) { throw Object.assign(err, { kind: 'installer_signature_invalid' }); }
-        if (manifest.platform !== platformId || manifest.track !== activeTrack) {
+        let verifyKey;
+        try {
+          verifyKey = resolveVerificationKey(rawManifest, feedUrl);
+          verifyDesktopManifest(rawManifest, verifyKey);
+        } catch (err) {
+          throw Object.assign(err, { kind: 'installer_signature_invalid' });
+        }
+        if (!platformMatches(flat.platform, platformId) || (flat.track ?? 'stable') !== activeTrack) {
           throw Object.assign(new Error('Manifest target mismatch'), { kind: 'feed_malformed' });
         }
+        const manifest = {
+          ...flat,
+          url: resolvedUrl,
+          deltas: Array.isArray(flat.deltas)
+            ? flat.deltas.map(d => ({ ...d, url: resolveManifestUrl(d?.url, feedUrl, config.allowOrigin) }))
+            : undefined,
+          asarDeltas: Array.isArray(flat.asarDeltas)
+            ? flat.asarDeltas.map(a => ({ ...a, url: resolveManifestUrl(a?.url, feedUrl, config.allowOrigin) }))
+            : undefined,
+        };
 
         if (compareVersions(manifest.version, appVersion) <= 0) {
           return isCurrentGen()
@@ -495,7 +648,7 @@ export function createDesktopUpdater({
 
         // 2. Try lightweight ASAR incremental update when eligible (falls back cleanly if unavailable or failed).
         try {
-          const asarStaged = await tryStageAsarDelta({ manifest, updatesDir, activeTrack, isCurrentGen });
+          const asarStaged = await tryStageAsarDelta({ manifest, rawManifest, verifyKey, feedUrl, updatesDir, activeTrack, isCurrentGen });
           if (asarStaged && isCurrentGen()) {
             stagedFile = null;
             stagedAsarInfo = asarStaged;
@@ -508,7 +661,7 @@ export function createDesktopUpdater({
         // 3. Try binary delta against cached previous installer (falls back cleanly if base/delta fails).
         let stagedByDelta = false;
         try {
-          stagedByDelta = await tryStageInstallerDelta({ manifest, updatesDir, target, isCurrentGen });
+          stagedByDelta = await tryStageInstallerDelta({ manifest, rawManifest, verifyKey, feedUrl, updatesDir, target, isCurrentGen });
         } catch {
           await rm(target, { force: true }).catch(() => {});
         }
@@ -543,7 +696,16 @@ export function createDesktopUpdater({
         const failure = err.kind === 'feed_http_status'
           ? { kind: 'feed_http_status', httpStatus: err.httpStatus }
           : { kind: err.kind ?? 'update_failed' };
-        return emit({ type: 'idle', lastCheck: { at: Date.now(), result: 'error', failure, errorMessage: err.message } });
+        return emit({
+          type: 'idle',
+          lastCheck: {
+            at: Date.now(),
+            result: 'error',
+            failure,
+            errorMessage: err.message,
+            message: err.message,
+          },
+        });
       } finally {
         if (checking === promise) checking = null;
       }

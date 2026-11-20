@@ -58,7 +58,7 @@ test('a failed profile save is not visible in memory or on a later successful sa
 
 test('the desktop about dialog reports the running application, not a hard-coded vendor release', async t => {
   const { profile } = await fixture(t);
-  for (const appVersion of ['0.71.2', '9.4.2']) {
+  for (const appVersion of ['1.2.3', '9.4.2']) {
     const call = await createLocalServices(profile, {}, { appVersion });
     const status = await call('getUpdateStatus');
     assert.equal(status.currentVersion, appVersion);

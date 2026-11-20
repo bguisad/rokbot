@@ -661,17 +661,32 @@ export function createServices(context) {
     },
     getMessagesAppIcon: () => null,
     updateCurrentMachineMessagesEnabled: () => { throw new Error(rokText('信息服务不可用。', 'Messages service unavailable.')); },
+    getMessagesCapabilities: () => ({ read: false, send: false }),
+    setMessagesCapabilities: () => { throw new Error(rokText('信息服务不可用。', 'Messages service unavailable.')); },
+    getMacMailSendEnabled: () => false,
+    setMacMailSendEnabled: () => { throw new Error(rokText('邮件发送服务不可用。', 'Mail send service unavailable.')); },
+    getLocalToolActionGrant: () => ({ granted: false }),
+    setLocalToolActionGrant: () => ({ stored: false }),
+    getDesktopNotificationPermission: () => ({ status: 'granted', canOpenSettings: false }),
+    requestDesktopNotificationPermission: () => ({ status: 'granted', canOpenSettings: false }),
+    openDesktopNotificationSettings: () => false,
     getExperimentsSnapshot: () => voice.refresh(),
   };
+  const supports = method => typeof method === 'string' && Object.hasOwn(known, method) && typeof known[method] === 'function';
   const missing = new Set();
   return {
     updateTheme,
-    has: method => Boolean(known[method]),
+    has: supports,
     async call(method, args = {}) {
-      if (known[method]) return known[method](args ?? {});
+      if (supports(method)) return known[method](args ?? {});
+      if (typeof method !== 'string') {
+        let label;
+        try { label = String(method); } catch { label = typeof method; }
+        throw new Error(`Unknown desktop service method: ${label}`);
+      }
       if (/^(report|note|expose|log|setTitleBar|setUnreadFilter|setWindow|markGrokBotTerms|resizeWindow)/.test(method)) return null;
       if (!missing.has(method)) { missing.add(method); log('[missing local method]', method); }
-      throw new Error(`The Android client does not implement ${method}`);
+      throw new Error(`Unknown desktop service method: ${method}`);
     },
   };
 }

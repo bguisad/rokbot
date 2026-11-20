@@ -15,7 +15,7 @@ import os from 'node:os';
 import { applyReleaseRecipes } from '../../../mac/patchers/desktop/release-recipes.mjs';
 import { extractNotificationPolicy } from '../../../mac/patchers/desktop/extract-policy.mjs';
 import { acquireDesktopSource } from '../../../mac/patchers/desktop/download-original.mjs';
-import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from '../../../mac/patchers/desktop/update-config.mjs';
+import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from './update-config.mjs';
 import { replaceAsarIntegrity, stripAuthenticode } from './pe.mjs';
 import {
   APP_DISPLAY_NAME,

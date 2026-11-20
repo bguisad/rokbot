@@ -1,9 +1,9 @@
 {
   "schema": "rokbot-web-build/v1",
-  "desktopVersion": "1.1.0",
-  "rendererIndexSha256": "666fe93a65730cbc3d36192de2bff5e5f3da4b36bd9ec4e11a6d51c4a6b166da",
-  "preloadSha256": "3204c8744260d6070dcffe2192b184bc6cdc9cb5d881d73e8b30c3517e91dac9",
-  "vncPreloadSha256": "095ee69ead11cae1a22fb593e72212f05c7412ddbb5b03ed1f739b36c497dbff",
+  "desktopVersion": "1.2.3",
+  "rendererIndexSha256": "c89a91707b4f52a8a0caeca184efcfa1dc01141ec7867f554765e3cae97ea91e",
+  "preloadSha256": "69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2",
+  "vncPreloadSha256": "a2d9c610b7b11ae5cc99551f1e139c7b1e8632990793a7687fee40e88a6be24b",
   "fallback": [
     {
       "desktopVersion": "0.71.2",

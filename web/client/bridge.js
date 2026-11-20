@@ -15,6 +15,7 @@ import { installWebviewFrames } from './webview.js';
 import { installLayoutFixes, computerStageOpen, phoneBack, showConversation } from './layout.js';
 import { installAnchorFallback } from './anchor-fallback.js';
 import { rokText } from './desktop/i18n.mjs';
+import { createModelBridge } from './desktop/model-bridge.mjs';
 import {
   auth, themeState, languageState, createStaging, createAttachments, createProfile,
   createVoiceAvailability, mintVoiceCredential, createPersistence, createServices,
@@ -37,6 +38,7 @@ const language = languageState(settings, systemLocale);
 const experiments = {
   featureGates: {
     sand_create_temporal_agents: false,
+    sand_client_pause: false,
     grok_bot_box_harness_turns_blocked: false,
     sand_profile_photo_edit: true,
     // Recording a demonstration needs the desktop screen; it stays on the computer clients.
@@ -237,7 +239,13 @@ const electron = {
   // Files picked on Android have no path; the preload then stages their bytes.
   webUtils: { getPathForFile: () => '' },
 };
-const preloadProcess = { platform: 'android', type: 'renderer', argv: [], env: {}, versions: {} };
+const preloadProcess = { platform: 'android', type: 'renderer', argv: [], env: {}, versions: {}, getSystemVersion: () => '' };
+
+const modelBridge = createModelBridge({
+  getGateway: () => gateway,
+  getConnected: () => gateway.getState() !== 'disconnected',
+  text: rokText,
+});
 
 window.localBot = Object.freeze({
   locale,
@@ -291,6 +299,11 @@ window.localBot = Object.freeze({
   updateStatus: () => native('update-status'),
   checkForUpdates: () => native('update-check'),
   installUpdate: expectedVersion => native('update-install', { expectedVersion: expectedVersion ?? '' }),
+  getLocalStatus: () => modelBridge.getLocalStatus(),
+  getModelConfig: () => modelBridge.getModelConfig(),
+  updateModelConfig: payload => modelBridge.updateModelConfig(payload),
+  fetchModelCatalog: payload => modelBridge.fetchModelCatalog(payload),
+  testModelConfig: payload => modelBridge.testModelConfig(payload),
 });
 
 officialPreload(name => {

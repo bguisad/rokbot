@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { cp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -48,6 +49,9 @@ export function applyRokBotInfoPlist(info) {
 }
 
 export async function verifyRokBotIcons({ icnsPath, iconPngPath, outIconPath, outAsarPath, asarModule }) {
+  if (existsSync(path.join(path.dirname(outIconPath), 'Assets.car'))) {
+    throw new Error('RokBot 图标替换校验失败（Assets.car 未移除）。');
+  }
   const [expectedIcnsSha256, iconSha256, expectedPngSha256] = await Promise.all([
     readFile(icnsPath).then(sha),
     readFile(outIconPath).then(sha),

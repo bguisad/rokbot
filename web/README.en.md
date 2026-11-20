@@ -4,7 +4,7 @@
 
 Use the Bots on your own Host from a browser on a computer, phone or tablet, without installing a client. Computers and landscape tablets get the official desktop layout; phones get the official phone layout.
 
-The interface is the same as the Android client's, taken from the official Windows installer you download yourself (1.1.0 recommended, 0.71.2 if it does not work). You build an "interface bundle" on a computer and upload it to your own Host, which serves it only to browsers signed in with a pairing code. The project does not distribute the bundle.
+The interface is the same as the Android client's, taken from the official Windows installer you download yourself (1.2.3 recommended, 0.71.2 if it does not work). You build an "interface bundle" on a computer and upload it to your own Host, which serves it only to browsers signed in with a pairing code. The project does not distribute the bundle.
 
 <p align="center"><img src="../docs/images/web-en.png" alt="Web client in a desktop browser and on an iPhone" width="860"></p>
 
@@ -23,14 +23,14 @@ From the repository root:
 node web/patchers/patch.mjs
 ```
 
-The tool downloads and verifies the official `Grok_Bot_1.1.0_Setup.exe` (the same file the Windows and Android clients use; set `ROKBOT_DESKTOP_DOWNLOAD_BASE` to override the download mirror), bundles `assets/logo/rokbot-icon-256.png` and `assets/logo/rokbot-icon-512.png` as the RokBot web icons, and writes `web/output/RokBotLocal-web-1.1.0.zip`.
+The tool downloads and verifies the official `Grok_Bot_1.2.3_Setup.exe` (the same file the Windows and Android clients use; set `ROKBOT_DESKTOP_DOWNLOAD_BASE` to override the download mirror), bundles `assets/logo/rokbot-icon-256.png` and `assets/logo/rokbot-icon-512.png` as the RokBot web icons, and writes `web/output/RokBotLocal-web-1.2.3.zip`.
 
-If the 1.1.0 interface does not work for you, add `--version 0.71.2` to use the 0.71.2 interface instead, or pass a downloaded 0.71.2 installer with `--source`. The tool recognises the version by its hash.
+If the 1.2.3 interface does not work for you, add `--version 0.71.2` to use the 0.71.2 interface instead, or pass a downloaded 0.71.2 installer with `--source`. The tool recognises the version by its hash.
 
 | Option | Effect |
 | --- | --- |
-| `--source <file or directory>` | Use a downloaded official installer, `app-64.7z` or an installed original directory; 1.1.0 or 0.71.2 is recognised by hash |
-| `--version <1.1.0\|0.71.2>` | Choose the interface version. Default 1.1.0 (recommended); fall back to 0.71.2 only when needed |
+| `--source <file or directory>` | Use a downloaded official installer, `app-64.7z` or an installed original directory; 1.2.3 or 0.71.2 is recognised by hash |
+| `--version <1.2.3\|0.71.2>` | Choose the interface version. Default 1.2.3 (recommended); fall back to 0.71.2 only when needed |
 | `--output <directory>` | Output directory, default `web/output/` |
 | `--force` | Overwrite existing output |
 | `--upload <Host address>` | Install the bundle on that Host after building and enable the web client; see the next step |
@@ -73,6 +73,7 @@ The web client can open from the home screen like an app, full screen and withou
   - when a phone keyboard opens, the message field moves up with it instead of being covered; the iPhone notch and home indicator areas are kept clear.
 - **The Bot's computer**: conversation details show the live screen of the Bot's computer. In the large view you can operate it directly with mouse, keyboard or touch.
 - Attachments: upload files from the device (large files in chunks), download files the Bot sends, view images full screen.
+- **In-app model configuration**: inspect, edit, probe, and test Host model routing directly from web Settings or the onboarding banner (supporting administrator password step-up authorization).
 - Notifications: while the page is open, new messages from Bots you are not looking at show as browser notifications; clicking one opens that Bot. The Bot on screen does not notify again.
 - The link `<Host address>/web/?agent=<Bot ID>` opens a Bot's conversation directly.
 
@@ -87,7 +88,7 @@ The web client can open from the home screen like an app, full screen and withou
 
 ### Testing
 
-Before every release, Playwright runs the full flow at 8 emulated device sizes (Chromium and Firefox on Windows, WebKit on Mac, Android phone and tablet, iPhone 15, iPhone SE, iPad Pro in landscape) with both the 1.1.0 and 0.71.2 interfaces. Uploading, LAN http sign-in, real model chats and the live view of the Bot's computer were also verified on a real server. It has not been tested in browsers on real devices; please [open an issue](https://github.com/hongfaqiu/rokbot/issues) if something goes wrong on yours.
+Before every release, Playwright runs the full flow at 8 emulated device sizes (Chromium and Firefox on Windows, WebKit on Mac, Android phone and tablet, iPhone 15, iPhone SE, iPad Pro in landscape) with both the 1.2.3 and 0.71.2 interfaces. Uploading, LAN http sign-in, real model chats and the live view of the Bot's computer were also verified on a real server. It has not been tested in browsers on real devices; please [open an issue](https://github.com/hongfaqiu/rokbot/issues) if something goes wrong on yours.
 
 ## Security
 
@@ -108,7 +109,7 @@ Before every release, Playwright runs the full flow at 8 emulated device sizes (
 | --- | --- |
 | `/web/` says the web client is not enabled yet | Upload a bundle on the **Web client** page of the admin page and turn on **Enable the web client** |
 | Upload says the bundle format is unsupported | The bundle was built with tools from a different release than the Host. Build it again with the package matching the Host |
-| Building reports a hash mismatch | Only unmodified official Windows x64 1.1.0 or 0.71.2 installers are supported. Leave out `--source` to let the tool download one |
+| Building reports a hash mismatch | Only unmodified official Windows x64 1.2.3 or 0.71.2 installers are supported. Leave out `--source` to let the tool download one |
 | The pairing code is rejected | Codes expire after 5 minutes and work once. Create a new one under **Devices & notifications** |
 | The page suddenly returns to sign-in | This browser was revoked under **Devices & notifications**, or its site data was cleared. Pair again |
 | Microphone, dictation or notifications do not work | The address is http. Open the web client over https |

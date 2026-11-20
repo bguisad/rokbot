@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFile, writeFile, mkdir, mkdtemp, rm, stat, cp, readdir, open, chmod } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -21,6 +22,34 @@ import {
   verifyRokBotIcons,
 } from './brand-assets.mjs';
 
+export const NATIVE_HELPERS = ['sand-meeting-recorder', 'sand-op-launcher', 'sand-webauthn-signer'];
+
+export async function chmodNativeHelpers(unpacked) {
+  // ASAR extraction does not retain Unix executable bits for native helpers.
+  for (const name of NATIVE_HELPERS) {
+    await chmod(path.join(unpacked, 'dist/native', name), 0o755);
+  }
+}
+
+function unpackedFiles(header, prefix = '') {
+  const result = [];
+  for (const [name, entry] of Object.entries(header.files ?? {})) {
+    const relative = prefix ? `${prefix}/${name}` : name;
+    if (entry.files) result.push(...unpackedFiles(entry, relative));
+    else if (entry.unpacked) result.push(relative);
+  }
+  return result;
+}
+
+const isMain = Boolean(process.argv[1]) && (() => {
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path.resolve(process.argv[1]));
+  } catch {
+    return path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]);
+  }
+})();
+
+async function main() {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const repo = path.resolve(root, '..');
@@ -95,6 +124,11 @@ try {
       asarSha256 !== supported.asarSha256 || frameworkSha256 !== supported.frameworkSha256)
     throw new Error(`不支持此发行包。仅支持未经修改的 Grok Bot ${supported.version} macOS ${supported.architecture}；版本、ASAR 或 Electron Framework 摘要不匹配。`);
   const asar = createRequire(import.meta.url)('@electron/asar');
+  const originalHeader = asar.getRawHeader(asarPath);
+  if (supported.asarHeaderSha256 && sha(originalHeader.headerString) !== supported.asarHeaderSha256) {
+    throw new Error(`不支持此发行包。仅支持未经修改的 Grok Bot ${supported.version} macOS ${supported.architecture}；ASAR Header 摘要不匹配。`);
+  }
+  const originalUnpacked = new Set(unpackedFiles(originalHeader.header));
   const unpacked = path.join(temporary, 'app');
   asar.extractAll(asarPath, unpacked);
   const notificationPolicy = await extractNotificationPolicy(unpacked, here);
@@ -129,15 +163,21 @@ try {
     // Copies made on Windows or extracted from some archives lose the executable bit.
     await chmod(path.join(output, 'Contents/Resources/rokbot-tailcat'), 0o755);
     await cp(path.join(root, 'network/TAILCAT-LICENSE'), path.join(output, 'Contents/Resources/TAILCAT-LICENSE'));
-    // ASAR extraction does not retain Unix executable bits for native helpers.
-    for (const name of ['sand-op-launcher', 'sand-webauthn-signer'])
-      await chmod(path.join(unpacked, 'dist/native', name), 0o755);
+    await chmodNativeHelpers(unpacked);
     await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath });
     const outResources = path.join(output, 'Contents/Resources');
     const outAsar = path.join(outResources, 'app.asar');
     await rm(outAsar);
     await rm(`${outAsar}.unpacked`, { recursive: true, force: true });
-    await asar.createPackageWithOptions(unpacked, outAsar, { unpack: '{**/*.node,**/dist/native/**}' });
+    await asar.createPackageWithOptions(unpacked, outAsar, {
+      unpack: '{**/*.node,**/dist/native/**,**/dist/deps/**,**/onepassword-connection-service.cjs}',
+    });
+    const patchedUnpacked = new Set(unpackedFiles(asar.getRawHeader(outAsar).header));
+    const missingUnpacked = [...originalUnpacked].filter(name => !patchedUnpacked.has(name));
+    const extraUnpacked = [...patchedUnpacked].filter(name => !originalUnpacked.has(name));
+    if (missingUnpacked.length || extraUnpacked.length) {
+      throw new Error(`解包文件与原版不一致：${[...missingUnpacked, ...extraUnpacked].slice(0, 5).join(', ')}`);
+    }
     const header = asar.getRawHeader(outAsar).headerString;
     applyRokBotInfoPlist(info);
     info.ElectronAsarIntegrity = { 'Resources/app.asar': { algorithm: 'SHA256', hash: sha(header) } };
@@ -210,4 +250,9 @@ try {
 } finally {
   if (mounted) { try { run('hdiutil', ['detach', path.join(temporary, 'mount')]); } catch {} }
   await rm(temporary, { recursive: true, force: true });
+}
+}
+
+if (isMain) {
+  await main();
 }

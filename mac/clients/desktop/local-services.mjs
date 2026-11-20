@@ -23,6 +23,7 @@ export const language = { preference: "en", resolved: "en" };
 export const experiments = {
   featureGates: {
     sand_create_temporal_agents: false,
+    sand_client_pause: false,
     grok_bot_box_harness_turns_blocked: false,
     sand_profile_photo_edit: true,
     sand_teach_by_demonstration: true,
@@ -212,6 +213,15 @@ export async function createLocalServices(profile, window, { command, request, a
     getPendingRestartToUpdate: () => null,
     getMicrosoftTeamsAccountLinkStatus: () => ({ links: [], teamEnablement: null }),
     getCurrentMachineMessagesEnabled: () => false,
+    getMessagesCapabilities: () => ({ read: false, send: false }),
+    setMessagesCapabilities: () => { throw new Error(rokText('信息服务不可用。', 'Messages service unavailable.')); },
+    getMacMailSendEnabled: () => false,
+    setMacMailSendEnabled: () => { throw new Error(rokText('邮件发送服务不可用。', 'Mail send service unavailable.')); },
+    getLocalToolActionGrant: () => ({ granted: false }),
+    setLocalToolActionGrant: () => ({ stored: false }),
+    getDesktopNotificationPermission: () => ({ status: 'granted', canOpenSettings: false }),
+    requestDesktopNotificationPermission: () => ({ status: 'granted', canOpenSettings: false }),
+    openDesktopNotificationSettings: () => false,
     listSecrets: () => [],
     listMeetings: () => [],
     listMessagesAllowedRecipients: () => [],

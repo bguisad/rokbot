@@ -195,8 +195,8 @@ test('Windows branding, installer ownership receipt, ASAR integrity, and RBD1/GB
     return { ...payload, deltasSignature };
   };
 
-  const baseInstaller = Buffer.from('A'.repeat(4096) + 'win-base-1.1.0');
-  const targetInstaller = Buffer.from('A'.repeat(4096) + 'win-target-1.2.3');
+  const baseInstaller = Buffer.from('A'.repeat(4096) + 'win-base-1.2.3');
+  const targetInstaller = Buffer.from('A'.repeat(4096) + 'win-target-1.2.4');
   const rbdDelta = createDeltaBuffer(baseInstaller, targetInstaller);
   const rawRbd = gunzipSync(rbdDelta);
   assert.equal(rawRbd.subarray(0, 4).toString('ascii'), 'RBD1');
@@ -211,23 +211,23 @@ test('Windows branding, installer ownership receipt, ASAR integrity, and RBD1/GB
       schema: DESKTOP_UPDATE_SCHEMA,
       platform: 'win32-x64',
       track: 'stable',
-      version: '1.2.3',
+      version: '1.2.4',
       sha256: sha(targetInstaller),
       size: targetInstaller.length,
-      url: 'https://updates.example/RokBotLocal-1.2.3-x64-Setup.exe',
+      url: 'https://updates.example/RokBotLocal-1.2.4-x64-Setup.exe',
       publishedAt: '2026-11-19T12:00:00.000Z',
       deltas: [{
         baseSha256: sha(baseInstaller),
         baseSize: baseInstaller.length,
         sha256: sha(deltaBytes),
         size: deltaBytes.length,
-        url: `https://updates.example/deltas/1.2.3-${label}.rbdelta`,
+        url: `https://updates.example/deltas/1.2.4-${label}.rbdelta`,
       }],
     }));
 
     const fetched = [];
     const updater = createDesktopUpdater({
-      appVersion: '1.1.0',
+      appVersion: '1.2.3',
       platformId: 'win32-x64',
       profileDir: prof,
       config: { updateUrl: 'https://updates.example', updatePublicKey: pubSpki },
@@ -240,8 +240,126 @@ test('Windows branding, installer ownership receipt, ASAR integrity, and RBD1/GB
     });
     const res = await updater.check();
     assert.equal(res.state.type, 'ready');
-    assert.equal(res.state.version, '1.2.3');
+    assert.equal(res.state.version, '1.2.4');
     assert.equal(fetched.some(u => u.includes(`.rbdelta`)), true);
+  }
+});
+
+test('Windows Host /local/updates/windows.json asarDeltas (RBD1/GBD1) reconstruct target ASAR and update PE ElectronAsarIntegrity', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-win-asardelta-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const asar = createRequire(path.join(repoRoot, 'mac/patchers/desktop/package.json'))('@electron/asar');
+  const { readAsarHeaderInfo } = await import('../../mac/clients/shared/delta.mjs');
+  const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const pubPem = publicKey.export({ format: 'pem', type: 'spki' });
+
+  const baseSrc = path.join(dir, 'asar-src-base');
+  const targetSrc = path.join(dir, 'asar-src-target');
+  await mkdir(path.join(baseSrc, 'local-client'), { recursive: true });
+  await mkdir(path.join(targetSrc, 'local-client'), { recursive: true });
+  await writeFile(path.join(baseSrc, 'package.json'), JSON.stringify({ name: 'rokbot', version: '1.2.3', main: 'local-client/main.mjs' }));
+  await writeFile(path.join(targetSrc, 'package.json'), JSON.stringify({ name: 'rokbot', version: '1.2.4', main: 'local-client/main.mjs' }));
+  await writeFile(path.join(baseSrc, 'local-client/main.mjs'), `export const v = '1.2.3';\n${'/* shared */\n'.repeat(128)}`);
+  await writeFile(path.join(targetSrc, 'local-client/main.mjs'), `export const v = '1.2.4';\n${'/* shared */\n'.repeat(128)}`);
+
+  const baseAsarPath = path.join(dir, 'base.asar');
+  const targetAsarPath = path.join(dir, 'target.asar');
+  await asar.createPackageWithOptions(baseSrc, baseAsarPath, {});
+  await asar.createPackageWithOptions(targetSrc, targetAsarPath, {});
+  const [baseAsarBytes, targetAsarBytes, baseHeader, targetHeader] = await Promise.all([
+    readFile(baseAsarPath),
+    readFile(targetAsarPath),
+    readAsarHeaderInfo(baseAsarPath),
+    readAsarHeaderInfo(targetAsarPath),
+  ]);
+
+  const rbdAsarDelta = createDeltaBuffer(baseAsarBytes, targetAsarBytes);
+  const rawRbd = gunzipSync(rbdAsarDelta);
+  assert.equal(rawRbd.subarray(0, 4).toString('ascii'), 'RBD1');
+  const gbdAsarDelta = gzipSync(Buffer.concat([Buffer.from('GBD1', 'ascii'), rawRbd.subarray(4)]));
+
+  for (const [label, deltaBytes] of [['RBD1', rbdAsarDelta], ['GBD1', gbdAsarDelta]]) {
+    const appDir = path.join(dir, `app-${label}`);
+    const resourcesDir = path.join(appDir, 'resources');
+    const profileDir = path.join(dir, `profile-${label}`);
+    await mkdir(resourcesDir, { recursive: true });
+    await mkdir(profileDir, { recursive: true });
+    await writeFile(path.join(resourcesDir, 'app.asar'), baseAsarBytes);
+    const execPath = path.join(appDir, 'Grok Bot.exe');
+    const syntheticExe = Buffer.from(`MZ...[{"file":"resources\\\\app.asar","alg":"SHA256","value":"${baseHeader.headerSha256}"}]...`, 'latin1');
+    await writeFile(execPath, syntheticExe);
+
+    const unsigned = {
+      schema: DESKTOP_UPDATE_SCHEMA,
+      platform: 'windows',
+      track: 'stable',
+      version: '1.2.4',
+      sha256: sha(Buffer.from('full-setup-1.2.4')),
+      size: 16,
+      url: 'https://host.example/local/updates/files/windows/RokBotLocal-1.2.4-x64-Setup.exe',
+      publishedAt: '2026-11-19T12:00:00.000Z',
+      asarDeltas: [{
+        baseSha256: sha(baseAsarBytes),
+        baseSize: baseAsarBytes.length,
+        baseHeaderSha256: baseHeader.headerSha256,
+        targetSha256: sha(targetAsarBytes),
+        targetSize: targetAsarBytes.length,
+        targetHeaderSha256: targetHeader.headerSha256,
+        sha256: sha(deltaBytes),
+        size: deltaBytes.length,
+        url: `/local/updates/files/windows/1.2.4-${label}.rbdelta`,
+      }],
+    };
+    const manifest = {
+      schema: DESKTOP_UPDATE_SCHEMA,
+      platform: 'windows',
+      track: 'stable',
+      signatureAlgorithm: 'ecdsa-p256-sha256',
+      signature: sign('sha256', Buffer.from(canonicalDesktopPayload(unsigned), 'utf8'), privateKey).toString('base64'),
+      deltasSignature: sign('sha256', Buffer.from(canonicalDesktopDeltasPayload(unsigned), 'utf8'), privateKey).toString('base64'),
+      publicKeyPem: pubPem,
+      latest: unsigned,
+    };
+
+    const fetched = [];
+    const updater = createDesktopUpdater({
+      appVersion: '1.2.3',
+      platformId: 'win32-x64',
+      profileDir,
+      resourcesDir,
+      execPath,
+      onInstallAsar: async () => {},
+      config: {
+        updateUrl: 'https://host.example/local/updates',
+        feedFile: 'windows.json',
+        allowOrigin: 'https://host.example',
+        hostOrigin: 'https://host.example',
+        allowHostManifestKey: true,
+      },
+      fetchImpl: async url => {
+        fetched.push(url);
+        if (url.includes('/local/updates/windows.json')) return new Response(JSON.stringify(manifest), { status: 200 });
+        if (url.includes(`.rbdelta`)) return new Response(deltaBytes, { status: 200, headers: { 'content-length': String(deltaBytes.length) } });
+        throw new Error(`Unexpected fetch for ${label}: ${url}`);
+      },
+    });
+
+    const res = await updater.check();
+    assert.equal(res.state.type, 'ready');
+    assert.equal(res.state.version, '1.2.4');
+    assert.equal(fetched.some(u => u.includes('/local/updates/windows.json')), true);
+    assert.equal(fetched.some(u => u.includes(`1.2.4-${label}.rbdelta`)), true);
+
+    const reconstructedPath = path.join(profileDir, 'updates', 'asar-stable-1.2.4.asar');
+    const reconstructedBytes = await readFile(reconstructedPath);
+    assert.equal(sha(reconstructedBytes), sha(targetAsarBytes));
+    assert.equal((await readAsarHeaderInfo(reconstructedPath)).headerSha256, targetHeader.headerSha256);
+
+    const peUpdated = replaceAsarIntegrity(syntheticExe, baseHeader.headerSha256, targetHeader.headerSha256);
+    const helperUpdated = replaceWindowsAsarIntegrityHex(syntheticExe, baseHeader.headerSha256, targetHeader.headerSha256);
+    assert.equal(peUpdated.equals(helperUpdated), true);
+    assert.equal(peUpdated.toString('latin1').includes(targetHeader.headerSha256), true);
   }
 });
 
@@ -249,12 +367,13 @@ test('ROKBOT_DESKTOP_DOWNLOAD_BASE overrides Windows official installer URLs and
   const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-win-mirror-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
 
-  const supported110 = JSON.parse(await readFile(path.join(windowsRoot, 'patchers/desktop/supported.json'), 'utf8'));
+  const supportedCurrent = JSON.parse(await readFile(path.join(windowsRoot, 'patchers/desktop/supported.json'), 'utf8'));
   const supported0712 = JSON.parse(await readFile(path.join(windowsRoot, 'patchers/desktop/0.71.2/supported.json'), 'utf8'));
+  assert.equal(supportedCurrent.version, '1.2.3');
 
   assert.equal(
-    resolveDesktopDownloadUrl(supported110.archive.url, 'https://mirror.rokbot.example/desktop///'),
-    'https://mirror.rokbot.example/desktop/win32-x64/1.1.0/Grok_Bot_1.1.0_Setup.exe',
+    resolveDesktopDownloadUrl(supportedCurrent.archive.url, 'https://mirror.rokbot.example/desktop///'),
+    `https://mirror.rokbot.example/desktop/win32-x64/${supportedCurrent.version}/Grok_Bot_${supportedCurrent.version}_Setup.exe`,
   );
   assert.equal(
     resolveDesktopDownloadUrl(supported0712.archive.url, 'http://127.0.0.1:9000/files'),
@@ -269,14 +388,14 @@ test('ROKBOT_DESKTOP_DOWNLOAD_BASE overrides Windows official installer URLs and
     'https://mirror.example/files#frag',
     'not-a-url',
   ]) {
-    assert.throws(() => resolveDesktopDownloadUrl(supported110.archive.url, invalid), /ROKBOT_DESKTOP_DOWNLOAD_BASE/);
+    assert.throws(() => resolveDesktopDownloadUrl(supportedCurrent.archive.url, invalid), /ROKBOT_DESKTOP_DOWNLOAD_BASE/);
   }
 
   const fakePayload = Buffer.from('synthetic-windows-setup-payload');
   const fakeSupported = {
-    version: '1.1.0',
+    version: supportedCurrent.version,
     archive: {
-      url: supported110.archive.url,
+      url: supportedCurrent.archive.url,
       bytes: fakePayload.length,
       sha256: sha(fakePayload),
     },
@@ -291,9 +410,12 @@ test('ROKBOT_DESKTOP_DOWNLOAD_BASE overrides Windows official installer URLs and
       return new Response(fakePayload, { status: 200 });
     },
   });
-  assert.equal(path.basename(cachedFile), 'Grok_Bot_1.1.0_Setup.exe');
+  assert.equal(path.basename(cachedFile), `Grok_Bot_${supportedCurrent.version}_Setup.exe`);
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, 'https://mirror.rokbot.example/desktop/win32-x64/1.1.0/Grok_Bot_1.1.0_Setup.exe');
+  assert.equal(
+    requests[0].url,
+    `https://mirror.rokbot.example/desktop/win32-x64/${supportedCurrent.version}/Grok_Bot_${supportedCurrent.version}_Setup.exe`,
+  );
   assert.equal(requests[0].userAgent, 'Mozilla/5.0 (compatible; RokBot-Patcher)');
 
   // Corrupt payload from mirror must fail closed before writing destination.

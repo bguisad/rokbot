@@ -88,6 +88,11 @@ const UPDATE_SETTINGS_ANCHOR_110 =
 const UPDATE_SETTINGS_REPLACEMENT_110 =
   'function GrokLocalUpdateSettings(){return d().row({loading:(0,S.jsx)(GrokLocalVersion,{}),empty:(0,S.jsx)(GrokLocalVersion,{}),unavailable:(0,S.jsx)(GrokLocalVersion,{}),value:t=>t?.delivery==="in-app"?(0,S.jsx)(E,{}):(0,S.jsx)(GrokLocalVersion,{})})}function O(){O.d=2763;return(0,S.jsx)(v,{children:(0,S.jsx)(GrokLocalUpdateSettings,{})})}';
 
+const UPDATE_SETTINGS_ANCHOR_123 =
+  'function D(){D.d=2788;let e=(0,v.c)(1),t;return e[0]===Symbol.for(`react.memo_cache_sentinel`)?(t=(0,x.jsx)(_,{children:(0,x.jsx)(GrokLocalVersion,{})}),e[0]=t):t=e[0],t}';
+const UPDATE_SETTINGS_REPLACEMENT_123 =
+  'function GrokLocalUpdateSettings(){return u().row({loading:(0,x.jsx)(GrokLocalVersion,{}),empty:(0,x.jsx)(GrokLocalVersion,{}),unavailable:(0,x.jsx)(GrokLocalVersion,{}),value:t=>t?.delivery==="in-app"?(0,x.jsx)(T,{}):(0,x.jsx)(GrokLocalVersion,{})})}function D(){D.d=2788;return(0,x.jsx)(_,{children:(0,x.jsx)(GrokLocalUpdateSettings,{})})}';
+
 export async function patchDesktopUpdateSettingsUi(unpacked) {
   const assetsDir = path.join(unpacked, 'dist/renderer/assets');
   const entries = (await readdir(assetsDir)).filter(name => /^chunk-view-.*\.js$/.test(name)).sort();
@@ -98,7 +103,12 @@ export async function patchDesktopUpdateSettingsUi(unpacked) {
     if (content.includes('function GrokOriginalUpdateSettings(')) {
       candidates.push({ kind: '0.71.2', name, filename, content });
     } else if (content.includes('function GrokLocalVersion(')) {
-      candidates.push({ kind: '1.1.0', name, filename, content });
+      const is123 =
+        content.includes('D.d=2788') ||
+        content.includes('T.d=3033') ||
+        content.includes('1.2.3 Updates module') ||
+        (content.includes('u()') && content.includes('function T(') && content.includes('(0,x.jsx)'));
+      candidates.push({ kind: is123 ? '1.2.3' : '1.1.0', name, filename, content });
     }
   }
   if (candidates.length !== 1) {
@@ -117,12 +127,18 @@ export async function patchDesktopUpdateSettingsUi(unpacked) {
     }
     anchor = UPDATE_SETTINGS_ANCHOR_0712;
     replacement = UPDATE_SETTINGS_REPLACEMENT_0712;
-  } else {
+  } else if (kind === '1.1.0') {
     if (!content.includes('d()') || !content.includes('function E(') || !content.includes('(0,S.jsx)')) {
       throw new Error(`更新设置模块缺少必需符号：${name}`);
     }
     anchor = UPDATE_SETTINGS_ANCHOR_110;
     replacement = UPDATE_SETTINGS_REPLACEMENT_110;
+  } else {
+    if (!content.includes('u()') || !content.includes('function T(') || !content.includes('(0,x.jsx)')) {
+      throw new Error(`更新设置模块缺少必需符号：${name}`);
+    }
+    anchor = UPDATE_SETTINGS_ANCHOR_123;
+    replacement = UPDATE_SETTINGS_REPLACEMENT_123;
   }
   const at = content.indexOf(anchor);
   if (at < 0) {
