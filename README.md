@@ -2,7 +2,7 @@
 
 **在自己的服务器上自托管运行 RokBot，接入你自己的模型，并坚持全端官方原生客户端补丁路线。**
 
-**简体中文** · [English](README.en.md) · [兼容与重命名说明](docs/REBRAND_COMPAT.md)
+**简体中文** · [English](README.en.md) · [AI Agent 部署引导](docs/AGENT_DEPLOY.md) · [补丁改造流程](docs/PATCHING_WORKFLOW.md) · [兼容与重命名说明](docs/REBRAND_COMPAT.md)
 
 <p align="center"><img src="assets/logo/rokbot-icon-256.png" width="128" alt="RokBot logo" /></p>
 
@@ -92,7 +92,7 @@ bash install-images.sh
 | `ROKBOT_DEFAULT_MACHINE_ID` | 空 | 多台电脑接入时的默认执行机器 |
 | `ROKBOT_UPDATE_DIR` | `/data/updates` | 四端更新包存放目录 |
 
-离线自行构建镜像、数据备份、拆分执行电脑等进阶用法见 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 与 [`host/README.md`](host/README.md)。
+面向 AI Agent（Claude Code / Cursor / Codex / Antigravity 等）的自动化部署、健康校验、模型配置与四端更新发布指令见 [`docs/AGENT_DEPLOY.md`](docs/AGENT_DEPLOY.md)；离线自行构建镜像、数据备份、拆分执行电脑等进阶用法见 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 与 [`host/README.md`](host/README.md)。
 
 ---
 
@@ -142,6 +142,12 @@ Host 首次启动时还没有模型，客户端连接后会通过 `GET /local/st
 | Android | 连接页 / 个人资料页「检查更新」 | 拉取 `/local/updates/android.json`，优先下载 `RBDELTA1` 增量并在本地还原完整 APK，校验 SHA-256、包名与签名证书指纹后调起系统安装器 |
 | macOS / Windows | 启动时自动检查（空闲自动更新）或设置中手动检查 | 校验 ECDSA P-256 签名清单，优先应用 `RBD1` ASAR 增量，失败回退完整安装包 |
 | iOS | 已连接页「检查更新」（每 6 小时节流） | iOS 沙盒不允许自我替换，提供 `itms-services://` OTA（需 HTTPS `ROKBOT_PUBLIC_URL`）、AltStore / SideStore 源、下载 IPA 后分享给 TrollStore / Sideloadly 三种方式 |
+
+---
+
+## 自托管适配与各端补丁改造流程
+
+各端（Host `2bb5e41` 字节差分、Android `1.16.0` Split XAPK 合并 / Pairip 去校验 / Hermes 字节码补丁 / Companion DEX 注入与签名、macOS & Windows `1.2.3` Electron ASAR 配方、Web `1.2.3` 渲染层提取、iOS `1.16.0` `RokBotLocal.dylib` 注入及未来官方版本跟进方法）的完整技术细节已独立记录在 **[`docs/PATCHING_WORKFLOW.md`](docs/PATCHING_WORKFLOW.md)**。
 
 ---
 

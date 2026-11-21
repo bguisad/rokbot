@@ -2,7 +2,7 @@
 
 **Self-hosted RokBot server with your own models, committed to native official client patching across platforms.**
 
-[简体中文](README.md) · **English** · [Rebranding & Compatibility](docs/REBRAND_COMPAT.md)
+[简体中文](README.md) · **English** · [AI Agent Deploy Runbook](docs/AGENT_DEPLOY.en.md) · [Patching Workflow](docs/PATCHING_WORKFLOW.en.md) · [Rebranding & Compatibility](docs/REBRAND_COMPAT.md)
 
 <p align="center"><img src="assets/logo/rokbot-icon-256.png" width="128" alt="RokBot logo" /></p>
 
@@ -92,7 +92,7 @@ Common `.env` options:
 | `ROKBOT_DEFAULT_MACHINE_ID` | empty | Default execution machine when several desktops are attached |
 | `ROKBOT_UPDATE_DIR` | `/data/updates` | Storage for the four platforms' update packages |
 
-For offline image builds, backups and separate execution machines, see [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md) and [`host/README.en.md`](host/README.en.md).
+For AI coding agents (Claude Code, Cursor, Codex, Antigravity, etc.) automating preflight checks, one-click deploy, model setup, and 4-platform update publishing, see [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md). For offline image builds, backups and separate execution machines, see [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md) and [`host/README.en.md`](host/README.en.md).
 
 ---
 
@@ -142,6 +142,12 @@ The admin builds, signs and uploads update packages to their own Host. Clients o
 | Android | "Check for Updates" on the connection or profile screen | Fetches `/local/updates/android.json`, prefers the `RBDELTA1` delta and rebuilds the full APK locally, verifies SHA-256, package name and signing-certificate fingerprint, then opens the system installer |
 | macOS / Windows | Automatic check at launch (auto-update when idle) or manual check in Settings | Verifies the ECDSA P-256 signed manifest, prefers the `RBD1` ASAR delta, and falls back to the full installer |
 | iOS | "Check for Updates" on the connected screen (throttled to every 6 hours) | The iOS sandbox forbids self-replacement, so it offers `itms-services://` OTA (needs an HTTPS `ROKBOT_PUBLIC_URL`), an AltStore / SideStore source, or downloading the IPA and sharing it to TrollStore / Sideloadly |
+
+---
+
+## Self-Hosting Adaptation & Patching Workflow
+
+Full technical details for all platforms (Host `2bb5e41` byte-diff recipes, Android `1.16.0` Split XAPK merge / Pairip neutralization / Hermes bytecode patching / Companion DEX injection & signing, macOS & Windows `1.2.3` Electron ASAR recipes, Web `1.2.3` renderer extraction, iOS `1.16.0` `RokBotLocal.dylib` injection, and tracking future official releases) are documented in **[`docs/PATCHING_WORKFLOW.en.md`](docs/PATCHING_WORKFLOW.en.md)**.
 
 ---
 
