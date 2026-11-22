@@ -1228,7 +1228,7 @@ public class PairingActivity extends Activity {
                             if (mDestroyed || isFinishing()) return;
                             mStatusText.setText(Localize.t(this, "正在配置本地运行时…", "Preparing runtime bundle…"));
                         });
-                        HermesPatcher.generatePairedBundle(this, resolved, res.token);
+                        RokBotBootstrap.ensurePairedBundleFile(this, true);
                     }
                 } catch (Throwable ignored) {}
 

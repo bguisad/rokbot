@@ -51,6 +51,7 @@ public class RokBotBootstrap {
     private static volatile String sViewingAgentId = null;
     private static volatile String sLastAgentId = null;
     private static volatile WeakReference<Activity> sCurrentActivity = new WeakReference<>(null);
+    private static volatile WeakReference<Activity> sLastMainActivity = new WeakReference<>(null);
     private static Handler sMainHandler;
     private static final WeakHashMap<Activity, Boolean> sHookedViews = new WeakHashMap<>();
     private static final Set<Activity> sStartedActivities = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
@@ -82,12 +83,19 @@ public class RokBotBootstrap {
             @Override
             public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
                 sCurrentActivity = new WeakReference<>(activity);
+                if (isReactActivity(activity)) {
+                    sLastMainActivity = new WeakReference<>(activity);
+                }
                 installNetworkInterceptor(app);
                 normalizeIncomingDeepLinkIntent(activity);
                 hookDeepLinkDelivery(activity);
                 if (!sAppCreated) {
                     sAppCreated = true;
                     onAppCreate(app);
+                }
+                if (shouldInterceptBrowserProxyForPairing(activity)) {
+                    redirectBlockedBrowserToPairing(activity);
+                    return;
                 }
                 if (isReactActivity(activity) && !Storage.isPaired(activity)) {
                     boolean explicitSkip = activity.getIntent() != null
@@ -121,12 +129,23 @@ public class RokBotBootstrap {
 
             @Override
             public void onActivityStarted(Activity activity) {
+                if (shouldInterceptBrowserProxyForPairing(activity)) {
+                    redirectBlockedBrowserToPairing(activity);
+                    return;
+                }
                 RokBotBootstrap.onActivityStarted(activity);
             }
 
             @Override
             public void onActivityResumed(Activity activity) {
+                if (shouldInterceptBrowserProxyForPairing(activity)) {
+                    redirectBlockedBrowserToPairing(activity);
+                    return;
+                }
                 sCurrentActivity = new WeakReference<>(activity);
+                if (isReactActivity(activity)) {
+                    sLastMainActivity = new WeakReference<>(activity);
+                }
                 installNetworkInterceptor(app);
                 normalizeIncomingDeepLinkIntent(activity);
                 hookDeepLinkDelivery(activity);
@@ -300,6 +319,7 @@ public class RokBotBootstrap {
                     }
                     return null;
                 });
+                android.util.Log.i("RokBotBootstrap", "hookReactHost patched bundle -> " + targetBundle.getName());
             }
         } catch (Throwable ignored) {}
     }
@@ -311,7 +331,7 @@ public class RokBotBootstrap {
             Application app = (Application) appCtx;
             R8OkHttpHook.refresh(app);
             if (Storage.isPaired(app)) {
-                ensurePairedBundleFile(app, true);
+                ensurePairedBundleFile(app, false);
             }
             hookReactHost(app);
             try {
@@ -320,6 +340,7 @@ public class RokBotBootstrap {
                     try {
                         Method reload = reactHost.getClass().getMethod("reload", String.class);
                         reload.invoke(reactHost, "rokbot-pairing-updated");
+                        android.util.Log.i("RokBotBootstrap", "reloadReactHost invoked reload()");
                         return;
                     } catch (Throwable reloadErr) {
                         File targetBundle = Storage.isPaired(app)
@@ -331,6 +352,7 @@ public class RokBotBootstrap {
                                 Class<?> jsLoaderCls = Class.forName("com.facebook.react.bridge.JSBundleLoader");
                                 Method loadBundle = reactHost.getClass().getMethod("loadBundle$ReactAndroid_release", jsLoaderCls);
                                 loadBundle.invoke(reactHost, fileLoader);
+                                android.util.Log.i("RokBotBootstrap", "reloadReactHost invoked loadBundle()");
                                 return;
                             }
                         }
@@ -369,18 +391,40 @@ public class RokBotBootstrap {
         return null;
     }
 
+    private static boolean isReactHostCandidate(Object candidate) {
+        if (candidate == null) return false;
+        String clsName = candidate.getClass().getName();
+        return clsName.contains("ReactHost") || hasMethod(candidate.getClass(), "reload", String.class);
+    }
+
     private static Object resolveReactHost(Application app) {
         if (app == null) return null;
         try {
-            return app.getClass().getMethod("getReactHost").invoke(app);
+            Object host = app.getClass().getMethod("getReactHost").invoke(app);
+            if (host != null) return host;
         } catch (Throwable ignored) {}
-        try {
-            Object candidate = app.getClass().getMethod("c").invoke(app);
-            if (candidate != null) {
-                String clsName = candidate.getClass().getName();
-                if (clsName.contains("ReactHost") || hasMethod(candidate.getClass(), "reload", String.class)) {
-                    return candidate;
+        for (String name : new String[]{"d", "c", "b", "e", "a"}) {
+            try {
+                Method m = app.getClass().getMethod(name);
+                if (m.getParameterCount() == 0 && !m.getReturnType().isPrimitive()) {
+                    Object candidate = m.invoke(app);
+                    if (isReactHostCandidate(candidate)) {
+                        return candidate;
+                    }
                 }
+            } catch (Throwable ignored) {}
+        }
+        try {
+            for (Method m : app.getClass().getMethods()) {
+                if (m.getParameterCount() != 0) continue;
+                Class<?> rt = m.getReturnType();
+                if (rt.isPrimitive() || !rt.getName().startsWith("com.facebook.react.")) continue;
+                try {
+                    Object candidate = m.invoke(app);
+                    if (isReactHostCandidate(candidate)) {
+                        return candidate;
+                    }
+                } catch (Throwable ignored) {}
             }
         } catch (Throwable ignored) {}
         return null;
@@ -410,6 +454,9 @@ public class RokBotBootstrap {
                     Object cur = f.get(target);
                     Object next = mapper.map(cur);
                     if (next != null && next != cur) {
+                        if (!f.getType().isPrimitive() && !f.getType().isInstance(next)) {
+                            break;
+                        }
                         f.set(target, next);
                     }
                     return true;
@@ -872,10 +919,14 @@ public class RokBotBootstrap {
 
     private static final class PendingTap {
         final Class<?> target;
+        final Rect hitRect;
+        final boolean inScrollable;
         final float downX;
         final float downY;
-        PendingTap(Class<?> target, float downX, float downY) {
+        PendingTap(Class<?> target, Rect hitRect, boolean inScrollable, float downX, float downY) {
             this.target = target;
+            this.hitRect = hitRect;
+            this.inScrollable = inScrollable;
             this.downX = downX;
             this.downY = downY;
         }
@@ -883,14 +934,94 @@ public class RokBotBootstrap {
 
     private static final class HitResult {
         final Class<?> target;
-        HitResult(Class<?> target) {
+        final Rect hitRect;
+        final boolean inScrollable;
+        HitResult(Class<?> target, Rect hitRect, boolean inScrollable) {
             this.target = target;
+            this.hitRect = hitRect;
+            this.inScrollable = inScrollable;
         }
+    }
+
+    private static boolean shouldInterceptBrowserProxyForPairing(Activity activity) {
+        if (activity == null) return false;
+        if (!"expo.modules.webbrowser.BrowserProxyActivity".equals(activity.getClass().getName())) {
+            return false;
+        }
+        if (Storage.isPaired(activity)) {
+            return false;
+        }
+        Intent intent = activity.getIntent();
+        String url = intent != null ? intent.getStringExtra("expo.modules.webbrowser.EXTRA_URL") : null;
+        if (url == null || url.isEmpty()) {
+            url = intent != null ? intent.getDataString() : null;
+        }
+        if (url != null && !url.isEmpty()) {
+            String lower = url.toLowerCase(java.util.Locale.US);
+            boolean isLegalLink = (lower.contains("/terms") || lower.contains("/privacy") || lower.contains("/legal"))
+                    && !lower.contains("oauth") && !lower.contains("auth") && !lower.contains("login") && !lower.contains("signin");
+            if (isLegalLink) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void redirectBlockedBrowserToPairing(Activity browserActivity) {
+        if (browserActivity == null) return;
+        Intent intent = browserActivity.getIntent();
+        if (intent != null) {
+            intent.removeExtra("expo.modules.webbrowser.EXTRA_URL");
+            intent.removeExtra("expo.modules.webbrowser.EXTRA_CUSTOM_TABS_INTENT_DATA");
+            intent.setData(null);
+        }
+        if (!browserActivity.isFinishing()) {
+            browserActivity.finish();
+        }
+        Activity hostAct = sLastMainActivity.get();
+        if (hostAct != null && !hostAct.isFinishing() && !hostAct.isDestroyed()) {
+            Intent i = new Intent(hostAct, PairingActivity.class);
+            i.putExtra(PairingActivity.EXTRA_FROM_RN_MODAL, true);
+            i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            hostAct.startActivity(i);
+        } else {
+            Intent i = new Intent(browserActivity, PairingActivity.class);
+            i.putExtra(PairingActivity.EXTRA_FROM_RN_MODAL, true);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            browserActivity.startActivity(i);
+        }
+    }
+
+    private static boolean isPointInExpandedRect(Rect r, float rawX, float rawY, float expandPx) {
+        if (r == null) return false;
+        return rawX >= r.left - expandPx && rawX <= r.right + expandPx
+                && rawY >= r.top - expandPx && rawY <= r.bottom + expandPx;
+    }
+
+    private static boolean hasScrollableAncestor(View v) {
+        View cur = v;
+        while (cur != null && cur.getParent() instanceof View) {
+            View p = (View) cur.getParent();
+            String clsName = p.getClass().getName();
+            if ("com.android.internal.policy.DecorView".equals(clsName)
+                    || p.getId() == android.R.id.content) {
+                break;
+            }
+            if (isScrollableContainer(p)) return true;
+            cur = p;
+        }
+        return false;
     }
 
     private static void maybeAttachRnViewInterceptor(Activity activity) {
         String cls = activity.getClass().getName();
-        if (cls.startsWith("dev.rokbot.nativeapp.")) return;
+        if (cls.startsWith("dev.rokbot.nativeapp.") || "expo.modules.webbrowser.BrowserProxyActivity".equals(cls)) return;
+        getMainHandler().post(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) return;
+            try {
+                attachWindowTouchInterceptor(activity);
+            } catch (Throwable ignored) {}
+        });
         if (sHookedViews.containsKey(activity)) return;
         sHookedViews.put(activity, Boolean.TRUE);
         getMainHandler().post(() -> {
@@ -944,25 +1075,41 @@ public class RokBotBootstrap {
                         if (decor != null) {
                             HitResult hit = findNativeTargetAtPoint(mActivity, decor, ev.getRawX(), ev.getRawY());
                             if (hit != null) {
-                                mPendingTap = new PendingTap(hit.target, ev.getRawX(), ev.getRawY());
+                                mPendingTap = new PendingTap(hit.target, hit.hitRect, hit.inScrollable, ev.getRawX(), ev.getRawY());
                             }
                         }
                     } else if (action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_CANCEL) {
                         mPendingTap = null;
                     } else if (mPendingTap != null && action == MotionEvent.ACTION_MOVE) {
                         PendingTap tap = mPendingTap;
-                        float dist = (float) Math.hypot(ev.getRawX() - tap.downX, ev.getRawY() - tap.downY);
+                        float density = Math.max(1f, mActivity.getResources().getDisplayMetrics().density);
                         float touchSlop = ViewConfiguration.get(mActivity).getScaledTouchSlop();
-                        if (dist > touchSlop) {
-                            mPendingTap = null;
+                        if (tap.inScrollable) {
+                            float dist = (float) Math.hypot(ev.getRawX() - tap.downX, ev.getRawY() - tap.downY);
+                            if (dist > Math.max(touchSlop * 2f, 20f * density)) {
+                                mPendingTap = null;
+                            }
+                        } else if (tap.hitRect != null) {
+                            if (!isPointInExpandedRect(tap.hitRect, ev.getRawX(), ev.getRawY(), 24f * density)) {
+                                mPendingTap = null;
+                            }
+                        } else {
+                            float dist = (float) Math.hypot(ev.getRawX() - tap.downX, ev.getRawY() - tap.downY);
+                            if (dist > Math.max(touchSlop * 2.5f, 24f * density)) {
+                                mPendingTap = null;
+                            }
                         }
                     } else if (mPendingTap != null && action == MotionEvent.ACTION_UP) {
                         PendingTap tap = mPendingTap;
                         mPendingTap = null;
+                        float density = Math.max(1f, mActivity.getResources().getDisplayMetrics().density);
+                        float touchSlop = ViewConfiguration.get(mActivity).getScaledTouchSlop();
                         float dist = (float) Math.hypot(ev.getRawX() - tap.downX, ev.getRawY() - tap.downY);
-                        float slop = Math.max(ViewConfiguration.get(mActivity).getScaledTouchSlop() * 1.5f,
-                                16f * mActivity.getResources().getDisplayMetrics().density);
-                        if (dist <= slop) {
+                        float slop = Math.max(touchSlop * 2f, 24f * density);
+                        boolean acceptTap = tap.inScrollable
+                                ? (dist <= slop)
+                                : ((tap.hitRect != null && isPointInExpandedRect(tap.hitRect, ev.getRawX(), ev.getRawY(), 24f * density)) || dist <= slop);
+                        if (acceptTap) {
                             MotionEvent cancelEv = MotionEvent.obtain(ev);
                             if (cancelEv != null) {
                                 cancelEv.setAction(MotionEvent.ACTION_CANCEL);
@@ -1050,6 +1197,20 @@ public class RokBotBootstrap {
             }
         }
         if (view.getTag(TAG_OVERRIDDEN_TARGET) == null && extractViewText(view) == null) {
+            if (!Storage.isPaired(activity) && !isScrollableContainer(view) && !isSwitchLikeView(view)
+                    && (view.isClickable() || view.hasOnClickListeners()) && w > 0 && h > 0) {
+                Rect viewRect = getScreenRect(view);
+                float density = resolveDensity(view);
+                float dpW = w / density;
+                float dpH = h / density;
+                if (viewRect != null && viewRect.contains((int) rawX, (int) rawY)
+                        && dpW > 100f && dpH >= 32f && dpH <= 140f) {
+                    String ctaLabel = extractUnpairedCtaLabel(activity, view, 0, new int[1]);
+                    if (ctaLabel != null) {
+                        return new HitResult(PairingActivity.class, clipToScrollableAncestors(view, viewRect), hasScrollableAncestor(view));
+                    }
+                }
+            }
             return null;
         }
         Class<?> target = resolveNativeTargetForView(activity, view);
@@ -1058,7 +1219,26 @@ public class RokBotBootstrap {
                     ? resolveNotificationsRowHitRect(activity, view)
                     : resolveCompactHitRect(activity, view);
             if (hitRect != null && hitRect.contains((int) rawX, (int) rawY)) {
-                return new HitResult(target);
+                return new HitResult(target, hitRect, hasScrollableAncestor(view));
+            }
+        }
+        return null;
+    }
+
+    private static String extractUnpairedCtaLabel(Activity activity, View v, int depth, int[] visited) {
+        if (v == null || depth > 6 || visited[0] >= 24 || v.getVisibility() != View.VISIBLE) return null;
+        visited[0]++;
+        String txt = extractViewText(v);
+        if (txt != null && !txt.isEmpty()) {
+            if (resolveNativeTargetForLabel(activity, txt) == PairingActivity.class) {
+                return txt;
+            }
+        }
+        if (v instanceof ViewGroup && depth < 6) {
+            ViewGroup vg = (ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                String found = extractUnpairedCtaLabel(activity, vg.getChildAt(i), depth + 1, visited);
+                if (found != null) return found;
             }
         }
         return null;
@@ -1070,12 +1250,13 @@ public class RokBotBootstrap {
         float density = Math.max(1f, activity.getResources().getDisplayMetrics().density);
         float maxHeightPx = 120f * density;
         View cur = leaf;
-        for (int depth = 0; depth < 3; depth++) {
+        for (int depth = 0; depth < 6; depth++) {
             if (!(cur.getParent() instanceof ViewGroup)) break;
             ViewGroup parent = (ViewGroup) cur.getParent();
             String clsName = parent.getClass().getName();
             if ("com.android.internal.policy.DecorView".equals(clsName)
                     || parent.getId() == android.R.id.content
+                    || isScrollableContainer(parent)
                     || parent.getVisibility() != View.VISIBLE
                     || !parent.isShown()) {
                 break;
@@ -1653,10 +1834,16 @@ public class RokBotBootstrap {
                 || s.equalsIgnoreCase("Connect your Grok Bot")
                 || s.equals("连接你的 Grok Bot")
                 || s.equalsIgnoreCase("Connect your RokBot")
-                || s.equals("连接你的 RokBot")) {
+                || s.equals("连接你的 RokBot")
+                || s.equals("正在等待浏览器...")
+                || s.equals("正在等待瀏覽器...")
+                || s.equalsIgnoreCase("Waiting for browser...")
+                || s.equals("使用 Grok 登录")
+                || s.equals("使用 Grok 账号登录")
+                || s.equalsIgnoreCase("Continue with Grok")) {
             return (!paired && isInteractiveTarget && effW > 100f && effH >= 32f && effH <= 140f) ? PairingActivity.class : null;
         }
-        if (s.equals("连接服务端") || s.equalsIgnoreCase("Connect to Host")) {
+        if (s.equals("连接服务端") || s.equals("連接服務端") || s.equals("連接伺服器") || s.equalsIgnoreCase("Connect to Host")) {
             if (!paired) {
                 return (isInteractiveTarget && effW > 100f && effH >= 32f && effH <= 140f) ? PairingActivity.class : null;
             }
@@ -1782,12 +1969,13 @@ public class RokBotBootstrap {
         View bestClickable = (leaf.isClickable() || leaf.hasOnClickListeners()) ? leaf : null;
         float density = resolveDensity(leaf);
         View cur = leaf;
-        for (int depth = 0; depth < 3; depth++) {
+        for (int depth = 0; depth < 6; depth++) {
             if (!(cur.getParent() instanceof ViewGroup)) break;
             ViewGroup parent = (ViewGroup) cur.getParent();
             String clsName = parent.getClass().getName();
             if ("com.android.internal.policy.DecorView".equals(clsName)
-                    || parent.getId() == android.R.id.content) {
+                    || parent.getId() == android.R.id.content
+                    || isScrollableContainer(parent)) {
                 break;
             }
             boolean heightOk = parent.getHeight() <= 0 || parent.getHeight() <= (int) (140f * density);
@@ -1851,12 +2039,20 @@ public class RokBotBootstrap {
                 || s.equals("连接 Host")
                 || s.equals("Host 连接")
                 || s.equals("连接服务端")
+                || s.equals("連接服務端")
+                || s.equals("連接伺服器")
                 || s.equalsIgnoreCase("Connect to Host")
                 || s.equalsIgnoreCase("Host Connection")
                 || s.equalsIgnoreCase("Connect your Grok Bot")
                 || s.equals("连接你的 Grok Bot")
                 || s.equalsIgnoreCase("Connect your RokBot")
                 || s.equals("连接你的 RokBot")
+                || s.equals("正在等待浏览器...")
+                || s.equals("正在等待瀏覽器...")
+                || s.equalsIgnoreCase("Waiting for browser...")
+                || s.equals("使用 Grok 登录")
+                || s.equals("使用 Grok 账号登录")
+                || s.equalsIgnoreCase("Continue with Grok")
                 || s.equals("调试")
                 || s.equalsIgnoreCase("Debug")
                 || s.equalsIgnoreCase("link")) {

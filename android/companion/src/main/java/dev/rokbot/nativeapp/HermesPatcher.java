@@ -161,8 +161,17 @@ public class HermesPatcher {
         File outDir = new File(context.getFilesDir(), "RokBotPaired");
         outDir.mkdirs();
         File outFile = new File(outDir, "index.android.bundle");
-        try (FileOutputStream fos = new FileOutputStream(outFile)) {
+        File tmpFile = new File(outDir, "index.android.bundle.tmp");
+        try (FileOutputStream fos = new FileOutputStream(tmpFile)) {
             fos.write(bundle);
+            fos.getFD().sync();
+        }
+        if (!tmpFile.renameTo(outFile)) {
+            try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                fos.write(bundle);
+                fos.getFD().sync();
+            }
+            tmpFile.delete();
         }
 
         return outFile;

@@ -80,6 +80,13 @@ function isImeShown() {
   return /\bmInputShown=true\b/.test(ime);
 }
 
+function isTextInputFocused() {
+  const ime = adbSafe('shell', 'dumpsys', 'input_method');
+  if (/\bmInputShown=true\b/.test(ime)) return true;
+  const imeList = adbSafe('shell', 'ime', 'list', '-s').trim();
+  return imeList.length === 0 && /\bmServedView=.*(?:EditText|textinput)/i.test(ime);
+}
+
 function dismissImeIfShown() {
   if (isImeShown()) {
     adb('shell', 'input', 'keyevent', '4');
@@ -467,10 +474,15 @@ export function isBotsListReady(top) {
   return distinctTopRight.length >= 2;
 }
 
-export function findNotificationsHostSwitchCandidates(top) {
-  const views = top?.views || [];
+export function findNotificationsHostSwitchCandidates(top, { maxY2 = 2260 } = {}) {
+  const allViews = top?.views || [];
+  const activeStart = allViews.reduce(
+    (last, v, idx) => (v.className.startsWith('com.swmansion.rnscreens.') && v.rect.h >= 1500 ? idx : last),
+    0
+  );
+  const views = allViews.slice(activeStart);
   return views
-    .filter(v => v.visible && v.className.includes('HostView') && v.rect.x1 >= 600 && v.rect.y1 >= 300 && v.rect.y2 <= 2260)
+    .filter(v => v.visible && v.className.includes('HostView') && v.rect.x1 >= 600 && v.rect.y1 >= 300 && v.rect.y2 <= maxY2)
     .map(hv => {
       const labelCount = views.filter(
         tv => tv.visible && tv.className.includes('text') && Math.abs(tv.cy - hv.cy) < 110 && tv.rect.x1 < 300
@@ -672,7 +684,7 @@ async function run() {
     for (const cand of inputCandidates.slice(0, 4)) {
       tap(cand);
       await sleep(500);
-      if (isImeShown()) {
+      if (isTextInputFocused()) {
         imeFocused = true;
         break;
       }
@@ -768,7 +780,12 @@ async function run() {
 
     // 4a. SettingsSheet AccountRow -> ProfileActivity
     const sheetTop1 = await dumpTopActivity();
+    const activeScreenStart = sheetTop1.views.reduce(
+      (last, v, idx) => (v.className.startsWith('com.swmansion.rnscreens.') && v.rect.h >= 1500 ? idx : last),
+      0
+    );
     const accountCard = sheetTop1.views
+      .slice(activeScreenStart)
       .filter(v => v.visible && v.clickable && v.rect.w >= 850 && v.rect.h >= 130 && v.rect.h <= 260 && v.rect.y1 >= 250 && v.rect.y1 <= 650)
       .sort((a, b) => a.rect.y1 - b.rect.y1)[0];
     assert.ok(accountCard, 'SettingsSheet AccountRow card must be locatable');
@@ -863,22 +880,22 @@ async function run() {
     await sleep(500);
 
     // 4c. Scroll SettingsSheet -> flattened NotificationsRow (HostView switch) -> PushSettingsActivity
-    let sheetScrolled = await dumpTopActivity();
-    let hostSwitches = findNotificationsHostSwitchCandidates(sheetScrolled);
-    for (let scrollAttempt = 0; scrollAttempt < 3 && !hostSwitches.some(c => c.labelCount === 1); scrollAttempt++) {
-      // Drag from a non-clickable upper toggle row's left text area so swipe never taps clickable rows like Custom Rules or Time Zone.
-      const dragY = hostSwitches[0]?.hv?.cy || 1230;
-      adb('shell', 'input', 'swipe', '300', String(dragY), '300', String(Math.max(400, dragY - 400)), '300');
-      await sleep(650);
-      sheetScrolled = await dumpTopActivity();
-      hostSwitches = findNotificationsHostSwitchCandidates(sheetScrolled);
-    }
+    const sheetBeforeScroll = await dumpTopActivity();
+    let hostSwitches = findNotificationsHostSwitchCandidates(sheetBeforeScroll, { maxY2: 3200 });
     const notifCandidates = hostSwitches.filter(c => c.labelCount === 1);
     const targets = notifCandidates.length > 0 ? notifCandidates : hostSwitches;
     let openedPush = false;
     for (const cand of targets) {
+      let tapY = cand.hv.cy;
+      if (cand.hv.cy > 2100) {
+        // dumpsys activity top does not subtract ScrollView mScrollY; use a slow no-fling drag so screen Y is deterministic.
+        const scrollDelta = Math.max(400, Math.min(1150, cand.hv.cy - 1400));
+        adb('shell', 'input', 'swipe', '300', '1650', '300', String(1650 - scrollDelta), '1800');
+        await sleep(450);
+        tapY = cand.hv.cy - Math.max(0, scrollDelta - 24);
+      }
       for (const tapX of [cand.hv.cx, 360]) {
-        adb('shell', 'input', 'tap', String(tapX), String(cand.hv.cy));
+        adb('shell', 'input', 'tap', String(tapX), String(tapY));
         try {
           await waitForTopActivity(t => isCompanionActivity(t, 'PushSettingsActivity'), 'PushSettingsActivity via SettingsSheet NotificationsRow', 4000);
           openedPush = true;

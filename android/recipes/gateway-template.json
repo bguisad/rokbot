@@ -1,7 +1,7 @@
 {
   "schema": "grokbot-native-hermes/v1",
   "originalSha256": "e72cff448260d3de44add52391ec6ea6ac81bc5f710806a54cf5af9261d1817b",
-  "templateSha256": "1b561a20bd0fa06acb46b0f13953d6b73ae5ddd912219d929381bf933c0a6e05",
+  "templateSha256": "ee6e005b9792154b317dcbefef52911f6942017f3ca3a9bbd280b126be3752da",
   "bodyOffset": 38303476,
   "bodyCapacity": 24600,
   "bodyLengthOffset": 38328844,

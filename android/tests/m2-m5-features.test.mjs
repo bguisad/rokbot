@@ -2744,6 +2744,49 @@ public class VerifyR3Harness {
         Object hitInsideSv = findAtPointM.invoke(null, reactAct, sv, 200f, 340f);
         check(hitInsideSv != null && hitTargetF.get(hitInsideSv) == PushSettingsActivity.class, "Visible portion of NotificationsRow inside ScrollView must still open PushSettingsActivity");
 
+        // 13) 1.26.0 4-level unpaired onboarding CTA (#68 clickable 986x126 -> #66 -> #5e 225x66 -> #5c -> #54/#58)
+        // Must intercept both center taps and far-edge taps (no contentDescription on #68), plus waiting-for-browser labels
+        FakeApp unpairedApp = alloc(FakeApp.class);
+        unpairedApp.prefs = new MemPrefs();
+        FakeReactActivity unpairedAct = alloc(FakeReactActivity.class);
+        unpairedAct.app = unpairedApp;
+        unpairedAct.res = res;
+        FakeViewGroup ctaOuter = new FakeViewGroup();
+        ctaOuter.leftPx = 47; ctaOuter.topPx = 2079; ctaOuter.wPx = 986; ctaOuter.hPx = 126; ctaOuter.clickable = true; ctaOuter.res = res;
+        FakeViewGroup ctaInner = new FakeViewGroup();
+        ctaInner.leftPx = 47; ctaInner.topPx = 2079; ctaInner.wPx = 986; ctaInner.hPx = 126;
+        FakeViewGroup ctaCenter = new FakeViewGroup();
+        ctaCenter.leftPx = 427; ctaCenter.topPx = 2109; ctaCenter.wPx = 225; ctaCenter.hPx = 66;
+        FakeViewGroup ctaTextBox = new FakeViewGroup();
+        ctaTextBox.leftPx = 427; ctaTextBox.topPx = 2109; ctaTextBox.wPx = 225; ctaTextBox.hPx = 66;
+        FakeTextView ctaTxt1 = new FakeTextView();
+        ctaTxt1.leftPx = 427; ctaTxt1.topPx = 2109; ctaTxt1.wPx = 225; ctaTxt1.hPx = 66; ctaTxt1.text = "连接服务端";
+        FakeViewGroup ctaOverlay = new FakeViewGroup();
+        ctaOverlay.leftPx = 427; ctaOverlay.topPx = 2109; ctaOverlay.wPx = 225; ctaOverlay.hPx = 66;
+        FakeTextView ctaTxt2 = new FakeTextView();
+        ctaTxt2.leftPx = 427; ctaTxt2.topPx = 2109; ctaTxt2.wPx = 225; ctaTxt2.hPx = 66; ctaTxt2.text = "连接服务端";
+        ctaOverlay.addMockChild(ctaTxt2);
+        ctaTextBox.addMockChild(ctaTxt1);
+        ctaTextBox.addMockChild(ctaOverlay);
+        ctaCenter.addMockChild(ctaTextBox);
+        ctaInner.addMockChild(ctaCenter);
+        ctaOuter.addMockChild(ctaInner);
+        Field hitRectF = hitOnText.getClass().getDeclaredField("hitRect");
+        hitRectF.setAccessible(true);
+        Object hitCtaEdge = findAtPointM.invoke(null, unpairedAct, ctaOuter, 60f, 2140f);
+        check(hitCtaEdge != null && hitTargetF.get(hitCtaEdge) == PairingActivity.class,
+                "Far-left edge tap on unpaired 1.26.0 CTA must hit PairingActivity");
+        Object hitCtaCenter = findAtPointM.invoke(null, unpairedAct, ctaOuter, 540f, 2140f);
+        check(hitCtaCenter != null && hitTargetF.get(hitCtaCenter) == PairingActivity.class,
+                "Center tap on 4-level nested 1.26.0 CTA must hit PairingActivity");
+        android.graphics.Rect ctaHitRect = (android.graphics.Rect) hitRectF.get(hitCtaCenter);
+        check(ctaHitRect != null && ctaHitRect.width() == 986 && ctaHitRect.height() == 126,
+                "Deep nested CTA hitRect must expand to outer clickable 986x126 button: " + ctaHitRect);
+        check(RokBotBootstrap.resolveNativeTargetForLabel("正在等待浏览器...") == PairingActivity.class,
+                "Waiting-for-browser zh label must route to PairingActivity");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Waiting for browser...") == PairingActivity.class,
+                "Waiting-for-browser en label must route to PairingActivity");
+
         System.out.println("R3_JVM_VERIFY_OK");
     }
 }
@@ -2926,6 +2969,25 @@ test(
     assert.deepEqual(seenSids, expectedSids);
     assert.equal(code[code.length - 1], 0x00);
     assert.equal(code[code.length - 2], 0x76); // Ret r0 at end of 51B bypass
+  }
+
+  // Regression: 40-byte LargeFuncHeaders (fn[23394] DevGatewayOverride.read & fn[26618] BackendClient.call)
+  // must sit strictly before the 20-byte SHA-1 footer and never overlap fn[26620] bytecode or clear flags to ProhibitCall (0).
+  const sha1Offset = pairedRes.buffer.length - 20;
+  const fn26620 = readFnHeader(pairedRes.buffer, 26620);
+  for (const fid of [23394, 26618]) {
+    const fn = readFnHeader(pairedRes.buffer, fid);
+    assert.equal(fn.overflow, true, `fn[${fid}] must use LargeFuncHeader`);
+    assert.ok(fn.lo + 40 <= sha1Offset, `LFH[${fid}] 40B header must not overlap SHA-1 footer`);
+    assert.ok(
+      fn.lo + 40 <= fn26620.bcOff || fn.lo >= fn26620.bcOff + fn26620.bcSz,
+      `LFH[${fid}] 40B header must not overlap fn[26620] bytecode`
+    );
+    assert.notEqual(
+      pairedRes.buffer.readUInt32LE(fn.lo + 36) & 3,
+      0,
+      `LFH[${fid}] prohibitInvoke must not be ProhibitCall (0)`
+    );
   }
 });
 
