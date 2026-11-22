@@ -237,7 +237,7 @@ test('M3-Pipeline: strips legacy v1 META-INF, keeps resources.arsc uncompressed,
     });
 
     assert.equal(report.actualPackageName, 'ai.x.grok.bot');
-    assert.equal(report.actualVersionName, '1.16.0');
+    assert.equal(report.actualVersionName, '1.26.0');
     assert.equal(report.mode, 'rn-official-apk-patch');
     assert.equal(report.bundlePatched, false);
     assert.equal(report.bundlePatchMode, 'companion-runtime-fallback');
@@ -911,7 +911,7 @@ test('M5-EmulatorE2E: isBotsListReady rejects Chat Screen < Back / Retry banner 
   ].join('\n');
 
   // 1. Chat Screen with top-left < Back button, single top-right '...' (even with nested clickable child + lower Retry banner), and wide clickable bubble
-  const chatTop = parseTopActivityOutput(mkDumpsys('ai.x.grok.bot/.MainActivity', [
+  const chatTop = parseTopActivityOutput(mkDumpsys('dev.rokbot.local/.MainActivity', [
     'com.facebook.react.views.view.ReactViewGroup{10 VFE...C.. ........ 47,152-163,267}',
     'com.facebook.react.views.view.ReactViewGroup{11 VFE...C.. ........ 917,152-1033,267}',
     'com.facebook.react.views.view.ReactViewGroup{12 VFE...C.. ........ 925,160-1025,259}',
@@ -922,7 +922,7 @@ test('M5-EmulatorE2E: isBotsListReady rejects Chat Screen < Back / Retry banner 
   assert.equal(isBotsListReady(chatTop), false, 'Chat Screen must NEVER pass isBotsListReady even with wide bubble and lower Retry button');
 
   // 2. Bots List Screen with (D) avatar, Search + '+' top-right buttons, and bot rows
-  const botsListTop = parseTopActivityOutput(mkDumpsys('ai.x.grok.bot/.MainActivity', [
+  const botsListTop = parseTopActivityOutput(mkDumpsys('dev.rokbot.local/.MainActivity', [
     'com.facebook.react.views.view.ReactViewGroup{20 VFE...C.. ........ 47,152-163,267}',
     'com.facebook.react.views.view.ReactViewGroup{21 VFE...C.. ........ 777,152-893,267}',
     'com.facebook.react.views.view.ReactViewGroup{22 VFE...C.. ........ 917,152-1033,267}',
@@ -933,7 +933,7 @@ test('M5-EmulatorE2E: isBotsListReady rejects Chat Screen < Back / Retry banner 
   assert.equal(findTopLeftCornerButton(botsListTop.views)?.rect.x1, 47);
 
   // 3. ErrorBoundary or non-MainActivity (e.g. NexusLauncherActivity) must return false
-  const errTop = parseTopActivityOutput(mkDumpsys('ai.x.grok.bot/.MainActivity', [
+  const errTop = parseTopActivityOutput(mkDumpsys('dev.rokbot.local/.MainActivity', [
     'com.facebook.react.views.view.ReactViewGroup{30 VFE...C.. ........ 300,1900-780,2040}',
   ]));
   assert.equal(isBotsListReady(errTop), false, 'ErrorBoundary screen must return false');
@@ -947,7 +947,7 @@ test('M5-EmulatorE2E: isBotsListReady rejects Chat Screen < Back / Retry banner 
   assert.equal(isBotsListReady(launcherTop), false, 'NexusLauncherActivity must return false');
 
   // 4. SettingsSheet NotificationsRow HostView candidate ranking (single title labelCount===1 preferred over subtitle toggles)
-  const settingsTop = parseTopActivityOutput(mkDumpsys('ai.x.grok.bot/.MainActivity', [
+  const settingsTop = parseTopActivityOutput(mkDumpsys('dev.rokbot.local/.MainActivity', [
     'com.facebook.react.views.text.f{50 V.ED..... ........ 92,1151-825,1209}',
     'com.facebook.react.views.text.f{51 V.ED..... ........ 92,1214-825,1310}',
     'expo.modules.ui.HostView{52 V.E...... ........ 852,1167-989,1293}',
@@ -962,7 +962,7 @@ test('M5-EmulatorE2E: isBotsListReady rejects Chat Screen < Back / Retry banner 
   assert.equal(switchCands[0].labelCount, 1);
   assert.equal(switchCands[0].hv.cy, 2021);
 
-  const unscrolledSettingsTop = parseTopActivityOutput(mkDumpsys('ai.x.grok.bot/.MainActivity', [
+  const unscrolledSettingsTop = parseTopActivityOutput(mkDumpsys('dev.rokbot.local/.MainActivity', [
     'com.facebook.react.views.text.f{60 V.ED..... ........ 92,1554-825,1612}',
     'com.facebook.react.views.text.f{61 V.ED..... ........ 92,1617-825,1713}',
     'expo.modules.ui.HostView{62 V.E...... ........ 852,1531-989,1657}',
@@ -1235,7 +1235,7 @@ test('R2-Bytepatch: verifies pinned .gbp.gz recipes and executes bytepatch-unpai
   const realMeta = loadGatewayTemplateMetadata();
   for (const name of ['unpaired.hbc.gbp.gz', 'gateway-template.hbc.gbp.gz', 'gateway-template.json.gbp.gz']) {
     const recipe = loadBytepatchRecipe(path.join(NATIVE_ROOT, 'recipes', name));
-    assert.equal(recipe.schema, 'grokbot-bytepatch/v1');
+    assert.equal(recipe.schema, 'rokbot-bytepatch/v1');
     assert.equal(recipe.sourceSha256, realMeta.originalSha256);
     assert.ok(Array.isArray(recipe.ops) && recipe.ops.length > 0);
   }
@@ -2785,7 +2785,7 @@ public class VerifyR3Harness {
     assert.equal(observedSseHeaders[0].accept, 'text/event-stream');
     assert.equal(observedSseHeaders[0]['x-rokbot-foreground'], '1');
     assert.equal(observedSseHeaders[0]['last-event-id'], 'cursor-0');
-    assert.equal(observedSseHeaders[0]['x-rokbot-client'], 'android-native/1.16.0');
+    assert.equal(observedSseHeaders[0]['x-rokbot-client'], 'android-native/1.26.0');
   } finally {
     for (const s of sockets) s.destroy();
     await new Promise(resolve => sseServer.close(resolve));
@@ -2799,8 +2799,8 @@ function resolveTrackAXapkPath() {
     return envPath && fs.existsSync(envPath) ? envPath : null;
   }
   const candidates = [
-    path.join(PROJECT_ROOT, 'inputs/android/grok-bot-1.16.0.xapk'),
-    '/Volumes/ORICO/grokbot/inputs/android/grok-bot-1.16.0.xapk',
+    path.join(PROJECT_ROOT, 'inputs/android/grok-bot-1.26.0.xapk'),
+    '/Volumes/ORICO/grokbot/inputs/android/grok-bot-1.26.0.xapk',
   ];
   return candidates.find(p => fs.existsSync(p)) || null;
 }
@@ -2811,13 +2811,13 @@ test(
   'Track A-HBC: verifies patched LoadTrue/LoadFalse stubs, stampSender, and tail-patched BackendClient.call/callPublic 22 RPCs',
   {
     skip: !TRACK_A_XAPK_PATH &&
-      'Official grok-bot-1.16.0.xapk not found; set ROKBOT_ANDROID_TEST_XAPK or place in inputs/android/',
+      'Official grok-bot-1.26.0.xapk not found; set ROKBOT_ANDROID_TEST_XAPK or place in inputs/android/',
   },
   () => {
   const realMeta = loadGatewayTemplateMetadata();
-  assert.equal(realMeta.bodyOffset, 22391212);
+  assert.equal(realMeta.bodyOffset, 38303476);
   assert.equal(realMeta.bodyCapacity, 24600);
-  assert.equal(realMeta.bodyLengthOffset, 20466348);
+  assert.equal(realMeta.bodyLengthOffset, 38328844);
 
   const tplJsonRaw = fs.readFileSync(path.join(NATIVE_ROOT, 'recipes/gateway-template.json'));
   const tplJsonGbp = loadBytepatchRecipe(path.join(NATIVE_ROOT, 'recipes/gateway-template.json.gbp.gz'));
@@ -2834,7 +2834,7 @@ test(
   assert.equal(tplJsonGbp.targetSha256, crypto.createHash('sha256').update(tplJsonRaw).digest('hex'));
   assert.equal(tplMetaFromGbp.templateSha256, realMeta.templateSha256);
   const rawGbpJsonGz = JSON.parse(gunzipSync(fs.readFileSync(path.join(NATIVE_ROOT, 'recipes/gateway-template.json.gbp.gz'))).toString('utf8'));
-  assert.equal(rawGbpJsonGz.schema, 'grokbot-bytepatch/v1');
+  assert.equal(rawGbpJsonGz.schema, 'rokbot-bytepatch/v1');
 
   const unpairedRes = patchHermesBundleSafely(origBundle);
   assert.equal(unpairedRes.patched, true);
@@ -2868,43 +2868,43 @@ test(
   };
 
   for (const buf of [unpairedRes.buffer, pairedRes.buffer]) {
-    // SettingsSheet +516 -> LoadTrue r9; LoadTrue r9 (95 09 95 09)
-    assert.deepEqual([...buf.subarray(0xc23dbc, 0xc23dc0)], [0x95, 0x09, 0x95, 0x09]);
-    // OnboardingScreen +213 -> LoadFalse r10; LoadFalse r10 (96 0a 96 0a)
-    assert.deepEqual([...buf.subarray(0xbfca14, 0xbfca18)], [0x96, 0x0a, 0x96, 0x0a]);
+    // SettingsSheet +453 -> LoadTrue r14; LoadTrue r14 (95 0e 95 0e)
+    assert.deepEqual([...buf.subarray(0x1d8a0da, 0x1d8a0de)], [0x95, 0x0e, 0x95, 0x0e]);
+    // BrowserSignInScreen +331 -> LoadFalse r7; LoadFalse r7 (96 07 96 07)
+    assert.deepEqual([...buf.subarray(0x1b00b06, 0x1b00b0a)], [0x96, 0x07, 0x96, 0x07]);
     // isStatsigDisabled -> LoadTrue r0; Ret r0
-    const fnStatsig = readFnHeader(buf, 14379);
+    const fnStatsig = readFnHeader(buf, 18544);
     assert.deepEqual([...buf.subarray(fnStatsig.bcOff, fnStatsig.bcOff + 4)], [0x95, 0x00, 0x76, 0x00]);
     // canRecord, shouldFetch, sandStatsigNetworkUrlAllowed -> LoadFalse r0; Ret r0
-    for (const fid of [14068, 14399, 14450]) {
+    for (const fid of [16597, 18563, 18637]) {
       const fh = readFnHeader(buf, fid);
       assert.deepEqual([...buf.subarray(fh.bcOff, fh.bcOff + 4)], [0x96, 0x00, 0x76, 0x00], `fn[${fid}] must return LoadFalse`);
     }
     // BackendAnalyticsSink.send & OnePasswordAppPresence.lookUp -> Promise.resolve(false) (LoadFalse r0 at +13..+14)
-    for (const fid of [14117, 31116]) {
+    for (const fid of [16781, 30362]) {
       const fh = readFnHeader(buf, fid);
       assert.deepEqual([...buf.subarray(fh.bcOff + 13, fh.bcOff + 15)], [0x96, 0x00], `fn[${fid}] Promise.resolve argument must be LoadFalse (0x96)`);
     }
   }
 
-  // stampSender (fn[30537], bc=0xab3939) patched to LoadConstUndefined; Ret ONLY in gateway-template
-  assert.deepEqual([...pairedRes.buffer.subarray(0xab3939, 0xab393d)], [0x93, 0x00, 0x76, 0x00]);
-  assert.notDeepEqual([...unpairedRes.buffer.subarray(0xab3939, 0xab393d)], [0x93, 0x00, 0x76, 0x00]);
+  // stampSender (fn[29554], bc=0x19314d7) patched to LoadConstUndefined; Ret ONLY in gateway-template
+  assert.deepEqual([...pairedRes.buffer.subarray(0x19314d7, 0x19314db)], [0x93, 0x00, 0x76, 0x00]);
+  assert.notDeepEqual([...unpairedRes.buffer.subarray(0x19314d7, 0x19314db)], [0x93, 0x00, 0x76, 0x00]);
 
-  // Tail-patched BackendClient.call (fn[21942]) & callPublic (fn[21944]) strictly after bodyEnd = 0x15609c4
+  // Tail-patched BackendClient.call (fn[26618]) & callPublic (fn[26620]) strictly after bodyEnd = 0x248d70c
   const bodyEnd = realMeta.bodyOffset + realMeta.bodyCapacity;
-  assert.equal(bodyEnd, 0x15609c4);
+  assert.equal(bodyEnd, 0x248d70c);
   const expectedSids = [
-    6453, 17940, 19843, 84162, 79984, 79222, 84168, 84128, 84133, 78333, 84124,
-    84145, 84135, 79205, 80190, 79207, 84139, 84122, 72468, 75963, 84152, 84181,
+    8322, 6128, 8309, 8313, 8314, 87633, 96042, 95969, 89137, 67947, 95958,
+    95997, 95976, 80996, 90079, 77443, 95986, 95956, 6442, 75196, 96013, 96069,
   ];
-  for (const fid of [21942, 21944]) {
+  for (const fid of [26618, 26620]) {
     const fn = readFnHeader(pairedRes.buffer, fid);
     assert.equal(fn.overflow, true, `fn[${fid}] must use LargeFuncHeader`);
-    assert.ok(fn.bcOff >= bodyEnd, `fn[${fid}] bytecode must sit >= 0x15609c4`);
-    if (fid === 21942) assert.ok(fn.lo >= bodyEnd, 'LFH[21942] must sit >= 0x15609c4');
-    else assert.equal(fn.lo, 0x139d4f8);
-    assert.equal(fn.bcSz, 366);
+    assert.ok(fn.bcOff >= bodyEnd, `fn[${fid}] bytecode must sit >= 0x248d70c`);
+    if (fid === 26618) assert.ok(fn.lo >= bodyEnd, 'LFH[26618] must sit >= 0x248d70c');
+    else assert.equal(fn.lo, 0x2253f38);
+    assert.equal(fn.bcSz, 360);
     assert.equal(fn.readCache, 2);
     const code = pairedRes.buffer.subarray(fn.bcOff, fn.bcOff + fn.bcSz);
     let pos = 3; // after LoadParam r0, 1
@@ -2920,7 +2920,7 @@ test(
         pos += 6;
       }
       assert.equal(code[pos], 212, `fn[${fid}] RPC check #${i} must use JStrictEqualLong (212)`);
-      assert.equal(pos + code.readInt32LE(pos + 1), 315, `fn[${fid}] JStrictEqualLong must jump to bypass@315`);
+      assert.equal(pos + code.readInt32LE(pos + 1), 309, `fn[${fid}] JStrictEqualLong must jump to bypass@309`);
       pos += 7;
     }
     assert.deepEqual(seenSids, expectedSids);
@@ -3297,10 +3297,10 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
 });
 
 test(
-  'M4-Real-XAPK: patches grok-bot-1.16.0.xapk with adaptive icons, RokBot label, ModelsActivity, apksigner & zipalign',
+  'M4-Real-XAPK: patches grok-bot-1.26.0.xapk with adaptive icons, RokBot label, ModelsActivity, apksigner & zipalign',
   {
     skip: !TRACK_A_XAPK_PATH &&
-      'Official grok-bot-1.16.0.xapk not found; set ROKBOT_ANDROID_TEST_XAPK or place in inputs/android/',
+      'Official grok-bot-1.26.0.xapk not found; set ROKBOT_ANDROID_TEST_XAPK or place in inputs/android/',
   },
   async () => {
     const sdkRoot = [process.env.ANDROID_HOME, '/Users/lianqishi/Library/Android/sdk', '/Volumes/ORICO/android/sdk']
@@ -3369,7 +3369,7 @@ test(
         const bgAttr = getAndroidAttr(adaptiveRoot.children.find(c => c.name === 'background'), 'drawable');
         const fgAttr = getAndroidAttr(adaptiveRoot.children.find(c => c.name === 'foreground'), 'drawable');
         assert.equal(bgAttr?.type, 0x01);
-        assert.equal(bgAttr?.data >>> 0, 0x7f06009f);
+        assert.equal(bgAttr?.data >>> 0, 0x7f0600a2);
         assert.equal(fgAttr?.type, 0x01);
         assert.equal(fgAttr?.data >>> 0, 0x7f100001);
       }

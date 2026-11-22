@@ -131,7 +131,7 @@ public class PushManager {
         payload.put("clientKind", "android");
         payload.put("clientDeviceId", HostApiClient.clientDeviceId(mContext));
         payload.put("bundleId", mContext.getPackageName());
-        payload.put("appVersion", "1.16.0");
+        payload.put("appVersion", "1.26.0");
         payload.put("pushCapable", true);
         payload.put("authorization", getAuthorizationState());
         if (foreground != null) payload.put("foreground", foreground);

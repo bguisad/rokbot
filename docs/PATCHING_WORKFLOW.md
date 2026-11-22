@@ -33,11 +33,11 @@
 
 ---
 
-## 三、Android 原生客户端改造流程（`android/`，基线 `1.16.0`）
+## 三、Android 原生客户端改造流程（`android/`，基线 `1.26.0`）
 
 核心目录：`android/release/patch-android.mjs`、`android/patchers/`、`android/recipes/`、`android/companion/`。
 
-1. **Split XAPK 合并**：读取官方 `1.16.0` `.xapk` / `.apks` / `.apk`，合并 `base.apk` 与各 ABI / 密度 / 语言配置分包（`config.*.apk`），整理为单一独立 APK。
+1. **Split XAPK 合并**：读取官方 `1.26.0` `.xapk` / `.apks` / `.apk`，合并 `base.apk` 与各 ABI / 密度 / 语言配置分包（`config.*.apk`），整理为单一独立 APK。
 2. **中和运行时完整性校验（Pairip 去校验）**：
    - 识别并中和官方包中的 Pairip 完整性/签名校验入口，清理会导致自签名安装或冷启动崩溃的冲突清单属性；
    - 修复 `AndroidManifest.xml` 中属性按资源 ID 排序，确保系统解析器（Android 14/15/16）稳定加载。

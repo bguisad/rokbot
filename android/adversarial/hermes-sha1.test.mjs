@@ -23,9 +23,13 @@ function verifyBundleIntegrity(bundle) {
   return expected.equals(actual);
 }
 
+function allocSyntheticTemplate(meta) {
+  return Buffer.alloc(Math.max(meta.bodyOffset + meta.bodyCapacity, meta.bodyLengthOffset + 4) + 100);
+}
+
 test('Hermes SHA-1: Footer calculation is 100% exact across various URLs and tokens', () => {
   const meta = loadGatewayTemplateMetadata();
-  const templateBundle = Buffer.alloc(meta.bodyOffset + meta.bodyCapacity + 100);
+  const templateBundle = allocSyntheticTemplate(meta);
 
   const testCases = [
     { url: 'http://127.0.0.1:8080', token: 'ABCDEF' },
@@ -51,7 +55,7 @@ test('Hermes SHA-1: Footer calculation is 100% exact across various URLs and tok
 
 test('Hermes Corruption: Single-byte modification in header or body triggers SHA-1 mismatch', () => {
   const meta = loadGatewayTemplateMetadata();
-  const templateBundle = Buffer.alloc(meta.bodyOffset + meta.bodyCapacity + 100);
+  const templateBundle = allocSyntheticTemplate(meta);
   const synthesized = synthesizeHermesBytecode(templateBundle, meta, 'http://192.168.1.1:8080', 'K7M9P2');
 
   const testOffsets = [
@@ -80,7 +84,7 @@ test('Hermes Corruption: Single-byte modification in header or body triggers SHA
 
 test('Hermes Adversarial: Unsupported characters in URL/token throw informative error', () => {
   const meta = loadGatewayTemplateMetadata();
-  const templateBundle = Buffer.alloc(meta.bodyOffset + meta.bodyCapacity + 100);
+  const templateBundle = allocSyntheticTemplate(meta);
 
   // URL containing non-standard or unicode character not present in template string table
   assert.throws(

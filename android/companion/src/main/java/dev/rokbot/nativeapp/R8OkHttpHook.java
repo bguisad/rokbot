@@ -64,6 +64,14 @@ public final class R8OkHttpHook {
 
     private static synchronized void install(Context context, boolean forceRefresh) {
         if (context == null) return;
+        if (R8OkHttpHook126.isAvailable()) {
+            if (forceRefresh) {
+                R8OkHttpHook126.refresh(context);
+            } else {
+                R8OkHttpHook126.install(context);
+            }
+            return;
+        }
         try {
             if (sInterceptor == null) {
                 sInterceptor = new R8OkHttpInterceptor(context);
@@ -157,6 +165,10 @@ public final class R8OkHttpHook {
 
     public static synchronized void hookReactContext(Context context, Object reactContext) {
         if (reactContext == null) return;
+        if (R8OkHttpHook126.isAvailable()) {
+            R8OkHttpHook126.hookReactContext(context, reactContext);
+            return;
+        }
         if (sInterceptor == null && context != null) {
             sInterceptor = new R8OkHttpInterceptor(context);
         }

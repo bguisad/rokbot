@@ -336,12 +336,12 @@ export async function runTier1Tests(host) {
     assert.equal(res.status, 200);
   });
 
-  test('F6.3: Interceptor appends x-rokbot-client: android-native/1.16.0 header', async () => {
+  test('F6.3: Interceptor appends x-rokbot-client: android-native/1.26.0 header', async () => {
     const device = await pairTestDevice('F6-Device-3');
     const interceptor = new OkHttpInterceptorEmulator({ gatewayUrl: BASE_URL, token: device.token });
     await interceptor.intercept('https://api.x.ai/connect/status');
     const lastLog = host.requestLogs[host.requestLogs.length - 1];
-    assert.equal(lastLog.headers['x-rokbot-client'], 'android-native/1.16.0');
+    assert.equal(lastLog.headers['x-rokbot-client'], 'android-native/1.26.0');
   });
 
   test('F6.4: Interceptor preserves query parameters during URL rewriting', async () => {

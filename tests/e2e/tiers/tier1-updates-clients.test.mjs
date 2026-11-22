@@ -1056,7 +1056,7 @@ export function registerTests(test, ctx) {
     const tmp = await t.createTempDir('t1-f10-06-');
     const recipe = {
       schema: 'rokbot-android-native/v1',
-      version: '1.16.0',
+      version: '1.26.0',
       packageName: 'dev.rokbot.nativeapp',
       components: { applicationName: 'dev.rokbot.nativeapp.RokBotApplication' },
     };
@@ -1072,7 +1072,7 @@ export function registerTests(test, ctx) {
     if (ctx.repoCheck) {
       const realRecipe = JSON.parse(await readFile(path.join(ctx.repoRoot, 'android', 'recipes', 'manifest.json'), 'utf8'));
       ctx.assert.equal(realRecipe.schema, 'rokbot-android-native/v1');
-      ctx.assert.equal(realRecipe.version, '1.16.0');
+      ctx.assert.equal(realRecipe.version, '1.26.0');
       const javaDir = path.join(ctx.repoRoot, 'android', 'companion', 'src', 'main', 'java', 'dev', 'rokbot', 'nativeapp');
       const umTxt = await readFile(path.join(javaDir, 'UpdateManager.java'), 'utf8');
       ctx.assert.ok(umTxt.includes('rokbot-android-native-update/v1'));

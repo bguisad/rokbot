@@ -73,7 +73,7 @@ python3 host/deploy.py status < /dev/null
 | Windows 10/11 x64 | Windows 包内 `windows/README.md`。默认用官方 1.1.0 x64 安装包生成便携版或安装器；1.1.0 用不了时加 `--version 0.71.2` 改用 0.71.2。保留同包的 `mac/` 共用代码。 |
 | Mac（Apple Silicon） | Mac 包内 `mac/README.md`。使用官方 0.71.2 Apple Silicon 原版（Mac 尚未适配 1.1.0）；本机图形控制还需合适的签名和系统授权。 |
 | iPhone | iOS 包内 `ios/README.md` 的「签名」。自备 1.16.0 (23152) 的已解密 IPA；按 `extension-signing.json` 为主应用和三个扩展配置各自的签名。 |
-| Android 9+ | Android 包内 `android/README.md`。使用官方 Android `1.16.0`（build `1075`）原版 `.xapk` / `.apks` / `.apk`（`ai.x.grok.bot` / `co.anysphere.sand`）配合 `node android/release/patch-android.mjs` 生成 16KB 对齐并签名的 APK（`android/bin/rokbot-native-base.apk` 仅作补丁器测试基准）；单独备份自己的签名密钥（目标路径 `~/.rokbot-local/android-signing.json`，升级须使用同一密钥）。 |
+| Android 9+ | Android 包内 `android/README.md`。使用官方 Android `1.26.0`（build `3212`）原版 `.xapk` / `.apks` / `.apk`（`ai.x.grok.bot` / `co.anysphere.sand`）配合 `node android/release/patch-android.mjs` 生成 16KB 对齐并签名的 APK（`android/bin/rokbot-native-base.apk` 仅作补丁器测试基准）；单独备份自己的签名密钥（目标路径 `~/.rokbot-local/android-signing.json`，升级须使用同一密钥）。 |
 | 网页版（任何浏览器） | 网页版包内 `web/README.md`。在电脑上用官方 Windows 1.1.0 安装包（和 Windows 客户端同一个文件）生成界面包，加 `--upload <ROKBOT_PUBLIC_URL>` 直接装到 Host 并启用（管理员密码目标规范经 `ROKBOT_ADMIN_PASSWORD` 传入；若在客户端重命名完成前运行，请查阅 [REBRAND_COMPAT.md](REBRAND_COMPAT.md#3-migration--compatibility-bridges) 中的网页版上传器过渡环境变量），或在管理页「网页版」上传；1.1.0 界面用不了时加 `--version 0.71.2`。之后在各设备的浏览器打开 `<ROKBOT_PUBLIC_URL>/web/`，输入配对码登录。保留同包的 `windows/`、`mac/` 共用代码。界面包含有官方界面，只装在机主自己的 Host 上，不要转发或公开。 |
 
 准备原包前先核对首页的[目录结构与当前适配基线](../README.md#目录结构)及对应模块 README。官方商店和更新通道可能先行发布新版；工具只接受清单中固定校验的原包。Android 与 iOS 原生客户端使用各自的移动端原包版本，与桌面/网页版界面的版本号不是一回事。

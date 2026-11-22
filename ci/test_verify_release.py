@@ -37,8 +37,8 @@ def manifest(apk, **overrides):
     doc = {
         'schema': 'rokbot-android-native/v1',
         'packageName': 'ai.x.grok.bot',
-        'version': '1.16.0',
-        'build': '1075',
+        'version': '1.26.0',
+        'build': '3212',
         'baseApkSha256': hashlib.sha256(apk).hexdigest(),
     }
     doc.update(overrides)

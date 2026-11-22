@@ -838,7 +838,7 @@ public class VerifyUpdateAndModelsHarness {
     assert.equal(updateLogs.some(r => r.pathname === '/local/updates/fetch'), false, 'Must NEVER wrap paired Host URLs in /local/updates/fetch');
     for (const log of updateLogs) {
       assert.equal(log.headers.authorization, `Bearer ${paired.token}`);
-      assert.equal(log.headers['x-rokbot-client'], 'android-native/1.16.0');
+      assert.equal(log.headers['x-rokbot-client'], 'android-native/1.26.0');
     }
 
     // Verify downgrade rejection (1074 < 1075) and same-versionCode different-SHA acceptance (1075 == 1075)

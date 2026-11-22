@@ -33,11 +33,11 @@ Key paths: `host/recipes/host/`, `host/release/patch-host.py`, `host/runtime/`, 
 
 ---
 
-## 3. Native Android Client Adaptation (`android/`, baseline `1.16.0`)
+## 3. Native Android Client Adaptation (`android/`, baseline `1.26.0`)
 
 Key paths: `android/release/patch-android.mjs`, `android/patchers/`, `android/recipes/`, `android/companion/`.
 
-1. **Split XAPK Merge**: Combines `base.apk` and `config.*.apk` splits from official `1.16.0` `.xapk` / `.apks` / `.apk` into one standalone APK.
+1. **Split XAPK Merge**: Combines `base.apk` and `config.*.apk` splits from official `1.26.0` `.xapk` / `.apks` / `.apk` into one standalone APK.
 2. **Integrity Lock Neutralization (Pairip)**:
    - Neutralizes Pairip runtime integrity/signature checks and strips conflicting manifest attributes so locally signed repacks cold-start cleanly;
    - Sorts `AndroidManifest.xml` attributes by resource ID for strict Android 14/15/16 parser compatibility.

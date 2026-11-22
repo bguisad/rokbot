@@ -166,7 +166,7 @@ The official desktop client is an Electron app. The official interface is kept; 
 <a id="android-client"></a>
 ### Android client
 
-RokBot drops the legacy "Windows UI inside an Android WebView" wrapper and directly patches the official native React Native + Hermes Android package (`.xapk` / `.apks` / `.apk`, targeting official `ai.x.grok.bot` / `co.anysphere.sand` `1.16.0` build `1075`), preserving the authentic mobile UI, voice call screen, connector marketplace, and settings.
+RokBot drops the legacy "Windows UI inside an Android WebView" wrapper and directly patches the official native React Native + Hermes Android package (`.xapk` / `.apks` / `.apk`, targeting official `ai.x.grok.bot` / `co.anysphere.sand` `1.26.0` build `3212`), preserving the authentic mobile UI, voice call screen, connector marketplace, and settings.
 
 - **Split XAPK merging & resource rebuild** (`android/patchers/xapk.mjs`, `arsc.mjs`): pure Node.js extraction of split APKs/XAPK/APKS, removing `libpairipcore.so` and merging base, `arm64-v8a` native libraries, and density/locale `resources.arsc` + asset splits into one universal APK.
 - **Pairip anti-tamper neutralization** (`android/patchers/pairip-dex.mjs`, `pairip-elf.mjs`, `PairipVmBridge`): neutralizes Google Play Pairip signature/license checks at both DEX and ELF levels, removes `DT_NEEDED libpairipcore.so` and encrypted `.data` trampolines, and delegates runtime initialization via `AppComponentFactory`.
@@ -242,7 +242,7 @@ An app is one `rokbot-app` JSON file that declares code, a remote MCP server or 
 | `android/release/` | Native Android CLI entry points (`patch-android.mjs`, `patch-android.py`) and incremental delta updater (`delta-update.mjs`) |
 | `android/patchers/` | Pure Node.js AXML, ARSC, XAPK/APKS merge, Pairip DEX/ELF neutralization, DEX/JNI, Hermes patcher, and APK v2/v3 signer |
 | `android/companion/`, `android/bin/` | Native Java companion (`build.sh` -> `classes2.dex`), 16KB-aligned Tailcat `.so` libs, and `rokbot-native-base.apk` test fixture |
-| `android/recipes/`, `android/test-target/` | Official Android `1.16.0` (`1075`) fingerprints & Hermes/Pairip recipes; minimal RN base APK builder |
+| `android/recipes/`, `android/test-target/` | Official Android `1.26.0` (`3212`) fingerprints & Hermes/Pairip recipes; minimal RN base APK builder |
 | `web/client/`, `web/patchers/` | Self-contained web client browser/bridge layer; bundle builder (`patch.mjs`, `output.mjs`, `renderer-patches.mjs`, `supported.json`, `zip.mjs`) and uploader (`upload.mjs`) |
 | `ios/` | `release/patch-ios.py` patch entry point; `clients/ios/` injected library source |
 | `ci/` | Input checks, shared signing (`release-sign.mjs`), homepage version helpers, official channel snapshots, release packaging and verification tests |

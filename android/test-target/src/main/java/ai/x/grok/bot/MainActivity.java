@@ -27,7 +27,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("RokBot Target App (1.16.0)");
+        title.setText("RokBot Target App (1.26.0)");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setGravity(Gravity.CENTER);

@@ -166,7 +166,7 @@ Bot 做有风险的操作前，原版会问官方分类服务。这里改用你�
 <a id="android-客户端"></a><a id="android-client"></a>
 ### Android 客户端
 
-RokBot 彻底舍弃了旧版「WebView 套壳 Windows 前端」的做法，改为直接对官方原生 Android React Native + Hermes 安装包（`.xapk` / `.apks` / `.apk`，对应官方包 `ai.x.grok.bot` / `co.anysphere.sand` `1.16.0` build `1075`）执行本地补丁，完整保留官方原生对话、语音通话、连接器市场与设置界面。
+RokBot 彻底舍弃了旧版「WebView 套壳 Windows 前端」的做法，改为直接对官方原生 Android React Native + Hermes 安装包（`.xapk` / `.apks` / `.apk`，对应官方包 `ai.x.grok.bot` / `co.anysphere.sand` `1.26.0` build `3212`）执行本地补丁，完整保留官方原生对话、语音通话、连接器市场与设置界面。
 
 - **Split XAPK 合并与资源重建**（`android/patchers/xapk.mjs`、`arsc.mjs`）：纯 Node.js 解包官方 Split APK/XAPK/APKS，剥离 `libpairipcore.so`，合并 base、arm64-v8a 与密度/语言分包的 `resources.arsc` 与资源目录。
 - **Pairip 防篡改中和**（`android/patchers/pairip-dex.mjs`、`pairip-elf.mjs`、`PairipVmBridge`）：在 DEX 与 ELF 层面中和 Google Play Pairip 完整性/授权校验，清理 `DT_NEEDED libpairipcore.so` 与固定 `.data` 加密区，并由 `AppComponentFactory` 接管原生初始化。
@@ -242,7 +242,7 @@ RokBot 彻底舍弃了旧版「WebView 套壳 Windows 前端」的做法，改�
 | `android/release/` | 原生 Android 补丁 CLI 入口（`patch-android.mjs`、`patch-android.py`）与增量更新工具（`delta-update.mjs`） |
 | `android/patchers/` | 纯 Node AXML、ARSC、XAPK/APKS 合并、Pairip DEX/ELF 去校验、DEX/JNI、Hermes 补丁与 APK v2/v3 签名器 |
 | `android/companion/`、`android/bin/` | 原生 Java Companion 源码（`build.sh` 编译为 `classes2.dex`）、16KB 对齐 Tailcat `.so` 与测试基准包 `rokbot-native-base.apk` |
-| `android/recipes/`、`android/test-target/` | 官方 Android `1.16.0`（`1075`）输入指纹与 Hermes/Pairip 配方；轻量基准 APK 构建脚本 |
+| `android/recipes/`、`android/test-target/` | 官方 Android `1.26.0`（`3212`）输入指纹与 Hermes/Pairip 配方；轻量基准 APK 构建脚本 |
 | `web/client/`、`web/patchers/` | 独立网页版的浏览器层与桥接脚本；界面包生成（`patch.mjs`、`output.mjs`、`renderer-patches.mjs`、`supported.json`、`zip.mjs`）和上传（`upload.mjs`） |
 | `ios/` | `release/patch-ios.py` 补丁入口；`clients/ios/` 注入库源码 |
 | `ci/` | 输入检查、共享签名（`release-sign.mjs`）、首页版本表、官方通道快照、发布打包与校验测试 |

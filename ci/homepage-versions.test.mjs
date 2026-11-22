@@ -70,12 +70,12 @@ test('without a fallback the patch shows a single accepted Windows release', asy
 
 test('Web names its interface release and fallback; Android names its native version; Mac notes a newer official release', async () => {
   const data = await fixtureData();
-  data.android = { ...data.android, version: '1.16.0', build: '1075' };
+  data.android = { ...data.android, version: '1.26.0', build: '3212' };
   data.webVersion = '1.1.0'; data.webFallback = ['0.71.2'];
   data.mac = { ...data.mac, version: '0.71.2' }; data.snap.mac = { ...data.snap.mac, version: '1.1.0' };
   const zh = render(fixture,'zh',data), en = render(fixture,'en',data);
-  assert.ok(zh.includes('| Android 9+（原生补丁，非官方） | 官方 **1.16.0**（构建 1075） | 官方 **1.16.0**（构建 1075） |'));
-  assert.ok(en.includes('| Android 9+ (native patch, unofficial) | Official **1.16.0** (build 1075) | Official **1.16.0** (build 1075) |'));
+  assert.ok(zh.includes('| Android 9+（原生补丁，非官方） | 官方 **1.26.0**（构建 3212） | 官方 **1.26.0**（构建 3212） |'));
+  assert.ok(en.includes('| Android 9+ (native patch, unofficial) | Official **1.26.0** (build 3212) | Official **1.26.0** (build 3212) |'));
   assert.ok(zh.includes('| 网页版（浏览器，非官方） | 不用安装 | 界面取自 Windows **1.1.0** 安装包（推荐；用不了再用 0.71.2），生成后上传到你的 Host |'));
   assert.ok(en.includes('| Web client (browser, unofficial) | Nothing to install | Interface taken from the Windows **1.1.0** installer ' +
     '(recommended; 0.71.2 if it does not work), built once and uploaded to your Host |'));

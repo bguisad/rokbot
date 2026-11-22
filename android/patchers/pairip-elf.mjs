@@ -30,7 +30,7 @@ function loadPairipElfRecipe(recipesDir, versionCode) {
   if (!recipesDir) return null;
   const candidates = [];
   if (versionCode) candidates.push(path.join(recipesDir, `pairip-elf-${versionCode}.json.gz`));
-  candidates.push(path.join(recipesDir, 'pairip-elf-1075.json.gz'));
+  candidates.push(path.join(recipesDir, 'pairip-elf-3212.json.gz'));
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       return JSON.parse(zlib.gunzipSync(fs.readFileSync(p)).toString('utf8'));

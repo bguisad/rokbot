@@ -5,21 +5,21 @@
     "ai.x.grok.bot",
     "co.anysphere.sand"
   ],
-  "version": "1.16.0",
-  "build": "1075",
+  "version": "1.26.0",
+  "build": "3212",
   "architecture": "arm64-v8a",
   "tailcatLibs": [
     "lib/arm64-v8a/libgroktailcat.so",
     "lib/arm64-v8a/libgroktailcatjni.so"
   ],
   "hbcVersion": 98,
-  "hbcSha256": "3adbca71c42c9e39199c22ce9cc9c3d4dc168e45452c6e75c7a9ee9c00d2c632",
-  "companionDexSha256": "64a8f27bdf1105fdc61a8424b3c9831adea4e0de30eef08802ecbd6321c9db83",
-  "baseApkSha256": "929cac91ea14e2f6ba53a0eff2accac062393aada34baee16c5cb350cf0b235f",
-  "bundleSize": 22390840,
+  "hbcSha256": "e72cff448260d3de44add52391ec6ea6ac81bc5f710806a54cf5af9261d1817b",
+  "companionDexSha256": "b4aabca6acb741481ad8dcd99a1e41c42078409cdded8e3d116efcc0081f6c97",
+  "baseApkSha256": "89c23b58eb3c6d1e9167e00a68ee3c4d1945c463d2d780ac3e4996b0f5778854",
+  "bundleSize": 38303104,
   "compatibility": {
     "minSdk": 28,
-    "targetSdk": 34,
+    "targetSdk": 36,
     "cleartextTraffic": true,
     "pageAlignment": 16384,
     "signingSchemes": [
@@ -55,15 +55,24 @@
   "resources": [
     {
       "target": "assets/unpaired.hbc",
-      "patch": "unpaired.hbc.gbp.gz"
+      "patch": "unpaired.hbc.gbp.gz",
+      "sourceSha256": "e72cff448260d3de44add52391ec6ea6ac81bc5f710806a54cf5af9261d1817b",
+      "targetSha256": "00a97e4dceb6fa29e5be5ab3553d8add479466ab78ea1e7d13cb2bd3a3adaea9",
+      "targetBytes": 38303496
     },
     {
       "target": "assets/gateway-template.hbc",
-      "patch": "gateway-template.hbc.gbp.gz"
+      "patch": "gateway-template.hbc.gbp.gz",
+      "sourceSha256": "e72cff448260d3de44add52391ec6ea6ac81bc5f710806a54cf5af9261d1817b",
+      "targetSha256": "1b561a20bd0fa06acb46b0f13953d6b73ae5ddd912219d929381bf933c0a6e05",
+      "targetBytes": 38328888
     },
     {
       "target": "assets/gateway-template.json",
-      "patch": "gateway-template.json.gbp.gz"
+      "patch": "gateway-template.json.gbp.gz",
+      "sourceSha256": "e72cff448260d3de44add52391ec6ea6ac81bc5f710806a54cf5af9261d1817b",
+      "targetSha256": "5c1ca166dbd9e3e135c82fa362801a84c8b7a5dd0c0ced2bb0ab6f7049772543",
+      "targetBytes": 2030
     }
   ]
 }

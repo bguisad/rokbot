@@ -918,7 +918,7 @@ public class HostApiClient {
             req.append("Accept: text/event-stream\r\n");
             req.append("Cache-Control: no-cache\r\n");
             req.append("Connection: close\r\n");
-            req.append("x-rokbot-client: android-native/1.16.0\r\n");
+            req.append("x-rokbot-client: android-native/1.26.0\r\n");
             if (foregroundHeader) req.append("X-RokBot-Foreground: 1\r\n");
             if (lastEventId != null && !lastEventId.isEmpty()) {
                 req.append("Last-Event-ID: ").append(sanitizeHeaderValue(lastEventId)).append("\r\n");
@@ -1235,7 +1235,7 @@ public class HostApiClient {
         conn.setReadTimeout(readTimeoutMs);
         conn.setUseCaches(false);
         conn.setRequestProperty("Accept", "application/json");
-        conn.setRequestProperty("x-rokbot-client", "android-native/1.16.0");
+        conn.setRequestProperty("x-rokbot-client", "android-native/1.26.0");
         if (foreground) conn.setRequestProperty("x-rokbot-foreground", "1");
         if (token != null && !token.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token);
         if (extraHeaders != null) {

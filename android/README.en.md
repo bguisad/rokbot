@@ -2,7 +2,7 @@
 
 [中文文档](README.md)
 
-This directory provides an **Official Android React Native `.apk` / `.xapk` / `.apks` Patcher** (`ai.x.grok.bot` / `co.anysphere.sand` `1.16.0`, build `1075`) with 1:1 `ios/` (`RBBootstrap.m` + `patch-app.py`) parity: it preserves the official RN UI and interactions (Bot List, Chat, Markdown, Voice UI, Connectors, Search, Settings, Skills) with zero homemade primary UI or floating toolbar hijack, and injects only the lightweight native companion runtime (Companion DEX, 16KB-aligned Tailcat `.so` libraries, Hermes bytepatching, RokBot `assets/logo/android/mipmap-*` launcher icon replacement, OkHttp/WebSocket/Telemetry interception, foreground SSE notifications, deep-link normalization, Share Sheet target, and the 6 `ios/`-parity native modal sheets).
+This directory provides an **Official Android React Native `.apk` / `.xapk` / `.apks` Patcher** (`ai.x.grok.bot` / `co.anysphere.sand` `1.26.0`, build `3212`) with 1:1 `ios/` (`RBBootstrap.m` + `patch-app.py`) parity: it preserves the official RN UI and interactions (Bot List, Chat, Markdown, Voice UI, Connectors, Search, Settings, Skills) with zero homemade primary UI or floating toolbar hijack, and injects only the lightweight native companion runtime (Companion DEX, 16KB-aligned Tailcat `.so` libraries, Hermes bytepatching, RokBot `assets/logo/android/mipmap-*` launcher icon replacement, OkHttp/WebSocket/Telemetry interception, foreground SSE notifications, deep-link normalization, Share Sheet target, and the 6 `ios/`-parity native modal sheets).
 
 > Intended strictly for non-commercial, authorized self-hosted deployment and development. Never commit pairing codes, passwords, private tokens, or personal Host addresses.
 
@@ -34,12 +34,12 @@ This directory provides an **Official Android React Native `.apk` / `.xapk` / `.
 ```text
 android/
 ├── bin/
-│   ├── classes2.dex                   # Compiled native companion DEX (injected at next sequential slot, e.g. classes6.dex in 1.16.0)
+│   ├── classes2.dex                   # Compiled native companion DEX (injected at next sequential slot, e.g. classes6.dex in 1.26.0)
 │   ├── rokbot-native-base.apk        # Minimal RN patcher test target APK
 │   └── jniLibs/arm64-v8a/             # Precompiled arm64-v8a Tailcat Go mobile JNI libraries
 ├── companion/                         # Native Java companion source, compile-stubs, build.sh
 ├── patchers/                          # Pure Node AXML, ARSC, XAPK/APKS merger, Pairip DEX/ELF neutralizer, DEX/JNI, Hermes/bytepatch, 16KB ZIP align, v2/v3 APK signer
-├── recipes/                           # Pinned 1.16.0 (1075) manifest, .gbp.gz Hermes bytepatches, and Pairip ELF/string recipes
+├── recipes/                           # Pinned 1.26.0 (3212) manifest, .gbp.gz Hermes bytepatches, and Pairip ELF/string recipes
 ├── release/                           # CLI patcher (patch-android.mjs and Python wrapper patch-android.py)
 ├── test-target/                       # Minimal RN fixture APK builder
 ├── tests/ & adversarial/              # Unit, adversarial, MockHost, and live emulator E2E suites
@@ -61,16 +61,16 @@ android/
 # Optional: recompile classes2.dex if you modified companion/ sources
 bash android/companion/build.sh
 
-# Patch official 1.16.0 .xapk / .apks / .apk -> android/output/rokbot-android-patched.apk
+# Patch official 1.26.0 .xapk / .apks / .apk -> android/output/rokbot-android-patched.apk
 node android/release/patch-android.mjs \
-  --input-apk /path/to/grok-bot-1.16.0.xapk \
+  --input-apk /path/to/grok-bot-1.26.0.xapk \
   --output-apk android/output/rokbot-android-patched.apk \
   --force
 ```
 
 Key CLI options:
 
-- `--input-apk <path>` (aliases `--input`, `--apk`): Official RN `.xapk` / `.apks` / `.apk` (`ai.x.grok.bot` / `co.anysphere.sand` `1.16.0`)
+- `--input-apk <path>` (aliases `--input`, `--apk`): Official RN `.xapk` / `.apks` / `.apk` (`ai.x.grok.bot` / `co.anysphere.sand` `1.26.0`)
 - `--output-apk <path>` (alias `--output`): Destination 16KB-aligned, v2/v3-signed APK path (required unless `--verify-only`; every patch run writes `patch-report.json` alongside it)
 - `--package-name <id>` (alias `--bundle-id`): Override Android `package` / `applicationId` while preserving original `MainActivity` FQCN and rewriting `provider` authorities & custom permissions
 - `--host <url>`: Preconfigure Host URL (`http://...`, `https://...`, or `tailcat://connect/<node>?port=<port>`)

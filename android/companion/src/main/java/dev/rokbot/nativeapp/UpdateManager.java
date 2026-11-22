@@ -806,7 +806,7 @@ public final class UpdateManager {
         conn.setReadTimeout(60000);
         conn.setInstanceFollowRedirects(true);
         conn.setRequestProperty("Cache-Control", "no-store");
-        conn.setRequestProperty("x-rokbot-client", "android-native/1.16.0");
+        conn.setRequestProperty("x-rokbot-client", "android-native/1.26.0");
         if (bearerToken != null && !bearerToken.isEmpty()) {
             conn.setRequestProperty("Authorization", "Bearer " + bearerToken);
         }

@@ -92,7 +92,7 @@ This repository does not redistribute proprietary third-party binaries; each cli
 | **macOS** (Apple Silicon) | `1.2.3` | [`mac/README.en.md`](mac/README.en.md) |
 | **Windows** (x64 Setup / Portable) | `1.2.3` | [`windows/README.en.md`](windows/README.en.md) |
 | **Web** (Browser PWA) | `1.2.3` | [`web/README.en.md`](web/README.en.md) |
-| **Android** (Native APK) | `1.16.0` | [`android/README.en.md`](android/README.en.md) |
+| **Android** (Native APK) | `1.26.0` | [`android/README.en.md`](android/README.en.md) |
 | **iOS** (Native IPA, requires decrypted IPA) | `1.16.0` | [`ios/README.en.md`](ios/README.en.md) |
 
 ### One-Click Incremental Updates

@@ -391,26 +391,52 @@ function patchPairipInDex(dexBuf) {
   return { pairipPatched, vmRunnerHooked };
 }
 
+const R8_OKHTTP_FACTORIES = [
+  {
+    factory: 'LL9/f;',
+    client: 'LTl/B;',
+    builder: 'LTl/B$a;',
+    newBuilder: 'E',
+    builderProto: '()LTl/B$a;',
+  },
+  {
+    factory: 'Lt8/f;',
+    client: 'Loj/A;',
+    builder: 'Loj/A$a;',
+    newBuilder: 'C',
+    builderProto: '()Loj/A$a;',
+  },
+];
+
 function patchR8OkHttpFactoryInDex(dexBuf) {
   const parsed = parseDexIndex(dexBuf);
-  const factoryMethods = parsed.getClassMethods('Lt8/f;');
+  let spec = null;
+  let factoryMethods = null;
+  for (const candidate of R8_OKHTTP_FACTORIES) {
+    const methods = parsed.getClassMethods(candidate.factory);
+    if (methods) {
+      spec = candidate;
+      factoryMethods = methods;
+      break;
+    }
+  }
   if (!factoryMethods) {
     return { okhttpPatched: false };
   }
 
-  const target = factoryMethods.find((m) => m.name === 'c' && m.proto === '()Loj/A$a;' && m.codeOff);
+  const target = factoryMethods.find((m) => m.name === 'c' && m.proto === spec.builderProto && m.codeOff);
   if (!target) {
     return { okhttpPatched: false };
   }
 
-  const clientFieldId = parsed.findFieldId('Lt8/f;', 'b', 'Loj/A;');
-  const newBuilderMethodId = parsed.findMethodId('Loj/A;', 'C', '()Loj/A$a;');
-  const builderTypeId = parsed.findTypeId('Loj/A$a;');
-  const builderInitMethodId = parsed.findMethodId('Loj/A$a;', '<init>', '()V');
+  const clientFieldId = parsed.findFieldId(spec.factory, 'b', spec.client);
+  const newBuilderMethodId = parsed.findMethodId(spec.client, spec.newBuilder, spec.builderProto);
+  const builderTypeId = parsed.findTypeId(spec.builder);
+  const builderInitMethodId = parsed.findMethodId(spec.builder, '<init>', '()V');
 
   if (clientFieldId < 0 || newBuilderMethodId < 0 || builderTypeId < 0 || builderInitMethodId < 0) {
     throw new Error(
-      `Missing R8 OkHttp symbols in t8/f DEX: field=${clientFieldId}, newBuilder=${newBuilderMethodId}, builderType=${builderTypeId}, builderInit=${builderInitMethodId}`
+      `Missing R8 OkHttp symbols in ${spec.factory} DEX: field=${clientFieldId}, newBuilder=${newBuilderMethodId}, builderType=${builderTypeId}, builderInit=${builderInitMethodId}`
     );
   }
 

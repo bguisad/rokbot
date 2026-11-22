@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone Native Android Client Patcher CLI for RokBot (official ai.x.grok.bot 1.16.0)."""
+"""Standalone Native Android Client Patcher CLI for RokBot (official ai.x.grok.bot 1.26.0)."""
 import os
 from pathlib import Path
 import subprocess

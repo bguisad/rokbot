@@ -92,7 +92,7 @@ bash install-images.sh
 | **macOS**（Apple Silicon） | `1.2.3` | [`mac/README.md`](mac/README.md) |
 | **Windows**（x64 安装版 / 便携版） | `1.2.3` | [`windows/README.md`](windows/README.md) |
 | **Web**（浏览器网页版） | `1.2.3` | [`web/README.md`](web/README.md) |
-| **Android**（原生 APK） | `1.16.0` | [`android/README.md`](android/README.md) |
+| **Android**（原生 APK） | `1.26.0` | [`android/README.md`](android/README.md) |
 | **iOS**（原生 IPA，需自备砸壳包） | `1.16.0` | [`ios/README.md`](ios/README.md) |
 
 ### 四端一键增量更新

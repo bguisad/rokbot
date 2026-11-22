@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Standalone Native Android Client Patcher CLI for RokBot (official ai.x.grok.bot 1.16.0).
+// Standalone Native Android Client Patcher CLI for RokBot (official ai.x.grok.bot 1.26.0).
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -428,7 +428,10 @@ export async function runPatchPipeline(options) {
   const inferredApplicationName = hasSandApp && !hasAiXGrokBotApp
     ? 'dev.rokbot.nativeapp.RokBotSandApplication'
     : 'dev.rokbot.nativeapp.RokBotApplication';
-  const targetPackageName = options.packageName || manifestInfo.packageName;
+  const targetPackageName = options.packageName
+    || ((manifestInfo.packageName === 'ai.x.grok.bot' || manifestInfo.packageName === 'co.anysphere.sand')
+      ? 'dev.rokbot.local'
+      : manifestInfo.packageName);
   const patchedManifestBytes = patchManifest(manifestBytes, {
     packageName: targetPackageName,
     permissions: manifestPin.permissions,
@@ -518,11 +521,11 @@ export async function runPatchPipeline(options) {
 
   if (dexPatchResult.vmRunnerHooked) {
     const verPairipStrings = path.join(RECIPES_DIR, `pairip-strings-${manifestInfo.versionCode}.json.gz`);
-    const fallbackPairipStrings = path.join(RECIPES_DIR, 'pairip-strings-1075.json.gz');
+    const p3212 = path.join(RECIPES_DIR, 'pairip-strings-3212.json.gz');
     const pairipStringsPath = fs.existsSync(verPairipStrings)
       ? verPairipStrings
-      : (dexEntriesContainClass(zip.entries, 'Lhi/bFk/KMRTwjrW;') && fs.existsSync(fallbackPairipStrings)
-          ? fallbackPairipStrings
+      : (dexEntriesContainClass(zip.entries, 'LA8/bz/yZRwhmjNwa;') && fs.existsSync(p3212)
+          ? p3212
           : null);
     if (pairipStringsPath) {
       const pairipStringsJson = zlib.gunzipSync(fs.readFileSync(pairipStringsPath));

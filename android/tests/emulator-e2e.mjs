@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Live Android Emulator E2E verification harness against MockHostServer.
-// Targets the official patched APK (`output/rokbot-native-patched.apk`, `ai.x.grok.bot`).
+// Targets the official patched APK (`output/rokbot-android-patched.apk`, `dev.rokbot.local`).
 // Uses `dumpsys activity top` + `screencap -p` for React Native Fabric `MainActivity`
 // (avoiding `uiautomator dump` hangs on animated RN Fabric views).
 import assert from 'node:assert/strict';
@@ -17,8 +17,8 @@ const __dirname = path.dirname(__filename);
 
 const SDK_ROOT = process.env.ANDROID_HOME || '/Users/lianqishi/Library/Android/sdk';
 const ADB = path.join(SDK_ROOT, 'platform-tools/adb');
-const TARGET_PKG = process.env.TARGET_PKG || process.env.RN_TARGET_PKG || 'ai.x.grok.bot';
-const PATCHED_APK_PATH = process.env.PATCHED_APK || path.resolve(__dirname, '../output/rokbot-native-patched.apk');
+const TARGET_PKG = process.env.TARGET_PKG || process.env.RN_TARGET_PKG || 'dev.rokbot.local';
+const PATCHED_APK_PATH = process.env.PATCHED_APK || path.resolve(__dirname, '../output/rokbot-android-patched.apk');
 const SERIAL = process.env.ANDROID_SERIAL || 'emulator-5554';
 
 function adb(...args) {

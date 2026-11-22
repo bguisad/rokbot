@@ -131,9 +131,11 @@ public final class PairipVmBridge {
         try {
             switch (vmId) {
                 case "WuyOlMkwWcZBkxUp":
+                case "VQUbVTKQTL1qtJlp":
                     handleMainApplicationOnCreate(args);
                     return null;
                 case "6IrZUIqGyM6AvaEM":
+                case "wbaeflvl3wYdHcnN":
                     handleMainActivityOnCreate(args);
                     return null;
                 case "2kt3kbedcjY9LmFn":
@@ -142,12 +144,19 @@ public final class PairipVmBridge {
                     handleExpoNotificationsOnReceive(args);
                     return null;
                 case "6yVugsjKzNysknoL":
+                case "GBAvda9b6VdXkwk8":
                     return handleFileProviderQuery(args, true);
                 case "d1VB4OmIOrtlRvlX":
+                case "YwstgKX7qsz4pQAu":
                     return handleFileProviderQuery(args, false);
                 case "gPfXSxLeDsHS85uB":
                     return Integer.valueOf(Service.START_NOT_STICKY);
                 case "ZFLJ0hjr1EuS34Jm":
+                case "aGVaQw3uVgSshh8H":
+                case "heZqubzfRJao8bhb":
+                case "xalh73mU6HvhBRHu":
+                case "RHhGPK9YBacRoUYw":
+                case "M6G0fpsg1qPpAo7T":
                     return null;
                 case "Kxck2Zh2u5FhF1tJ":
                 case "5IFjnPl4DG0uh4Kg":
@@ -158,15 +167,26 @@ public final class PairipVmBridge {
                 case "PUVMLsjjxw6ZKJms":
                 case "Pkq2lQp4VRLsamk4":
                 case "yPnWNF0r6C07GQhs":
+                case "0S9N6t3pFyc7VPPl":
+                case "sAkN0RxZouDqCE6s":
+                case "SoGry6x665HebzTB":
+                case "GU0LCjESbvj9UT2P":
+                case "5q5q5Yxdr81312tm":
+                case "uX2I4kjoqIXRjoXt":
+                case "L9rRYkEWpLsSoOnW":
+                case "RKuIoSarf15NBRcX":
                     handleGenericActivityOnCreate(args);
                     return null;
                 case "WbIJsghkGJChf1aD":
+                case "I5hfm577V3jsppLY":
                     callZeroArgSynthetic(args, "onDestroy$001", Activity.class);
                     return null;
                 case "64riMf9qOhm1Imox":
+                case "v9LqZUpcQtcB3Nwo":
                     callZeroArgSynthetic(args, "onPause$009", Activity.class);
                     return null;
                 case "6w7tcpHbdgFFcnqH":
+                case "emzAGhE56MI9lYhl":
                     callZeroArgSynthetic(args, "onDestroy$001", Activity.class);
                     return null;
                 default:
@@ -198,22 +218,36 @@ public final class PairipVmBridge {
             }
         }
 
-        // 2. Register official XVF, XVF Mono, and system fonts via X7.a (ReactFontManager)
+        // 2. Register official XVF, XVF Mono, and system fonts via ReactFontManager (p9.a in 1.26.0, X7.a in 1.16.0)
         try {
-            Class<?> fontMgrCls = Class.forName("X7.a");
-            Class<?> companionCls = Class.forName("X7.a$b");
+            Class<?> fontMgrCls;
+            Class<?> companionCls;
+            try {
+                fontMgrCls = Class.forName("p9.a");
+                companionCls = Class.forName("p9.a$b");
+            } catch (ClassNotFoundException ignored) {
+                fontMgrCls = Class.forName("X7.a");
+                companionCls = Class.forName("X7.a$b");
+            }
             Object companion = fontMgrCls.getField("c").get(null);
             Object fontMgr = companionCls.getMethod("c").invoke(companion);
             Method addFont = fontMgrCls.getMethod("d", Context.class, String.class, int.class);
 
             int xvfId = app.getResources().getIdentifier("xml_xvf", "font", app.getPackageName());
+            if (xvfId == 0) xvfId = app.getResources().getIdentifier("xml_xvf", "font", "ai.x.grok.bot");
             if (xvfId != 0) addFont.invoke(fontMgr, app, "XVF", xvfId);
 
             int xvfMonoId = app.getResources().getIdentifier("xml_xvf_mono", "font", app.getPackageName());
+            if (xvfMonoId == 0) xvfMonoId = app.getResources().getIdentifier("xml_xvf_mono", "font", "ai.x.grok.bot");
             if (xvfMonoId != 0) addFont.invoke(fontMgr, app, "XVF Mono", xvfMonoId);
 
             try {
-                Class<?> bodyFontHelperCls = Class.forName("jg.g");
+                Class<?> bodyFontHelperCls;
+                try {
+                    bodyFontHelperCls = Class.forName("Ii.R0");
+                } catch (ClassNotFoundException ignored) {
+                    bodyFontHelperCls = Class.forName("jg.g");
+                }
                 Object bodyFontHelper = bodyFontHelperCls.getField("a").get(null);
                 String bodyFont = (String) bodyFontHelperCls.getMethod("a", Resources.class)
                         .invoke(bodyFontHelper, app.getResources());
@@ -229,7 +263,12 @@ public final class PairipVmBridge {
         // 3. Configure React Native release level (STABLE)
         try {
             Class<?> defaultsCls = Class.forName("com.facebook.react.defaults.a");
-            Class<?> levelCls = Class.forName("U7.d");
+            Class<?> levelCls;
+            try {
+                levelCls = Class.forName("m9.d");
+            } catch (ClassNotFoundException ignored) {
+                levelCls = Class.forName("U7.d");
+            }
             Object defaultsInst = defaultsCls.getField("a").get(null);
             Object stable = levelCls.getField("c").get(null);
             defaultsCls.getMethod("e", levelCls).invoke(defaultsInst, stable);
@@ -243,9 +282,14 @@ public final class PairipVmBridge {
             Log.e(TAG, "ReactNativeApplicationEntryPoint load failed", t);
         }
 
-        // 5. Notify Expo ApplicationLifecycleDispatcher (Fc.a.b)
+        // 5. Notify Expo ApplicationLifecycleDispatcher (We.a.b in 1.26.0, Fc.a.b in 1.16.0)
         try {
-            Class<?> expoDispCls = Class.forName("Fc.a");
+            Class<?> expoDispCls;
+            try {
+                expoDispCls = Class.forName("We.a");
+            } catch (ClassNotFoundException ignored) {
+                expoDispCls = Class.forName("Fc.a");
+            }
             expoDispCls.getMethod("b", Application.class).invoke(null, app);
         } catch (Throwable t) {
             Log.w(TAG, "Expo ApplicationLifecycleDispatcher failed", t);
@@ -259,13 +303,25 @@ public final class PairipVmBridge {
         Intent intent = activity.getIntent();
 
         try {
-            Class<?> linkingCls = Class.forName("X4.a");
-            Object linking = linkingCls.getField("a").get(null);
-            linkingCls.getMethod("a", Intent.class, Bundle.class).invoke(linking, intent, savedState);
+            try {
+                Class<?> linkingCls = Class.forName("p6.a");
+                Object linking = linkingCls.getField("a").get(null);
+                linkingCls.getMethod("a", Context.class, Intent.class, Bundle.class)
+                        .invoke(linking, activity, intent, savedState);
+            } catch (ClassNotFoundException ignored) {
+                Class<?> linkingCls = Class.forName("X4.a");
+                Object linking = linkingCls.getField("a").get(null);
+                linkingCls.getMethod("a", Intent.class, Bundle.class).invoke(linking, intent, savedState);
+            }
         } catch (Throwable ignored) {}
 
         try {
-            Class<?> splashCls = Class.forName("rg.d");
+            Class<?> splashCls;
+            try {
+                splashCls = Class.forName("Ri.d");
+            } catch (ClassNotFoundException ignored) {
+                splashCls = Class.forName("rg.d");
+            }
             Object splash = splashCls.getField("a").get(null);
             splashCls.getMethod("k", Activity.class).invoke(splash, activity);
         } catch (Throwable ignored) {}

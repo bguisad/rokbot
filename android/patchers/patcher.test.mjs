@@ -130,7 +130,7 @@ test('DEX: injectCompanionDex merges valid companion dex', () => {
 test('Hermes: synthesizeHermesBytecode encodes opcodes, body and valid SHA-1 footer', () => {
   const meta = loadGatewayTemplateMetadata();
   // Create dummy bundle with capacity
-  const bundle = Buffer.alloc(meta.bodyOffset + meta.bodyCapacity + 100);
+  const bundle = Buffer.alloc(Math.max(meta.bodyOffset + meta.bodyCapacity, meta.bodyLengthOffset + 4) + 100);
   const url = 'http://192.168.1.100:18080';
   const token = 'K7M9P2';
 
@@ -226,7 +226,7 @@ test('Pipeline: runPatchPipeline end-to-end creates patched APK and patch-report
 
 test('Pipeline: runPatchPipeline accurately sets bundlePatched: true when assets/index.android.bundle is present', async () => {
   const meta = loadGatewayTemplateMetadata();
-  const dummyBundle = Buffer.alloc(meta.bodyOffset + meta.bodyCapacity + 100);
+  const dummyBundle = Buffer.alloc(Math.max(meta.bodyOffset + meta.bodyCapacity, meta.bodyLengthOffset + 4) + 100);
   const apkBytes = fs.readFileSync(FIXTURE_APK);
   const { entries } = readZip(apkBytes);
   entries.push(createEntry('assets/index.android.bundle', dummyBundle, { store: false }));

@@ -155,7 +155,7 @@ public final class R8OkHttpInterceptor implements oj.v {
                 if (RokBotBootstrap.isForeground()) {
                     newReq.e("x-rokbot-foreground", "1");
                 }
-                newReq.e("x-rokbot-client", "android-native/1.16.0");
+                newReq.e("x-rokbot-client", "android-native/1.26.0");
 
                 oj.E resp = chain.a(newReq.b());
 
@@ -203,7 +203,7 @@ public final class R8OkHttpInterceptor implements oj.v {
                 }
                 String clientHdr = request.h("x-rokbot-client");
                 if (clientHdr == null || clientHdr.isEmpty()) {
-                    directReq.e("x-rokbot-client", "android-native/1.16.0");
+                    directReq.e("x-rokbot-client", "android-native/1.26.0");
                     modified = true;
                 }
                 if (modified) {

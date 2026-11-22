@@ -96,7 +96,7 @@ export class OkHttpInterceptorEmulator {
     if (this.token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
-    headers.set('x-rokbot-client', 'android-native/1.16.0');
+    headers.set('x-rokbot-client', 'android-native/1.26.0');
 
     return globalThis.fetch(targetUrl, {
       ...options,

@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-本目录提供参考 `ios/`（`RBBootstrap.m` + `patch-app.py`）架构的 **官方 Android React Native `.apk` / `.xapk` / `.apks` 补丁器**（目标包名 `ai.x.grok.bot`，亦兼容 `co.anysphere.sand`，对齐官方 `1.16.0` / build `1075`）：完整保留官方 RN 客户端原生的 Bot 列表、对话、语音通话界面、连接器市场、搜索与设置 UI/交互，零自制主界面重写、零悬浮工具栏劫持，仅注入轻量化 Native Companion 运行时（Companion DEX + 16KB 对齐 Tailcat `.so` + Hermes 字节补丁 + `assets/logo/android/mipmap-*` RokBot 图标替换）及与 iOS 对齐的 6 个原生模态页面、系统分享面板接收与后台通知服务。
+本目录提供参考 `ios/`（`RBBootstrap.m` + `patch-app.py`）架构的 **官方 Android React Native `.apk` / `.xapk` / `.apks` 补丁器**（目标包名 `ai.x.grok.bot`，亦兼容 `co.anysphere.sand`，对齐官方 `1.26.0` / build `3212`）：完整保留官方 RN 客户端原生的 Bot 列表、对话、语音通话界面、连接器市场、搜索与设置 UI/交互，零自制主界面重写、零悬浮工具栏劫持，仅注入轻量化 Native Companion 运行时（Companion DEX + 16KB 对齐 Tailcat `.so` + Hermes 字节补丁 + `assets/logo/android/mipmap-*` RokBot 图标替换）及与 iOS 对齐的 6 个原生模态页面、系统分享面板接收与后台通知服务。
 
 > 仅限非商业、授权开发/学习/自建部署用途。请勿在任何提交或日志中包含密钥、配对码、密码或私人 Host 地址。
 
@@ -34,12 +34,12 @@
 ```text
 android/
 ├── bin/
-│   ├── classes2.dex                   # 编译好的 Companion DEX（注入目标 APK 顺序下一槽位，如 1.16.0 中的 classes6.dex）
+│   ├── classes2.dex                   # 编译好的 Companion DEX（注入目标 APK 顺序下一槽位，如 1.26.0 中的 classes6.dex）
 │   ├── rokbot-native-base.apk         # 轻量 RN 补丁器测试基准 APK
 │   └── jniLibs/arm64-v8a/             # 预编译 Tailcat Go Mobile JNI 动态库
 ├── companion/                         # 原生 Java Companion 源码、compile-stubs 与 build.sh
 ├── patchers/                          # 纯 Node AXML、ARSC、XAPK/APKS 合并、Pairip DEX/ELF 去校验、DEX/JNI、Hermes(HBC/bytepatch)、16KB Zipalign 与 APK v2/v3 签名器
-├── recipes/                           # 固定包指纹（1.16.0 / 1075）、.gbp.gz Hermes 字节补丁及 Pairip ELF/字符串配方
+├── recipes/                           # 固定包指纹（1.26.0 / 3212）、.gbp.gz Hermes 字节补丁及 Pairip ELF/字符串配方
 ├── release/                           # CLI 自动化补丁入口（patch-android.mjs 与 Python 包装 patch-android.py）
 ├── test-target/                       # 轻量 RN 基准目标 APK 构建脚本
 ├── tests/ & adversarial/              # 单元测试、MockHost 协议测试、对抗测试与模拟器 E2E
@@ -61,16 +61,16 @@ android/
 # 如修改了 companion/ 原生代码，可先重新编译 classes2.dex
 bash android/companion/build.sh
 
-# 对官方 1.16.0 .xapk / .apks / .apk 执行补丁并输出到 output/rokbot-android-patched.apk
+# 对官方 1.26.0 .xapk / .apks / .apk 执行补丁并输出到 output/rokbot-android-patched.apk
 node android/release/patch-android.mjs \
-  --input-apk /path/to/grok-bot-1.16.0.xapk \
+  --input-apk /path/to/grok-bot-1.26.0.xapk \
   --output-apk android/output/rokbot-android-patched.apk \
   --force
 ```
 
 常用 CLI 参数：
 
-- `--input-apk <path>`（别名 `--input`、`--apk`）：官方 React Native `.xapk` / `.apks` / `.apk`（`ai.x.grok.bot` / `co.anysphere.sand` `1.16.0`）
+- `--input-apk <path>`（别名 `--input`、`--apk`）：官方 React Native `.xapk` / `.apks` / `.apk`（`ai.x.grok.bot` / `co.anysphere.sand` `1.26.0`）
 - `--output-apk <path>`（别名 `--output`）：输出 16KB 对齐并 v2/v3 签名后的 APK 路径（非 `--verify-only` 时必填；每次补丁都会在同目录写入 `patch-report.json`）
 - `--package-name <id>`（别名 `--bundle-id`）：重写 Android 包名 / `applicationId`（保留原 `MainActivity` 全限定名并自动重写 `provider.authorities` 与自定义权限前缀）
 - `--host <url>`：预置 Host 地址（`http://...`、`https://...` 或 `tailcat://connect/<node>?port=<port>`）

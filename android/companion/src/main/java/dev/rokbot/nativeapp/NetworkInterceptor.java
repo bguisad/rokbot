@@ -198,7 +198,7 @@ public class NetworkInterceptor implements Interceptor {
                     if (RokBotBootstrap.isForeground()) {
                         newReq.header("x-rokbot-foreground", "1");
                     }
-                    newReq.header("x-rokbot-client", "android-native/1.16.0");
+                    newReq.header("x-rokbot-client", "android-native/1.26.0");
 
                     Response response = chain.proceed(newReq.build());
                     if (isVoiceMint && response.isSuccessful() && response.body() != null) {
@@ -250,7 +250,7 @@ public class NetworkInterceptor implements Interceptor {
                 }
                 String clientHdr = request.header("x-rokbot-client");
                 if (clientHdr == null || clientHdr.isEmpty()) {
-                    directReq.header("x-rokbot-client", "android-native/1.16.0");
+                    directReq.header("x-rokbot-client", "android-native/1.26.0");
                     modified = true;
                 }
                 if (modified) {
