@@ -210,7 +210,11 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
 
   const agentId = session.id;
   const agentDir = tm.sessionStore?.getAgentDir?.(agentId) ?? '';
-  const box = foreverBoxExt?.box;
+  const remoteBox = foreverBoxExt?.box;
+  if (localExecExt && !localExecExt.box) {
+    throw new Error('local-exec extension is missing box; refusing to fall back to forever-box');
+  }
+  const box = localExecExt?.box ?? remoteBox;
   const memoryStore = memoryExt?.createAgentStore
     ? memoryExt.createAgentStore(agentDir)
     : createLocalAgentMemoryStore(library, agentDir);
@@ -325,8 +329,9 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     agentStore: session.agentStore,
     inference: inferenceExt?.port,
     box,
-    remoteBox: box,
+    remoteBox,
     userComputers: localExecExt?.userComputers,
+    rejectUnknownMachineIds: Boolean(localExecExt?.userComputers),
     mcp: mcpExt?.mcp,
     mcpManagement: mcpExt?.management ?? mcpExt?.mcpManagement,
     gates,

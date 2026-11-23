@@ -29,7 +29,7 @@ function patchRawLocalExecBridge(bridge, defaultMachineId) {
           : bridge.liveProviders();
         const preferred = origResolveProvider(defaultMachineId, live);
         if (preferred !== undefined) return preferred;
-        return origRequireProvider(undefined, gate, true);
+        return origRequireProvider(undefined, gate, false);
       }
       return origRequireProvider(undefined, gate, false);
     }

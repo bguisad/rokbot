@@ -7,6 +7,13 @@ const DEFAULT_MAX_LOCAL_EXEC_FILE_BYTES = 32 * 1024 * 1024;
 const SAND_MACHINE_ID_REQUIRED_MESSAGE = 'More than one user machine is registered. Call ListMachines and retry with machineId so the action is not sent to the wrong machine.';
 const SAND_NO_LOCAL_MACHINE_MESSAGE = 'No local machine is connected.';
 
+function computerKindFor(id, provider) {
+  if (provider?.kind) return provider.kind;
+  if (id.startsWith('ios-')) return 'ios';
+  if (id.startsWith('android-')) return 'android';
+  return 'desktop';
+}
+
 function localExecProviderRank(provider) {
   let rank = 0;
   if (provider.hadHello) rank += 4;
@@ -72,7 +79,7 @@ export class GatewayLocalExecManager {
     const resolvedComputerId = this.bridge.assertComputerAvailable(
       computerId,
       { site: 'exec', agentId: ctx?.get?.(this.library?.sandLocalToolScopeKey)?.agentId },
-      computerId === undefined,
+      false,
     );
     const frames = this.bridge.request(
       ctx,
@@ -117,7 +124,7 @@ export class GatewayLocalExecSandBox {
     const computerId = this.bridge.assertComputerAvailable(
       this.computerId,
       { site, agentId: scope?.agentId },
-      this.computerId === undefined,
+      false,
     );
     return { computerId, permissionMachineId: computerId };
   }
@@ -189,6 +196,7 @@ export function createBridgeUserComputers(bridge, gate, reportFailure, library) 
     list: () => bridge.listComputers().map((computer) => ({
       id: computer.id,
       label: computer.label,
+      kind: computer.kind,
       connected: computer.connected,
     })),
     resolve: (id) => {
@@ -442,6 +450,7 @@ export function createLocalExecBridge({ clock = Date, gate, logs, onComputerAtta
       return [...byComputerId.entries()].map(([id, provider]) => ({
         id,
         label: provider.label ?? 'this computer',
+        kind: computerKindFor(id, provider),
         connected: bridge.isLive(provider, now),
       }));
     },
@@ -450,9 +459,11 @@ export function createLocalExecBridge({ clock = Date, gate, logs, onComputerAtta
       if (bridge.listComputers().length !== 1) return undefined;
       const provider = bridge.resolveProvider(undefined);
       if (provider === undefined) return undefined;
+      const id = bridge.providerComputerId(provider);
       return {
-        id: bridge.providerComputerId(provider),
+        id,
         label: provider.label ?? 'this computer',
+        kind: computerKindFor(id, provider),
         connected: true,
       };
     },
@@ -485,7 +496,7 @@ export function createLocalExecBridge({ clock = Date, gate, logs, onComputerAtta
     },
 
     async *request(ctx, frame, computerId) {
-      const provider = bridge.requireProvider(computerId, { site: frame.kind }, computerId === undefined);
+      const provider = bridge.requireProvider(computerId, { site: frame.kind }, false);
       const requestId = randomUUID();
       const queue = new FrameQueue();
       pendingRequests.set(requestId, { queue, provider });
@@ -514,5 +525,9 @@ export function createLocalExecBridge({ clock = Date, gate, logs, onComputerAtta
   };
 
   bridge.userComputers = createBridgeUserComputers(bridge, gate, undefined, library);
+  bridge.box = new GatewayLocalExecSandBox(bridge, {
+    gate,
+    library,
+  });
   return bridge;
 }
