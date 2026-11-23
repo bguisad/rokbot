@@ -190,7 +190,8 @@ function bytesToBase64(value) {
 /** An image or file part as an http(s) URL or a data URL. */
 export function mediaUrl(part, fallbackType = 'image/png') {
   const value = part.image ?? part.data ?? part.url;
-  const mimeType = part.mimeType ?? fallbackType;
+  const rawMime = typeof part.mimeType === 'string' && part.mimeType.trim() ? part.mimeType.trim() : fallbackType;
+  const mimeType = rawMime.toLowerCase() === 'image/jpg' ? 'image/jpeg' : rawMime;
   if (value instanceof URL) return mediaUrl({ ...part, image: value.href }, fallbackType);
   if (typeof value === 'string') {
     if (/^(https?:\/\/|data:)/i.test(value)) return value;

@@ -1,8 +1,122 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
 
 const patchedLibraries = new WeakSet();
+
+const VISION_IMAGE_MIME_BY_EXT = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.avif': 'image/avif',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
+};
+
+const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
+
+function normalizeAttachmentPath(rawPath) {
+  if (typeof rawPath !== 'string') return '';
+  const trimmed = rawPath.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('file:')) {
+    try {
+      return fileURLToPath(trimmed);
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function parseDataUrlBytes(dataUrl) {
+  if (typeof dataUrl !== 'string') return null;
+  const match = /^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/is.exec(dataUrl);
+  if (!match) return null;
+  const rawMime = match[1].trim().toLowerCase();
+  const mimeType = rawMime === 'image/jpg' ? 'image/jpeg' : rawMime;
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length === 0) return null;
+  return { mimeType, data: new Uint8Array(bytes) };
+}
+
+/**
+ * Resolve turn attachment paths into SandAgentRunner options (`selectedImages`,
+ * `attachedFilePaths`, `attachedFileSizes`, `attachedFilesOnBox`, `attachedFilesInStore`).
+ */
+export async function prepareTurnAttachments(attachmentPaths, { attachmentsExt, hasRemoteBox = false, options = {} } = {}) {
+  const selectedImages = Array.isArray(options.selectedImages) ? [...options.selectedImages] : [];
+  const attachedFilePaths = Array.isArray(options.attachedFilePaths) ? [...options.attachedFilePaths] : [];
+  const attachedFileSizes = options.attachedFileSizes instanceof Map
+    ? new Map(options.attachedFileSizes)
+    : new Map();
+  const managedPaths = [];
+
+  for (const rawPath of attachmentPaths) {
+    const resolvedPath = normalizeAttachmentPath(rawPath);
+    if (!resolvedPath) continue;
+    managedPaths.push(resolvedPath);
+    const ext = extname(resolvedPath).toLowerCase();
+    const expectedMime = VISION_IMAGE_MIME_BY_EXT[ext];
+
+    if (expectedMime) {
+      let fileSize;
+      try {
+        const st = statSync(resolvedPath);
+        if (st.isFile()) fileSize = st.size;
+      } catch {}
+
+      if (typeof attachmentsExt?.readImage === 'function') {
+        const rendered = await attachmentsExt.readImage({ path: resolvedPath });
+        const parsed = parseDataUrlBytes(rendered?.dataUrl);
+        if (parsed) {
+          selectedImages.push({ data: parsed.data, path: resolvedPath, mimeType: parsed.mimeType });
+          attachedFileSizes.set(resolvedPath, fileSize ?? parsed.data.byteLength);
+          continue;
+        }
+      } else if (fileSize !== undefined && fileSize > 0 && fileSize <= MAX_INLINE_IMAGE_BYTES) {
+        try {
+          const bytes = new Uint8Array(readFileSync(resolvedPath));
+          if (bytes.byteLength > 0) {
+            selectedImages.push({ data: bytes, path: resolvedPath, mimeType: expectedMime });
+            attachedFileSizes.set(resolvedPath, bytes.byteLength);
+            continue;
+          }
+        } catch {}
+      }
+
+      if (fileSize !== undefined) attachedFileSizes.set(resolvedPath, fileSize);
+      attachedFilePaths.push(resolvedPath);
+      continue;
+    }
+
+    try {
+      const st = statSync(resolvedPath);
+      if (st.isFile()) attachedFileSizes.set(resolvedPath, st.size);
+    } catch {}
+    attachedFilePaths.push(resolvedPath);
+  }
+
+  const result = {};
+  if (selectedImages.length > 0) result.selectedImages = selectedImages;
+  if (attachedFilePaths.length > 0) result.attachedFilePaths = attachedFilePaths;
+  if (attachedFileSizes.size > 0) result.attachedFileSizes = attachedFileSizes;
+  if (options.attachedFilesOnBox !== undefined) {
+    result.attachedFilesOnBox = options.attachedFilesOnBox;
+  } else if (hasRemoteBox && managedPaths.length > 0) {
+    result.attachedFilesOnBox = true;
+  }
+  if (options.attachedFilesInStore !== undefined) {
+    result.attachedFilesInStore = options.attachedFilesInStore;
+  } else if (!hasRemoteBox && managedPaths.length > 0 && result.attachedFilesOnBox !== true) {
+    result.attachedFilesInStore = new Set(managedPaths);
+  }
+  return result;
+}
 
 function fallbackNextEntryId(entries, kind) {
   const existing = new Set((entries ?? []).map((e) => e.id));
@@ -612,8 +726,9 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
     const inFlightSends = new Map();
     SendPipeline.prototype.sendPrompt = async function sendPrompt(prompt, options = {}) {
       const attachmentPaths = Array.isArray(options.attachmentPaths)
-        ? options.attachmentPaths.filter((p) => typeof p === 'string')
+        ? options.attachmentPaths.filter((p) => typeof p === 'string' && p.trim().length > 0)
         : [];
+      const attachmentNames = Array.isArray(options.attachmentNames) ? options.attachmentNames : [];
       const trimmed = String(prompt ?? '').trim();
       if (trimmed.length === 0 && attachmentPaths.length === 0) return;
 
@@ -648,7 +763,16 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
           session.db?.setAwaitingUserResponse?.(null);
 
           const attachmentsExt = extensions?.('attachments');
-          for (const filePath of attachmentPaths) {
+          const hasRemoteBox = Boolean(extensions?.('forever-box')?.box);
+          const preparedAttachments = attachmentPaths.length > 0
+            ? await prepareTurnAttachments(attachmentPaths, { attachmentsExt, hasRemoteBox, options })
+            : {};
+
+          for (let i = 0; i < attachmentPaths.length; i++) {
+            const filePath = attachmentPaths[i];
+            const fileName = typeof attachmentNames[i] === 'string' && attachmentNames[i].trim().length > 0
+              ? attachmentNames[i].trim()
+              : undefined;
             const existing = readSessionTranscriptEntries(this.tm, session);
             const storedIds = readSessionStoredIds(session);
             const attachmentId = nextEntryId(existing, 'user-attachment', storedIds);
@@ -660,6 +784,7 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
               kind: 'user-attachment',
               id: attachmentId,
               file_path: filePath,
+              ...(fileName ? { file_name: fileName } : {}),
               timestampMs: Date.now(),
               ...(dimensions && typeof dimensions === 'object' ? dimensions : {}),
             });
@@ -695,6 +820,7 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
             try {
               const result = await runner.run(prompt, {
                 ...options,
+                ...preparedAttachments,
                 agentId,
                 epoch,
                 requestSource: options.requestSource ?? 'turn',

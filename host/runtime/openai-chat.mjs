@@ -82,7 +82,12 @@ export function convertChatMessages(messages, { model, providerId, replayReasoni
         ...(reasoning ? { reasoning_content: reasoning } : {}), ...(calls.length ? { tool_calls: calls } : {}) });
     } else if (['user', 'system', 'developer'].includes(message.role)) {
       const content = parts.map(part => contentPart(part, message.role));
-      output.push({ role: message.role, content: content.every(p => p.type === 'text') ? content.map(p => p.text).join('') : content });
+      if (content.every(p => p.type === 'text')) {
+        output.push({ role: message.role, content: content.map(p => p.text).join('') });
+      } else {
+        const nonEmpty = content.filter(p => p.type !== 'text' || p.text.length > 0);
+        output.push({ role: message.role, content: nonEmpty.length ? nonEmpty : content });
+      }
     } else {
       throw new TypeError(`Unsupported message role: ${message.role}`);
     }

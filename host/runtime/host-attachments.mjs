@@ -9,8 +9,14 @@ export async function syncTurnAttachments(options, turn, library, root = process
   const paths = [...turn.attachedFilePaths ?? [],
     ...(turn.selectedImages ?? []).map(image => image.path),
     ...(turn.selectedVideos ?? []).map(video => video.path)];
-  if (!root || !paths.length) return;
-  const agents = join(resolve(root), 'agents');
+  if (!root || !paths.length || typeof options?.remoteBox?.uploadFile !== 'function') return;
+  const resolvedRoot = resolve(root);
+  const agents = join(resolvedRoot, 'agents');
+  const realRoot = await realpath(resolvedRoot);
+  const realAgents = await realpath(agents);
+  if (realAgents !== join(realRoot, 'agents')) {
+    throw new Error('Invalid managed attachment path');
+  }
   const agentId = options.getAgentId?.() ?? options.agentStore?.getId();
   const [context, cancel] = library.createContext().withCancel();
   const timer = setTimeout(() => cancel(new Error('Attachment transfer timed out')), 120_000);
@@ -20,17 +26,23 @@ export async function syncTurnAttachments(options, turn, library, root = process
       if (typeof value !== 'string') continue;
       const path = value.startsWith('file:') ? fileURLToPath(value) : resolve(value);
       if (transferred.has(path)) continue;
-      if (!/^[a-f0-9-]+\/attachments\/[^/]+$/i.test(relative(agents, path))) continue;
-      if (await realpath(path) !== path || await realpath(agents) !== agents)
+      const rel = relative(agents, path);
+      if (!/^[a-f0-9-]+\/attachments\/[^/]+$/i.test(rel)) continue;
+      if (await realpath(path) !== join(realAgents, rel)) {
         throw new Error('Invalid managed attachment path');
+      }
       const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const info = await file.stat();
         if (!info.isFile() || info.size > 200 * 1024 * 1024) throw new Error('Invalid attachment size');
         const bytes = await file.readFile();
         if (bytes.length !== info.size) throw new Error('Attachment changed during transfer');
-        await options.remoteBox.uploadFile(context, agentId, path, bytes);
-        transferred.add(path);
+        try {
+          await options.remoteBox.uploadFile(context, agentId, path, bytes);
+          transferred.add(path);
+        } catch (err) {
+          console.warn(`[host-attachments] Failed to sync attachment to box: ${err?.message ?? err}`);
+        }
       } finally { await file.close(); }
     }
   } finally { clearTimeout(timer); cancel(); }

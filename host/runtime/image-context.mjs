@@ -167,7 +167,8 @@ function extractImagePayload(part) {
   const key = part.image !== undefined ? 'image' : part.data !== undefined ? 'data' : part.url !== undefined ? 'url' : null;
   if (!key) return null;
   const value = part[key];
-  const fallbackMime = typeof part.mimeType === 'string' && part.mimeType ? part.mimeType.toLowerCase() : 'image/png';
+  const rawMime = typeof part.mimeType === 'string' && part.mimeType.trim() ? part.mimeType.trim().toLowerCase() : 'image/png';
+  const fallbackMime = rawMime === 'image/jpg' ? 'image/jpeg' : rawMime;
 
   if (value instanceof URL) return null;
   if (typeof value === 'string') {
