@@ -12,7 +12,7 @@ import { contextPolicyFor } from '../runtime/context-policy.mjs';
 import { installHostNetworkBoundary } from '../runtime/host-network.mjs';
 import { createInference } from '../runtime/host-extensions.mjs';
 import { catalogContextPolicy, defaultPolicy } from '../runtime/model-policy.mjs';
-import { legacyModelRouting, modelRouteForAgent, parseModelRouting, publicModelRouting, validateModelRouting } from '../runtime/model-routing.mjs';
+import { legacyModelRouting, modelRouteForAdaptiveTier, modelRouteForAgent, parseModelRouting, publicModelRouting, validateModelRouting } from '../runtime/model-routing.mjs';
 import { Models } from '../server/models.mjs';
 
 const primary = { profileId: 'fast', providerId: 'primary', providerName: 'Primary', apiFormat: 'openai',
@@ -395,5 +395,209 @@ test('the Host network boundary accepts every configured model provider', async 
   installHostNetworkBoundary(['https://primary.example/v1', 'https://backup.example/v1']);
   assert.equal((await globalThis.fetch('https://backup.example/v1/models')).status, 200);
   await assert.rejects(globalThis.fetch('https://blocked.example/v1/models'), /Host network capability unavailable/);
-  void originalFetch;
+  globalThis.fetch = originalFetch;
+});
+
+function adaptiveFixture() {
+  return {
+    version: 1,
+    providers: [
+      { id: 'primary', name: 'Primary', apiFormat: 'openai', baseUrl: 'https://primary.example/v1', apiKey: 'test-primary-key' },
+      { id: 'backup', name: 'Backup', apiFormat: 'openai-responses', baseUrl: 'https://backup.example/v1', apiKey: 'test-backup-key' },
+      { id: 'claude', name: 'Claude', apiFormat: 'anthropic', baseUrl: 'https://claude.example', apiKey: 'test-claude-key' },
+    ],
+    profiles: [
+      { id: 'fast', name: 'Fast', providerId: 'primary', model: 'gpt-fast', efforts: ['none', 'low'], contextWindowTokens: 64_000, summaryThresholdTokens: 48_000 },
+      { id: 'careful', name: 'Careful', providerId: 'backup', model: 'gpt-careful', efforts: ['medium', 'high'], contextWindowTokens: 128_000, summaryThresholdTokens: 96_000 },
+      { id: 'expert', name: 'Expert', providerId: 'claude', model: 'claude-sonnet-4-6', efforts: ['low', 'medium', 'high', 'max'], contextWindowTokens: 200_000, summaryThresholdTokens: 150_000 },
+    ],
+    defaultRoute: { profileId: 'fast', effort: 'low', fallbacks: [{ profileId: 'careful', effort: 'high' }] },
+    botRoutes: { bot_alpha: { profileId: 'careful', effort: 'medium', fallbacks: [] } },
+    adaptiveRouting: {
+      enabled: true,
+      classifierModel: 'jev-latest',
+      tiers: {
+        simple: { profileId: 'fast', effort: 'none' },
+        medium: { profileId: 'careful', effort: 'medium' },
+        complex: { profileId: 'expert', effort: 'auto' },
+      },
+    },
+  };
+}
+
+const anthropicSse = text => new Response([
+  `event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: { id: 'msg_ant_1', model: 'claude-sonnet-4-6', usage: { input_tokens: 10, output_tokens: 1 } } })}\n\n`,
+  `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })}\n\n`,
+  `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })}\n\n`,
+  `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: 0 })}\n\n`,
+  `event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } })}\n\n`,
+  `event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`,
+].join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+
+test('v1 adaptiveRouting validates tiers, classifierModel, efforts, and legacy Jev migration', async t => {
+  const valid = validateModelRouting(adaptiveFixture());
+  assert.equal(valid.adaptiveRouting.enabled, true);
+  assert.equal(valid.adaptiveRouting.classifierModel, 'jev-latest');
+  assert.deepEqual(valid.adaptiveRouting.tiers.complex, { profileId: 'expert', effort: 'auto' });
+
+  // Omitting adaptiveRouting keeps enabled=false in publicModelRouting and omits it on persisted config
+  const plain = validateModelRouting(fixture());
+  assert.equal(plain.adaptiveRouting, undefined);
+  assert.equal(publicModelRouting(plain).adaptiveRouting.enabled, false);
+
+  // Invalid classifierModel / missing tier / unknown profile / unsupported effort fail
+  const badClassifier = adaptiveFixture();
+  badClassifier.adaptiveRouting.classifierModel = 'gpt-4o';
+  assert.throws(() => validateModelRouting(badClassifier), /Invalid classifier model/);
+
+  const missingTier = adaptiveFixture();
+  delete missingTier.adaptiveRouting.tiers.complex;
+  assert.throws(() => validateModelRouting(missingTier), /Missing adaptive routing tier: complex/);
+
+  const badProfile = adaptiveFixture();
+  badProfile.adaptiveRouting.tiers.simple.profileId = 'nope';
+  assert.throws(() => validateModelRouting(badProfile), /Unknown profile: nope/);
+
+  const badEffort = adaptiveFixture();
+  badEffort.adaptiveRouting.tiers.simple.effort = 'max';
+  assert.throws(() => validateModelRouting(badEffort), /Unsupported effort for fast/);
+
+  // Legacy adaptive policy migrates cleanly with adaptiveRouting preserved
+  const legacyPolicy = defaultPolicy('legacy-model');
+  legacyPolicy.mode = 'adaptive';
+  legacyPolicy.routes = {
+    routine: { model: 'legacy-model', effort: 'default' },
+    reasoning: { model: 'legacy-model', effort: 'auto' },
+    expert: { model: 'legacy-model', effort: 'auto' },
+  };
+  const migrated = legacyModelRouting({
+    apiFormat: 'openai', baseUrl: 'https://legacy.example/v1', apiKey: 'test-legacy-key',
+    model: 'legacy-model', policy: legacyPolicy,
+  });
+  assert.equal(migrated.adaptiveRouting.enabled, true);
+  assert.equal(migrated.adaptiveRouting.tiers.simple.profileId, 'default');
+  assert.equal(migrated.adaptiveRouting.tiers.complex.effort, 'auto');
+
+  // Models persistence, redaction, whitespace preservation & explicit clear
+  const directory = await mkdtemp(join(tmpdir(), 'model-adaptive-persist-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const models = new Models(directory);
+  await assert.rejects(models.save(adaptiveFixture()), { status: 400, message: /Jev API Key/ });
+  const saved = await models.save({ ...adaptiveFixture(), jevApiKey: 'jev-secret-key-01' });
+  assert.equal(saved.hasJevApiKey, true);
+  assert.equal(saved.adaptiveRouting.enabled, true);
+  assert.equal(JSON.stringify(saved).includes('jev-secret-key-01'), false);
+
+  const envText = await readFile(join(directory, 'model.env'), 'utf8');
+  assert.match(envText, /JEV_API_KEY=jev-secret-key-01/);
+  const loaded = await loadModelConfig({ env: { ROKBOT_MODEL_ENV: join(directory, 'model.env'), ROKBOT_DATA_DIR: directory } });
+  assert.equal(loaded.jevApiKey, 'jev-secret-key-01');
+  assert.equal(loaded.modelRouting.adaptiveRouting.enabled, true);
+
+  // Omitting or whitespace jevApiKey retains stored key
+  const kept = await models.save({ ...adaptiveFixture(), jevApiKey: '   ' });
+  assert.equal(kept.hasJevApiKey, true);
+  assert.equal((await models.current()).jevApiKey, 'jev-secret-key-01');
+
+  // Disabling + clearJevApiKey removes JEV_API_KEY
+  const disabled = adaptiveFixture();
+  disabled.adaptiveRouting.enabled = false;
+  const cleared = await models.save({ ...disabled, clearJevApiKey: true });
+  assert.equal(cleared.hasJevApiKey, false);
+  assert.equal((await models.current()).jevApiKey, '');
+});
+
+test('Host inference routes v1 adaptiveRouting across simple/medium/complex tiers, Bot overrides, and JEV error fallback', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'host-adaptive-routing-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const routing = validateModelRouting(adaptiveFixture());
+  const defaultRoute = modelRouteForAgent(routing);
+  const config = {
+    ...defaultRoute,
+    modelRouting: routing,
+    jevApiKey: 'jev-test-token-123',
+    policy: defaultPolicy(defaultRoute.model),
+    usageDirectory: join(directory, 'usage'),
+    routingDirectory: join(directory, 'routing'),
+    modelBaseUrls: routing.providers.map(provider => provider.baseUrl),
+  };
+
+  let jevOutcome = { difficulty: 'routine', efforts: {} };
+  const requests = [];
+  class HarnessError extends Error {}
+  const library = {
+    PrivacyMode: { NO_STORAGE: 'no-storage' },
+    ConnectError: HarnessError,
+    ActionRequiredError: HarnessError,
+    NonRetriableError: HarnessError,
+    Code: { ResourceExhausted: 8, Unavailable: 14, Internal: 13 },
+  };
+  const inference = createInference(config, library, {}, {
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      requests.push({ url, auth: options.headers instanceof Headers ? options.headers.get('authorization') : options.headers?.authorization, body });
+      if (url === 'https://api.typesafe.ai/v1/systemone') {
+        if (jevOutcome instanceof Error) throw jevOutcome;
+        if (typeof jevOutcome === 'number') return new Response('err', { status: jevOutcome });
+        return new Response(JSON.stringify({
+          model: 'jev-latest',
+          answers: {
+            difficulty: { choice: jevOutcome.difficulty, confidence: 0.91 },
+            ...(jevOutcome.effort_0 ? { effort_0: { choice: jevOutcome.effort_0 } } : {}),
+          },
+          usage: { prompt_tokens: 12, completion_tokens: 3 },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.startsWith('https://claude.example/')) return anthropicSse('Expert OK');
+      if (url.startsWith('https://backup.example/')) return responsesSse('Medium OK');
+      return sse('Simple OK');
+    },
+  });
+
+  const run = async (prompt, options = {}) => {
+    const session = inference.port.createSession(() => {}, options);
+    const result = session.getExecutor([{ role: 'user', content: prompt }]).stream({}, 'adaptive-test', []);
+    await Array.fromAsync(result.fullStream);
+    return result.response;
+  };
+
+  // 1. routine -> simple tier (primary / gpt-fast / none)
+  jevOutcome = { difficulty: 'routine', effort_0: 'high' };
+  await run('Hi there');
+  assert.equal(requests.at(-2).url, 'https://api.typesafe.ai/v1/systemone');
+  assert.equal(requests.at(-2).auth, 'Bearer jev-test-token-123');
+  assert.equal(requests.at(-1).url, 'https://primary.example/v1/chat/completions');
+  assert.equal(requests.at(-1).body.model, 'gpt-fast');
+  assert.equal(requests.at(-1).body.reasoning_effort, 'none');
+
+  // 2. expert -> complex tier (claude / claude-sonnet-4-6 / auto -> JEV chose 'max')
+  jevOutcome = { difficulty: 'expert', effort_0: 'max' };
+  await run('Design a distributed consensus protocol');
+  assert.equal(requests.at(-1).url, 'https://claude.example/v1/messages');
+  assert.equal(requests.at(-1).body.model, 'claude-sonnet-4-6');
+  assert.equal(requests.at(-1).body.output_config?.effort, 'max');
+
+  // 3. Explicit Bot override bypasses JEV classifier completely
+  const countBeforeBot = requests.length;
+  await run('Hi bot alpha', { agentId: 'bot_alpha' });
+  assert.equal(requests.length - countBeforeBot, 1);
+  assert.equal(requests.at(-1).url, 'https://backup.example/v1/responses');
+  assert.equal(requests.at(-1).body.model, 'gpt-careful');
+  assert.equal(requests.at(-1).body.reasoning?.effort, 'medium');
+
+  // 4. Summarization session bypasses JEV classifier
+  const countBeforeSummary = requests.length;
+  await run('Summarize this conversation', { isSummarizationSession: true });
+  assert.equal(requests.length - countBeforeSummary, 1);
+  assert.equal(requests.at(-1).url, 'https://primary.example/v1/chat/completions');
+
+  // 5. JEV failure falls back gracefully to medium tier without crashing
+  jevOutcome = 503;
+  await run('What happens on JEV outage?');
+  assert.equal(requests.at(-1).url, 'https://backup.example/v1/responses');
+  assert.equal(requests.at(-1).body.model, 'gpt-careful');
+
+  // 6. Tier inherits fallback chain from defaultRoute
+  const simpleRoute = modelRouteForAdaptiveTier(routing, 'simple');
+  assert.deepEqual(simpleRoute.fallbacks.map(item => item.profileId), ['careful']);
 });

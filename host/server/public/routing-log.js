@@ -1,7 +1,7 @@
 import { $, node, date, badge, empty } from './ui.js';
 import { t } from './i18n.js';
 
-const tiers = { routine: '一般任务', reasoning: '中等任务', expert: '困难任务' };
+const tiers = { routine: '一般任务', reasoning: '中等任务', expert: '困难任务', simple: '简单任务（Simple）', medium: '中等任务（Medium）', complex: '复杂任务（Complex）' };
 const efforts = { none: '无', low: '轻度', medium: '中度', high: '高度', xhigh: '超高', max: '最高', default: '模型默认' };
 const sources = { jev: '思考强度由 Jev 选择', rule: '使用规则指定的思考强度', model: '使用模型可用强度' };
 
@@ -48,7 +48,7 @@ export function createRoutingLog({ api }) {
         headline.append(node('strong', '', t(tiers[item.difficulty] ?? item.difficulty)),
           badge(t(item.fallback ? '使用备用规则' : item.source === 'test' ? '测试' : '任务'), item.fallback ? 'warn' : ''),
           node('time', 'hint', date(item.at)));
-        copy.append(headline, node('span', 'hint', `${item.model} · ${t(efforts[item.effort] ?? item.effort)}`));
+        copy.append(headline, node('span', 'hint', `${item.profileName ? `${item.profileName} · ` : ''}${item.model} · ${t(efforts[item.effort] ?? item.effort)}`));
         summary.append(copy); entry.append(summary);
         const body = node('div', 'routing-body'), task = node('p', 'routing-task', item.task);
         task.dataset.private = '';

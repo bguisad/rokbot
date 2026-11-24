@@ -906,6 +906,7 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, {
         ok: true,
         config: publicModelRouting(current.routing),
+        hasJevApiKey: Boolean(current.jevApiKey),
         configured,
         needsModel: !configured,
         routingMigrated: current.routingMigrated,
@@ -922,6 +923,7 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, {
         ok: true,
         config: publicModelRouting(current.routing),
+        hasJevApiKey: saved.hasJevApiKey,
         configured: saved.configured,
         needsModel: !saved.configured,
         reload: await models.localReloadStatus(),

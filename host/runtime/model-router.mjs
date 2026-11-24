@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { TIERS, reasoningOptions, validatePolicy } from './model-policy.mjs';
 import { recordUsage } from './usage-ledger.mjs';
 import { contextPolicyFor } from './context-policy.mjs';
-import { modelRouteForAgent } from './model-routing.mjs';
+import { DIFFICULTY_TO_ADAPTIVE_TIER, modelRouteForAdaptiveTier, modelRouteForAgent } from './model-routing.mjs';
 
 const effortCriteria = {
   none: 'No deliberate reasoning is needed.', minimal: 'Only a brief check is needed.', low: 'Quick, straightforward reasoning is enough.',
@@ -47,15 +47,110 @@ export async function classifyTask({ apiKey, model = 'jev-latest', state, policy
   }));
   return { difficulty: answer.choice, confidence: answer.confidence, efforts, model: data.model ?? model, usage: data.usage };
 }
+function adaptiveClassifierPolicy(modelRouting) {
+  const profiles = new Map(modelRouting.profiles.map(item => [item.id, item]));
+  const tiers = modelRouting.adaptiveRouting?.tiers ?? {};
+  const modelsById = new Map();
+  const routes = {};
+  for (const [difficulty, tierKey] of Object.entries(DIFFICULTY_TO_ADAPTIVE_TIER)) {
+    const entry = tiers[tierKey];
+    const profile = entry ? profiles.get(entry.profileId) : undefined;
+    if (!profile) continue;
+    if (!modelsById.has(profile.model)) {
+      modelsById.set(profile.model, { id: profile.model, efforts: [...profile.efforts] });
+    } else if (entry.effort === 'auto') {
+      const existing = modelsById.get(profile.model);
+      for (const effort of profile.efforts) {
+        if (!existing.efforts.includes(effort)) existing.efforts.push(effort);
+      }
+    }
+    routes[difficulty] = { model: profile.model, effort: entry.effort };
+  }
+  return { models: [...modelsById.values()], routes };
+}
+
 export function createModelRouter(config, { fetchImpl = fetch, onDecision = () => {}, agentId } = {}) {
   if (config.modelRouting) {
     const route = modelRouteForAgent(config.modelRouting, agentId);
     const select = candidate => ({ ...candidate,
       requestOptions: reasoningOptions(candidate.model, candidate.effort) });
-    const selected = { ...select(route), fallbacks: route.fallbacks.map(select) };
-    return async ({ signal } = {}) => {
+    const adaptive = config.modelRouting.adaptiveRouting;
+    // Precedence: explicit per-Bot route overrides global JEV adaptive routing.
+    if (!adaptive?.enabled || route.routeSource === 'bot') {
+      const selected = { ...select(route), fallbacks: route.fallbacks.map(select) };
+      return async ({ signal } = {}) => {
+        signal?.throwIfAborted();
+        return selected;
+      };
+    }
+    const profilesById = new Map(config.modelRouting.profiles.map(item => [item.id, item]));
+    const classifierPolicy = adaptiveClassifierPolicy(config.modelRouting);
+    let cachedKey, cachedDecision;
+    return async ({ messages = [], signal } = {}) => {
       signal?.throwIfAborted();
-      return selected;
+      const state = classificationState(messages), key = createHash('sha256').update(JSON.stringify(state)).digest('hex');
+      if (cachedKey === key) return cachedDecision;
+      const started = performance.now();
+      let result, fallback = false, errorReason;
+      try {
+        if (!config.jevApiKey) throw new Error('Missing Jev API Key');
+        result = await classifyTask({
+          apiKey: config.jevApiKey,
+          model: adaptive.classifierModel || 'jev-latest',
+          policy: classifierPolicy,
+          state,
+          signal,
+          fetchImpl,
+        });
+        try { await recordUsage(config.usageDirectory, { raw: result.usage, model: result.model, kind: 'classifier' }); }
+        catch (error) { console.warn('[usage] Unable to record classifier usage:', error.code ?? error.name); }
+      } catch (error) {
+        signal?.throwIfAborted();
+        fallback = true;
+        result = { difficulty: 'reasoning', efforts: {} };
+        const reason = errorReason = String(error.message).replaceAll(config.jevApiKey || '\0', '[redacted]').slice(0, 160);
+        console.warn(`[model-router] Classifier unavailable (${reason}); using the medium task rule.`);
+      }
+      const tierKey = DIFFICULTY_TO_ADAPTIVE_TIER[result.difficulty] ?? 'medium';
+      const tierConfig = adaptive.tiers?.[tierKey];
+      const tierProfile = tierConfig ? profilesById.get(tierConfig.profileId) : undefined;
+      const tierRoute = tierConfig && tierProfile
+        ? modelRouteForAdaptiveTier(config.modelRouting, tierKey, {
+          agentId,
+          resolvedEffort: tierConfig.effort === 'auto' ? result.efforts[tierProfile.model] : undefined,
+        })
+        : route;
+      const selected = { ...select(tierRoute), fallbacks: tierRoute.fallbacks.map(select) };
+      const decision = {
+        model: tierRoute.model,
+        effort: tierRoute.effort,
+        difficulty: result.difficulty,
+        tier: tierKey,
+        confidence: result.confidence,
+        fallback,
+        profileId: tierRoute.profileId,
+        profileName: tierRoute.profileName,
+        providerId: tierRoute.providerId,
+        providerName: tierRoute.providerName,
+      };
+      try {
+        await recordRouting(config.routingDirectory, {
+          ...decision,
+          status: fallback ? 'fallback' : 'classified',
+          classifierModel: result.model ?? adaptive.classifierModel ?? 'jev-latest',
+          elapsedMs: Math.round(performance.now() - started),
+          task: taskPreview(state),
+          effortSource: tierConfig?.effort === 'auto'
+            ? (fallback ? 'fallback' : result.efforts[tierRoute.model] ? 'jev' : 'model')
+            : 'rule',
+          source: config.routingSource ?? 'task',
+          error: errorReason,
+        });
+        await onDecision(decision);
+      } catch (error) { console.warn('[model-router] Unable to save routing log:', error.code ?? error.name); }
+      const resolved = { ...decision, ...selected };
+      if (!fallback) { cachedKey = key; cachedDecision = resolved; }
+      return resolved;
     };
   }
   const policy = validatePolicy(config.policy, config.model);

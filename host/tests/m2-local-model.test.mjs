@@ -695,3 +695,176 @@ test('Iteration 3 regressions: saved-config jevApiKey redaction on /test & /cata
     }
   }
 });
+
+test('v1 adaptiveRouting and hasJevApiKey round-trip across /admin/api/model and /local/model without leaking jevApiKey', { skip: !dependencies && 'run npm ci --prefix host/server' }, async t => {
+  const { dir, host, call } = await startHostFixture(t);
+  const adminToken = await host.auth.setup(host.auth.setupKey, 'AdminPass123');
+  const adminCookie = `rokbot_admin=${adminToken}`;
+  const adminHeaders = { 'x-rokbot-csrf': '1' };
+  const { token } = await host.auth.pair({
+    password: 'AdminPass123',
+    deviceName: 'MacBook',
+    platform: 'desktop',
+  });
+
+  const payload = (adaptiveRouting) => ({
+    version: 1,
+    providers: [
+      { id: 'primary', name: 'Primary', apiFormat: 'openai', baseUrl: 'https://primary.example/v1', apiKey: 'sk-primary-secret-1' },
+      { id: 'deep', name: 'Deep', apiFormat: 'anthropic', baseUrl: 'https://deep.example', apiKey: 'sk-deep-secret-2' },
+    ],
+    profiles: [
+      { id: 'fast', name: 'Fast', providerId: 'primary', model: 'gpt-fast', efforts: ['none', 'low'] },
+      { id: 'expert', name: 'Expert', providerId: 'deep', model: 'claude-sonnet-4-6', efforts: ['low', 'medium', 'high'] },
+    ],
+    defaultRoute: { profileId: 'fast', effort: 'low', fallbacks: [{ profileId: 'expert', effort: 'high' }] },
+    botRoutes: {},
+    adaptiveRouting,
+  });
+
+  // 1. Enabling adaptiveRouting without jevApiKey is rejected (400)
+  const missingKeyRes = await call('/admin/api/model', {
+    method: 'PUT',
+    cookie: adminCookie,
+    headers: adminHeaders,
+    body: payload({
+      enabled: true,
+      classifierModel: 'jev-latest',
+      tiers: {
+        simple: { profileId: 'fast', effort: 'low' },
+        medium: { profileId: 'fast', effort: 'default' },
+        complex: { profileId: 'expert', effort: 'auto' },
+      },
+    }),
+  });
+  assert.equal(missingKeyRes.status, 400);
+
+  // 2. Saving with jevApiKey via /admin/api/model returns hasJevApiKey: true and redacts secrets
+  const saveAdmin = await call('/admin/api/model', {
+    method: 'PUT',
+    cookie: adminCookie,
+    headers: adminHeaders,
+    body: {
+      ...payload({
+        enabled: true,
+        classifierModel: 'jev-v2',
+        tiers: {
+          simple: { profileId: 'fast', effort: 'low' },
+          medium: { profileId: 'fast', effort: 'default' },
+          complex: { profileId: 'expert', effort: 'auto' },
+        },
+      }),
+      jevApiKey: 'jev-super-secret-888',
+    },
+  });
+  assert.equal(saveAdmin.status, 200);
+  const saveAdminText = await saveAdmin.text();
+  assert.equal(saveAdminText.includes('jev-super-secret-888'), false);
+  const saveAdminJson = JSON.parse(saveAdminText);
+  assert.equal(saveAdminJson.hasJevApiKey, true);
+  assert.equal(saveAdminJson.adaptiveRouting.enabled, true);
+  assert.equal(saveAdminJson.adaptiveRouting.classifierModel, 'jev-v2');
+  assert.deepEqual(saveAdminJson.adaptiveRouting.tiers.complex, { profileId: 'expert', effort: 'auto' });
+
+  // 3. GET /local/model exposes adaptiveRouting and hasJevApiKey without jevApiKey
+  const getLocal = await call('/local/model', { token });
+  assert.equal(getLocal.status, 200);
+  const getLocalText = await getLocal.text();
+  assert.equal(getLocalText.includes('jev-super-secret-888'), false);
+  const getLocalJson = JSON.parse(getLocalText);
+  assert.equal(getLocalJson.hasJevApiKey, true);
+  assert.equal(getLocalJson.config.adaptiveRouting.enabled, true);
+  assert.equal(getLocalJson.config.adaptiveRouting.tiers.complex.profileId, 'expert');
+
+  // 4. PUT /local/model omitting jevApiKey preserves stored JEV_API_KEY and updates tiers
+  const putLocal = await call('/local/model', {
+    method: 'PUT',
+    token,
+    body: {
+      ...payload({
+        enabled: true,
+        classifierModel: 'jev-latest',
+        tiers: {
+          simple: { profileId: 'fast', effort: 'none' },
+          medium: { profileId: 'expert', effort: 'medium' },
+          complex: { profileId: 'expert', effort: 'auto' },
+        },
+      }),
+      providers: payload().providers.map(({ apiKey, ...rest }) => rest),
+    },
+  });
+  assert.equal(putLocal.status, 200);
+  const putLocalJson = await putLocal.json();
+  assert.equal(putLocalJson.hasJevApiKey, true);
+  assert.equal(putLocalJson.config.adaptiveRouting.tiers.medium.profileId, 'expert');
+  assert.equal((await host.models.current()).jevApiKey, 'jev-super-secret-888');
+  assert.match(await readFile(join(dir, 'model.env'), 'utf8'), /JEV_API_KEY=jev-super-secret-888/);
+
+  // 5. Explicit clearJevApiKey with adaptiveRouting disabled clears JEV_API_KEY
+  const clearAdmin = await call('/admin/api/model', {
+    method: 'PUT',
+    cookie: adminCookie,
+    headers: adminHeaders,
+    body: {
+      ...payload({
+        enabled: false,
+        classifierModel: 'jev-latest',
+        tiers: {
+          simple: { profileId: 'fast', effort: 'none' },
+          medium: { profileId: 'expert', effort: 'medium' },
+          complex: { profileId: 'expert', effort: 'auto' },
+        },
+      }),
+      providers: payload().providers.map(({ apiKey, ...rest }) => rest),
+      clearJevApiKey: true,
+    },
+  });
+  assert.equal(clearAdmin.status, 200);
+  const clearJson = await clearAdmin.json();
+  assert.equal(clearJson.hasJevApiKey, false);
+  assert.equal(clearJson.adaptiveRouting.enabled, false);
+  assert.equal((await host.models.current()).jevApiKey, '');
+
+  // 6. POST /admin/api/model/classify works with v1 adaptiveRouting config and redacts secrets
+  const origFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = origFetch; });
+  globalThis.fetch = async (url, opts) => {
+    if (String(url) === 'https://api.typesafe.ai/v1/systemone') {
+      assert.equal(opts.headers.authorization, 'Bearer jev-classify-secret-777');
+      return new Response(JSON.stringify({
+        model: 'jev-latest',
+        answers: { difficulty: { choice: 'expert', confidence: 0.94 }, effort_0: { choice: 'high' } },
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return origFetch(url, opts);
+  };
+  const classifyRes = await call('/admin/api/model/classify', {
+    method: 'POST',
+    cookie: adminCookie,
+    headers: adminHeaders,
+    body: {
+      ...payload({
+        enabled: true,
+        classifierModel: 'jev-latest',
+        tiers: {
+          simple: { profileId: 'fast', effort: 'low' },
+          medium: { profileId: 'fast', effort: 'default' },
+          complex: { profileId: 'expert', effort: 'auto' },
+        },
+      }),
+      jevApiKey: 'jev-classify-secret-777',
+      task: 'Design a distributed consensus engine',
+    },
+  });
+  assert.equal(classifyRes.status, 200);
+  const classifyText = await classifyRes.text();
+  assert.equal(classifyText.includes('jev-classify-secret-777'), false);
+  assert.equal(classifyText.includes('sk-deep-secret-2'), false);
+  const classifyJson = JSON.parse(classifyText);
+  assert.equal(classifyJson.difficulty, 'expert');
+  assert.equal(classifyJson.tier, 'complex');
+  assert.equal(classifyJson.profileId, 'expert');
+  assert.equal(classifyJson.model, 'claude-sonnet-4-6');
+  assert.equal(classifyJson.effort, 'high');
+});

@@ -37,7 +37,8 @@ const formatTokenCount = value => {
   if (value >= 1_000) return `${(value / 1_000).toFixed(3).replace(/\.?0+$/, '')}K`;
   return String(value);
 };
-const emptyRouting = () => ({ version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {} });
+const emptyRouting = () => ({ version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {},
+  adaptiveRouting: { enabled: false, classifierModel: 'jev-latest', tiers: null } });
 
 function editor(panel, id) {
   const dialog = node('dialog', 'dialog wide');
@@ -75,6 +76,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
       <section class="section"><div class="section-head"><h2 class="section-title">模型档案</h2><div class="section-actions"><button id="add-model-profile" class="icon-btn" type="button" aria-label="添加模型档案"></button></div></div><div id="model-profiles" class="card"></div></section>
       <section class="section"><div class="section-head"><h2 class="section-title">默认路由</h2></div><div id="model-default-route" class="card"></div></section>
       <section class="section"><div class="section-head"><h2 class="section-title">Bot 路由</h2><div class="section-actions"><button id="refresh-model-bots" class="icon-btn" type="button" aria-label="刷新 Bot"></button></div></div><div id="model-bot-routes" class="card"></div></section>
+      <section class="section" id="model-adaptive-section"><div class="section-head"><h2 class="section-title">智能路由（JEV 自动选模型）</h2></div><div id="model-adaptive-routing" class="card"></div></section>
       <p id="legacy-routing-notice" class="hint" role="status" hidden></p>
       <p id="model-error" class="error" role="alert" hidden></p>
       <div class="actions"><span id="model-apply-title" class="status-text" role="status"></span><button type="submit" class="btn btn-primary">保存配置</button></div>
@@ -89,11 +91,12 @@ export function createModelPage({ api, toast, busy, refresh }) {
     </section>
     <section class="section"><div class="section-head"><h2 class="section-title">模型路由记录</h2><div class="section-actions"><button id="refresh-routing" class="icon-btn" type="button" aria-label="刷新"></button></div></div><div id="routing-log" class="card"></div></section>`);
   const form = $('#model-form'), providersRoot = $('#model-providers'), profilesRoot = $('#model-profiles');
-  const defaultRoot = $('#model-default-route'), botsRoot = $('#model-bot-routes'), routingLog = createRoutingLog({ api });
+  const defaultRoot = $('#model-default-route'), botsRoot = $('#model-bot-routes'), adaptiveRoot = $('#model-adaptive-routing'),
+    routingLog = createRoutingLog({ api });
   const providerEditor = editor(panel, 'model-provider-editor'), profileEditor = editor(panel, 'model-profile-editor');
   const botEditor = editor(panel, 'model-bot-route-editor');
-  let config = emptyRouting(), pendingKeys = new Map(), loaded = false, dirty = false, active = false, agents = [],
-    agentSignature = '', legacyRouting = false, legacyAdaptive = false;
+  let config = emptyRouting(), pendingKeys = new Map(), pendingJevApiKey = '', hasJevApiKey = false, clearJevApiKey = false,
+    loaded = false, dirty = false, active = false, agents = [], agentSignature = '', legacyRouting = false, legacyAdaptive = false;
 
   function profileById(id) { return config.profiles.find(profile => profile.id === id); }
   function providerById(id) { return config.providers.find(provider => provider.id === id); }
@@ -103,6 +106,21 @@ export function createModelPage({ api, toast, busy, refresh }) {
   }
   function providerHasKey(provider) { return Boolean(pendingKeys.get(provider.id) || provider.hasApiKey); }
   function effortFor(profile, value) { return profile?.efforts?.includes(value) ? value : 'default'; }
+  function adaptiveEffortFor(profile, value) { return value === 'auto' ? 'auto' : effortFor(profile, value); }
+  function adaptiveCopy(value) {
+    const fallbackId = config.defaultRoute?.profileId ?? config.profiles[0]?.id;
+    if (!fallbackId) return { enabled: false, classifierModel: 'jev-latest', tiers: null };
+    const tiers = {};
+    for (const tier of ['simple', 'medium', 'complex']) {
+      const raw = value?.tiers?.[tier];
+      const profile = profileById(raw?.profileId) ?? profileById(fallbackId) ?? config.profiles[0];
+      tiers[tier] = { profileId: profile.id, effort: adaptiveEffortFor(profile, raw?.effort ?? 'auto') };
+    }
+    const classifierModel = typeof value?.classifierModel === 'string' && value.classifierModel.trim()
+      ? value.classifierModel.trim()
+      : 'jev-latest';
+    return { enabled: value?.enabled === true, classifierModel, tiers };
+  }
   function routeCopy(route) {
     const primary = profileById(route?.profileId) ?? config.profiles[0];
     if (!primary) return null;
@@ -134,33 +152,47 @@ export function createModelPage({ api, toast, busy, refresh }) {
     return { id: provider.id, name: provider.name, apiFormat: provider.apiFormat, baseUrl: provider.baseUrl,
       apiKey: pendingKeys.get(provider.id) ?? '' };
   }
-  function input() {
+  function input({ requireJevKey = true } = {}) {
     if (!config.providers.length) throw new Error(t('请先添加模型服务。'));
     if (!config.profiles.length) throw new Error(t('请先添加模型档案。'));
     if (!config.defaultRoute) throw new Error(t('请设置默认路由。'));
     for (const provider of config.providers) if (!providerHasKey(provider))
       throw new Error(t('请填写“{0}”的 API Key。', provider.name));
+    const adaptiveRouting = adaptiveCopy(config.adaptiveRouting);
+    if (adaptiveRouting.enabled) {
+      if (!/^jev-[a-zA-Z0-9._-]{1,80}$/.test(adaptiveRouting.classifierModel))
+        throw new Error(t('分类器模型格式需为 jev- 开头'));
+      if (requireJevKey && !hasJevApiKey && !pendingJevApiKey.trim())
+        throw new Error(t('请填写 Jev API Key'));
+    }
     return { version: 1, ...(legacyRouting ? { migrateLegacyRouting: true } : {}), providers: config.providers.map(serializedProvider), profiles: config.profiles.map(profile => ({
       id: profile.id, name: profile.name, providerId: profile.providerId, model: profile.model, efforts: [...profile.efforts],
       contextWindowTokens: profile.contextWindowTokens ?? 0, summaryThresholdTokens: profile.summaryThresholdTokens ?? 0,
     })), defaultRoute: routeCopy(config.defaultRoute), botRoutes: Object.fromEntries(Object.entries(config.botRoutes)
-      .map(([id, route]) => [id, routeCopy(route)]).filter(([, route]) => route)) };
+      .map(([id, route]) => [id, routeCopy(route)]).filter(([, route]) => route)),
+      adaptiveRouting,
+      ...(pendingJevApiKey.trim() ? { jevApiKey: pendingJevApiKey.trim() } : {}),
+      ...(clearJevApiKey && !pendingJevApiKey.trim() ? { clearJevApiKey: true } : {}) };
   }
   function setConfig(value) {
     legacyRouting = value.routingMigrated === true;
     // Only an adaptive policy used task-difficulty routing; a single model converts without loss.
     legacyAdaptive = legacyRouting && value.legacyAdaptiveRouting === true;
+    hasJevApiKey = Boolean(value.hasJevApiKey);
+    pendingJevApiKey = '';
+    clearJevApiKey = false;
     config = { version: 1, providers: (value.providers ?? []).map(provider => ({ ...provider })),
       profiles: (value.profiles ?? []).map(profile => ({ ...profile, efforts: [...(profile.efforts ?? [])] })),
-      defaultRoute: null, botRoutes: clone(value.botRoutes ?? {}) };
+      defaultRoute: null, botRoutes: clone(value.botRoutes ?? {}), adaptiveRouting: null };
     config.defaultRoute = value.defaultRoute ? routeCopy(value.defaultRoute) : null;
     config.botRoutes = Object.fromEntries(Object.entries(config.botRoutes)
       .map(([id, route]) => [id, routeCopy(route)]).filter(([, route]) => route));
+    config.adaptiveRouting = value.adaptiveRouting ? adaptiveCopy(value.adaptiveRouting) : adaptiveCopy(null);
     pendingKeys = new Map(); dirty = false; loaded = true; render();
     const notice = $('#legacy-routing-notice');
     notice.hidden = !legacyRouting;
     notice.textContent = !legacyRouting ? '' : legacyAdaptive
-      ? t('当前仍使用旧版按任务难度路由（Jev）。保存后会迁移为按 Bot 路由，并移除智能路由界面；如需保留旧配置，请不要保存。')
+      ? t('当前仍使用旧版按任务难度路由（Jev）。保存后会迁移为新版服务与档案配置，并保留智能路由（Jev）设置。')
       : t('当前是旧版单模型配置。保存后会转成服务和档案的格式，模型、API Key 和思考强度不变。');
     $('#model-apply-title').textContent = applyText(value);
     renderDevicePolicy(value.devicePolicy);
@@ -204,6 +236,11 @@ export function createModelPage({ api, toast, busy, refresh }) {
   function effortOptions(select, profileId, selected) {
     const profile = profileById(profileId);
     choice(select, [['default', '模型默认'], ...(profile?.efforts ?? []).map(level => [level, levelLabels[level]])], effortFor(profile, selected));
+  }
+  function adaptiveEffortOptions(select, profileId, selected) {
+    const profile = profileById(profileId);
+    choice(select, [['auto', 'Jev 决定'], ['default', '模型默认'], ...(profile?.efforts ?? []).map(level => [level, levelLabels[level]])],
+      adaptiveEffortFor(profile, selected));
   }
   function routeEditor(root, route, onChange) {
     const current = routeCopy(route);
@@ -265,7 +302,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
     }
   }
   async function testProfile(profile) {
-    const result = await api('/admin/api/model/test', { method: 'POST', body: { ...input(), profileId: profile.id } });
+    const result = await api('/admin/api/model/test', { method: 'POST', body: { ...input({ requireJevKey: false }), profileId: profile.id } });
     toast(result.message);
   }
   function profileRouteReferences(profileId) {
@@ -274,6 +311,10 @@ export function createModelPage({ api, toast, busy, refresh }) {
     if (uses(config.defaultRoute)) entries.push(t('默认路由'));
     for (const [agentId, route] of Object.entries(config.botRoutes)) if (uses(route))
       entries.push(agents.find(agent => agent.id === agentId)?.name ?? agentId);
+    if (config.adaptiveRouting?.enabled &&
+        Object.values(config.adaptiveRouting.tiers ?? {}).some(item => item?.profileId === profileId)) {
+      entries.push(t('智能路由'));
+    }
     return entries;
   }
   function renderProfiles() {
@@ -307,7 +348,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
       return;
     }
     if (!config.defaultRoute) config.defaultRoute = { profileId: config.profiles[0].id, effort: 'default', fallbacks: [] };
-    routeEditor(defaultRoot, config.defaultRoute, route => { config.defaultRoute = route; markDirty(); renderDefaultRoute(); });
+    routeEditor(defaultRoot, config.defaultRoute, route => { config.defaultRoute = route; markDirty(); renderDefaultRoute(); renderProfiles(); });
     defaultRoot.append(node('p', 'hint', t('仅在主模型未输出任何内容时，才会按顺序尝试备用模型。')));
   }
   function knownBots() {
@@ -345,7 +386,131 @@ export function createModelPage({ api, toast, busy, refresh }) {
         meta: [routeDescription(route), bot.missing ? t('当前 Host 未报告此 Bot；保存时会保留其路由。') : ''], actions: [summarize, edit] }));
     }
   }
-  function render() { renderProviders(); renderProfiles(); renderDefaultRoute(); renderBots(); }
+  function renderAdaptiveRouting() {
+    adaptiveRoot.replaceChildren();
+    if (!config.profiles.length) {
+      adaptiveRoot.append(empty(t('还没有可路由的模型'), t('添加模型档案后，才可配置智能路由。')));
+      return;
+    }
+    const adaptive = config.adaptiveRouting = adaptiveCopy(config.adaptiveRouting);
+    const toggleRow = node('label', 'row'), toggleCopy = node('span', 'row-copy');
+    toggleCopy.append(
+      node('span', 'row-title', t('启用 JEV 自动选模型（按任务难度自动路由）')),
+      node('span', 'row-hint', t('按任务复杂度自动为未单独覆盖的 Bot 选择模型与思考强度；分类器不可用时回退到中等任务规则。')),
+    );
+    const toggle = document.createElement('input');
+    toggle.id = 'adaptive-routing-enabled'; toggle.type = 'checkbox'; toggle.role = 'switch';
+    toggle.checked = adaptive.enabled;
+    toggle.setAttribute('aria-label', t('启用 JEV 自动选模型（按任务难度自动路由）'));
+    toggle.onchange = () => {
+      adaptive.enabled = toggle.checked;
+      markDirty();
+      renderProfiles();
+      renderAdaptiveRouting();
+    };
+    toggleRow.append(toggleCopy, toggle);
+    adaptiveRoot.append(toggleRow);
+    if (!adaptive.enabled) return;
+
+    const keyRow = node('div', 'row'), keyCopy = node('span', 'row-copy'), keyTitle = node('span', 'row-title');
+    keyTitle.append(document.createTextNode(t('JEV API Key')));
+    const keyBadge = badge(t('已配置'), 'success');
+    keyBadge.id = 'jev-api-key-badge';
+    keyBadge.hidden = !(hasJevApiKey || pendingJevApiKey.trim());
+    keyTitle.append(' ', keyBadge);
+    keyCopy.append(keyTitle, node('span', 'row-hint', t('用于调用 JEV 分类器服务（api.typesafe.ai）；留空则保留已保存的密钥。')));
+    const keyInput = document.createElement('input');
+    keyInput.id = 'jev-api-key'; keyInput.type = 'password'; keyInput.autocomplete = 'new-password';
+    keyInput.spellcheck = false; keyInput.dataset.private = '';
+    keyInput.value = pendingJevApiKey;
+    keyInput.placeholder = hasJevApiKey ? t('已保存，留空保留') : t('请输入 JEV API Key');
+    keyInput.setAttribute('aria-label', t('JEV API Key'));
+    keyInput.oninput = () => {
+      pendingJevApiKey = keyInput.value;
+      if (pendingJevApiKey.trim()) clearJevApiKey = false;
+      keyBadge.hidden = !(hasJevApiKey || pendingJevApiKey.trim());
+      markDirty();
+    };
+    keyRow.append(keyCopy, keyInput);
+    adaptiveRoot.append(keyRow);
+
+    const classifierRow = node('div', 'row'), classifierCopy = node('span', 'row-copy');
+    classifierCopy.append(node('span', 'row-title', t('分类器模型')), node('span', 'row-hint', t('默认 jev-latest')));
+    const classifierInput = document.createElement('input');
+    classifierInput.id = 'adaptive-classifier-model'; classifierInput.type = 'text'; classifierInput.spellcheck = false;
+    classifierInput.placeholder = 'jev-latest';
+    classifierInput.value = adaptive.classifierModel;
+    classifierInput.setAttribute('aria-label', t('分类器模型'));
+    classifierInput.oninput = () => {
+      adaptive.classifierModel = classifierInput.value.trim() || 'jev-latest';
+      markDirty();
+    };
+    classifierRow.append(classifierCopy, classifierInput);
+    adaptiveRoot.append(classifierRow);
+
+    const tierDefs = [
+      ['simple', '简单任务（Simple）', '日常问答、翻译、格式整理等简单单步任务'],
+      ['medium', '中等任务（Medium）', '常规编码、调试、对比与多步推理；分类器异常时默认使用此档'],
+      ['complex', '复杂任务（Complex）', '跨模块架构设计、疑难排障、复杂算法与深度分析'],
+    ];
+    for (const [tierKey, title, hint] of tierDefs) {
+      const tier = adaptive.tiers[tierKey];
+      const row = node('div', 'row'), copy = node('span', 'row-copy'), control = node('span', 'row-control wide');
+      copy.append(node('span', 'row-title', t(title)), node('span', 'row-hint', t(hint)));
+      const profileSelect = document.createElement('select'), effortSelect = document.createElement('select');
+      profileSelect.dataset.adaptiveTier = tierKey; profileSelect.dataset.field = 'profileId';
+      effortSelect.dataset.adaptiveTier = tierKey; effortSelect.dataset.field = 'effort';
+      profileSelect.setAttribute('aria-label', t(title));
+      effortSelect.setAttribute('aria-label', `${t(title)} · ${t('思考强度')}`);
+      profileOptions(profileSelect, tier.profileId);
+      adaptiveEffortOptions(effortSelect, tier.profileId, tier.effort);
+      profileSelect.onchange = () => {
+        const nextProfile = profileById(profileSelect.value);
+        tier.profileId = profileSelect.value;
+        tier.effort = adaptiveEffortFor(nextProfile, tier.effort);
+        markDirty();
+        renderProfiles();
+        renderAdaptiveRouting();
+      };
+      effortSelect.onchange = () => {
+        tier.effort = effortSelect.value;
+        markDirty();
+      };
+      control.append(profileSelect, effortSelect);
+      row.append(copy, control);
+      adaptiveRoot.append(row);
+    }
+
+    const testDetails = node('details', 'disclosure'), summary = document.createElement('summary');
+    summary.textContent = t('测试路由');
+    const testBody = node('div', 'disclosure-body'), testRow = node('div', 'inline-field');
+    const taskInput = document.createElement('input');
+    taskInput.id = 'adaptive-test-task'; taskInput.type = 'text'; taskInput.placeholder = t('输入一条任务');
+    taskInput.setAttribute('aria-label', t('任务'));
+    const runTest = node('button', 'btn btn-sm', t('测试分类'));
+    runTest.id = 'adaptive-test-run'; runTest.type = 'button';
+    const testResult = node('p', 'hint'); testResult.id = 'adaptive-test-result'; testResult.hidden = true;
+    runTest.onclick = () => busy(runTest, async () => {
+      const task = taskInput.value.trim();
+      if (!task) throw new Error(t('输入一条任务'));
+      const res = await api('/admin/api/model/classify', { method: 'POST', body: { ...input(), task } });
+      const difficultyLabel = t({ routine: '一般任务', reasoning: '中等任务', expert: '困难任务' }[res.difficulty] ?? res.difficulty);
+      const effortLabel = t(levelLabels[res.effort] ?? res.effort);
+      testResult.className = 'hint';
+      testResult.textContent = `${difficultyLabel} · ${res.profileName ?? res.model} (${res.model}) · ${effortLabel}`;
+      testResult.hidden = false;
+      await routingLog.load();
+    }).catch(error => {
+      testResult.className = 'error';
+      testResult.textContent = error.message;
+      testResult.hidden = false;
+    });
+    testRow.append(taskInput, runTest);
+    testBody.append(testRow, testResult);
+    testDetails.append(summary, testBody);
+    adaptiveRoot.append(testDetails);
+  }
+  function render() { renderProviders(); renderProfiles(); renderDefaultRoute(); renderBots(); renderAdaptiveRouting(); }
 
   function showProvider(entry) {
     const current = entry ? clone(entry) : { id: uid('provider'), name: '', apiFormat: 'openai', baseUrl: '' };
@@ -478,7 +643,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
     try {
       if (legacyAdaptive && !await confirmAction({
         title: t('迁移旧版模型路由？'),
-        message: t('保存后会改为按 Bot 选择模型，旧版按任务难度路由和 Jev 选择将不再生效。'),
+        message: t('保存后会迁移为新版按 Bot 与智能路由（Jev）配置；请确认模型档案和各难度档位设置。'),
         action: t('迁移并保存'),
       })) return;
       const result = await api('/admin/api/model', { method: 'PUT', body: input() });
@@ -499,7 +664,8 @@ export function createModelPage({ api, toast, busy, refresh }) {
       if (!dirty) setConfig(await api('/admin/api/model'));
       if (active) await routingLog.load();
     },
-    reset() { config = emptyRouting(); pendingKeys = new Map(); loaded = false; dirty = false; active = false; agents = [];
+    reset() { config = emptyRouting(); pendingKeys = new Map(); pendingJevApiKey = ''; hasJevApiKey = false; clearJevApiKey = false;
+      loaded = false; dirty = false; active = false; agents = [];
       agentSignature = ''; legacyRouting = false; legacyAdaptive = false; $('#legacy-routing-notice').hidden = true; form.reset(); },
   };
 }

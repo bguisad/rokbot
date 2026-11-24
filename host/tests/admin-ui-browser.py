@@ -108,8 +108,16 @@ class AdminUI(unittest.TestCase):
             'botRoutes': {'demo-bot': {'profileId': 'backup', 'effort': 'high',
                                       'fallbacks': [{'profileId': 'primary', 'effort': 'low'}]}}
                         if configured and self.demo_bot else {},
+            'adaptiveRouting': {
+                'enabled': False, 'classifierModel': 'jev-latest',
+                'tiers': {
+                    'simple': {'profileId': 'primary', 'effort': 'low'},
+                    'medium': {'profileId': 'primary', 'effort': 'default'},
+                    'complex': {'profileId': 'backup', 'effort': 'auto'},
+                },
+            } if configured else {'enabled': False, 'classifierModel': 'jev-latest', 'tiers': None},
             'model': 'demo-model' if configured else '',
-            'configured': configured, 'reload': {'status': 'applied'}, 'hasApiKey': configured,
+            'configured': configured, 'reload': {'status': 'applied'}, 'hasApiKey': configured, 'hasJevApiKey': False,
             'routingMigrated': self.legacy is not None, 'legacyAdaptiveRouting': self.legacy == 'adaptive',
         }
         if key == 'model' and req.method == 'PUT':
@@ -305,7 +313,23 @@ class AdminUI(unittest.TestCase):
         expect(page.locator('#model-default-route')).to_contain_text('Backup profile')
         expect(page.locator('#model-bot-routes')).to_contain_text('Research Bot')
         expect(page.locator('#model-bot-routes')).to_contain_text('Backup profile')
+        expect(page.locator('#model-adaptive-routing')).to_be_visible()
         self.capture('admin-model')
+
+    def test_adaptive_routing_ui_round_trip(self):
+        page = self.start(view='model')
+        toggle = page.locator('#adaptive-routing-enabled')
+        expect(toggle).not_to_be_checked()
+        toggle.check()
+        expect(page.locator('#jev-api-key')).to_be_visible()
+        expect(page.locator('#adaptive-classifier-model')).to_have_value('jev-latest')
+        page.locator('#jev-api-key').fill('jev-demo-key-123')
+        expect(page.locator('#jev-api-key-badge')).to_be_visible()
+        page.locator('select[data-adaptive-tier="complex"][data-field="profileId"]').select_option('backup')
+        page.locator('#model-form button[type=submit]').click()
+        self.assertTrue(self.saved['adaptiveRouting']['enabled'])
+        self.assertEqual(self.saved['adaptiveRouting']['tiers']['complex']['profileId'], 'backup')
+        self.assertEqual(self.saved['jevApiKey'], 'jev-demo-key-123')
 
     def test_legacy_model_migration_mentions_jev_only_for_adaptive_routing(self):
         for legacy in ('single', 'adaptive'):

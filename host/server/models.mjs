@@ -2,7 +2,7 @@ import { catalogContextPolicy, defaultPolicy, effortLevels, parseModelPolicy, va
 import { createModelRouter } from '../runtime/model-router.mjs';
 import { anthropicEndpoint, anthropicHeaders } from '../runtime/anthropic-messages.mjs';
 import { createModelSession } from '../runtime/model-session.mjs';
-import { API_FORMATS, MODEL_ROUTING_ENV, emptyModelRouting, isConfiguredModelRouting, modelRouteForAgent, modelRouteForProfile,
+import { API_FORMATS, MODEL_ROUTING_ENV, defaultAdaptiveRouting, emptyModelRouting, isConfiguredModelRouting, modelRouteForAgent, modelRouteForProfile,
   parseModelRouting, publicModelRouting, validateModelProvider, validateModelRouting } from '../runtime/model-routing.mjs';
 import { recordUsage } from '../runtime/usage-ledger.mjs';
 import { randomUUID } from 'node:crypto';
@@ -271,7 +271,7 @@ export class Models {
     return { routing, jevApiKey: hasJevKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey,
       ...(previous.routingMigrated ? { legacy: { apiFormat, baseUrl, apiKey, model, contextWindowTokens, policy } } : {}) };
   }
-  async validated(input = {}) {
+  async validated(input = {}, { requireJevKey = true } = {}) {
     check(input && typeof input === 'object' && !Array.isArray(input), 400, '模型配置无效');
     const previous = await this.currentOrEmpty();
     const multiProvider = Array.isArray(input.providers) || own(input, 'defaultRoute') || input.version === 1;
@@ -286,7 +286,10 @@ export class Models {
     try { routing = validateModelRouting(input, { previous: previous.routing }); }
     catch (error) { check(false, 400, publicError(error)); }
     const hasJevKey = typeof input.jevApiKey === 'string' && input.jevApiKey.trim().length > 0;
-    return { routing, jevApiKey: hasJevKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey };
+    const clearJevKey = input.clearJevApiKey === true && !hasJevKey;
+    const jevApiKey = clearJevKey ? '' : (hasJevKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey);
+    check(!requireJevKey || !routing.adaptiveRouting?.enabled || Boolean(jevApiKey), 400, '请填写 Jev API Key');
+    return { routing, jevApiKey };
   }
   async write(config) {
     if (config.legacy) {
@@ -333,7 +336,7 @@ export class Models {
     const hasConfig = Array.isArray(input.providers) || own(input, 'defaultRoute') || input.version === 1 || own(input, 'baseUrl') || own(input, 'model') || own(input, 'apiKey');
     const current = hasConfig ? null : await this.currentOrEmpty();
     const config = hasConfig
-      ? await this.validated(input)
+      ? await this.validated(input, { requireJevKey: false })
       : { routing: current.routing, jevApiKey: current.jevApiKey };
     try {
       if (profileId) return { config, route: modelRouteForProfile(config.routing, profileId) };
@@ -387,17 +390,59 @@ export class Models {
         ...catalogContextPolicy(id, capacity) };
     }) };
   }
-  async classify(input) {
-    const current = await this.current();
-    const base = { ...current, ...(input ?? {}) };
+  async classify(input = {}) {
+    check(input && typeof input === 'object' && !Array.isArray(input), 400, '模型配置无效');
+    const task = clean(input.task, '任务', 10000);
+    const current = await this.currentOrEmpty();
+    const hasV1Payload = Array.isArray(input.providers) || own(input, 'defaultRoute') || input.version === 1;
+    let routing = current.routing;
+    let jevApiKey = current.jevApiKey;
+    if (hasV1Payload) {
+      const hasSuppliedJev = typeof input.jevApiKey === 'string' && input.jevApiKey.trim().length > 0;
+      const candidateJev = hasSuppliedJev ? clean(input.jevApiKey, 'Jev API Key', 8192) : current.jevApiKey;
+      check(candidateJev, 400, '请填写 Jev API Key');
+      const validated = await this.validated({
+        ...input,
+        adaptiveRouting: { ...(input.adaptiveRouting ?? {}), enabled: true },
+        jevApiKey: candidateJev,
+      });
+      routing = validated.routing;
+      jevApiKey = validated.jevApiKey;
+    } else if (current.routingMigrated && (own(input, 'baseUrl') || own(input, 'model') || own(input, 'policy'))) {
+      const base = { ...current, ...input };
+      const config = await this.legacyRouting(base, current);
+      routing = config.routing;
+      jevApiKey = config.jevApiKey;
+    } else if (own(input, 'adaptiveRouting') || own(input, 'jevApiKey')) {
+      const hasSuppliedJev = typeof input.jevApiKey === 'string' && input.jevApiKey.trim().length > 0;
+      jevApiKey = hasSuppliedJev ? clean(input.jevApiKey, 'Jev API Key', 8192) : current.jevApiKey;
+      if (own(input, 'adaptiveRouting')) {
+        try {
+          routing = validateModelRouting({ ...current.routing, adaptiveRouting: { ...input.adaptiveRouting, enabled: true } }, { previous: current.routing });
+        } catch (error) { check(false, 400, publicError(error)); }
+      }
+    }
+    check(jevApiKey, 400, '请填写 Jev API Key');
+    if (routing?.providers?.length && routing?.profiles?.length && routing?.defaultRoute) {
+      const adaptive = routing.adaptiveRouting?.tiers
+        ? { ...routing.adaptiveRouting, enabled: true }
+        : defaultAdaptiveRouting(routing, { enabled: true });
+      const testRouting = { ...routing, adaptiveRouting: adaptive };
+      const route = modelRouteForAgent(testRouting);
+      const router = createModelRouter({ ...route, modelRouting: testRouting, jevApiKey,
+        usageDirectory: join(this.dataDir, 'usage'), routingDirectory: join(this.dataDir, 'routing'), routingSource: 'test' });
+      const decision = await router({ messages: [{ role: 'user', content: task }] });
+      const { requestOptions, apiKey, baseUrl, fallbacks, ...result } = decision;
+      return result;
+    }
+    const base = { ...current, ...input };
     const config = await this.legacyRouting(base, current);
     const route = modelRouteForAgent(config.routing);
-    check(config.jevApiKey, 400, '请填写 Jev API Key');
     const policy = { ...compatibilityPolicy(route), mode: 'adaptive' };
     const router = createModelRouter({ ...route, policy, jevApiKey: config.jevApiKey,
       usageDirectory: join(this.dataDir, 'usage'), routingDirectory: join(this.dataDir, 'routing'), routingSource: 'test' });
-    const decision = await router({ messages: [{ role: 'user', content: clean(input.task, '任务', 10000) }] });
-    const { requestOptions, apiKey, baseUrl, ...result } = decision;
+    const decision = await router({ messages: [{ role: 'user', content: task }] });
+    const { requestOptions, apiKey, baseUrl, fallbacks, ...result } = decision;
     return result;
   }
   async test(input = {}) {

@@ -47,7 +47,7 @@ const boxHost = process.env.ROKBOT_BOX_HOST ?? process.env.GROKBOT_BOX_HOST;
 const allowedHosts = boxHost ? [boxHost] : [];
 const notificationUrl = process.env.ROKBOT_NOTIFICATION_URL ?? process.env.GROKBOT_NOTIFICATION_URL;
 if (notificationUrl) allowedHosts.push(new URL(notificationUrl).hostname);
-if (model.policy.mode === 'adaptive') allowedHosts.push('api.typesafe.ai');
+if (model.policy.mode === 'adaptive' || model.modelRouting?.adaptiveRouting?.enabled) allowedHosts.push('api.typesafe.ai');
 installHostNetworkBoundary(model.modelBaseUrls ?? model.baseUrl, { additionalHosts: allowedHosts });
 const require = createRequire(import.meta.url);
 const recovered = (process.env.ROKBOT_RECOVERED_CORE ?? process.env.GROKBOT_RECOVERED_CORE) === '1';

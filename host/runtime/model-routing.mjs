@@ -5,6 +5,9 @@ import { EFFORTS, effortLevels } from './model-policy.mjs';
 
 export const API_FORMATS = Object.freeze(['openai', 'openai-responses', 'anthropic']);
 export const MODEL_ROUTING_ENV = 'ROKBOT_MODEL_ROUTING';
+export const ADAPTIVE_TIERS = Object.freeze(['simple', 'medium', 'complex']);
+export const DIFFICULTY_TO_ADAPTIVE_TIER = Object.freeze({ routine: 'simple', reasoning: 'medium', expert: 'complex' });
+export const ADAPTIVE_TIER_TO_DIFFICULTY = Object.freeze({ simple: 'routine', medium: 'reasoning', complex: 'expert' });
 
 const MAX_PROVIDERS = 32;
 const MAX_PROFILES = 128;
@@ -12,6 +15,7 @@ const MAX_BOT_ROUTES = 512;
 const MAX_FALLBACKS = 8;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const CLASSIFIER_MODEL = /^jev-[a-zA-Z0-9._-]{1,80}$/;
 
 const plainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = message => { throw new TypeError(message); };
@@ -68,9 +72,10 @@ function contextForProfile(value, previous) {
   });
 }
 
-function routeEffort(value, profile) {
+function routeEffort(value, profile, { allowAuto = false } = {}) {
   const effort = value ?? 'default';
-  if (effort !== 'default' && !profile.efforts.includes(effort)) fail(`Unsupported effort for ${profile.id}`);
+  if (effort !== 'default' && !(allowAuto && effort === 'auto') && !profile.efforts.includes(effort))
+    fail(`Unsupported effort for ${profile.id}`);
   return effort;
 }
 
@@ -112,6 +117,49 @@ function normalizeRoute(value, profiles, label) {
   return { profileId, effort, fallbacks };
 }
 
+/** Default adaptive routing template for a v1 routing configuration. */
+export function defaultAdaptiveRouting(config = {}, { enabled = false } = {}) {
+  const profileId = config.defaultRoute?.profileId ?? config.profiles?.[0]?.id;
+  const tiers = profileId
+    ? Object.fromEntries(ADAPTIVE_TIERS.map(tier => [tier, { profileId, effort: 'auto' }]))
+    : null;
+  return {
+    enabled: Boolean(enabled),
+    classifierModel: 'jev-latest',
+    tiers,
+  };
+}
+
+function normalizeAdaptiveRouting(value, profilesById, defaultRoute) {
+  if (value === undefined) return undefined;
+  if (!plainObject(value)) fail('Invalid adaptive routing');
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') fail('Invalid adaptive routing toggle');
+  const enabled = value.enabled === true;
+  const rawClassifier = value.classifierModel ?? 'jev-latest';
+  if (typeof rawClassifier !== 'string') fail('Invalid classifier model');
+  const classifierModel = rawClassifier.trim();
+  if (!CLASSIFIER_MODEL.test(classifierModel)) fail('Invalid classifier model');
+  if (value.tiers === undefined) {
+    if (enabled) fail('Missing adaptive routing tiers');
+    return {
+      enabled: false,
+      classifierModel,
+      tiers: Object.fromEntries(ADAPTIVE_TIERS.map(tier => [tier, { profileId: defaultRoute.profileId, effort: 'auto' }])),
+    };
+  }
+  if (!plainObject(value.tiers)) fail('Invalid adaptive routing tiers');
+  const tiers = {};
+  for (const tier of ADAPTIVE_TIERS) {
+    const entry = value.tiers[tier];
+    if (!plainObject(entry)) fail(`Missing adaptive routing tier: ${tier}`);
+    const profileId = identifier(entry.profileId, `adaptive routing ${tier} profile ID`);
+    const profile = profilesById.get(profileId);
+    if (!profile) fail(`Unknown profile: ${profileId}`);
+    tiers[tier] = { profileId, effort: routeEffort(entry.effort ?? 'auto', profile, { allowAuto: true }) };
+  }
+  return { enabled, classifierModel, tiers };
+}
+
 /** A usable empty draft for a new installation. It is intentionally not a persisted config. */
 export function emptyModelRouting() {
   return { version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {} };
@@ -133,9 +181,19 @@ export function legacyModelRouting(legacy = {}) {
       summaryThresholdTokens: previous?.summaryThresholdTokens ?? 0 }),
   } : null;
   const provider = (baseUrl || apiKey || profile) ? { id: 'default', name: '默认服务', apiFormat, baseUrl, apiKey } : null;
+  const adaptiveRouting = legacy.policy?.mode === 'adaptive' && provider && profile ? {
+    enabled: true,
+    classifierModel: CLASSIFIER_MODEL.test(legacy.policy.classifierModel ?? '') ? legacy.policy.classifierModel : 'jev-latest',
+    tiers: {
+      simple: { profileId: profile.id, effort: legacy.policy.routes?.routine?.effort ?? 'auto' },
+      medium: { profileId: profile.id, effort: legacy.policy.routes?.reasoning?.effort ?? 'auto' },
+      complex: { profileId: profile.id, effort: legacy.policy.routes?.expert?.effort ?? 'auto' },
+    },
+  } : undefined;
   return { version: 1, providers: provider ? [provider] : [], profiles: profile ? [profile] : [],
     defaultRoute: provider && profile ? { profileId: profile.id, effort: legacy.policy?.effort ?? 'default', fallbacks: [] } : null,
-    botRoutes: {} };
+    botRoutes: {},
+    ...(adaptiveRouting ? { adaptiveRouting } : {}) };
 }
 
 /** Parse a persisted JSON routing configuration. Missing JSON means legacy configuration. */
@@ -189,7 +247,9 @@ export function validateModelRouting(input, { previous } = {}) {
     if (!AGENT_ID.test(agentId)) fail('Invalid Bot ID');
     botRoutes[agentId] = normalizeRoute(route, profilesById, `Bot route ${agentId}`);
   }
-  return { version: 1, providers, profiles, defaultRoute, botRoutes };
+  const adaptiveRouting = normalizeAdaptiveRouting(input.adaptiveRouting, profilesById, defaultRoute);
+  return { version: 1, providers, profiles, defaultRoute, botRoutes,
+    ...(adaptiveRouting ? { adaptiveRouting } : {}) };
 }
 
 /** Safe form for administration API responses. */
@@ -200,6 +260,7 @@ export function publicModelRouting(config) {
     profiles: (config.profiles ?? []).map(profile => ({ ...profile, efforts: [...profile.efforts] })),
     defaultRoute: config.defaultRoute ? structuredClone(config.defaultRoute) : null,
     botRoutes: structuredClone(config.botRoutes ?? {}),
+    adaptiveRouting: config.adaptiveRouting ? structuredClone(config.adaptiveRouting) : defaultAdaptiveRouting(config),
   };
 }
 
@@ -249,6 +310,43 @@ export function modelRouteForProfile(config, profileId, { effort = 'default' } =
   if (!profile || !provider) fail(`Unknown profile: ${id}`);
   const route = { profileId: id, effort: routeEffort(effort, profile), fallbacks: [] };
   return { ...candidate(profile, provider, route), fallbacks: [], routeSource: 'profile', ...routeContext([candidate(profile, provider, route)]) };
+}
+
+/** Resolve a JEV adaptive routing tier to a concrete model route, inheriting the base route's fallback chain. */
+export function modelRouteForAdaptiveTier(config, tier, { agentId, resolvedEffort } = {}) {
+  if (!ADAPTIVE_TIERS.includes(tier)) fail(`Unknown adaptive tier: ${tier}`);
+  const profiles = new Map(config.profiles.map(item => [item.id, item]));
+  const providers = new Map(config.providers.map(item => [item.id, item]));
+  const tierConfig = config.adaptiveRouting?.tiers?.[tier];
+  if (!tierConfig) return modelRouteForAgent(config, agentId);
+  const botRoute = agentId && config.botRoutes?.[agentId];
+  const baseRoute = botRoute ?? config.defaultRoute;
+  const resolve = item => {
+    const profile = profiles.get(item.profileId);
+    const provider = profile ? providers.get(profile.providerId) : undefined;
+    if (!profile || !provider) fail(`Invalid configured profile: ${item.profileId}`);
+    return candidate(profile, provider, item);
+  };
+  const primaryProfile = profiles.get(tierConfig.profileId);
+  const primaryProvider = primaryProfile ? providers.get(primaryProfile.providerId) : undefined;
+  if (!primaryProfile || !primaryProvider) fail(`Invalid configured profile: ${tierConfig.profileId}`);
+  const effort = tierConfig.effort === 'auto'
+    ? (resolvedEffort && primaryProfile.efforts.includes(resolvedEffort)
+      ? resolvedEffort
+      : (primaryProfile.efforts.includes('high') ? 'high' : primaryProfile.efforts.at(-1) ?? 'default'))
+    : routeEffort(tierConfig.effort, primaryProfile);
+  const primary = candidate(primaryProfile, primaryProvider, { profileId: primaryProfile.id, effort });
+  const fallbacks = (baseRoute?.fallbacks ?? [])
+    .filter(item => item.profileId !== primaryProfile.id)
+    .map(resolve);
+  return {
+    ...primary,
+    fallbacks,
+    routeSource: 'adaptive',
+    tier,
+    agentId: agentId || undefined,
+    ...routeContext([primary, ...fallbacks]),
+  };
 }
 
 export function isConfiguredModelRouting(config) {

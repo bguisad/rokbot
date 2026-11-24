@@ -101,10 +101,15 @@ export function createInference(config, library, services, { fetchImpl, sessionF
           const agentId = inferenceAgentId(options);
           const route = config.modelRouting ? modelRouteForAgent(config.modelRouting, agentId) : undefined;
           const sessionConfig = route ? { ...config, ...route } : { ...config, ...contextPolicyFor(config, config.model) };
-          const routerConfig = !config.modelRouting && options?.isSummarizationSession && config.policy
-            ? { ...config, policy: { ...config.policy, mode: 'manual' } } : config;
+          const routerConfig = options?.isSummarizationSession
+            ? (config.modelRouting
+              ? (config.modelRouting.adaptiveRouting?.enabled
+                ? { ...config, modelRouting: { ...config.modelRouting, adaptiveRouting: { ...config.modelRouting.adaptiveRouting, enabled: false } } }
+                : config)
+              : (config.policy ? { ...config, policy: { ...config.policy, mode: 'manual' } } : config))
+            : config;
           return sessionFactory({ ...sessionConfig, onRequestId,
-            selectRequest: createModelRouter(routerConfig, { agentId, onDecision: decision => console.info('[model-router]', JSON.stringify(decision)) }),
+            selectRequest: createModelRouter(routerConfig, { agentId, fetchImpl: modelFetch, onDecision: decision => console.info('[model-router]', JSON.stringify(decision)) }),
             onFallback: event => recordRouting(config.routingDirectory, { kind: 'model-fallback', status: 'fallback', agentId,
               session: options?.isSummarizationSession ? 'summary' : 'chat', ...event }),
             onUsage: usage => recordUsage(config.usageDirectory, { ...usage, kind: options?.isSummarizationSession ? 'summary' : 'chat' }),
