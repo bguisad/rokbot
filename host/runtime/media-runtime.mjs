@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { check } from '../server/security.mjs';
@@ -7,6 +9,64 @@ import { createVideoAnalysisSession } from './media-video-session.mjs';
 import { mediaDefaults, mediaModels, describeMediaModels } from '../server/media-settings.mjs';
 import { webDefaults, webRoute } from '../server/web-settings.mjs';
 import { internalMediaClient, remoteMediaServices, remoteWebServices } from './media-client.mjs';
+
+const WEBP_DATA_URL_PREFIX = 'data:image/webp;base64,';
+const MAX_WEBP_JPEG_CACHE = 64;
+const webpJpegCache = new Map();
+
+/** Convert a WebP data URL to JPEG so Electron nativeImage clients (Windows/macOS) can decode previews. */
+export async function transcodeWebpDataUrlToJpeg(dataUrl, { ffmpegPath = 'ffmpeg', timeoutMs = 10_000 } = {}) {
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith(WEBP_DATA_URL_PREFIX)) return null;
+  const cacheKey = createHash('sha256').update(dataUrl).digest('hex');
+  const cached = webpJpegCache.get(cacheKey);
+  if (cached) {
+    webpJpegCache.delete(cacheKey);
+    webpJpegCache.set(cacheKey, cached);
+    return cached;
+  }
+  const input = Buffer.from(dataUrl.slice(WEBP_DATA_URL_PREFIX.length), 'base64');
+  if (input.length === 0) return null;
+  const jpeg = await new Promise((resolve) => {
+    let settled = false;
+    const finish = value => { if (!settled) { settled = true; resolve(value); } };
+    let child;
+    try {
+      child = spawn(ffmpegPath, [
+        '-v', 'error', '-nostdin',
+        '-f', 'webp_pipe', '-i', 'pipe:0',
+        '-frames:v', '1', '-q:v', '3',
+        '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1',
+      ], { stdio: ['pipe', 'pipe', 'ignore'] });
+    } catch {
+      return finish(null);
+    }
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} finish(null); }, timeoutMs);
+    const chunks = [];
+    let total = 0;
+    child.stdout.on('data', chunk => {
+      total += chunk.length;
+      if (total <= 16 * 1024 * 1024) chunks.push(chunk);
+    });
+    child.on('error', () => { clearTimeout(timer); finish(null); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (code !== 0 || total === 0 || total > 16 * 1024 * 1024) return finish(null);
+      const out = Buffer.concat(chunks, total);
+      if (out.length < 3 || out[0] !== 0xff || out[1] !== 0xd8) return finish(null);
+      finish(`data:image/jpeg;base64,${out.toString('base64')}`);
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.end(input);
+  });
+  if (jpeg) {
+    if (webpJpegCache.size >= MAX_WEBP_JPEG_CACHE) {
+      const oldest = webpJpegCache.keys().next().value;
+      if (oldest !== undefined) webpJpegCache.delete(oldest);
+    }
+    webpJpegCache.set(cacheKey, jpeg);
+  }
+  return jpeg;
+}
 
 const snapshot = (directory, filename, fallback) => {
   try { return JSON.parse(readFileSync(join(directory, filename), 'utf8')); }
@@ -39,6 +99,22 @@ export async function createLocalServiceRuntime(directory, { call, local = false
     createVideoSession: (kind, onRequestId) => createVideoAnalysisSession(media, kind, onRequestId),
     decorateAttachments(original) {
       return { ...original,
+        async readImage(args) {
+          const result = await original.readImage(args);
+          if (typeof result?.dataUrl === 'string' && result.dataUrl.startsWith(WEBP_DATA_URL_PREFIX)) {
+            const jpegDataUrl = await transcodeWebpDataUrlToJpeg(result.dataUrl);
+            if (jpegDataUrl) return { ...result, dataUrl: jpegDataUrl };
+            if (args?.rendition && args.rendition !== 'original') {
+              try {
+                const orig = await original.readImage({ ...args, rendition: 'original' });
+                if (typeof orig?.dataUrl === 'string' && !orig.dataUrl.startsWith(WEBP_DATA_URL_PREFIX)) {
+                  return orig;
+                }
+              } catch {}
+            }
+          }
+          return result;
+        },
         createGenerateImageService(options) {
           const service = media.createGenerateImageService(options);
           service.available = () => enabled('image'); service.describeModels = () => describe('image');

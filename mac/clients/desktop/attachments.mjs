@@ -37,7 +37,14 @@ export function createAttachmentMediaResolver({ command, withStaged, nativeImage
         rendition: rendition === 'original' ? 'original' : 'preview' }, AbortSignal.timeout(30000));
     if (!/^data:image\/(png|jpeg|webp|gif);base64,/.test(result?.dataUrl)) throw new Error('Unsupported attachment');
     const image = staged ?? nativeImage.createFromDataURL(result.dataUrl);
-    if (image.isEmpty()) throw new Error('Invalid image attachment');
+    if (image.isEmpty()) {
+      if (/^data:image\/(webp|gif);base64,/.test(result.dataUrl)) {
+        const width = Number.isFinite(result?.width) ? result.width : 0;
+        const height = Number.isFinite(result?.height) ? result.height : 0;
+        return { kind: 'image', src: result.dataUrl, width, height };
+      }
+      throw new Error('Invalid image attachment');
+    }
     const size = image.getSize();
     const width = Number(/^tile-(\d+)$/.exec(rendition ?? '')?.[1]);
     return { kind: 'image', src: width && size.width > width ? image.resize({ width }).toDataURL() : result.dataUrl, ...size };

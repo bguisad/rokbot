@@ -1,9 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
 
 const patchedLibraries = new WeakSet();
+
+const WIDGET_ANSWER_NOTE_RE = /^\[Answering your question [^\n]*\]\r?\n+/;
+
+export function stripLeadingWidgetAnswerNote(text) {
+  const trimmed = String(text ?? '').trim();
+  const stripped = trimmed.replace(WIDGET_ANSWER_NOTE_RE, '').trim();
+  return stripped.length > 0 ? stripped : trimmed;
+}
 
 const VISION_IMAGE_MIME_BY_EXT = {
   '.jpg': 'image/jpeg',
@@ -768,6 +777,7 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
             ? await prepareTurnAttachments(attachmentPaths, { attachmentsExt, hasRemoteBox, options })
             : {};
 
+          const batchId = attachmentPaths.length > 0 ? randomUUID() : undefined;
           for (let i = 0; i < attachmentPaths.length; i++) {
             const filePath = attachmentPaths[i];
             const fileName = typeof attachmentNames[i] === 'string' && attachmentNames[i].trim().length > 0
@@ -780,13 +790,21 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
             try {
               dimensions = await attachmentsExt?.readImageDimensions?.(filePath);
             } catch {}
+            let byteSize;
+            try {
+              const st = statSync(normalizeAttachmentPath(filePath));
+              if (st.isFile()) byteSize = st.size;
+            } catch {}
             persistTranscriptEntry(this.tm, session, {
               kind: 'user-attachment',
               id: attachmentId,
               file_path: filePath,
               ...(fileName ? { file_name: fileName } : {}),
               timestampMs: Date.now(),
+              ...(batchId ? { batchId } : {}),
+              ...(nonce ? { clientNonce: nonce } : {}),
               ...(dimensions && typeof dimensions === 'object' ? dimensions : {}),
+              ...(byteSize != null ? { byteSize } : {}),
             });
           }
 
@@ -798,7 +816,7 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
               kind: 'message',
               id: userEntryId,
               role: 'user',
-              content: trimmed,
+              content: stripLeadingWidgetAnswerNote(trimmed),
               ...(options.richText ? { richText: options.richText } : {}),
               isStreaming: false,
               timestampMs: Date.now(),

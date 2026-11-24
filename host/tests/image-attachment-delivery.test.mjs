@@ -9,7 +9,8 @@ import { pathToFileURL } from 'node:url';
 
 import { createExtensionStarter } from '../runtime/host-extensions.mjs';
 import { syncTurnAttachments } from '../runtime/host-attachments.mjs';
-import { installLocalHarnessBridge, prepareTurnAttachments } from '../runtime/local-harness-bridge.mjs';
+import { installLocalHarnessBridge, prepareTurnAttachments, stripLeadingWidgetAnswerNote } from '../runtime/local-harness-bridge.mjs';
+import { createLocalServiceRuntime } from '../runtime/media-runtime.mjs';
 import { createModelSession } from '../runtime/model-session.mjs';
 import { defaultPolicy } from '../runtime/model-policy.mjs';
 import { loadRecoveredHostCore } from '../runtime/recovered-host-core.mjs';
@@ -171,9 +172,10 @@ test('prepareTurnAttachments and SendPipeline deliver image+text, image-only, mu
   sp.tm = new MockTranscriptManager();
   sp.nextTurnEpoch = () => 1;
 
-  // 1) Image + text
+  // 1) Image + text (verifies clientNonce, batchId, byteSize on user-attachment for mobile dedup)
   await sp.sendPrompt('Check this prescription', {
     agentId: 'bot-1',
+    clientNonce: 'nonce-rx-1',
     attachmentPaths: [img1Path],
     attachmentNames: ['rx.jpg'],
   });
@@ -182,17 +184,61 @@ test('prepareTurnAttachments and SendPipeline deliver image+text, image-only, mu
   assert.equal(runnerCalls[0].options.selectedImages.length, 1);
   assert.equal(runnerCalls[0].options.selectedImages[0].mimeType, 'image/jpeg');
   assert.deepEqual(Buffer.from(runnerCalls[0].options.selectedImages[0].data), TINY_JPG);
-  assert.equal(db.entries.some(e => e.kind === 'user-attachment' && e.file_name === 'rx.jpg'), true);
+  const rxAtt = db.entries.find(e => e.kind === 'user-attachment' && e.file_name === 'rx.jpg');
+  assert.ok(rxAtt, 'user-attachment must be persisted');
+  assert.equal(rxAtt.clientNonce, 'nonce-rx-1');
+  assert.equal(typeof rxAtt.batchId, 'string');
+  assert.equal(rxAtt.byteSize, TINY_JPG.length);
 
-  // 2) Pure image-only (empty prompt) with multiple images
+  // 2) Pure image-only (empty prompt) with multiple images sharing one batchId and clientNonce
   await sp.sendPrompt('', {
     agentId: 'bot-1',
+    clientNonce: 'nonce-multi-2',
     attachmentPaths: [img1Path, img2Path],
   });
   assert.equal(runnerCalls.length, 2);
   assert.equal(runnerCalls[1].prompt, '');
   assert.equal(runnerCalls[1].options.selectedImages.length, 2);
+  const multiAtts = db.entries.filter(e => e.kind === 'user-attachment' && e.clientNonce === 'nonce-multi-2');
+  assert.equal(multiAtts.length, 2);
+  assert.equal(multiAtts[0].batchId, multiAtts[1].batchId);
   assert.equal(db.entries.some(e => e.kind === 'send-message' && e.message?.content === 'saw 2 images'), true);
+
+  // 3) Widget answer prompt strips [Answering your question ...] from stored transcript while preserving full prompt for model
+  const widgetPrompt = '[Answering your question t75s6: "要不要真发一封重置邮件验证发信？"]\n用这个账号发一封试试：';
+  await sp.sendPrompt(widgetPrompt, { agentId: 'bot-1', clientNonce: 'nonce-widget-3' });
+  assert.equal(runnerCalls.length, 3);
+  assert.equal(runnerCalls[2].prompt, widgetPrompt);
+  const widgetUserEntry = db.entries.find(e => e.kind === 'message' && e.clientNonce === 'nonce-widget-3');
+  assert.equal(widgetUserEntry?.content, '用这个账号发一封试试：');
+});
+
+test('stripLeadingWidgetAnswerNote strips only leading widget answer note', () => {
+  assert.equal(
+    stripLeadingWidgetAnswerNote('[Answering your question t75s6: "Confirm?"]\nYes, proceed'),
+    'Yes, proceed',
+  );
+  assert.equal(stripLeadingWidgetAnswerNote('Normal message'), 'Normal message');
+  assert.equal(
+    stripLeadingWidgetAnswerNote('[Answering your question t75s6: "Only note"]'),
+    '[Answering your question t75s6: "Only note"]',
+  );
+});
+
+test('decorateAttachments.readImage avoids WebP preview failures on Electron clients', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-media-webp-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const services = await createLocalServiceRuntime(dir, { local: true });
+  const fakeWebpDataUrl = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA=';
+  const origJpegDataUrl = `data:image/jpeg;base64,${TINY_JPG.toString('base64')}`;
+  const decorated = services.decorateAttachments({
+    async readImage({ rendition }) {
+      if (rendition === 'preview') return { dataUrl: fakeWebpDataUrl, width: 10, height: 10, scale: 1 };
+      return { dataUrl: origJpegDataUrl, width: 10, height: 10 };
+    },
+  });
+  const res = await decorated.readImage({ path: '/tmp/test.jpg', rendition: 'preview' });
+  assert.ok(res?.dataUrl?.startsWith('data:image/jpeg;base64,'), `expected JPEG dataUrl, got ${res?.dataUrl?.slice(0, 40)}`);
 });
 
 test('syncTurnAttachments handles missing remoteBox, upload failures, symlinks, and macOS realpath roots safely', async t => {
