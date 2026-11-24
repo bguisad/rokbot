@@ -24,7 +24,7 @@ export const RENDERER_PATCHES = {
     {
       file: 'assets/index.eager-app-DodVIpEt.js',
       input: 'windows-recipe',
-      sha256: 'a42a6f96dea6331c4f873f61d4b4c4295043e0efc26986199f8ec14d55916a36',
+      sha256: '0d957cca39d5682a12894220d504e507db80306a7d07df6ee140cd004d8ad3bf',
       edits: [
         ['function kE(e){return e.windowWidth>=Nrt(e.sidebar,280)}', 'function kE(e){return!0}'],
         ['function Prt(e){return Math.max(0,Nrt(e.sidebar,280)-e.windowWidth)}', 'function Prt(e){return 0}'],

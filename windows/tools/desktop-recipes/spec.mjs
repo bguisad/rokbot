@@ -175,7 +175,7 @@ export function specForTarget(target = 'windows') {
       { replace: '(0,$.jsx)(Un,{children:(0,$.jsx)(Y,{id:`NFRGrQ`})})', text: 'null' },
       { replace: '(0,$.jsx)(it,{as:`span`,color:`tertiary`,level:`body2`,children:h})]}):null', text: 'null]}):null' },
       { replace: 'children:[l,f,p,m,b,x,h,g,_,v,y,S,C,w,T,E]',
-        text: 'children:[l,f,(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
+        text: 'children:[l,f,(0,$.jsx)(RokListArrangementSettings,{}),(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
       { append: extension('general-pane.js') },
     ]),
 
@@ -262,7 +262,16 @@ export function specForTarget(target = 'windows') {
         text: 'openAfterUserFirstGrace(){this.cancelUserFirstOpen()}' },
       { replace: 'resumption:{enabled:!0}', text: 'resumption:{enabled:!1}' },
       { append: `\nconst ROK_LIBRARY_CHUNK = './${chunks.library}';\nconst ROK_GENERAL_PANE_CHUNK = './${chunks.generalPane}';\n` },
+      // Session list arrangement: "activity" ranks Bots on their last message in the groups
+      // waiting on you / unread / read (extensions/list-arrangement.js). The generated groups
+      // are sections the user cannot rename or delete, and open cards also mark a row.
+      { replace: 'let{visibleAgents:ie,hiddenAgents:ae}=re,oe;',
+        text: 'let{visibleAgents:ie,hiddenAgents:ae}=re,oe;({visibleAgents:ie,sidebarSections:A,setSectionCollapsed:P,editSections:j}=RokUseArrangedSidebar({visibleAgents:ie,sidebarSections:A,setSectionCollapsed:P,editSections:j}));' },
+      { replace: 'isSynthetic:e.id===ile,', text: 'isSynthetic:e.id===ile||rokListIsGroupId(e.id),' },
+      { replace: 'function V_t(e,t){let n=null;return e.awaitingUserResponse==null?',
+        text: 'function V_t(e,t){let n=null;return e.awaitingUserResponse==null&&e.pendingAction==null?' },
       { append: extension('eager-app.js') },
+      { append: extension('list-arrangement.js') },
     ]),
 
     // The render-trace hook installs a React DevTools stub for the vendor's render sampling.
