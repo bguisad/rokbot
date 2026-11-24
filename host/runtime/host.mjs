@@ -15,6 +15,7 @@ import { decorateLocalSharingApi } from './sharing-import.mjs';
 import { installLocalPromptPolicy } from './prompt-runtime.mjs';
 import { summarizeAgent } from './host-summarize.mjs';
 import { installModelRejectionGuard } from './model-rejection-guard.mjs';
+import { preserveGatewayReplyFields } from './local-harness-bridge.mjs';
 
 const stateDir = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
 const originalDir = process.env.ROKBOT_ORIGINAL_HOST ?? process.env.GROKBOT_ORIGINAL_HOST ?? '/research/original-host';
@@ -113,7 +114,7 @@ try {
     return host.requireHostExtensions().api('mcp').applicationRpc(args);
   };
   gateway = await library.startGatewayServer({
-    api: decorateLocalSharingApi({ api: { ...withLibraryCleanup(host.getApi(), host, library), localApplicationRpc }, host }), subscribe: listener => host.subscribe(listener),
+    api: decorateLocalSharingApi({ api: { ...preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), localApplicationRpc }, host }), subscribe: listener => host.subscribe(listener),
     getHealth: () => host.getHealth(), startedAt: host.startedAt,
     host: process.env.ROKBOT_HOST_BIND ?? process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.ROKBOT_HOST_PORT ?? process.env.GROKBOT_HOST_PORT ?? 1340),
     ...(internalToken ? { authToken: internalToken } : {}),
