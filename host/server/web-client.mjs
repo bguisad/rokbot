@@ -9,10 +9,18 @@
 //   Host's own origin. Bundle files are plain GETs and carry Cross-Origin-Resource-Policy.
 // - Upload replaces the whole bundle at once: it is checked against its own manifest, unpacked
 //   beside the current one and swapped in by renaming.
+// - A Host image built with `build-docker.py --web-source <Setup.exe>` carries a bundle of its
+//   own (web-bundle/web.zip, or ROKBOT_WEB_BUNDLE). It is installed the same way whenever no
+//   uploaded bundle is there, and replaced when a newer image brings a different one; a bundle
+//   the administrator uploaded always takes precedence over it.
+// - The web client is on unless the administrator turned it off. web-client.json written before
+//   this had `enabled: false` from its defaults or from deleting the bundle; only `enabled: false`
+//   with a bundle installed (which needs the switch) counts as turned off (adminDisabled).
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gzip as gzipCallback, inflateRawSync } from 'node:zlib';
 import { JsonStore } from './storage.mjs';
@@ -37,6 +45,19 @@ const TYPES = {
 const COMPRESSIBLE = new Set(['html', 'js', 'mjs', 'css', 'json', 'map', 'svg', 'txt', 'wasm']);
 const extension = name => /\.([a-z0-9]+)$/i.exec(name)?.[1].toLowerCase() ?? '';
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
+/** The bundle a Host image carries; ROKBOT_WEB_BUNDLE overrides it, empty or `none` turns it off. */
+export function builtinBundlePath(env = process.env) {
+  const value = env.ROKBOT_WEB_BUNDLE;
+  if (value !== undefined) return value.trim() && value.trim() !== 'none' ? value.trim() : null;
+  return fileURLToPath(new URL('../web-bundle/web.zip', import.meta.url));
+}
+
+/** True only when the administrator turned the web client off; see the header for older files. */
+export function adminDisabled(state) {
+  if (typeof state?.disabled === 'boolean') return state.disabled;
+  return state?.enabled === false && Boolean(state.installedAt);
+}
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   for (let i = 0; i < 8; i++) n = n & 1 ? 0xedb88320 ^ n >>> 1 : n >>> 1;
@@ -114,13 +135,15 @@ export function verifyBundle(entries) {
 }
 
 export class WebClient {
-  constructor(dataDir, { auth } = {}) {
+  constructor(dataDir, { auth, builtin = builtinBundlePath() } = {}) {
     this.root = join(dataDir, 'web-client');
     this.auth = auth;
-    this.store = new JsonStore(join(dataDir, 'web-client.json'), { version: 1, enabled: false, installedAt: null });
+    this.store = new JsonStore(join(dataDir, 'web-client.json'), { version: 1, installedAt: null });
     this.index = null;
     this.manifest = null;
     this.installing = Promise.resolve();
+    this.builtinFile = builtin;
+    this.builtin = null;
   }
   async load() {
     await this.store.load();
@@ -129,7 +152,37 @@ export class WebClient {
     for (const name of leftovers.filter(name => /^(stage|previous)-[0-9a-f]{12}$/.test(name)))
       await rm(join(this.root, name), { recursive: true, force: true });
     await this.readCurrent();
+    // Unpacking the image's own bundle takes a few seconds; the Host starts meanwhile.
+    this.builtin = await this.readBuiltin();
+    if (this.builtin && this.builtinNeeded()) this.installing = this.installing.then(() => this.installBuiltin());
     return this;
+  }
+  async readBuiltin() {
+    if (!this.builtinFile) return null;
+    try {
+      const bytes = await readFile(this.builtinFile);
+      return { file: this.builtinFile, sha256: sha256(bytes), bytes: bytes.length };
+    } catch (error) {
+      if (error.code !== 'ENOENT') console.error(`[web-client] built-in bundle unreadable: ${error.code ?? error.name}`);
+      return null;
+    }
+  }
+  /** No bundle at all, or the image's bundle changed since it was installed; an upload stays. */
+  builtinNeeded() {
+    const state = this.store.value;
+    if (!this.installed) return true;
+    return state.source === 'builtin' && state.builtinSha256 !== this.builtin.sha256;
+  }
+  async installBuiltin() {
+    if (!this.builtin || !this.builtinNeeded()) return;
+    try {
+      const bytes = await readFile(this.builtin.file);
+      const digest = sha256(bytes);
+      await this.replace(bytes, { source: 'builtin', builtinSha256: digest });
+      console.log(`[web-client] using the bundle built into this Host image (${this.manifest?.rendererVersion}, ${digest.slice(0, 12)})`);
+    } catch (error) {
+      console.error(`[web-client] built-in bundle not installed: ${error.message}`);
+    }
   }
   async readCurrent() {
     this.index = null; this.manifest = null;
@@ -145,22 +198,26 @@ export class WebClient {
     this.index = new Map(Object.entries(manifest.files).filter(([name]) => bundlePath(name)));
   }
   get installed() { return Boolean(this.index); }
-  get available() { return this.installed && this.store.value.enabled === true; }
+  get enabled() { return !adminDisabled(this.store.value); }
+  get available() { return this.installed && this.enabled; }
+  /** Where the installed bundle came from: an administrator's upload or the Host image. */
+  get source() { return this.installed ? (this.store.value.source === 'builtin' ? 'builtin' : 'upload') : null; }
   status() {
     const manifest = this.manifest;
     return {
-      installed: this.installed, enabled: this.store.value.enabled === true, available: this.available,
+      installed: this.installed, enabled: this.enabled, available: this.available,
+      source: this.source, builtin: Boolean(this.builtin),
       installedAt: this.installed ? this.store.value.installedAt : null,
       rendererVersion: manifest?.rendererVersion ?? null, recommended: manifest?.recommended ?? null, builtAt: manifest?.builtAt ?? null,
       files: this.index?.size ?? 0, bytes: [...(this.index?.values() ?? [])].reduce((sum, item) => sum + (item.bytes ?? 0), 0),
     };
   }
   install(bytes) {
-    const work = this.installing.then(() => this.replace(bytes));
+    const work = this.installing.then(() => this.replace(bytes, { source: 'upload' }));
     this.installing = work.catch(() => {});
     return work;
   }
-  async replace(bytes) {
+  async replace(bytes, { source = 'upload', builtinSha256 = null } = {}) {
     const entries = readBundleZip(bytes);
     const manifest = verifyBundle(entries);
     entries.delete('web-bundle.json');
@@ -187,25 +244,31 @@ export class WebClient {
       await rm(stage, { recursive: true, force: true });
       await rm(previous, { recursive: true, force: true });
     }
-    // The first installation turns the web client on; a later one keeps the administrator's choice.
+    // Installing keeps the administrator's choice; `enabled` stays for an older Host after a rollback.
     await this.store.mutate(state => {
-      if (!state.installedAt) state.enabled = true;
-      state.installedAt = new Date().toISOString();
+      const disabled = adminDisabled(state);
+      Object.assign(state, { disabled, enabled: !disabled, installedAt: new Date().toISOString(), source, builtinSha256 });
     });
     await this.readCurrent();
     return this.status();
   }
   async setEnabled(enabled) {
     check(typeof enabled === 'boolean', 400, '启用状态无效');
-    check(!enabled || this.installed, 409, '请先上传网页版界面包');
-    await this.store.mutate(state => { state.enabled = enabled; });
+    check(!enabled || this.installed || this.builtin, 409, '请先上传网页版界面包');
+    await this.store.mutate(state => { state.disabled = !enabled; state.enabled = enabled; });
     return this.status();
   }
+  /** Deletes an uploaded bundle; the image's own bundle, if any, takes its place. */
   async remove() {
     await this.installing;
+    check(this.source !== 'builtin', 409, '内置界面包不能删除；不想使用网页版时请关闭「启用网页版」');
     this.index = null; this.manifest = null;
     await rm(join(this.root, 'current'), { recursive: true, force: true });
-    await this.store.mutate(state => { state.enabled = false; state.installedAt = null; });
+    await this.store.mutate(state => {
+      const disabled = adminDisabled(state);
+      Object.assign(state, { disabled, enabled: !disabled, installedAt: null, source: null, builtinSha256: null });
+    });
+    if (this.builtin) await (this.installing = this.installing.then(() => this.installBuiltin()));
     return this.status();
   }
 

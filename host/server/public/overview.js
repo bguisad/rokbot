@@ -4,6 +4,8 @@ import { icon } from './icons.js';
 import { groups } from './navigation.js';
 import { blink, createGaze } from './face.js';
 import { createCrew } from './crew.js';
+import { formatCount, formatExactCount, withRequestUnit } from './usage-format.js';
+import { attachUsageTooltip, renderUsageTree, usageView } from './usage-charts.js';
 
 // Each summary reads its page's endpoint and returns [text, on] for the overview row.
 const enabled = value => [value ? t('{0} 项已启用', value) : t('未配置'), value > 0];
@@ -51,6 +53,11 @@ export function createOverview({ api, status: current }) {
       <div id="bot-crew" class="crew"></div>
     </section>
     <section id="attention" class="section" hidden><div class="section-head"><h2 class="section-title">待处理</h2></div><div id="attention-list" class="card"></div></section>
+    <section id="usage" class="section usage" aria-labelledby="usage-title" hidden>
+      <div class="section-head"><h2 id="usage-title" class="section-title">按模型用量</h2>
+        <div id="usage-periods" class="chips" role="radiogroup" aria-label="时间段"></div></div>
+      <div id="usage-view"></div>
+    </section>
     <div id="overview-groups" class="overview-grid"></div>`);
   const values = new Map(), crew = createCrew($('#bot-crew'), $('#hero-host'));
   for (const group of groups.filter(group => group.title)) {
@@ -103,16 +110,56 @@ export function createOverview({ api, status: current }) {
     $('#hero-host').hidden = $('#bot-crew').hidden = $('#hero-usage').hidden = $('#attention').hidden = true;
     for (const [view, [paths]] of Object.entries(summaries)) if (!paths) show(view, ['—', false]);
   }
+  // Short counts everywhere; the exact number on hover (title) and on a long press.
+  function count(value, wrap = text => text) {
+    const text = wrap(formatCount(value, locale)), exact = wrap(formatExactCount(value, locale));
+    const element = node('span', 'usage-count', text);
+    element.title = formatExactCount(value, locale); element.dataset.exact = element.title; element.tabIndex = 0;
+    let timer = null;
+    const flip = () => { element.textContent = element.textContent === exact ? text : exact; };
+    element.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'mouse') timer = setTimeout(() => { timer = null; flip(); }, 450);
+    });
+    for (const name of ['pointerup', 'pointerleave', 'pointercancel']) element.addEventListener(name, () => clearTimeout(timer));
+    element.addEventListener('contextmenu', event => { if (event.pointerType !== 'mouse') event.preventDefault(); });
+    element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); flip(); } });
+    return element;
+  }
+  const PERIODS = { today: '今天', '7d': '近 7 天', '30d': '近 30 天' };
+  let usageData = null, usagePeriod = 'today', usageTips = [], usageWidth = 0;
+  // Cards, columns per hour or day, share per model and the table (usage-charts.js).
+  function renderUsage() {
+    const periods = usageData?.periods ?? [];
+    const period = periods.find(item => item.id === usagePeriod) ?? periods[0];
+    $('#usage').hidden = !period;
+    if (!period) return;
+    $('#usage-periods').replaceChildren(...periods.map(item => {
+      const label = node('label', 'chip'), input = node('input'), text = node('span', '', t(PERIODS[item.id] ?? item.id));
+      input.type = 'radio'; input.name = 'usage-period'; input.value = item.id; input.checked = item.id === period.id;
+      input.addEventListener('change', () => { usagePeriod = item.id; renderUsage(); });
+      label.append(input, text); return label;
+    }));
+    const container = $('#usage-view');
+    usageWidth = container.clientWidth;
+    const view = usageView(usageData, period.id, { locale, width: usageWidth || 600 });
+    usageTips = view.tips;
+    container.replaceChildren(...(view.tree ? [renderUsageTree(view.tree, (value, unit) => count(value, unit === 'requests'
+      ? text => withRequestUnit(text, value, locale) : undefined))] : []));
+  }
+  attachUsageTooltip($('#usage-view'), () => usageTips, locale);
+  new ResizeObserver(() => { if (usageData && $('#usage-view').clientWidth !== usageWidth) renderUsage(); }).observe($('#usage-view'));
   async function loadUsage() {
     const usage = await api(`/admin/api/usage?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
-    const compact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
-    $('#hero-usage').textContent = usage.requests
-      ? t('今天 {0} Token，{1} 次请求', compact.format(usage.total), usage.requests)
-      : t('今天还没有模型请求');
+    const hero = $('#hero-usage');
+    if (usage.requests) {
+      const [before, middle, after] = t('今天 {0} Token，{1} 次请求', '\u0000', '\u0001').split(/\u0000|\u0001/);
+      hero.replaceChildren(before, count(usage.total), middle, count(usage.requests), after);
+    } else hero.textContent = t('今天还没有模型请求');
+    usageData = usage; renderUsage();
   }
   async function load() {
     const state = current(); if (state) render(state);
-    await Promise.all([loadUsage().catch(() => { $('#hero-usage').textContent = ''; }),
+    await Promise.all([loadUsage().catch(() => { $('#hero-usage').textContent = ''; $('#usage').hidden = true; }),
       ...Object.entries(summaries).filter(([, [paths]]) => paths).map(async ([view, [paths, summarize]]) => {
         try { show(view, summarize(await Promise.all(paths.map(path => api(path))), state)); }
         catch { show(view, ['—', false]); }

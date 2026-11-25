@@ -50,7 +50,13 @@ async function realHostHarness(t, { env: extraEnv = {} } = {}) {
   };
   const parentPrompts = [];
   const subagentPrompts = [];
+  const toolResults = [];
   const hanging = new Set();
+  const slow = new Set();
+  const releaseSlow = () => {
+    for (const res of slow) say(res, 'SUBTASK_RESULT: the slow answer is 43');
+    slow.clear();
+  };
   let calls = 0;
   const llm = createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -73,14 +79,20 @@ async function realHostHarness(t, { env: extraEnv = {} } = {}) {
       return;
     }
     // A subagent conversation starts from the Task prompt; the parent's history always holds DISPATCH_.
-    const isParent = users.some((text) => /DISPATCH_(OK|FAIL|HANG)/.test(text));
-    const subTask = isParent ? undefined : users.find((text) => /SUBTASK_(OK|FAIL|HANG)/.test(text));
+    const isParent = users.some((text) => /DISPATCH_(OK|FAIL|HANG|SLOW)/.test(text));
+    const subTask = isParent ? undefined : users.find((text) => /SUBTASK_(OK|FAIL|HANG|SLOW)/.test(text));
     if (subTask) {
       subagentPrompts.push(subTask);
       if (subTask.includes('SUBTASK_FAIL')) {
         res.writeHead(400, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'subagent model rejected the request', type: 'invalid_request_error' } }));
         return;
+      }
+      if (subTask.includes('SUBTASK_SLOW')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        slow.add(res);
+        res.on('close', () => slow.delete(res));
+        return; // answers when the test calls releaseSlow()
       }
       if (subTask.includes('SUBTASK_HANG')) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -95,12 +107,18 @@ async function realHostHarness(t, { env: extraEnv = {} } = {}) {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const text = textOf(lastUser);
     if (answered) {
+      for (const m of messages.slice(messages.lastIndexOf(lastUser) + 1)) if (m?.role === 'tool') toolResults.push(textOf(m));
       say(res, 'Done.');
       return;
     }
     parentPrompts.push(text);
+    const check = text.includes('GROK_BOT_HIDDEN_PROMPT') ? null : text.match(/CHECK_SUBAGENT (sand-subagent-[0-9a-f-]+)/);
+    if (check) {
+      toolCall(res, 'CallDynamicTool', { namespace: 'cursor', toolName: 'CheckSubagent', arguments: { id: check[1] } }, `call_${calls}`);
+      return;
+    }
     // Host wake prompts quote earlier prompts; only a user message dispatches.
-    const dispatch = text.includes('GROK_BOT_HIDDEN_PROMPT') ? null : text.match(/DISPATCH_(OK|FAIL|HANG)/);
+    const dispatch = text.includes('GROK_BOT_HIDDEN_PROMPT') ? null : text.match(/DISPATCH_(OK|FAIL|HANG|SLOW)/);
     if (dispatch) {
       toolCall(res, 'CallDynamicTool', {
         namespace: 'cursor',
@@ -114,6 +132,7 @@ async function realHostHarness(t, { env: extraEnv = {} } = {}) {
   await new Promise((r) => llm.listen(0, '127.0.0.1', r));
   t.after(() => new Promise((r) => {
     for (const res of hanging) res.destroy();
+    for (const res of slow) res.destroy();
     llm.closeAllConnections?.();
     llm.close(r);
   }));
@@ -159,7 +178,7 @@ async function realHostHarness(t, { env: extraEnv = {} } = {}) {
     return host;
   };
   const wakeFile = join(stateDir, 'host-data', 'host-pending-wakes.json');
-  return { startHost, parentPrompts, subagentPrompts, hanging, wakeFile, stateDir };
+  return { startHost, parentPrompts, subagentPrompts, toolResults, hanging, slow, releaseSlow, wakeFile, stateDir };
 }
 
 async function sentTexts(api, agentId) {
@@ -261,6 +280,51 @@ if (configuredSeed) {
       await waitFor(async () => (await sentTexts(api, agentId)).some((text) => /^REPORT:/.test(text ?? '')), { what: 'bot reports after restart' });
     } finally {
       await second.dispose();
+    }
+  });
+
+  // 梦 app, 2026-11-25 21:49 (+08): the bot was not the open one, so its session retired when the
+  // dispatching turn ended. The next turn got a new runner, CheckSubagent answered "No subagent ...
+  // is currently running", and the bot re-dispatched the task while the original kept running.
+  test('real 2bb5e41 Host keeps a background subagent visible to its bot after the dispatching turn ends while another bot is open', async (t) => {
+    const h = await realHostHarness(t, { env: { ROKBOT_SUBAGENT_STALL_MS: '0', ROKBOT_DEFERRED_RETIRE_POLL_MS: '100' } });
+    const { existsSync } = await import('node:fs');
+    const host = await h.startHost();
+    try {
+      const api = host.getApi();
+      const dream = (await api.createAgent({ name: '梦 app', description: 'dispatcher' })).agent.id;
+      const other = (await api.createAgent({ name: 'other', description: 'the bot the user has open' })).agent.id;
+
+      await api.sendPrompt({ agentId: dream, prompt: 'DISPATCH_SLOW please', clientNonce: 'slow-1' });
+      await waitFor(() => h.slow.size > 0, { what: 'slow subagent running' });
+      await host.transcript.runLifecycle.drainExclusiveRuns(dream);
+      // The user switches to another bot: 2bb5e41 retires the previous bot's session right away.
+      await api.openAgent({ id: other });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.notEqual(host.transcript.sessions.activeSession?.id, dream);
+
+      const runner = host.transcript.runnerRegistry.peekRunner(dream);
+      assert.ok(runner, 'the bot keeps its runner while its background subagent runs');
+      const [running] = runner.listRunningSubagents();
+      assert.ok(running, 'the bot\'s current runner still lists the subagent');
+      const id = running.subagentId;
+      assert.match(id, /^sand-subagent-/);
+
+      await api.sendPrompt({ agentId: dream, prompt: `CHECK_SUBAGENT ${id}`, clientNonce: 'check-1' });
+      const result = await waitFor(() => h.toolResults.find((text) => text.includes(id) || /No subagent/.test(text)), { what: 'CheckSubagent result' });
+      assert.doesNotMatch(result, /No subagent/, `CheckSubagent from a later turn must see the running task, got: ${result}`);
+      await host.transcript.runLifecycle.drainExclusiveRuns(dream);
+      // Back to the other bot before the result arrives, so the idle retirement is exercised again.
+      await api.openAgent({ id: other });
+
+      h.releaseSlow();
+      const wake = await waitFor(() => h.parentPrompts.find((text) => text.includes('SUBTASK_RESULT: the slow answer is 43')), { what: 'completion wake' });
+      assert.match(wake, new RegExp(id));
+      await waitFor(() => !existsSync(h.wakeFile), { what: 'pending wakes consumed' });
+      // With the work done, the deferred retirement goes through: the idle bot is closed again.
+      await waitFor(() => host.transcript.runnerRegistry.peekRunner(dream) === undefined, { what: 'idle session retired after the background work' });
+    } finally {
+      await host.dispose();
     }
   });
 }

@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('localBot', {
   disconnect: () => ipcRenderer.invoke('rokbot-local:disconnect'),
   getLocalStatus: () => ipcRenderer.invoke('rokbot-local:local-status'),
   getModelConfig: () => ipcRenderer.invoke('rokbot-local:model-get'),
+  getUsage: payload => ipcRenderer.invoke('rokbot-local:usage', payload),
   updateModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-put', payload),
   fetchModelCatalog: payload => ipcRenderer.invoke('rokbot-local:model-catalog', payload),
   testModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-test', payload),

@@ -41,20 +41,21 @@ export function createWebClientPage({ api, toast, busy, refresh, copy }) {
         <span class="row-control auto"><code id="web-client-url" class="row-value" data-private></code><button id="web-client-copy" class="icon-btn" type="button" aria-label="复制网页地址">${icon('copy')}</button></span></div>
     </div><p id="web-client-insecure" class="row-hint web-client-warning" hidden>当前 Host 地址是 http。网页版可以使用，但语音输入、麦克风和浏览器通知需要 https；在公网使用时请配置 https。</p></section>
     <section class="section"><div class="section-head"><h2 class="section-title">界面包</h2></div><div class="card">
-      <div class="row"><span class="row-copy"><span class="row-title">上传界面包</span><span class="row-hint">在电脑上运行 node web/patchers/patch.mjs，生成 web/output/RokBotLocal-web-1.1.0.zip 后上传。界面取自你自己下载的官方 Windows 安装包，只保存在这台 Host 上，未登录的访问者拿不到。</span></span>
+      <div class="row"><span class="row-copy"><span class="row-title">上传界面包</span><span class="row-hint">在电脑上运行 node web/patchers/patch.mjs，生成 web/output/RokBotLocal-web-1.2.3.zip 后上传。界面取自你自己下载的官方 Windows 安装包，只保存在这台 Host 上，未登录的访问者拿不到。上传的界面包优先于 Host 镜像内置的界面包。</span></span>
         <span class="row-control auto"><input id="web-client-file" type="file" accept=".zip,application/zip" hidden /><button id="web-client-upload" class="btn" type="button">选择文件并上传</button></span></div>
-      <div class="row"><span class="row-copy"><span class="row-title">删除界面包</span><span class="row-hint">网页版随之停用；已登录的浏览器仍列在「设备与通知」里，可在那里撤销</span></span><button id="web-client-remove" class="btn btn-danger" type="button" disabled>删除</button></div>
+      <div class="row"><span class="row-copy"><span class="row-title">删除界面包</span><span class="row-hint">删除上传的界面包；Host 镜像内置了界面包时改用内置的，否则网页版无法使用。已登录的浏览器仍列在「设备与通知」里，可在那里撤销</span></span><button id="web-client-remove" class="btn btn-danger" type="button" disabled>删除</button></div>
     </div></section>`);
   let origin = location.origin;
 
   function render(value) {
     const toggle = $('#web-client-enabled');
-    toggle.checked = value.enabled; toggle.disabled = !value.installed;
-    $('#web-client-bundle').textContent = value.installed
-      ? t('界面 {0} · {1} 个文件 · {2} MB · 上传于 {3}', value.rendererVersion, value.files, (value.bytes / MiB).toFixed(1), date(value.installedAt))
-      : t('未上传');
+    toggle.checked = value.enabled; toggle.disabled = !value.installed && !value.builtin;
+    $('#web-client-bundle').textContent = !value.installed ? (value.builtin ? t('正在安装 Host 内置的界面包') : t('未上传'))
+      : value.source === 'builtin'
+        ? t('界面 {0} · {1} 个文件 · {2} MB · Host 内置', value.rendererVersion, value.files, (value.bytes / MiB).toFixed(1))
+        : t('界面 {0} · {1} 个文件 · {2} MB · 上传于 {3}', value.rendererVersion, value.files, (value.bytes / MiB).toFixed(1), date(value.installedAt));
     $('#web-client-open').disabled = !value.available;
-    $('#web-client-remove').disabled = !value.installed;
+    $('#web-client-remove').disabled = !value.installed || value.source === 'builtin';
     $('#web-client-url').textContent = `${origin}/web/`;
     const host = new URL(origin);
     $('#web-client-insecure').hidden = host.protocol !== 'http:' || ['localhost', '127.0.0.1', '[::1]'].includes(host.hostname);
@@ -83,7 +84,7 @@ export function createWebClientPage({ api, toast, busy, refresh, copy }) {
     });
   };
   $('#web-client-remove').onclick = () => busy($('#web-client-remove'), async () => {
-    if (!await confirmAction({ title: t('删除网页版界面包？'), message: t('网页版会停用。之后要使用，需要重新上传界面包。'), action: t('删除') })) return;
+    if (!await confirmAction({ title: t('删除网页版界面包？'), message: t('删除后，Host 镜像内置了界面包时改用内置的；否则网页版停用，之后要使用需要重新上传界面包。'), action: t('删除') })) return;
     try { render(await api('/admin/api/web-client', { method: 'DELETE' })); toast(t('网页版界面包已删除')); }
     catch (error) { toast(error.message, true); }
   });

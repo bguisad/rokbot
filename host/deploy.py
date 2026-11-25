@@ -165,7 +165,8 @@ def build(args, image):
     cmd = [sys.executable, str(RELEASE / 'build-docker.py'), '--image', image]
     if args.host_only:
         cmd.append('--host-only')
-    for flag, path in [('host-archive', args.host_archive), ('box-archive', args.box_archive)]:
+    for flag, path in [('host-archive', args.host_archive), ('box-archive', args.box_archive),
+                       ('web-source', getattr(args, 'web_source', None)), ('web-bundle', getattr(args, 'web_bundle', None))]:
         if path is not None:
             cmd.extend(['--' + flag, str(path.resolve(strict=True))])
     run(cmd)
@@ -447,6 +448,9 @@ def main(argv=None):
         if cmd in ('up', 'update'):
             command.add_argument('--host-archive', type=Path, help='Use a previously downloaded pinned Host archive')
             command.add_argument('--box-archive', type=Path, help='Use a previously saved pinned desktop image')
+            web = command.add_mutually_exclusive_group()
+            web.add_argument('--web-source', type=Path, help='Build the web client bundle from this official Windows installer into the local-only image')
+            web.add_argument('--web-bundle', type=Path, help='Build this web client bundle ZIP into the local-only image')
     admin = sub.add_parser('admin', help='Run the bundled admin CLI; pass secrets via environment only')
     admin.add_argument('arguments', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv); home = args.home.expanduser().resolve()

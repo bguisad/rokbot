@@ -1,0 +1,106 @@
+/* Usage charts (usage-charts.js) on the admin overview and in the desktop / web settings.
+   Both pages define the --sand-* tokens; the dark theme is data-theme="dark" on the admin page
+   and data-theme="cursor-dark" in the desktop renderer. Series colours: validated categorical
+   order, stepped separately for each theme. Text never takes a series colour. */
+.rok-usage-view {
+  --rok-usage-c1: #2a78d6; --rok-usage-c2: #eb6834; --rok-usage-c3: #1baf7a; --rok-usage-c4: #eda100;
+  --rok-usage-c5: #e87ba4; --rok-usage-c6: #008300; --rok-usage-c7: #6250d6; --rok-usage-c0: #a9a8a2;
+  --rok-usage-ink: var(--sand-text-primary, #1c1c1c);
+  --rok-usage-ink-2: var(--sand-text-secondary, #1c1c1cad);
+  --rok-usage-ink-3: var(--sand-text-tertiary, #1c1c1c8f);
+  --rok-usage-line: var(--sand-border-tertiary-translucent, #1c1c1c14);
+  --rok-usage-axis: var(--sand-border-secondary-translucent, #1c1c1c1f);
+  --rok-usage-surface: var(--sand-bg-elevated, #fff);
+  --rok-usage-wash: var(--sand-bg-quaternary, #1c1c1c0a);
+  --rok-usage-tip: var(--sand-bg-elevated, #fff);
+  display: grid; gap: 14px; min-width: 0; container-type: inline-size; color: var(--rok-usage-ink); font-variant-numeric: tabular-nums;
+}
+:root[data-theme="dark"] .rok-usage-view, :root[data-theme="cursor-dark"] .rok-usage-view, .theme-dark .rok-usage-view {
+  --rok-usage-c1: #3987e5; --rok-usage-c2: #d95926; --rok-usage-c3: #199e70; --rok-usage-c4: #c98500;
+  --rok-usage-c5: #d55181; --rok-usage-c6: #008300; --rok-usage-c7: #9085e9; --rok-usage-c0: #6b6a65;
+  --rok-usage-surface: var(--sand-bg-elevated, #1f1f1f);
+  --rok-usage-tip: var(--sand-bg-elevated-hover, #2c2c2c);
+}
+.rok-usage-s0 { fill: var(--rok-usage-c0); background: var(--rok-usage-c0); }
+.rok-usage-s1 { fill: var(--rok-usage-c1); background: var(--rok-usage-c1); }
+.rok-usage-s2 { fill: var(--rok-usage-c2); background: var(--rok-usage-c2); }
+.rok-usage-s3 { fill: var(--rok-usage-c3); background: var(--rok-usage-c3); }
+.rok-usage-s4 { fill: var(--rok-usage-c4); background: var(--rok-usage-c4); }
+.rok-usage-s5 { fill: var(--rok-usage-c5); background: var(--rok-usage-c5); }
+.rok-usage-s6 { fill: var(--rok-usage-c6); background: var(--rok-usage-c6); }
+.rok-usage-s7 { fill: var(--rok-usage-c7); background: var(--rok-usage-c7); }
+
+/* Summary cards: five across when they fit, otherwise as many as fit. */
+.rok-usage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+.rok-usage-card { display: grid; gap: 4px; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--rok-usage-surface);
+  box-shadow: 0 0 0 0.5px var(--rok-usage-axis), 0 1px 2px var(--sand-shadow-card, #1c1c1c09); }
+.rok-usage-card-label { color: var(--rok-usage-ink-2); font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rok-usage-card-value { display: flex; align-items: baseline; gap: 4px; min-width: 0; font-size: 22px; line-height: 28px; font-weight: 600;
+  letter-spacing: -0.02em; font-variant-numeric: normal; white-space: nowrap; }
+.rok-usage-rate { cursor: help; border-radius: 3px; }
+
+.rok-usage-block { display: grid; gap: 10px; min-width: 0; padding: 14px 16px 16px; border-radius: 12px; background: var(--rok-usage-surface);
+  box-shadow: 0 0 0 0.5px var(--rok-usage-axis), 0 1px 2px var(--sand-shadow-card, #1c1c1c09); }
+.rok-usage-block-title { margin: 0; color: var(--rok-usage-ink-2); font-size: 12px; line-height: 16px; font-weight: 500; }
+.rok-usage-empty { margin: 0; padding: 24px 16px; border-radius: 12px; background: var(--rok-usage-surface); color: var(--rok-usage-ink-3); text-align: center; font-size: 13px;
+  box-shadow: 0 0 0 0.5px var(--rok-usage-axis); }
+
+/* Stacked columns. */
+.rok-usage-chart { position: relative; min-width: 0; }
+.rok-usage-svg { display: block; max-width: 100%; height: auto; overflow: visible; border-radius: 4px; }
+.rok-usage-svg:focus-visible { outline: 2px solid var(--sand-border-focus-primary, #1e86fc); outline-offset: 4px; }
+.rok-usage-grid { stroke: var(--rok-usage-line); stroke-width: 1; }
+.rok-usage-axis { stroke: var(--rok-usage-axis); stroke-width: 1; }
+.rok-usage-tick { fill: var(--rok-usage-ink-3); font-size: 11px; font-family: inherit; }
+.rok-usage-tick-y { text-anchor: end; }
+.rok-usage-tick-x { text-anchor: middle; }
+.rok-usage-hit { fill: transparent; }
+.rok-usage-col { cursor: default; transition: opacity 120ms; }
+.rok-usage-col[data-active] .rok-usage-hit { fill: var(--rok-usage-wash); }
+.rok-usage-chart[data-active] .rok-usage-col:not([data-active]) .rok-usage-seg { opacity: 0.45; }
+.rok-usage-tip { position: absolute; top: 0; z-index: 2; display: grid; gap: 3px; min-width: 150px; max-width: min(280px, 100%); padding: 8px 10px;
+  border-radius: 8px; background: var(--rok-usage-tip); color: var(--rok-usage-ink); font-size: 12px; line-height: 16px; pointer-events: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 14%, transparent), 0 6px 20px #0000001f; }
+:root[data-theme="dark"] .rok-usage-tip, :root[data-theme="cursor-dark"] .rok-usage-tip, .theme-dark .rok-usage-tip { box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent), 0 8px 24px #00000080; }
+.rok-usage-tip-title { color: var(--rok-usage-ink-2); font-weight: 500; }
+.rok-usage-tip-total, .rok-usage-tip-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rok-usage-tip-total { padding-bottom: 3px; margin-bottom: 1px; border-bottom: 0.5px solid var(--rok-usage-axis); }
+.rok-usage-tip strong { font-weight: 600; white-space: nowrap; }
+.rok-usage-tip span { color: var(--rok-usage-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rok-usage-key { flex: none; width: 10px; height: 2px; border-radius: 1px; }
+
+/* Share per model: the legend of the columns, with a bar per model. */
+.rok-usage-share { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rok-usage-share-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(60px, 2fr) auto; align-items: center; gap: 12px; font-size: 13px; line-height: 18px; }
+.rok-usage-share-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rok-usage-share-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size: 12px; }
+.rok-usage-swatch { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.rok-usage-share-bar { display: block; height: 8px; border-radius: 4px; background: var(--rok-usage-wash); overflow: hidden; }
+.rok-usage-share-bar i { display: block; height: 100%; border-radius: 4px; }
+.rok-usage-share-value { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; min-width: 96px; color: var(--rok-usage-ink-2); white-space: nowrap; }
+.rok-usage-share-value strong { color: var(--rok-usage-ink); font-weight: 600; }
+
+/* Details: scrolls sideways on narrow screens; the model column stays in view. */
+.rok-usage-table-wrap { overflow-x: auto; margin: 0 -16px -16px; padding: 0 16px 12px; }
+.rok-usage-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; white-space: nowrap; }
+.rok-usage-table th, .rok-usage-table td { padding: 8px 0 8px 16px; text-align: right; border-bottom: 0.5px solid var(--rok-usage-line); }
+.rok-usage-table thead th { color: var(--rok-usage-ink-3); font-size: 12px; font-weight: 500; }
+.rok-usage-table tbody tr:last-child th, .rok-usage-table tbody tr:last-child td { border-bottom: 0; }
+.rok-usage-table tfoot th, .rok-usage-table tfoot td { border-top: 0.5px solid var(--rok-usage-axis); border-bottom: 0; font-weight: 600; }
+.rok-usage-table .rok-usage-table-model { position: sticky; left: 0; z-index: 1; padding-left: 0; text-align: left; background: var(--rok-usage-surface); max-width: 260px; }
+.rok-usage-table tbody .rok-usage-table-model { font-weight: 400; }
+.rok-usage-table-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size: 12px; }
+.rok-usage-table-name span { overflow: hidden; text-overflow: ellipsis; }
+
+/* By the width of the usage view itself (the settings pane is narrower than the window). */
+@container (max-width: 520px) {
+  .rok-usage-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rok-usage-cards > :first-child { grid-column: 1 / -1; }
+  .rok-usage-block { padding: 12px 12px 14px; }
+  .rok-usage-table-wrap { margin: 0 -12px -14px; padding: 0 12px 10px; }
+  .rok-usage-share-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+  .rok-usage-share-bar { grid-column: 1 / -1; grid-row: 2; }
+  .rok-usage-table-name { max-width: 150px; }
+}
+@media (prefers-reduced-motion: reduce) { .rok-usage-col { transition: none; } }
+@media (forced-colors: active) { .rok-usage-seg, .rok-usage-swatch, .rok-usage-share-bar i { forced-color-adjust: none; } }

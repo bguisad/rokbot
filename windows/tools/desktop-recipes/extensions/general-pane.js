@@ -126,6 +126,25 @@ function GrokRealtimeVoiceSettings() {
   }) });
 }
 
+// Settings > General > Chat list: the session list arrangement of this client
+// (stored by the app module, extensions/list-arrangement.js).
+function rokListSettingsStore() {
+  return globalThis.__rokListArrangement ?? null;
+}
+const rokListNoStore = { subscribe: () => () => {}, getSnapshot: () => ({ mode: 'default', collapsed: [] }) };
+function RokListArrangementSettings() {
+  const store = rokListSettingsStore() ?? rokListNoStore;
+  const state = Q.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const label = grokText('按最后消息时间排列', 'Sort by last message');
+  const description = grokText('最新消息在前，分为「待处理」「未读」「已读」三组；关闭后恢复默认排列。',
+    'Newest message first, grouped into Needs attention, Unread and Read. Turn off for the default order.');
+  return $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('会话列表', 'Chat list'), children: $.jsx(X, {
+    anchorId: null, label, description, variant: 'card',
+    children: $.jsx(gn, { isChecked: state.mode === 'activity', isDisabled: store === rokListNoStore, label,
+      onToggle: () => store.setMode?.(state.mode === 'activity' ? 'default' : 'activity'), size: 'md' }),
+  }) });
+}
+
 const ROK_MODEL_FORMATS = [
   ['openai', 'OpenAI Chat Completions'],
   ['openai-responses', 'OpenAI Responses'],
@@ -1501,6 +1520,91 @@ function RokModelSettings() {
   });
 }
 
+// Settings > General > Usage: the Host's token usage (GET /local/usage) for today, the last 7
+// and the last 30 days: summary cards, tokens per hour or day stacked by model, the share per
+// model and a table. The charts come from rok-usage-charts.js (the admin page's usage-charts.js)
+// as a tree that becomes JSX here; counts are short (rok-usage-format.js) with the exact number
+// on hover and on a long press (or Enter) on touch screens.
+const rokUsageStyles = `
+.rok-usage-periods{display:inline-flex;gap:4px;padding:2px;border-radius:999px;background:color-mix(in srgb,currentColor 6%,transparent)}
+.rok-usage-periods button{border:0;background:none;color:inherit;font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:999px;cursor:pointer;opacity:.65}
+.rok-usage-periods button[aria-checked=true]{background:var(--sand-bg-elevated,#fff);opacity:1;box-shadow:0 1px 2px #0000001f}
+.rok-usage-periods button:focus-visible{outline:2px solid currentColor;outline-offset:1px}
+.rok-usage-count{cursor:help;-webkit-touch-callout:none;user-select:none;border-radius:3px}
+.rok-usage-count:focus-visible{outline:2px solid currentColor;outline-offset:1px}
+.rok-usage-host{min-width:0}
+`;
+function RokUsageCount({ value, wrap }) {
+  const locale = grokText('zh-CN', 'en'), [exact, setExact] = Q.useState(false), timer = Q.useRef(null);
+  const short = rokFormatCount(value, locale), full = rokFormatExactCount(value, locale);
+  const shown = exact ? full : short;
+  const flip = () => setExact(current => !current);
+  const stop = () => { clearTimeout(timer.current); timer.current = null; };
+  Q.useEffect(() => stop, []);
+  return $.jsx('span', {
+    className: 'rok-usage-count', title: full, 'data-exact': full, tabIndex: 0,
+    onPointerDown: event => { if (event.pointerType !== 'mouse') { stop(); timer.current = setTimeout(() => { timer.current = null; flip(); }, 450); } },
+    onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop,
+    onContextMenu: event => { if (event.nativeEvent?.pointerType !== 'mouse') event.preventDefault(); },
+    onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); flip(); } },
+    children: wrap ? wrap(shown) : shown,
+  });
+}
+// One rok-usage-charts.js tree node as JSX; { count } nodes become RokUsageCount.
+function rokUsageJsx(node, key) {
+  if (typeof node === 'string' || typeof node === 'number') return node;
+  if ('count' in node) {
+    const value = node.count;
+    return $.jsx(RokUsageCount, { value, wrap: node.unit === 'requests' ? text => rokWithRequestUnit(text, value, grokText('zh-CN', 'en')) : undefined }, key);
+  }
+  const props = {};
+  for (const [name, value] of Object.entries(node.attrs)) props[name === 'class' ? 'className' : name === 'tabindex' ? 'tabIndex' : name] = value;
+  props.children = node.children.map((child, index) => rokUsageJsx(child, index));
+  return $.jsx(node.tag, props, key);
+}
+function RokUsageCharts({ usage, period }) {
+  const box = Q.useRef(null), tips = Q.useRef([]), [width, setWidth] = Q.useState(0), locale = grokText('zh-CN', 'en');
+  Q.useEffect(() => {
+    const element = box.current;
+    if (!element || typeof ResizeObserver !== 'function') return undefined;
+    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    observer.observe(element); setWidth(element.clientWidth);
+    const detach = rokAttachUsageTooltip(element, () => tips.current, locale);
+    return () => { observer.disconnect(); detach(); };
+  }, []);
+  const view = rokUsageView(usage, period, { locale, width: width || 600 });
+  tips.current = view.tips;
+  return $.jsx('div', { className: 'rok-usage-host', ref: box, children: view.tree ? rokUsageJsx(view.tree, 'view') : null });
+}
+const ROK_USAGE_PERIODS = [['today', '今天', 'Today'], ['7d', '近 7 天', '7 days'], ['30d', '近 30 天', '30 days']];
+function RokUsageSettings() {
+  const [usage, setUsage] = Q.useState(null), [failed, setFailed] = Q.useState(false), [period, setPeriod] = Q.useState('today');
+  const api = globalThis.window?.localBot;
+  Q.useEffect(() => {
+    if (typeof api?.getUsage !== 'function') return undefined;
+    let alive = true;
+    const load = () => api.getUsage({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+      .then(value => { if (!alive) return; if (value?.ok === false || !Array.isArray(value?.periods)) setFailed(true); else { setUsage(value); setFailed(false); } })
+      .catch(() => { if (alive) setFailed(true); });
+    void load();
+    const release = typeof api.onConnectionChanged === 'function' ? api.onConnectionChanged(() => void load()) : () => {};
+    return () => { alive = false; try { release?.(); } catch {} };
+  }, []);
+  if (typeof api?.getUsage !== 'function') return null;
+  const current = usage?.periods?.find(item => item.id === period) ?? usage?.periods?.[0] ?? null;
+  const tabs = $.jsx('div', { className: 'rok-usage-periods', role: 'radiogroup', 'aria-label': grokText('时间段', 'Period'),
+    children: ROK_USAGE_PERIODS.filter(([id]) => !usage || usage.periods.some(item => item.id === id)).map(([id, zh, en]) => $.jsx('button', {
+      type: 'button', role: 'radio', 'aria-checked': (current?.id ?? period) === id ? 'true' : 'false', onClick: () => setPeriod(id), children: grokText(zh, en),
+    }, id)) });
+  const rows = current
+    ? [$.jsx(RokUsageCharts, { usage, period: current.id }, 'charts')]
+    : [$.jsx(X, { anchorId: null, variant: 'card', label: failed ? grokText('无法读取用量', 'Could not load usage') : grokText('正在读取…', 'Loading…'), description: null }, 'state')];
+  return $.jsxs($.Fragment, { children: [
+    $.jsx('style', { children: rokUsageStyles + ROK_USAGE_CHART_CSS }),
+    $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('用量', 'Usage'), titleAccessory: tabs, children: rows }),
+  ] });
+}
+
 function GrokHostConnection() {
   const [open, setOpen] = Q.useState(false), [server, setServer] = Q.useState(''), [key, setKey] = Q.useState('');
   const [editing, setEditing] = Q.useState(false), [tailcat, setTailcat] = Q.useState(false);
@@ -1601,4 +1705,4 @@ function GrokHostConnection() {
             variant: 'primary', children: busy ? grokText('正在连接…', 'Connecting…') : editing ? grokText('保存', 'Save') : grokText('连接', 'Connect') })] })] })] }) : null,
   ] });
 }
-export { RokModelConfigModal };
+export { RokModelConfigModal, RokUsageSettings };

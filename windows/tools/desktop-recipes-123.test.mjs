@@ -81,8 +81,31 @@ for (const target of ['windows', 'mac']) {
     const generalEntry = committed.find(({ entry }) => entry.path.endsWith(meta.chunks.generalPane));
     assert.ok(generalEntry);
     const generalAdded = addedBytes(generalEntry.recipe).toString('utf8');
-    assert.match(generalAdded, /export \{ RokModelConfigModal \}/);
+    assert.match(generalAdded, /export \{ RokModelConfigModal, RokUsageSettings \}/);
     assert.match(generalAdded, /RokModelSettings/);
+    assert.match(generalAdded, /\(0,\$\.jsx\)\(RokListArrangementSettings,\{\}\)/);
+    assert.match(generalAdded, /function RokListArrangementSettings\(/);
+    // Settings > General lists the Host's usage per model right after the chat models.
+    assert.ok(generalAdded.startsWith("import { grokText } from './grok-local-i18n.js';\n"
+      + "import { formatCount as rokFormatCount, formatExactCount as rokFormatExactCount, withRequestUnit as rokWithRequestUnit } from './rok-usage-format.js';\n"
+      + "import { usageView as rokUsageView, attachUsageTooltip as rokAttachUsageTooltip, ROK_USAGE_CHART_CSS } from './rok-usage-charts.js';\n"));
+    assert.match(generalAdded, /\(0,\$\.jsx\)\(RokModelSettings,\{\}\),\(0,\$\.jsx\)\(RokUsageSettings,\{\}\),\(0,\$\.jsx\)\(GrokRealtimeVoiceSettings,\{\}\)/);
+    // The settings format counts with the admin page's own file, unchanged.
+    const formatEntry = committed.find(({ entry }) => entry.path === 'dist/renderer/assets/rok-usage-format.js');
+    assert.ok(formatEntry);
+    assert.equal(formatEntry.entry.source, null);
+    assert.equal(formatEntry.entry.newFile, true);
+    assert.deepEqual(addedBytes(formatEntry.recipe), await readFile(new URL('../../host/server/public/usage-format.js', import.meta.url)));
+    // The charts: the admin page's usage-charts.js importing the renderer's formatter, plus its CSS.
+    const chartsEntry = committed.find(({ entry }) => entry.path === 'dist/renderer/assets/rok-usage-charts.js');
+    assert.ok(chartsEntry);
+    assert.equal(chartsEntry.entry.source, null);
+    assert.equal(chartsEntry.entry.newFile, true);
+    const chartsAdded = addedBytes(chartsEntry.recipe).toString('utf8');
+    const chartsSource = await readFile(new URL('../../host/server/public/usage-charts.js', import.meta.url), 'utf8');
+    const chartsCss = await readFile(new URL('../../host/server/public/usage-charts.css', import.meta.url), 'utf8');
+    assert.equal(chartsAdded, chartsSource.replace("from './usage-format.js';", "from './rok-usage-format.js';") + `\nexport const ROK_USAGE_CHART_CSS = ${JSON.stringify(chartsCss)};\n`);
+    assert.ok(!chartsAdded.includes("'./usage-format.js'"));
 
     const eagerEntry = committed.find(({ entry }) => entry.path.endsWith(meta.chunks.eagerApp));
     assert.ok(eagerEntry);
@@ -90,6 +113,18 @@ for (const target of ['windows', 'mac']) {
     assert.match(eagerAdded, /RokNeedsModelBanner/);
     assert.match(eagerAdded, /RokModelConfigHost/);
     assert.match(eagerAdded, /rokbot-local:model-config-request/);
+    // Session list arrangement: the sidebar hook, generated groups and the pending-card marker.
+    assert.match(eagerAdded, /RokUseArrangedSidebar\(\{visibleAgents:ie,sidebarSections:A,setSectionCollapsed:P,editSections:j\}\)/);
+    assert.match(eagerAdded, /rokListIsGroupId\(e\.id\)/);
+    assert.match(eagerAdded, /e\.pendingAction==null/);
+    assert.match(eagerAdded, /function rokArrangeAgents\(/);
+    // The wind chime toggle left of Search, and generated groups without menu or drag.
+    assert.match(eagerAdded, /\(0,Z\.jsx\)\(RokListModeButton,\{\}\),/);
+    assert.match(eagerAdded, /function RokListModeButton\(/);
+    assert.match(eagerAdded, /function RokWindChimeGlyph\(/);
+    assert.match(eagerAdded, /rokListIsGroupId\(n\.id\)\?null:/);
+    assert.match(eagerAdded, /disabled:rokListIsGroupId\(n\.id\)/);
+    assert.match(eagerAdded, /\|\|rokListIsGroupId\(n\.id\)/);
   });
 }
 

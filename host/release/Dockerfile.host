@@ -6,8 +6,13 @@ RUN python3 release/patch-host.py --archive /inputs/host.tgz --output /generated
 
 FROM ${RUNTIME_IMAGE}
 ARG HOST_REVISION
+ARG WEB_BUNDLE_SHA256=
 WORKDIR /opt/rokbot
 COPY --from=patch /opt/rokbot /opt/rokbot
+# The web client bundle (build-docker.py --web-source/--web-bundle); empty unless asked for.
+# It holds the official interface: such an image is local-only (see web-client.mjs).
+COPY web/ web-bundle/
+LABEL dev.rokbot.web-bundle-sha256=${WEB_BUNDLE_SHA256}
 COPY --from=patch /generated/original artifacts/host-${HOST_REVISION}/sand-host/
 COPY --from=patch /generated/seed seed/
 ENV NODE_PATH=/opt/sand/deps:/opt/rokbot/artifacts/host-${HOST_REVISION}/sand-host/node_modules:/opt/sand/sand-host/node_modules:/exec-daemon/node_modules \
