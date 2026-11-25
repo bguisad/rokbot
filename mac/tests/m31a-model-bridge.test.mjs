@@ -89,6 +89,7 @@ test('preload.cjs exposes all window.localBot methods including /local/status an
     'updateModelConfig',
     'fetchModelCatalog',
     'testModelConfig',
+    'getUsage',
   ]) {
     assert.ok(name in api, `missing window.localBot.${name}`);
   }
@@ -98,6 +99,7 @@ test('preload.cjs exposes all window.localBot methods including /local/status an
   api.updateModelConfig({ defaultRoute: { profileId: 'p1' } });
   api.fetchModelCatalog({ providerId: 'prov1' });
   api.testModelConfig({ profileId: 'p1' });
+  api.getUsage({ timeZone: 'Asia/Shanghai' });
 
   assert.deepEqual(invoked, [
     { channel: 'rokbot-local:local-status', arg: undefined },
@@ -105,6 +107,7 @@ test('preload.cjs exposes all window.localBot methods including /local/status an
     { channel: 'rokbot-local:model-put', arg: { defaultRoute: { profileId: 'p1' } } },
     { channel: 'rokbot-local:model-catalog', arg: { providerId: 'prov1' } },
     { channel: 'rokbot-local:model-test', arg: { profileId: 'p1' } },
+    { channel: 'rokbot-local:usage', arg: { timeZone: 'Asia/Shanghai' } },
   ]);
 });
 
@@ -201,6 +204,11 @@ test('model-bridge + gateway handle 200, 401 without revoking valid device, 403,
       res.end(JSON.stringify({ ok: true, models: [{ id: 'gpt-5', efforts: ['low', 'high'] }] }));
       return;
     }
+    if (req.url.startsWith('/local/usage?') && req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ date: '2026-11-25', total: 12345, models: [{ model: 'gpt-5', total: 12345 }], periods: [] }));
+      return;
+    }
     if (req.url === '/local/model/test' && req.method === 'POST') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true, model: 'gpt-5', message: 'OK' }));
@@ -271,6 +279,18 @@ test('model-bridge + gateway handle 200, 401 without revoking valid device, 403,
   assert.equal(testRes.reply, 'OK');
   assert.equal(typeof testRes.latencyMs, 'number');
   assert.ok(testRes.latencyMs >= 0);
+
+  // GET /local/usage carries the time zone; an invalid one falls back to this computer's.
+  const usageRes = await bridge.getUsage({ timeZone: 'Asia/Shanghai' });
+  assert.equal(usageRes.ok, true);
+  assert.equal(usageRes.models[0].model, 'gpt-5');
+  assert.equal(requests.at(-1).url, '/local/usage?timeZone=Asia%2FShanghai');
+  assert.equal(requests.at(-1).auth, 'Bearer device-token-123');
+  await bridge.getUsage({ timeZone: 'Not/AZone' });
+  assert.equal(requests.at(-1).url, `/local/usage?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
+  connected = false;
+  assert.equal((await bridge.getUsage()).status, 503);
+  connected = true;
 
   // extraHeaders in gateway.request cannot clobber Authorization or Content-Type
   await gw.request('/local/status', undefined, undefined, 'GET', {

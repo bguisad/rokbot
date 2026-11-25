@@ -4,10 +4,10 @@
 //   node web/tests/fixture-host.mjs <RokBotLocal-web-*.zip>
 //
 // Prints one JSON line {origin, control, password} and runs until stdin closes. The control
-// address creates pairing codes, publishes notifications, reports what the core received and
-// replaces the demo Bots and conversation (/scene) for documentation screenshots.
+// address creates pairing codes, publishes notifications, reports what the core received,
+// replaces the demo Bots and conversation (/scene) and adds usage rows (/usage) for documentation screenshots.
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -92,6 +92,14 @@ const core = http.createServer(async (request, response) => {
       if (scene.entries) entries = scene.entries;
       if (scene.displayName) await host.profile.save({ displayName: scene.displayName, avatarDataUrl: null });
       return json(response, { ok: true });
+    }
+    // Usage ledger rows (host/runtime/usage-ledger.mjs) for the usage screenshots.
+    if (path === '/__control/usage') {
+      const { rows = [] } = await body(request);
+      await mkdir(join(dataDir, 'usage'), { recursive: true });
+      const days = Map.groupBy(rows, row => row.at.slice(0, 10));
+      for (const [day, group] of days) await appendFile(join(dataDir, 'usage', `${day}.jsonl`), group.map(row => JSON.stringify(row) + '\n').join(''));
+      return json(response, { ok: true, rows: rows.length });
     }
     if (path === '/__control/notify') return json(response, await host.notifications.publish(await body(request)));
     if (path === '/__control/web-client') {

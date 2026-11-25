@@ -81,8 +81,17 @@ for (const target of ['windows', 'mac']) {
     const generalEntry = committed.find(({ entry }) => entry.path.endsWith(meta.chunks.generalPane));
     assert.ok(generalEntry);
     const generalAdded = addedBytes(generalEntry.recipe).toString('utf8');
-    assert.match(generalAdded, /export \{ RokModelConfigModal \}/);
+    assert.match(generalAdded, /export \{ RokModelConfigModal, RokUsageSettings \}/);
     assert.match(generalAdded, /RokModelSettings/);
+    // Settings > General lists the Host's usage per model right after the chat models.
+    assert.ok(generalAdded.startsWith("import { grokText } from './grok-local-i18n.js';\nimport { formatCount as rokFormatCount, formatExactCount as rokFormatExactCount, formatTokens as rokFormatTokens, withRequestUnit as rokWithRequestUnit } from './rok-usage-format.js';\n"));
+    assert.match(generalAdded, /\(0,\$\.jsx\)\(RokModelSettings,\{\}\),\(0,\$\.jsx\)\(RokUsageSettings,\{\}\),\(0,\$\.jsx\)\(GrokRealtimeVoiceSettings,\{\}\)/);
+    // The settings format counts with the admin page's own file, unchanged.
+    const formatEntry = committed.find(({ entry }) => entry.path === 'dist/renderer/assets/rok-usage-format.js');
+    assert.ok(formatEntry);
+    assert.equal(formatEntry.entry.source, null);
+    assert.equal(formatEntry.entry.newFile, true);
+    assert.deepEqual(addedBytes(formatEntry.recipe), await readFile(new URL('../../host/server/public/usage-format.js', import.meta.url)));
 
     const eagerEntry = committed.find(({ entry }) => entry.path.endsWith(meta.chunks.eagerApp));
     assert.ok(eagerEntry);

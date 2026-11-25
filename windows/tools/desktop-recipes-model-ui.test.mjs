@@ -379,6 +379,9 @@ async function loadExtensionsInVm(harness, localBot) {
   const uvSrc = (await readFile(new URL('update-view.js', extDir), 'utf8')).replaceAll('import.meta.url', moduleUrlLiteral);
   const libSrc = (await readFile(new URL('library.js', extDir), 'utf8')).replace(/export \{[^}]+\};?/g, '');
   const compSrc = (await readFile(new URL('computer-view.js', extDir), 'utf8'));
+  // rok-usage-format.js in the renderer is the admin page's formatter (spec.mjs), imported under rok* names.
+  const usageFormatSrc = (await readFile(new URL('../../host/server/public/usage-format.js', import.meta.url), 'utf8')).replace(/^export /gm, '')
+    + '\nvar rokFormatCount = formatCount, rokFormatExactCount = formatExactCount, rokFormatTokens = formatTokens, rokWithRequestUnit = withRequestUnit;\n';
 
   const Dialog = {
     Root: ({ children, open }) => open ? harness.JSX.jsx('div', { role: 'dialog', children }) : null,
@@ -388,7 +391,7 @@ async function loadExtensionsInVm(harness, localBot) {
     Body: ({ children }) => harness.JSX.jsx('div', { children }),
     Action: ({ children, ...p }) => harness.JSX.jsx('button', { ...p, children }),
   };
-  const Section = ({ children, title, anchorId }) => harness.JSX.jsxs('section', { 'data-anchor': anchorId, children: [title ? harness.JSX.jsx('h3', { children: title }) : null, children] });
+  const Section = ({ children, title, anchorId, titleAccessory }) => harness.JSX.jsxs('section', { 'data-anchor': anchorId, children: [title ? harness.JSX.jsx('h3', { children: title }) : null, titleAccessory ?? null, children] });
   const Row = ({ children, label, description }) => harness.JSX.jsxs('div', { 'data-row': label, children: [label, description, children] });
   const Button = ({ children, ...p }) => harness.JSX.jsx('button', { type: 'button', ...p, children });
   const Toggle = ({ isChecked, onToggle, label }) => harness.JSX.jsx('input', { type: 'checkbox', checked: isChecked, 'aria-label': label, onChange: onToggle });
@@ -426,7 +429,7 @@ async function loadExtensionsInVm(harness, localBot) {
     __out: gpExports,
   });
   gpCtx.globalThis = gpCtx;
-  vm.runInContext(`${gpSrc}\n__out.RokModelConfigModal = RokModelConfigModal;__out.RokModelSettings = RokModelSettings;`, gpCtx);
+  vm.runInContext(`${usageFormatSrc}\n${gpSrc}\n__out.RokModelConfigModal = RokModelConfigModal;__out.RokModelSettings = RokModelSettings;__out.RokUsageSettings = RokUsageSettings;`, gpCtx);
 
   const eaExports = {};
   const eaReact = {
@@ -1040,4 +1043,75 @@ test('controlled RokModelConfigModal open: true -> false -> true resets busy/tes
   await harness.waitFor(t => /Configuration applied to Host/.test(collectText(t)));
   assert.equal(harness.timers.size, 0, 'saveAll() applied response must stop prior load() poll timer');
   assert.equal(onSavedCalls, 1);
+});
+
+const USAGE_FIXTURE = (() => {
+  const gpt = { model: 'gpt-5', input: 320000000, output: 0, total: 320000000, cached: 0, cacheWrite: 0, reasoning: 0, requests: 1 };
+  const claude = { model: 'claude-opus', input: 12000, output: 345, total: 12345, cached: 9000, cacheWrite: 120, reasoning: 0, requests: 2 };
+  const sum = models => Object.fromEntries(['input', 'output', 'total', 'cached', 'cacheWrite', 'reasoning', 'requests']
+    .map(key => [key, models.reduce((value, item) => value + item[key], 0)]));
+  const today = { id: 'today', days: 1, from: '2026-11-25', to: '2026-11-25', ...sum([claude]), models: [claude] };
+  const month = { id: '30d', days: 30, from: '2026-10-27', to: '2026-11-25', ...sum([gpt, claude]), models: [gpt, claude] };
+  return { ok: true, date: '2026-11-25', timeZone: 'Asia/Shanghai', ...sum([claude]), models: [claude],
+    periods: [today, { ...month, id: '7d', days: 7, from: '2026-11-19' }, month] };
+})();
+
+test('RokUsageSettings lists usage per model with short counts, exact counts on hover and long press, and three periods', async t => {
+  for (const [locale, expected] of [
+    ['en-US', { title: 'Usage', total: 'Total', today: ['12.3K', '9K', '2 requests'], month: ['320M', '320M', '12.3K'], tabs: ['Today', '7 days', '30 days'], unit: 'tokens' }],
+    ['zh-CN', { title: '用量', total: '合计', today: ['1.23 万', '9,000', '2 次请求', '1.2 万'], month: ['3.2 亿', '3.2 亿', '1.23 万'], tabs: ['今天', '近 7 天', '近 30 天'], unit: 'Token' }],
+  ]) {
+    const harness = createReactTestHarness();
+    t.after(() => harness.unmount());
+    const calls = [];
+    const localBot = { locale, onConnectionChanged: () => () => {}, getUsage: async payload => { calls.push(payload); return USAGE_FIXTURE; } };
+    const { RokUsageSettings } = await loadExtensionsInVm(harness, localBot);
+    harness.mount(harness.JSX.jsx(RokUsageSettings, {}));
+    await harness.waitFor(tree => collectText(tree).includes(expected.total));
+    assert.equal(typeof calls[0].timeZone, 'string');
+    const text = collectText(harness.getTree());
+    assert.ok(text.includes(expected.title), locale);
+    for (const part of expected.today) assert.ok(text.includes(part), `${locale}: ${part} in ${text}`);
+    assert.ok(text.includes('claude-opus') && !text.includes('gpt-5'), locale);
+    assert.ok(text.includes(expected.unit), locale);
+    const tabs = findNodes(harness.getTree(), node => node.tag === 'button' && node.props.role === 'radio');
+    assert.deepEqual(tabs.map(node => node.props.children), expected.tabs);
+    assert.deepEqual(tabs.map(node => node.props['aria-checked']), ['true', 'false', 'false']);
+    // Every count carries its exact value for hover.
+    const counts = () => findNodes(harness.getTree(), node => node.component === 'RokUsageCount');
+    const totalCount = counts().find(node => node.props.value === 12345);
+    assert.equal(totalCount.rendered.props.title, '12,345');
+    // The last 30 days: both models, the larger first.
+    tabs[2].props.onClick();
+    harness.rerender();
+    const month = collectText(harness.getTree());
+    for (const part of expected.month) assert.ok(month.includes(part), `${locale}: ${part} in ${month}`);
+    assert.ok(month.indexOf('gpt-5') < month.indexOf('claude-opus'), locale);
+    // A long press on a touch screen shows the exact number; a mouse press does not.
+    const big = () => counts().find(node => node.props.value === 320000000).rendered;
+    big().props.onPointerDown({ pointerType: 'mouse' });
+    assert.equal(harness.timers.size, 0);
+    big().props.onPointerDown({ pointerType: 'touch' });
+    await harness.runNextTimer();
+    assert.equal(big().children, '320,000,000');
+    assert.equal(big().props.title, '320,000,000');
+    big().props.onKeyDown({ key: 'Enter', preventDefault() {} });
+    harness.rerender();
+    assert.equal(big().children, expected.month[0]);
+    harness.unmount();
+  }
+});
+
+test('RokUsageSettings reports a failed read and stays hidden without the bridge method', async t => {
+  const harness = createReactTestHarness();
+  t.after(() => harness.unmount());
+  const { RokUsageSettings } = await loadExtensionsInVm(harness, { locale: 'en-US', onConnectionChanged: () => () => {}, getUsage: async () => ({ ok: false, status: 503 }) });
+  harness.mount(harness.JSX.jsx(RokUsageSettings, {}));
+  assert.ok(await harness.waitFor(tree => collectText(tree).includes('Could not load usage')));
+  harness.unmount();
+  const older = createReactTestHarness();
+  t.after(() => older.unmount());
+  const { RokUsageSettings: WithoutBridge } = await loadExtensionsInVm(older, { locale: 'en-US', onConnectionChanged: () => () => {} });
+  older.mount(older.JSX.jsx(WithoutBridge, {}));
+  assert.equal(collectText(older.getTree()), '');
 });

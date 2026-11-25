@@ -46,7 +46,7 @@ import { internalHostClient } from './internal-host.mjs';
 import { mobileAppIntentMethods, mobileAppIntentRpc } from './mobile-app-intents.mjs';
 import { adminExtensions } from './admin-extensions.mjs';
 import { recentRouting } from '../runtime/routing-log.mjs';
-import { todayUsage } from "../runtime/usage-ledger.mjs";
+import { usageSummary } from "../runtime/usage-ledger.mjs";
 import { Profile } from "./profile.mjs";
 import { Library, validateAgentId } from "./library.mjs";
 import { deleteAgentsWithLibrary } from "./host-api.mjs";
@@ -210,7 +210,7 @@ export async function createSelfHostServer(options = {}) {
   const usage = timeZone => {
     try { new Intl.DateTimeFormat('en', { timeZone }).format(); }
     catch { throw new HttpError(400, 'Invalid time zone'); }
-    return todayUsage(join(dataDir, 'usage'), timeZone);
+    return usageSummary(join(dataDir, 'usage'), timeZone);
   };
   const sockets = new Set();
   function device(request) {

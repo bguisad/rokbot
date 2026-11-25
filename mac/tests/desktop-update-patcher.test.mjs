@@ -362,7 +362,7 @@ test('macOS 1.2.3 supported.json & recipes/manifest.json match verified digests 
 
   const recipesDir = path.join(macPatchDir, 'recipes');
   const manifest = JSON.parse(await readFile(path.join(recipesDir, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.files.length, 17);
+  assert.equal(manifest.files.length, 18);
   const entry010 = manifest.files.find(entry => entry.recipe === '010.gbp.gz');
   assert.ok(entry010);
   assert.equal(entry010.path, 'dist/renderer/assets/chunk-view-BuQdbmNp.js');

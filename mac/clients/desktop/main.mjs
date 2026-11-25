@@ -299,6 +299,10 @@ ipcMain.handle('rokbot-local:model-get', event => {
   if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
   return modelBridge.getModelConfig();
 });
+ipcMain.handle('rokbot-local:usage', (event, payload) => {
+  if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
+  return modelBridge.getUsage(payload);
+});
 ipcMain.handle('rokbot-local:model-put', (event, payload) => {
   if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
   return modelBridge.updateModelConfig(payload);

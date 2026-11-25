@@ -1501,6 +1501,94 @@ function RokModelSettings() {
   });
 }
 
+// Settings > General > Usage: the Host's token counts (GET /local/usage) for today, the last 7
+// and the last 30 days, in total and per model. Counts are short (rok-usage-format.js); the
+// exact number shows on hover and on a long press (or Enter) on touch screens.
+const rokUsageStyles = `
+.rok-usage-periods{display:inline-flex;gap:4px;padding:2px;border-radius:999px;background:color-mix(in srgb,currentColor 6%,transparent)}
+.rok-usage-periods button{border:0;background:none;color:inherit;font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:999px;cursor:pointer;opacity:.65}
+.rok-usage-periods button[aria-checked=true]{background:var(--sand-bg-elevated,#fff);opacity:1;box-shadow:0 1px 2px #0000001f}
+.rok-usage-periods button:focus-visible{outline:2px solid currentColor;outline-offset:1px}
+.rok-usage-count{font-variant-numeric:tabular-nums;cursor:help;-webkit-touch-callout:none;user-select:none;border-radius:3px}
+.rok-usage-count:focus-visible{outline:2px solid currentColor;outline-offset:1px}
+.rok-usage-total{display:inline-flex;align-items:baseline;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.rok-usage-total strong{font-size:15px;font-weight:600}
+.rok-usage-total[data-big=true] strong{font-size:22px;letter-spacing:-.3px}
+.rok-usage-total span{font-size:12px;opacity:.6}
+.rok-usage-model{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
+.rok-usage-line{display:inline;font-variant-numeric:tabular-nums}
+.rok-usage-line i{font-style:normal;opacity:.5}
+`;
+function RokUsageCount({ value, wrap }) {
+  const locale = grokText('zh-CN', 'en'), [exact, setExact] = Q.useState(false), timer = Q.useRef(null);
+  const short = rokFormatCount(value, locale), full = rokFormatExactCount(value, locale);
+  const shown = exact ? full : short;
+  const flip = () => setExact(current => !current);
+  const stop = () => { clearTimeout(timer.current); timer.current = null; };
+  Q.useEffect(() => stop, []);
+  return $.jsx('span', {
+    className: 'rok-usage-count', title: full, 'data-exact': full, tabIndex: 0,
+    onPointerDown: event => { if (event.pointerType !== 'mouse') { stop(); timer.current = setTimeout(() => { timer.current = null; flip(); }, 450); } },
+    onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop,
+    onContextMenu: event => { if (event.nativeEvent?.pointerType !== 'mouse') event.preventDefault(); },
+    onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); flip(); } },
+    children: wrap ? wrap(shown) : shown,
+  });
+}
+function RokUsageLine({ item }) {
+  const parts = [[grokText('输入', 'Input'), item.input], [grokText('输出', 'Output'), item.output], [grokText('缓存命中', 'Cache read'), item.cached]];
+  if (item.cacheWrite) parts.push([grokText('缓存写入', 'Cache write'), item.cacheWrite]);
+  const children = [];
+  parts.forEach(([label, value], index) => {
+    children.push(`${label} `, $.jsx(RokUsageCount, { value }, `v${index}`), $.jsx('i', { children: ' · ' }, `s${index}`));
+  });
+  children.push($.jsx(RokUsageCount, { value: item.requests, wrap: text => rokWithRequestUnit(text, item.requests, grokText('zh-CN', 'en')) }, 'requests'));
+  return $.jsx('span', { className: 'rok-usage-line', children });
+}
+function RokUsageTotal({ value, big }) {
+  const locale = grokText('zh-CN', 'en'), unit = rokFormatTokens(value, locale).slice(rokFormatCount(value, locale).length).trim();
+  return $.jsxs('span', { className: 'rok-usage-total', 'data-big': big ? 'true' : 'false',
+    children: [$.jsx('strong', { children: $.jsx(RokUsageCount, { value }) }), $.jsx('span', { children: unit })] });
+}
+const ROK_USAGE_PERIODS = [['today', '今天', 'Today'], ['7d', '近 7 天', '7 days'], ['30d', '近 30 天', '30 days']];
+function RokUsageSettings() {
+  const [usage, setUsage] = Q.useState(null), [failed, setFailed] = Q.useState(false), [period, setPeriod] = Q.useState('today');
+  const api = globalThis.window?.localBot;
+  Q.useEffect(() => {
+    if (typeof api?.getUsage !== 'function') return undefined;
+    let alive = true;
+    const load = () => api.getUsage({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+      .then(value => { if (!alive) return; if (value?.ok === false || !Array.isArray(value?.periods)) setFailed(true); else { setUsage(value); setFailed(false); } })
+      .catch(() => { if (alive) setFailed(true); });
+    void load();
+    const release = typeof api.onConnectionChanged === 'function' ? api.onConnectionChanged(() => void load()) : () => {};
+    return () => { alive = false; try { release?.(); } catch {} };
+  }, []);
+  if (typeof api?.getUsage !== 'function') return null;
+  const current = usage?.periods?.find(item => item.id === period) ?? usage?.periods?.[0] ?? null;
+  const tabs = $.jsx('div', { className: 'rok-usage-periods', role: 'radiogroup', 'aria-label': grokText('时间段', 'Period'),
+    children: ROK_USAGE_PERIODS.filter(([id]) => !usage || usage.periods.some(item => item.id === id)).map(([id, zh, en]) => $.jsx('button', {
+      type: 'button', role: 'radio', 'aria-checked': (current?.id ?? period) === id ? 'true' : 'false', onClick: () => setPeriod(id), children: grokText(zh, en),
+    }, id)) });
+  const rows = [];
+  if (!current) {
+    rows.push($.jsx(X, { anchorId: null, variant: 'card', label: failed ? grokText('无法读取用量', 'Could not load usage') : grokText('正在读取…', 'Loading…'), description: null }, 'state'));
+  } else {
+    rows.push($.jsx(X, { anchorId: null, variant: 'card', label: grokText('合计', 'Total'),
+      description: $.jsx(RokUsageLine, { item: current }), children: $.jsx(RokUsageTotal, { value: current.total, big: true }) }, 'total'));
+    if (!current.models.length) rows.push($.jsx(X, { anchorId: null, variant: 'card', label: grokText('这段时间还没有模型请求', 'No model requests in this period'), description: null }, 'empty'));
+    for (const item of current.models) {
+      rows.push($.jsx(X, { anchorId: null, variant: 'card',
+        label: $.jsx('span', { className: 'rok-usage-model', children: item.model === 'unknown' ? grokText('未知模型', 'Unknown model') : item.model }),
+        description: $.jsx(RokUsageLine, { item }), children: $.jsx(RokUsageTotal, { value: item.total }) }, `model:${item.model}`));
+    }
+  }
+  return $.jsxs($.Fragment, { children: [
+    $.jsx('style', { children: rokUsageStyles }),
+    $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('用量', 'Usage'), titleAccessory: tabs, children: rows }),
+  ] });
+}
+
 function GrokHostConnection() {
   const [open, setOpen] = Q.useState(false), [server, setServer] = Q.useState(''), [key, setKey] = Q.useState('');
   const [editing, setEditing] = Q.useState(false), [tailcat, setTailcat] = Q.useState(false);
@@ -1601,4 +1689,4 @@ function GrokHostConnection() {
             variant: 'primary', children: busy ? grokText('正在连接…', 'Connecting…') : editing ? grokText('保存', 'Save') : grokText('连接', 'Connect') })] })] })] }) : null,
   ] });
 }
-export { RokModelConfigModal };
+export { RokModelConfigModal, RokUsageSettings };
