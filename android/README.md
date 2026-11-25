@@ -75,6 +75,8 @@ node android/release/patch-android.mjs \
 - `--package-name <id>`（别名 `--bundle-id`）：重写 Android 包名 / `applicationId`（保留原 `MainActivity` 全限定名并自动重写 `provider.authorities` 与自定义权限前缀）
 - `--host <url>`：预置 Host 地址（`http://...`、`https://...` 或 `tailcat://connect/<node>?port=<port>`）
 - `--pairing-code <code>`（别名 `--pairing-key`）：预置 6 位配对码（大写字母数字，不含 `I`/`O`/`1`/`0`）
+- `--rokbot-build <n>`：RokBot 发布序号（1-99）。`versionCode = 上游 versionCode × 100 + n`（1.26.0 的 3212 → 321201、321202…；上游升到 3213 后从 321301 继续，仍然更大），`versionName = <上游版本>-rokbot.<n>`。每次发布必须递增，系统才会覆盖升级；不传时保留上游版本号
+- `--version-code <n>` / `--version-name <s>`：显式指定输出的 versionCode / versionName（优先于 `--rokbot-build`；versionCode 不得低于上游）
 - `--keystore <path>`：指定持久化签名密钥 JSON（默认 `~/.rokbot-local/android-signing.json`，严禁写入 `android/`）
 - `--force-hbc`：当 HBC SHA-256 与配方指纹不一致时强制偏移拼接
 - `--unsigned`：输出 16KB 对齐的未签名 APK

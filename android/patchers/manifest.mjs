@@ -477,6 +477,66 @@ export function extractManifestInfo(axmlBuffer) {
 }
 
 /**
+ * RokBot versioning on top of the pinned upstream build: versionCode = upstream * 100 + build
+ * (3212 -> 321201, 321202, ...; a future upstream 3213 continues at 321301, still higher), and
+ * versionName = "<upstream>-rokbot.<build>". Explicit versionCode/versionName override either part.
+ */
+export function resolveRokbotVersion(upstream = {}, options = {}) {
+  const upstreamCode = Number(upstream.versionCode);
+  const upstreamName = String(upstream.versionName ?? '').trim();
+  const build = options.rokbotBuild != null && options.rokbotBuild !== '' ? Number(options.rokbotBuild) : null;
+  if (build != null && !(Number.isInteger(build) && build >= 1 && build <= 99)) {
+    throw new Error(`--rokbot-build must be an integer between 1 and 99, got ${options.rokbotBuild}`);
+  }
+  let versionCode = options.versionCode != null && options.versionCode !== '' ? Number(options.versionCode) : null;
+  let versionName = options.versionName != null && String(options.versionName).trim() ? String(options.versionName).trim() : null;
+  if (build != null) {
+    if (!(Number.isInteger(upstreamCode) && upstreamCode > 0)) throw new Error('Upstream versionCode is unknown; pass --version-code');
+    if (versionCode == null) versionCode = upstreamCode * 100 + build;
+    if (versionName == null) versionName = `${upstreamName || '0'}-rokbot.${build}`;
+  }
+  if (versionCode != null) {
+    if (!(Number.isSafeInteger(versionCode) && versionCode > 0 && versionCode <= 2100000000)) {
+      throw new Error(`versionCode must be a positive integer <= 2100000000, got ${options.versionCode ?? versionCode}`);
+    }
+    if (Number.isInteger(upstreamCode) && upstreamCode > 0 && versionCode < upstreamCode) {
+      throw new Error(`versionCode ${versionCode} is lower than the upstream ${upstreamCode}; Android would refuse the upgrade`);
+    }
+  }
+  if (versionName != null && (versionName.length > 64 || /[\u0000-\u001f\u007f]/.test(versionName))) {
+    throw new Error('versionName must be at most 64 printable characters');
+  }
+  return { versionCode, versionName };
+}
+
+function applyVersionOverride(root, options) {
+  root.attributes = root.attributes || [];
+  if (options.versionCode != null) {
+    const code = Number(options.versionCode);
+    let a = root.attributes.find(x => x.name === 'versionCode' || x.resourceId === KNOWN_RES_IDS.versionCode);
+    if (!a) {
+      a = { name: 'versionCode', namespace: ANDROID_NS, resourceId: KNOWN_RES_IDS.versionCode };
+      root.attributes.push(a);
+    }
+    a.type = 0x10;
+    a.rawValue = null;
+    a.value = code;
+    a.data = code >>> 0;
+  }
+  if (options.versionName != null) {
+    const name = String(options.versionName);
+    let a = root.attributes.find(x => x.name === 'versionName' || x.resourceId === KNOWN_RES_IDS.versionName);
+    if (!a) {
+      a = { name: 'versionName', namespace: ANDROID_NS, resourceId: KNOWN_RES_IDS.versionName };
+      root.attributes.push(a);
+    }
+    a.type = 0x03;
+    a.rawValue = name;
+    a.value = name;
+  }
+}
+
+/**
  * Patch AndroidManifest.xml:
  * - Ensure android:usesCleartextTraffic="true"
  * - Disable Expo OTA updates metadata if present
@@ -554,6 +614,12 @@ export function patchManifest(axmlBuffer, options = {}) {
         value: packageName,
       });
     }
+  }
+
+  // RokBot's own release numbering (see resolveRokbotVersion): Android only upgrades in place when
+  // the new versionCode is >= the installed one, so every RokBot build carries its own code.
+  if (options.versionCode != null || options.versionName != null) {
+    applyVersionOverride(root, options);
   }
 
   if (options.repackageOnly) {

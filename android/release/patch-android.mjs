@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
-import { parseAxml, serializeAxml, patchManifest, extractManifestInfo, ANDROID_NS, KNOWN_RES_IDS } from '../patchers/manifest.mjs';
+import { parseAxml, serializeAxml, patchManifest, extractManifestInfo, resolveRokbotVersion, ANDROID_NS, KNOWN_RES_IDS } from '../patchers/manifest.mjs';
 import { findMipmapResourceId, findResourceId } from '../patchers/arsc.mjs';
 import {
   dexEntriesContainClass,
@@ -231,6 +231,12 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       options.packageName = args[++i];
     } else if (arg === '--update-url') {
       options.updateUrl = args[++i];
+    } else if (arg === '--rokbot-build') {
+      options.rokbotBuild = args[++i];
+    } else if (arg === '--version-code') {
+      options.versionCode = args[++i];
+    } else if (arg === '--version-name') {
+      options.versionName = args[++i];
     } else if (arg === '--keystore') {
       options.keystore = args[++i];
     } else if (arg === '--standalone' || arg === '--standalone-official') {
@@ -432,8 +438,11 @@ export async function runPatchPipeline(options) {
     || ((manifestInfo.packageName === 'ai.x.grok.bot' || manifestInfo.packageName === 'co.anysphere.sand')
       ? 'dev.rokbot.local'
       : manifestInfo.packageName);
+  const outputVersion = resolveRokbotVersion(manifestInfo, options);
   const patchedManifestBytes = patchManifest(manifestBytes, {
     packageName: targetPackageName,
+    versionCode: outputVersion.versionCode,
+    versionName: outputVersion.versionName,
     permissions: manifestPin.permissions,
     pairingActivity: manifestPin.components?.activities?.[0]?.name,
     notificationService: manifestPin.components?.services?.[0]?.name,
@@ -601,6 +610,9 @@ export async function runPatchPipeline(options) {
     originalPackageName: manifestInfo.packageName,
     actualPackageName: manifestInfo.packageName,
     actualVersionName: manifestInfo.versionName,
+    upstreamVersionCode: manifestInfo.versionCode,
+    versionName: outputVersion.versionName ?? manifestInfo.versionName,
+    versionCode: outputVersion.versionCode ?? manifestInfo.versionCode,
     pinMatched: Boolean(pkgMatched && hbcPinMatched === true),
     hbcPinMatched,
     bundlePatchMode,
@@ -659,6 +671,10 @@ Options:
   --host <url>            Pre-configured Host address (e.g. http://192.168.1.100:18080 or tailcat://connect/...)
   --pairing-code <code>   Pre-configured 6-character pairing code
   --update-url <url>      Default incremental update feed URL baked into assets/recipes/update-config.json
+  --rokbot-build <n>      RokBot release number 1-99: versionCode = upstream*100+n (3212 -> 321201),
+                          versionName = <upstream>-rokbot.<n>; must grow for in-place upgrades
+  --version-code <n>      Explicit output versionCode (overrides --rokbot-build)
+  --version-name <s>      Explicit output versionName (overrides --rokbot-build)
   --keystore <path>       Persistent JSON signing identity path (default ~/.rokbot-local/android-signing.json)
   --unsigned              Output aligned unsigned APK
   --verify-only           Validate input APK/XAPK and recipe pins without writing output
