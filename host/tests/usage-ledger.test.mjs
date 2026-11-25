@@ -53,8 +53,10 @@ test('usageSummary sums today, the last 7 and the last 30 local days in total an
   assert.equal(usage.timeZone, 'Asia/Shanghai');
   for (const key of ['input', 'output', 'total', 'cached', 'cacheWrite', 'reasoning', 'requests']) assert.equal(usage[key], today[key], key);
   assert.deepEqual(usage.models, today.models);
-  assert.deepEqual({ ...today, models: undefined }, { id: 'today', days: 1, from: '2026-11-25', to: '2026-11-25',
-    input: 4010, output: 505, total: 4515, cached: 3300, cacheWrite: 100, reasoning: 40, requests: 3, models: undefined });
+  assert.deepEqual({ ...today, models: undefined, buckets: undefined }, { id: 'today', days: 1, from: '2026-11-25', to: '2026-11-25',
+    input: 4010, output: 505, total: 4515, cached: 3300, cacheWrite: 100, reasoning: 40, requests: 3, models: undefined, unit: 'hour', buckets: undefined });
+  // The original fields do not grow: no buckets at the top level.
+  assert.deepEqual(Object.keys(usage), ['date', 'timeZone', 'input', 'output', 'total', 'cached', 'cacheWrite', 'reasoning', 'requests', 'models', 'periods']);
   // Models are ordered by their total, largest first.
   assert.deepEqual(today.models, [
     { model: 'claude-opus', input: 4000, output: 500, total: 4500, cached: 3300, cacheWrite: 100, reasoning: 40, requests: 2 },
@@ -68,6 +70,48 @@ test('usageSummary sums today, the last 7 and the last 30 local days in total an
   assert.equal(utc.date, '2026-11-25');
   assert.deepEqual(utc.models.map(item => [item.model, item.total]), [['claude-opus', 3300], ['deepseek-flash', 15]]);
   assert.equal(todayUsage, usageSummary);
+});
+
+test('usageSummary splits today into local hours and the other periods into local days, per model', async t => {
+  const directory = await ledger(t, {
+    '2026-11-24': [row('a', '2026-11-24T16:30:00Z', 'claude-opus', 1000, 200, { cached: 800 }), // 25 Nov 00:30 Shanghai
+      row('b', '2026-11-24T10:00:00Z', 'deepseek-flash', 50000, 1000)], // 24 Nov 18:00 Shanghai
+    '2026-11-25': [row('c', '2026-11-25T01:00:00Z', 'claude-opus', 3000, 300), // 09:00
+      row('d', '2026-11-25T01:59:59Z', 'deepseek-flash', 10, 5), // 09:59
+      row('e', '2026-11-25T02:00:00Z', 'claude-opus', 7, 3)], // 10:00
+    '2026-11-19': [row('f', '2026-11-19T00:00:00Z', 'gpt-5', 7, 3)],
+  });
+  const now = new Date('2026-11-25T08:00:00Z');
+  const usage = await usageSummary(directory, 'Asia/Shanghai', now);
+  const [today, week, month] = usage.periods;
+  assert.equal(today.unit, 'hour');
+  assert.deepEqual(today.buckets.map(bucket => bucket.start), Array.from({ length: 24 }, (_, hour) => `2026-11-25T${String(hour).padStart(2, '0')}`));
+  const hour = start => today.buckets.find(bucket => bucket.start === `2026-11-25T${start}`);
+  assert.deepEqual([hour('00').total, hour('09').total, hour('10').total, hour('11').total], [1200, 3315, 10, 0]);
+  assert.deepEqual(hour('09').models.map(item => [item.model, item.total, item.requests]), [['claude-opus', 3300, 1], ['deepseek-flash', 15, 1]]);
+  assert.deepEqual(hour('11'), { start: '2026-11-25T11', input: 0, output: 0, total: 0, cached: 0, cacheWrite: 0, reasoning: 0, requests: 0, models: [] });
+  // The buckets add up to the period, field by field.
+  for (const period of usage.periods) for (const key of ['input', 'output', 'total', 'cached', 'requests'])
+    assert.equal(period.buckets.reduce((value, bucket) => value + bucket[key], 0), period[key], `${period.id} ${key}`);
+  assert.equal(week.unit, 'day');
+  assert.deepEqual(week.buckets.map(bucket => [bucket.start, bucket.total]), [['2026-11-19', 10], ['2026-11-20', 0], ['2026-11-21', 0],
+    ['2026-11-22', 0], ['2026-11-23', 0], ['2026-11-24', 51000], ['2026-11-25', 4525]]);
+  assert.equal(month.buckets.length, 30);
+  assert.equal(month.buckets[0].start, '2026-10-27');
+  assert.equal(month.buckets.at(-1).start, '2026-11-25');
+  // The same rows by UTC hours and days: row a is 24 November 16:00.
+  const utc = await usageSummary(directory, 'UTC', now);
+  assert.deepEqual(utc.periods[0].buckets.filter(bucket => bucket.total).map(bucket => [bucket.start, bucket.total]), [['2026-11-25T01', 3315], ['2026-11-25T02', 10]]);
+  assert.deepEqual(utc.periods[1].buckets.slice(-2).map(bucket => [bucket.start, bucket.total]), [['2026-11-24', 52200], ['2026-11-25', 3325]]);
+  // A zone 5:45 ahead: 01:59:59 UTC is 07:44, 02:00 is 07:45.
+  const nepal = await usageSummary(directory, 'Asia/Kathmandu', now);
+  assert.deepEqual(nepal.periods[0].buckets.filter(bucket => bucket.total).map(bucket => [bucket.start, bucket.total]),
+    [['2026-11-25T06', 3300], ['2026-11-25T07', 25]]);
+  // ?period= keeps one period, and the original fields stay today's.
+  const one = await usageSummary(directory, 'Asia/Shanghai', now, { period: '7d' });
+  assert.deepEqual(one.periods.map(period => period.id), ['7d']);
+  assert.deepEqual(one.periods[0], week);
+  assert.equal(one.total, today.total);
 });
 
 test('usageSummary reads appended rows, skips missing days and names rows without a model', async t => {
@@ -117,4 +161,15 @@ test('GET /local/usage and /admin/api/usage return the periods per model and kee
   assert.deepEqual(local.models.map(item => [item.model, item.input, item.output, item.cached, item.total, item.requests]),
     [['gpt-5', 320000000, 0, 0, 320000000, 1], ['claude-opus', 12000, 345, 9000, 12345, 1]]);
   assert.deepEqual(local.periods.map(period => [period.id, period.total, period.models.length]), [['today', 320012345, 2], ['7d', 320012345, 2], ['30d', 320012345, 2]]);
+  assert.deepEqual(local.periods.map(period => [period.unit, period.buckets.length]), [['hour', 24], ['day', 7], ['day', 30]]);
+  assert.equal(local.periods[1].buckets.at(-1).total, 320012345);
+  // One period, by the requested time zone; an unknown period is refused.
+  const week = await (await device('/local/usage?timeZone=Asia/Shanghai&period=7d')).json();
+  assert.deepEqual(week.periods.map(period => period.id), ['7d']);
+  assert.equal(week.timeZone, 'Asia/Shanghai');
+  assert.equal(week.periods[0].total, 320012345);
+  const adminWeek = await fetch(origin + '/admin/api/usage?timeZone=Asia/Shanghai&period=7d', { headers: { cookie: `rokbot_admin=${adminToken}` } });
+  assert.deepEqual(await adminWeek.json(), week);
+  assert.equal((await device('/local/usage?timeZone=UTC&period=90d')).status, 400);
+  assert.equal((await fetch(origin + '/admin/api/usage?period=year', { headers: { cookie: `rokbot_admin=${adminToken}` } })).status, 400);
 });

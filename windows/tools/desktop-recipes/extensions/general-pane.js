@@ -1501,23 +1501,19 @@ function RokModelSettings() {
   });
 }
 
-// Settings > General > Usage: the Host's token counts (GET /local/usage) for today, the last 7
-// and the last 30 days, in total and per model. Counts are short (rok-usage-format.js); the
-// exact number shows on hover and on a long press (or Enter) on touch screens.
+// Settings > General > Usage: the Host's token usage (GET /local/usage) for today, the last 7
+// and the last 30 days: summary cards, tokens per hour or day stacked by model, the share per
+// model and a table. The charts come from rok-usage-charts.js (the admin page's usage-charts.js)
+// as a tree that becomes JSX here; counts are short (rok-usage-format.js) with the exact number
+// on hover and on a long press (or Enter) on touch screens.
 const rokUsageStyles = `
 .rok-usage-periods{display:inline-flex;gap:4px;padding:2px;border-radius:999px;background:color-mix(in srgb,currentColor 6%,transparent)}
 .rok-usage-periods button{border:0;background:none;color:inherit;font:inherit;font-size:12px;line-height:18px;padding:3px 10px;border-radius:999px;cursor:pointer;opacity:.65}
 .rok-usage-periods button[aria-checked=true]{background:var(--sand-bg-elevated,#fff);opacity:1;box-shadow:0 1px 2px #0000001f}
 .rok-usage-periods button:focus-visible{outline:2px solid currentColor;outline-offset:1px}
-.rok-usage-count{font-variant-numeric:tabular-nums;cursor:help;-webkit-touch-callout:none;user-select:none;border-radius:3px}
+.rok-usage-count{cursor:help;-webkit-touch-callout:none;user-select:none;border-radius:3px}
 .rok-usage-count:focus-visible{outline:2px solid currentColor;outline-offset:1px}
-.rok-usage-total{display:inline-flex;align-items:baseline;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.rok-usage-total strong{font-size:15px;font-weight:600}
-.rok-usage-total[data-big=true] strong{font-size:22px;letter-spacing:-.3px}
-.rok-usage-total span{font-size:12px;opacity:.6}
-.rok-usage-model{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
-.rok-usage-line{display:inline;font-variant-numeric:tabular-nums}
-.rok-usage-line i{font-style:normal;opacity:.5}
+.rok-usage-host{min-width:0}
 `;
 function RokUsageCount({ value, wrap }) {
   const locale = grokText('zh-CN', 'en'), [exact, setExact] = Q.useState(false), timer = Q.useRef(null);
@@ -1535,20 +1531,31 @@ function RokUsageCount({ value, wrap }) {
     children: wrap ? wrap(shown) : shown,
   });
 }
-function RokUsageLine({ item }) {
-  const parts = [[grokText('输入', 'Input'), item.input], [grokText('输出', 'Output'), item.output], [grokText('缓存命中', 'Cache read'), item.cached]];
-  if (item.cacheWrite) parts.push([grokText('缓存写入', 'Cache write'), item.cacheWrite]);
-  const children = [];
-  parts.forEach(([label, value], index) => {
-    children.push(`${label} `, $.jsx(RokUsageCount, { value }, `v${index}`), $.jsx('i', { children: ' · ' }, `s${index}`));
-  });
-  children.push($.jsx(RokUsageCount, { value: item.requests, wrap: text => rokWithRequestUnit(text, item.requests, grokText('zh-CN', 'en')) }, 'requests'));
-  return $.jsx('span', { className: 'rok-usage-line', children });
+// One rok-usage-charts.js tree node as JSX; { count } nodes become RokUsageCount.
+function rokUsageJsx(node, key) {
+  if (typeof node === 'string' || typeof node === 'number') return node;
+  if ('count' in node) {
+    const value = node.count;
+    return $.jsx(RokUsageCount, { value, wrap: node.unit === 'requests' ? text => rokWithRequestUnit(text, value, grokText('zh-CN', 'en')) : undefined }, key);
+  }
+  const props = {};
+  for (const [name, value] of Object.entries(node.attrs)) props[name === 'class' ? 'className' : name === 'tabindex' ? 'tabIndex' : name] = value;
+  props.children = node.children.map((child, index) => rokUsageJsx(child, index));
+  return $.jsx(node.tag, props, key);
 }
-function RokUsageTotal({ value, big }) {
-  const locale = grokText('zh-CN', 'en'), unit = rokFormatTokens(value, locale).slice(rokFormatCount(value, locale).length).trim();
-  return $.jsxs('span', { className: 'rok-usage-total', 'data-big': big ? 'true' : 'false',
-    children: [$.jsx('strong', { children: $.jsx(RokUsageCount, { value }) }), $.jsx('span', { children: unit })] });
+function RokUsageCharts({ usage, period }) {
+  const box = Q.useRef(null), tips = Q.useRef([]), [width, setWidth] = Q.useState(0), locale = grokText('zh-CN', 'en');
+  Q.useEffect(() => {
+    const element = box.current;
+    if (!element || typeof ResizeObserver !== 'function') return undefined;
+    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    observer.observe(element); setWidth(element.clientWidth);
+    const detach = rokAttachUsageTooltip(element, () => tips.current, locale);
+    return () => { observer.disconnect(); detach(); };
+  }, []);
+  const view = rokUsageView(usage, period, { locale, width: width || 600 });
+  tips.current = view.tips;
+  return $.jsx('div', { className: 'rok-usage-host', ref: box, children: view.tree ? rokUsageJsx(view.tree, 'view') : null });
 }
 const ROK_USAGE_PERIODS = [['today', '今天', 'Today'], ['7d', '近 7 天', '7 days'], ['30d', '近 30 天', '30 days']];
 function RokUsageSettings() {
@@ -1570,21 +1577,11 @@ function RokUsageSettings() {
     children: ROK_USAGE_PERIODS.filter(([id]) => !usage || usage.periods.some(item => item.id === id)).map(([id, zh, en]) => $.jsx('button', {
       type: 'button', role: 'radio', 'aria-checked': (current?.id ?? period) === id ? 'true' : 'false', onClick: () => setPeriod(id), children: grokText(zh, en),
     }, id)) });
-  const rows = [];
-  if (!current) {
-    rows.push($.jsx(X, { anchorId: null, variant: 'card', label: failed ? grokText('无法读取用量', 'Could not load usage') : grokText('正在读取…', 'Loading…'), description: null }, 'state'));
-  } else {
-    rows.push($.jsx(X, { anchorId: null, variant: 'card', label: grokText('合计', 'Total'),
-      description: $.jsx(RokUsageLine, { item: current }), children: $.jsx(RokUsageTotal, { value: current.total, big: true }) }, 'total'));
-    if (!current.models.length) rows.push($.jsx(X, { anchorId: null, variant: 'card', label: grokText('这段时间还没有模型请求', 'No model requests in this period'), description: null }, 'empty'));
-    for (const item of current.models) {
-      rows.push($.jsx(X, { anchorId: null, variant: 'card',
-        label: $.jsx('span', { className: 'rok-usage-model', children: item.model === 'unknown' ? grokText('未知模型', 'Unknown model') : item.model }),
-        description: $.jsx(RokUsageLine, { item }), children: $.jsx(RokUsageTotal, { value: item.total }) }, `model:${item.model}`));
-    }
-  }
+  const rows = current
+    ? [$.jsx(RokUsageCharts, { usage, period: current.id }, 'charts')]
+    : [$.jsx(X, { anchorId: null, variant: 'card', label: failed ? grokText('无法读取用量', 'Could not load usage') : grokText('正在读取…', 'Loading…'), description: null }, 'state')];
   return $.jsxs($.Fragment, { children: [
-    $.jsx('style', { children: rokUsageStyles }),
+    $.jsx('style', { children: rokUsageStyles + ROK_USAGE_CHART_CSS }),
     $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('用量', 'Usage'), titleAccessory: tabs, children: rows }),
   ] });
 }

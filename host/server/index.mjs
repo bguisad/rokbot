@@ -46,7 +46,7 @@ import { internalHostClient } from './internal-host.mjs';
 import { mobileAppIntentMethods, mobileAppIntentRpc } from './mobile-app-intents.mjs';
 import { adminExtensions } from './admin-extensions.mjs';
 import { recentRouting } from '../runtime/routing-log.mjs';
-import { usageSummary } from "../runtime/usage-ledger.mjs";
+import { usageSummary, USAGE_PERIODS } from "../runtime/usage-ledger.mjs";
 import { Profile } from "./profile.mjs";
 import { Library, validateAgentId } from "./library.mjs";
 import { deleteAgentsWithLibrary } from "./host-api.mjs";
@@ -207,10 +207,13 @@ export async function createSelfHostServer(options = {}) {
   const browserProviders = new DesktopBrowserProviders({ authenticate: device, connections, hostUrl, internalToken, enabled: key => harness.current()[key] });
   let executionRevision = executionNode.active()?.revision;
   const limiter = options.rateLimit ?? new RateLimit();
-  const usage = timeZone => {
+  // ?timeZone= (default: the Host's) and an optional ?period=today|7d|30d to return one period.
+  const usage = url => {
+    const timeZone = url.searchParams.get('timeZone') || process.env.TZ || 'UTC', period = url.searchParams.get('period') || undefined;
     try { new Intl.DateTimeFormat('en', { timeZone }).format(); }
     catch { throw new HttpError(400, 'Invalid time zone'); }
-    return usageSummary(join(dataDir, 'usage'), timeZone);
+    if (period && !USAGE_PERIODS.some(item => item.id === period)) throw new HttpError(400, 'Invalid period');
+    return usageSummary(join(dataDir, 'usage'), timeZone, new Date(), { period });
   };
   const sockets = new Set();
   function device(request) {
@@ -535,7 +538,7 @@ export async function createSelfHostServer(options = {}) {
     if (method === "PUT" && path === "/admin/api/model/policy")
       return sendJson(response, 200, await modelSettings.save(await jsonBody(request)));
     if (method === "GET" && path === "/admin/api/usage")
-      return sendJson(response, 200, await usage(new URL(request.url, origin).searchParams.get('timeZone') || process.env.TZ || 'UTC'));
+      return sendJson(response, 200, await usage(new URL(request.url, origin)));
     if (method === "PUT" && path === "/admin/api/model")
       return sendJson(
         response,
@@ -1001,7 +1004,7 @@ export async function createSelfHostServer(options = {}) {
     }
     if (request.method === "GET" && path === "/local/usage") {
       device(request);
-      return sendJson(response, 200, await usage(url.searchParams.get('timeZone') || process.env.TZ || 'UTC'));
+      return sendJson(response, 200, await usage(url));
     }
     if (["GET", "PUT"].includes(request.method) && path === "/local/profile") {
       const found = device(request);

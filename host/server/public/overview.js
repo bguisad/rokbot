@@ -4,7 +4,8 @@ import { icon } from './icons.js';
 import { groups } from './navigation.js';
 import { blink, createGaze } from './face.js';
 import { createCrew } from './crew.js';
-import { formatCount, formatExactCount, formatTokens, withRequestUnit } from './usage-format.js';
+import { formatCount, formatExactCount, withRequestUnit } from './usage-format.js';
+import { attachUsageTooltip, renderUsageTree, usageView } from './usage-charts.js';
 
 // Each summary reads its page's endpoint and returns [text, on] for the overview row.
 const enabled = value => [value ? t('{0} 项已启用', value) : t('未配置'), value > 0];
@@ -55,7 +56,7 @@ export function createOverview({ api, status: current }) {
     <section id="usage" class="section usage" aria-labelledby="usage-title" hidden>
       <div class="section-head"><h2 id="usage-title" class="section-title">按模型用量</h2>
         <div id="usage-periods" class="chips" role="radiogroup" aria-label="时间段"></div></div>
-      <div id="usage-card" class="card"></div>
+      <div id="usage-view"></div>
     </section>
     <div id="overview-groups" class="overview-grid"></div>`);
   const values = new Map(), crew = createCrew($('#bot-crew'), $('#hero-host'));
@@ -125,15 +126,8 @@ export function createOverview({ api, status: current }) {
     return element;
   }
   const PERIODS = { today: '今天', '7d': '近 7 天', '30d': '近 30 天' };
-  let usageData = null, usagePeriod = 'today';
-  function breakdown(item) {
-    const parts = [[t('输入'), item.input], [t('输出'), item.output], [t('缓存命中'), item.cached]];
-    if (item.cacheWrite) parts.push([t('缓存写入'), item.cacheWrite]);
-    const hint = node('span', 'row-hint usage-breakdown');
-    for (const [label, value] of parts) hint.append(node('span', '', `${label} `), count(value), node('span', 'usage-sep', ' · '));
-    hint.append(count(item.requests, text => withRequestUnit(text, item.requests, locale)));
-    return hint;
-  }
+  let usageData = null, usagePeriod = 'today', usageTips = [], usageWidth = 0;
+  // Cards, columns per hour or day, share per model and the table (usage-charts.js).
   function renderUsage() {
     const periods = usageData?.periods ?? [];
     const period = periods.find(item => item.id === usagePeriod) ?? periods[0];
@@ -145,20 +139,15 @@ export function createOverview({ api, status: current }) {
       input.addEventListener('change', () => { usagePeriod = item.id; renderUsage(); });
       label.append(input, text); return label;
     }));
-    const total = node('div', 'row usage-total'), copy = node('span', 'row-copy');
-    const figure = node('span', 'usage-figure'); figure.append(count(period.total), node('span', 'usage-unit', usageUnit(period.total)));
-    copy.append(figure, breakdown(period));
-    total.append(copy);
-    const rows = period.models.map(item => {
-      const row = node('div', 'row usage-model'), copyNode = node('span', 'row-copy'), value = node('span', 'row-value usage-model-total');
-      copyNode.append(node('span', 'row-title usage-model-name', item.model === 'unknown' ? t('未知模型') : item.model), breakdown(item));
-      value.append(count(item.total), node('span', 'usage-unit', usageUnit(item.total)));
-      row.append(copyNode, value); return row;
-    });
-    if (!rows.length) rows.push(node('div', 'row usage-empty', t('这段时间还没有模型请求')));
-    $('#usage-card').replaceChildren(total, ...rows);
+    const container = $('#usage-view');
+    usageWidth = container.clientWidth;
+    const view = usageView(usageData, period.id, { locale, width: usageWidth || 600 });
+    usageTips = view.tips;
+    container.replaceChildren(...(view.tree ? [renderUsageTree(view.tree, (value, unit) => count(value, unit === 'requests'
+      ? text => withRequestUnit(text, value, locale) : undefined))] : []));
   }
-  const usageUnit = value => formatTokens(value, locale).slice(formatCount(value, locale).length);
+  attachUsageTooltip($('#usage-view'), () => usageTips, locale);
+  new ResizeObserver(() => { if (usageData && $('#usage-view').clientWidth !== usageWidth) renderUsage(); }).observe($('#usage-view'));
   async function loadUsage() {
     const usage = await api(`/admin/api/usage?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
     const hero = $('#hero-usage');

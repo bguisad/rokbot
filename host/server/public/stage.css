@@ -183,19 +183,10 @@ label.composer { padding-right: 22px; }
 .overview .row.link { min-height: 48px; }
 .overview .row.link .status { color: var(--sand-text-secondary); }
 
-/* Usage by model: one total row, then each model with its input, output and cache tokens. */
+/* Usage by model: the charts are usage-charts.css; counts show the exact number on hover. */
 .usage .section-head { flex-wrap: wrap; }
-.usage-total { padding-top: 14px; padding-bottom: 14px; }
-.usage-figure { display: flex; align-items: baseline; gap: 6px; color: var(--sand-text-primary); font: 600 28px/1.2 var(--font-sans); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.usage-unit { color: var(--sand-text-secondary); font: var(--text-body2); letter-spacing: 0; }
-.usage-figure .usage-unit { font: var(--text-body1); }
-.usage-model-name { font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; }
-.usage-breakdown { font-variant-numeric: tabular-nums; }
-.usage-sep { color: var(--sand-text-tertiary); }
-.usage-model-total { display: inline-flex; align-items: baseline; gap: 4px; color: var(--sand-text-primary); font: var(--text-body1); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-count { border-radius: 3px; cursor: help; -webkit-touch-callout: none; user-select: none; }
 .usage-count:focus-visible { outline: 2px solid var(--sand-border-focus-primary); outline-offset: 1px; }
-.usage-empty { color: var(--sand-text-tertiary); }
 @media (max-width: 900px) { .overview-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) {
   .page.overview { gap: 36px; padding-top: 28px; }

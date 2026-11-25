@@ -4,6 +4,7 @@ import http from 'node:http';
 import test from 'node:test';
 import vm from 'node:vm';
 import { publicModelRouting, validateModelRouting } from '../../host/runtime/model-routing.mjs';
+import { usageCharts } from './desktop-recipes/spec.mjs';
 
 const extDir = new URL('./desktop-recipes/extensions/', import.meta.url);
 
@@ -381,7 +382,11 @@ async function loadExtensionsInVm(harness, localBot) {
   const compSrc = (await readFile(new URL('computer-view.js', extDir), 'utf8'));
   // rok-usage-format.js in the renderer is the admin page's formatter (spec.mjs), imported under rok* names.
   const usageFormatSrc = (await readFile(new URL('../../host/server/public/usage-format.js', import.meta.url), 'utf8')).replace(/^export /gm, '')
-    + '\nvar rokFormatCount = formatCount, rokFormatExactCount = formatExactCount, rokFormatTokens = formatTokens, rokWithRequestUnit = withRequestUnit;\n';
+    + '\nvar rokFormatCount = formatCount, rokFormatExactCount = formatExactCount, rokWithRequestUnit = withRequestUnit;\n';
+  // rok-usage-charts.js as spec.mjs ships it (usage-charts.js + the CSS), in its own scope.
+  const chartsSrc = usageCharts().replace(/^import .*$/m, '').replace(/^export /gm, '');
+  const usageChartsSrc = `var rokUsageCharts = (() => {\n${chartsSrc}\nreturn { usageView, attachUsageTooltip, ROK_USAGE_CHART_CSS };\n})();\n`
+    + 'var rokUsageView = rokUsageCharts.usageView, rokAttachUsageTooltip = rokUsageCharts.attachUsageTooltip, ROK_USAGE_CHART_CSS = rokUsageCharts.ROK_USAGE_CHART_CSS;\n';
 
   const Dialog = {
     Root: ({ children, open }) => open ? harness.JSX.jsx('div', { role: 'dialog', children }) : null,
@@ -429,7 +434,7 @@ async function loadExtensionsInVm(harness, localBot) {
     __out: gpExports,
   });
   gpCtx.globalThis = gpCtx;
-  vm.runInContext(`${usageFormatSrc}\n${gpSrc}\n__out.RokModelConfigModal = RokModelConfigModal;__out.RokModelSettings = RokModelSettings;__out.RokUsageSettings = RokUsageSettings;`, gpCtx);
+  vm.runInContext(`${usageFormatSrc}\n${usageChartsSrc}\n${gpSrc}\n__out.RokModelConfigModal = RokModelConfigModal;__out.RokModelSettings = RokModelSettings;__out.RokUsageSettings = RokUsageSettings;`, gpCtx);
 
   const eaExports = {};
   const eaReact = {
@@ -1050,16 +1055,24 @@ const USAGE_FIXTURE = (() => {
   const claude = { model: 'claude-opus', input: 12000, output: 345, total: 12345, cached: 9000, cacheWrite: 120, reasoning: 0, requests: 2 };
   const sum = models => Object.fromEntries(['input', 'output', 'total', 'cached', 'cacheWrite', 'reasoning', 'requests']
     .map(key => [key, models.reduce((value, item) => value + item[key], 0)]));
-  const today = { id: 'today', days: 1, from: '2026-11-25', to: '2026-11-25', ...sum([claude]), models: [claude] };
-  const month = { id: '30d', days: 30, from: '2026-10-27', to: '2026-11-25', ...sum([gpt, claude]), models: [gpt, claude] };
+  const day = (start, models) => ({ start, ...sum(models), models });
+  const hours = Array.from({ length: 24 }, (_, hour) => day(`2026-11-25T${String(hour).padStart(2, '0')}`, hour === 9 ? [claude] : []));
+  const today = { id: 'today', days: 1, from: '2026-11-25', to: '2026-11-25', ...sum([claude]), models: [claude], unit: 'hour', buckets: hours };
+  const days = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 9, 27 + index)).toISOString().slice(0, 10);
+    return day(date, date === '2026-11-24' ? [gpt] : date === '2026-11-25' ? [claude] : []);
+  });
+  const month = { id: '30d', days: 30, from: '2026-10-27', to: '2026-11-25', ...sum([gpt, claude]), models: [gpt, claude], unit: 'day', buckets: days };
   return { ok: true, date: '2026-11-25', timeZone: 'Asia/Shanghai', ...sum([claude]), models: [claude],
-    periods: [today, { ...month, id: '7d', days: 7, from: '2026-11-19' }, month] };
+    periods: [today, { ...month, id: '7d', days: 7, from: '2026-11-19', buckets: days.slice(-7) }, month] };
 })();
 
-test('RokUsageSettings lists usage per model with short counts, exact counts on hover and long press, and three periods', async t => {
+test('RokUsageSettings draws cards, columns, shares and a table per period, with exact counts on hover and long press', async t => {
   for (const [locale, expected] of [
-    ['en-US', { title: 'Usage', total: 'Total', today: ['12.3K', '9K', '2 requests'], month: ['320M', '320M', '12.3K'], tabs: ['Today', '7 days', '30 days'], unit: 'tokens' }],
-    ['zh-CN', { title: '用量', total: '合计', today: ['1.23 万', '9,000', '2 次请求', '1.2 万'], month: ['3.2 亿', '3.2 亿', '1.23 万'], tabs: ['今天', '近 7 天', '近 30 天'], unit: 'Token' }],
+    ['en-US', { title: 'Usage', cards: ['Total tokens', 'Requests', 'Input', 'Output', 'Cache hit rate'], today: ['12.3K', '9K', '75%', 'Tokens per hour'],
+      month: ['320M', '12.3K', 'Tokens per day', '100%'], tabs: ['Today', '7 days', '30 days'] }],
+    ['zh-CN', { title: '用量', cards: ['总 Token', '请求数', '输入', '输出', '缓存命中率'], today: ['1.23 万', '9,000', '75%', '每小时 Token', '1.2 万'],
+      month: ['3.2 亿', '1.23 万', '每日 Token', '100%'], tabs: ['今天', '近 7 天', '近 30 天'] }],
   ]) {
     const harness = createReactTestHarness();
     t.after(() => harness.unmount());
@@ -1067,26 +1080,39 @@ test('RokUsageSettings lists usage per model with short counts, exact counts on 
     const localBot = { locale, onConnectionChanged: () => () => {}, getUsage: async payload => { calls.push(payload); return USAGE_FIXTURE; } };
     const { RokUsageSettings } = await loadExtensionsInVm(harness, localBot);
     harness.mount(harness.JSX.jsx(RokUsageSettings, {}));
-    await harness.waitFor(tree => collectText(tree).includes(expected.total));
+    await harness.waitFor(tree => collectText(tree).includes(expected.cards[0]));
     assert.equal(typeof calls[0].timeZone, 'string');
-    const text = collectText(harness.getTree());
+    const tree = harness.getTree(), text = collectText(tree);
     assert.ok(text.includes(expected.title), locale);
-    for (const part of expected.today) assert.ok(text.includes(part), `${locale}: ${part} in ${text}`);
+    for (const part of [...expected.cards, ...expected.today]) assert.ok(text.includes(part), `${locale}: ${part} in ${text}`);
     assert.ok(text.includes('claude-opus') && !text.includes('gpt-5'), locale);
-    assert.ok(text.includes(expected.unit), locale);
-    const tabs = findNodes(harness.getTree(), node => node.tag === 'button' && node.props.role === 'radio');
+    // The chart CSS ships with the section; the tree's class names become className.
+    const style = findNodes(tree, node => node.tag === 'style')[0];
+    assert.ok(style.children.includes('.rok-usage-periods') && style.children.includes('.rok-usage-view {') && style.children.includes('cursor-dark'));
+    const svg = findNodes(tree, node => node.tag === 'svg')[0];
+    assert.equal(svg.props.className, 'rok-usage-svg');
+    assert.equal(svg.props.tabIndex, 0);
+    assert.equal(svg.props.width, 568);
+    const columns = () => findNodes(harness.getTree(), node => node.tag === 'g' && node.props.className === 'rok-usage-col');
+    assert.equal(columns().length, 24);
+    assert.equal(findNodes(columns()[9], node => node.tag === 'path').length, 1);
+    const tabs = findNodes(tree, node => node.tag === 'button' && node.props.role === 'radio');
     assert.deepEqual(tabs.map(node => node.props.children), expected.tabs);
     assert.deepEqual(tabs.map(node => node.props['aria-checked']), ['true', 'false', 'false']);
     // Every count carries its exact value for hover.
     const counts = () => findNodes(harness.getTree(), node => node.component === 'RokUsageCount');
     const totalCount = counts().find(node => node.props.value === 12345);
     assert.equal(totalCount.rendered.props.title, '12,345');
-    // The last 30 days: both models, the larger first.
+    // The last 30 days: one column a day, both models, the larger first.
     tabs[2].props.onClick();
     harness.rerender();
     const month = collectText(harness.getTree());
     for (const part of expected.month) assert.ok(month.includes(part), `${locale}: ${part} in ${month}`);
     assert.ok(month.indexOf('gpt-5') < month.indexOf('claude-opus'), locale);
+    assert.equal(columns().length, 30);
+    // gpt-5 keeps series 1 and claude-opus series 2 in every period.
+    const swatches = findNodes(harness.getTree(), node => node.tag === 'i' && /rok-usage-swatch/.test(node.props.className ?? '')).map(node => node.props.className);
+    assert.deepEqual(swatches.slice(0, 2), ['rok-usage-swatch rok-usage-s1', 'rok-usage-swatch rok-usage-s2']);
     // A long press on a touch screen shows the exact number; a mouse press does not.
     const big = () => counts().find(node => node.props.value === 320000000).rendered;
     big().props.onPointerDown({ pointerType: 'mouse' });

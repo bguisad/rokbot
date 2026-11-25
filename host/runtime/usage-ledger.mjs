@@ -51,20 +51,24 @@ async function ledgerRows(path) {
   files.set(path, entry);
   return entry;
 }
-function localDates(entry, format) {
-  const zone = format.resolvedOptions().timeZone;
-  let dates = entry.dates.get(zone);
-  if (!dates) {
-    // Rows of one file share at most two local dates; format each hour once, not each row.
-    const hours = new Map();
-    dates = entry.rows.map(row => {
-      const hour = Math.floor(row.atMs / 900000); // 15 minutes: every zone offset is a multiple
-      if (!hours.has(hour)) hours.set(hour, format.format(new Date(hour * 900000)));
-      return hours.get(hour);
+// The local date and hour of each row, "2026-11-25T13", per time zone.
+function localHours(entry, zone) {
+  let stamps = entry.dates.get(zone);
+  if (!stamps) {
+    const format = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+    // Every zone offset is a multiple of 15 minutes: format each quarter hour once, not each row.
+    const quarters = new Map();
+    stamps = entry.rows.map(row => {
+      const quarter = Math.floor(row.atMs / 900000);
+      if (!quarters.has(quarter)) {
+        const parts = Object.fromEntries(format.formatToParts(new Date(quarter * 900000)).map(part => [part.type, part.value]));
+        quarters.set(quarter, `${parts.year}-${parts.month}-${parts.day}T${parts.hour === '24' ? '00' : parts.hour}`);
+      }
+      return quarters.get(quarter);
     });
-    entry.dates.set(zone, dates);
+    entry.dates.set(zone, stamps);
   }
-  return dates;
+  return stamps;
 }
 const shiftDate = (date, days) => {
   const [year, month, day] = date.split('-').map(Number);
@@ -86,23 +90,36 @@ function summarize(rows) {
   return { ...all, models: [...models.values()].sort((a, b) => b.total - a.total || a.model.localeCompare(b.model)) };
 }
 
+// Each period is split into buckets for a chart: hours for today, local days otherwise.
+// Every bucket is listed, also the empty ones, with the same totals and models as a period.
+function buckets(items, period, today) {
+  const hourly = period.days === 1, keys = [];
+  if (hourly) for (let hour = 0; hour < 24; hour++) keys.push(`${today}T${String(hour).padStart(2, '0')}`);
+  else for (let day = 1 - period.days; day <= 0; day++) keys.push(shiftDate(today, day));
+  const groups = new Map(keys.map(key => [key, []]));
+  for (const item of items) groups.get(hourly ? item.stamp : item.date)?.push(item.row);
+  return { unit: hourly ? 'hour' : 'day', buckets: keys.map(start => ({ start, ...summarize(groups.get(start)) })) };
+}
+
 /**
  * Today's totals in `timeZone` (the original response fields) plus `periods`: today, the last 7
- * and the last 30 local days, each with the same totals and a per-model breakdown.
+ * and the last 30 local days, each with the same totals, a per-model breakdown and `buckets`
+ * (per hour for today, per day otherwise). `period` keeps only that period in `periods`.
  */
-export async function usageSummary(directory, timeZone = 'UTC', now = new Date()) {
-  const format = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
-  const today = format.format(now), longest = Math.max(...USAGE_PERIODS.map(period => period.days));
+export async function usageSummary(directory, timeZone = 'UTC', now = new Date(), { period: only } = {}) {
+  const zone = new Intl.DateTimeFormat('en-CA', { timeZone }).resolvedOptions().timeZone;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const longest = Math.max(...USAGE_PERIODS.map(period => period.days));
   const first = shiftDate(today, 1 - longest), seen = new Set(), rows = [];
   // Every UTC day that can hold a row of a local day in [first, today], whatever the offset.
   for (let day = shiftDate(first, -1); day <= shiftDate(today, 1); day = shiftDate(day, 1)) {
     const entry = await ledgerRows(join(directory, day + '.jsonl'));
     if (!entry) continue;
-    const dates = localDates(entry, format);
+    const stamps = localHours(entry, zone);
     entry.rows.forEach((row, index) => {
-      const date = dates[index];
+      const stamp = stamps[index], date = stamp.slice(0, 10);
       if (date < first || date > today || seen.has(row.id)) return;
-      seen.add(row.id); rows.push({ row, date });
+      seen.add(row.id); rows.push({ row, date, stamp });
     });
   }
   // Drop cached files that have aged out of every period.
@@ -110,12 +127,12 @@ export async function usageSummary(directory, timeZone = 'UTC', now = new Date()
     const name = path.slice(-16, -6);
     if (path.startsWith(join(directory, '/')) && name < shiftDate(first, -1)) files.delete(path);
   }
-  const periods = USAGE_PERIODS.map(({ id, days }) => {
-    const from = shiftDate(today, 1 - days);
-    return { id, days, from, to: today, ...summarize(rows.filter(item => item.date >= from).map(item => item.row)) };
+  const periods = USAGE_PERIODS.map(period => {
+    const from = shiftDate(today, 1 - period.days), items = rows.filter(item => item.date >= from);
+    return { id: period.id, days: period.days, from, to: today, ...summarize(items.map(item => item.row)), ...buckets(items, period, today) };
   });
-  const { id, days, from, to, ...current } = periods[0];
-  return { date: today, timeZone, ...current, periods };
+  const { id, days, from, to, unit, buckets: _, ...current } = periods[0];
+  return { date: today, timeZone, ...current, periods: only ? periods.filter(period => period.id === only) : periods };
 }
 
 /** The original name: today's usage, now with `periods` as well. */
