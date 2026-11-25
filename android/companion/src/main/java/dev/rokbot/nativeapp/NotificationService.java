@@ -8,6 +8,15 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.RectF;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
@@ -367,8 +376,8 @@ public class NotificationService extends Service {
             ? new Notification.Builder(context, channel)
             : new Notification.Builder(context);
 
-        builder.setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
+        applySmallIcon(context, builder);
+        builder.setContentTitle(title)
             .setContentText(body)
             .setStyle(new Notification.BigTextStyle().bigText(body))
             .setContentIntent(pi)
@@ -392,8 +401,8 @@ public class NotificationService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(context, CHANNEL_ATTENTION)
             : new Notification.Builder(context);
-        builder.setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("RokBot")
+        applySmallIcon(context, builder);
+        builder.setContentTitle("RokBot")
             .setContentText(Localize.t(context, "设备配对已失效，点击重新连接。", "Device pairing expired. Tap to reconnect."))
             .setContentIntent(pi)
             .setAutoCancel(true);
@@ -401,6 +410,88 @@ public class NotificationService extends Service {
             NotificationManager nm = context.getSystemService(NotificationManager.class);
             if (nm != null) nm.notify(ID_EXPIRED, builder.build());
         } catch (SecurityException ignored) {}
+    }
+
+    private static volatile Object sCachedSmallIcon;
+
+    static void applySmallIcon(Context context, Notification.Builder builder) {
+        if (context == null || builder == null) return;
+        try {
+            int resId = context.getResources().getIdentifier(
+                "rokbot_notification_icon", "drawable", context.getPackageName());
+            if (resId != 0) {
+                builder.setSmallIcon(resId);
+                return;
+            }
+        } catch (Throwable ignored) {}
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                Icon icon = getOrCreateMonochromeIcon();
+                if (icon != null) {
+                    builder.setSmallIcon(icon);
+                    return;
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        try {
+            int appIcon = context.getApplicationInfo().icon;
+            if (appIcon != 0) {
+                builder.setSmallIcon(appIcon);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static Icon getOrCreateMonochromeIcon() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null;
+        Object cached = sCachedSmallIcon;
+        if (cached instanceof Icon) return (Icon) cached;
+
+        final int size = 96;
+        final float s = size / 1024f;
+        Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
+
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setColor(Color.WHITE);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        // RokBot silhouette matching assets/logo/rokbot-logo.svg
+        Path head = new Path();
+        head.moveTo(340f * s, 148f * s);
+        head.cubicTo(408f * s, 148f * s, 476f * s, 144f * s, 540f * s, 144f * s);
+        head.cubicTo(618f * s, 144f * s, 664f * s, 60f * s, 756f * s, 56f * s);
+        head.cubicTo(836f * s, 52f * s, 892f * s, 104f * s, 884f * s, 176f * s);
+        head.cubicTo(878f * s, 214f * s, 932f * s, 272f * s, 956f * s, 368f * s);
+        head.cubicTo(964f * s, 464f * s, 960f * s, 564f * s, 948f * s, 656f * s);
+        head.cubicTo(928f * s, 816f * s, 820f * s, 924f * s, 636f * s, 944f * s);
+        head.cubicTo(532f * s, 956f * s, 424f * s, 960f * s, 324f * s, 952f * s);
+        head.cubicTo(156f * s, 938f * s, 76f * s, 836f * s, 68f * s, 668f * s);
+        head.cubicTo(62f * s, 548f * s, 64f * s, 424f * s, 72f * s, 336f * s);
+        head.cubicTo(84f * s, 200f * s, 184f * s, 148f * s, 340f * s, 148f * s);
+        head.close();
+        canvas.drawPath(head, fillPaint);
+
+        Paint clearPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        clearPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+        clearPaint.setStyle(Paint.Style.FILL);
+
+        canvas.save();
+        canvas.rotate(-26f, 376f * s, 564f * s);
+        canvas.drawRoundRect(new RectF(304f * s, 396f * s, 448f * s, 732f * s), 72f * s, 72f * s, clearPaint);
+        canvas.restore();
+
+        canvas.save();
+        canvas.rotate(-26f, 648f * s, 504f * s);
+        canvas.drawRoundRect(new RectF(576f * s, 370f * s, 720f * s, 638f * s), 72f * s, 72f * s, clearPaint);
+        canvas.restore();
+
+        canvas.drawCircle(768f * s, 144f * s, 42f * s, clearPaint);
+
+        Icon icon = Icon.createWithBitmap(bmp);
+        sCachedSmallIcon = icon;
+        return icon;
     }
 
     private static int idFor(String agentId) {
@@ -620,7 +711,8 @@ public class NotificationService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(this, CHANNEL_CONNECTION)
             : new Notification.Builder(this);
-        return builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+        applySmallIcon(this, builder);
+        return builder
             .setContentTitle(reconnecting
                 ? Localize.t(this, "RokBot 重连中…", "RokBot Reconnecting…")
                 : Localize.t(this, "RokBot 已连接", "RokBot Connected"))

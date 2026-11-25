@@ -39,6 +39,8 @@ const ICON_DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
 const ICON_KINDS = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'];
 const MIPMAP_ICON_RE = /^res\/mipmap-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi)(?:-v\d+)?\/(ic_launcher(?:_round|_foreground)?)\.(?:png|webp)$/i;
 const ADAPTIVE_ICON_XML_RE = /^res\/mipmap-anydpi(?:-v\d+)?\/ic_launcher(?:_round)?\.xml$/i;
+const SPLASH_DRAWABLE_RE = /^res\/drawable(?:-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|nodpi))?(?:-v\d+)?\/(splashscreen_logo|bootsplash_logo|splash_logo|ic_splash|splash_icon)\.(?:png|webp)$/i;
+const NOTIF_DRAWABLE_RE = /^res\/drawable(?:-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|nodpi))?(?:-v\d+)?\/(notification_icon|ic_notification|ic_stat_onesignal_default)\.(?:png|webp)$/i;
 function getDrawableAttr(node) {
   return (node.attributes || []).find(
     a => a.resourceId === KNOWN_RES_IDS.drawable || (a.name === 'drawable' && a.namespace === ANDROID_NS)
@@ -72,7 +74,7 @@ function setAdaptiveDrawableAttr(node, type, data) {
 
 export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
   if (!logoDir || !fs.existsSync(logoDir)) {
-    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0 };
+    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0, brandDrawablesReplaced: 0 };
   }
   const iconMap = new Map();
   for (const density of ICON_DENSITIES) {
@@ -84,8 +86,20 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     }
   }
   if (iconMap.size === 0) {
-    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0 };
+    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0, brandDrawablesReplaced: 0 };
   }
+
+  const pickDensityAsset = (rawDensity, preferredKind = 'ic_launcher_foreground') => {
+    const d = (rawDensity || '').toLowerCase();
+    const density = ICON_DENSITIES.includes(d) ? d : 'xxhdpi';
+    return (
+      iconMap.get(`${density}:${preferredKind}`)
+      || iconMap.get(`${density}:ic_launcher`)
+      || iconMap.get(`xxhdpi:${preferredKind}`)
+      || iconMap.get('xxhdpi:ic_launcher')
+      || null
+    );
+  };
 
   const arscEntry = entries.find(e => e.name === 'resources.arsc');
   const fgMipmapId = arscEntry ? findMipmapResourceId(entryBytes(arscEntry), 'ic_launcher_foreground') : null;
@@ -93,6 +107,7 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
   const matchedKeys = new Set();
   let replaced = 0;
   let adaptiveIconsPatched = 0;
+  let brandDrawablesReplaced = 0;
   const updated = entries.map(entry => {
     if (ADAPTIVE_ICON_XML_RE.test(entry.name)) {
       try {
@@ -125,6 +140,24 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
       return entry;
     }
 
+    const splashMatch = SPLASH_DRAWABLE_RE.exec(entry.name);
+    if (splashMatch) {
+      const pngBuf = pickDensityAsset(splashMatch[1], 'ic_launcher_foreground');
+      if (pngBuf) {
+        brandDrawablesReplaced++;
+        return createEntry(entry.name, pngBuf, { store: false });
+      }
+    }
+
+    const notifMatch = NOTIF_DRAWABLE_RE.exec(entry.name);
+    if (notifMatch) {
+      const pngBuf = pickDensityAsset(notifMatch[1], 'ic_launcher_foreground');
+      if (pngBuf) {
+        brandDrawablesReplaced++;
+        return createEntry(entry.name, pngBuf, { store: false });
+      }
+    }
+
     const m = MIPMAP_ICON_RE.exec(entry.name);
     if (!m) return entry;
     const key = `${m[1].toLowerCase()}:${m[2].toLowerCase()}`;
@@ -143,7 +176,7 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     inserted++;
   }
 
-  return { entries: updated, replaced, inserted, adaptiveIconsPatched };
+  return { entries: updated, replaced, inserted, adaptiveIconsPatched, brandDrawablesReplaced };
 }
 
 const PAIRING_CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/i;
@@ -617,7 +650,12 @@ export async function runPatchPipeline(options) {
     hbcPinMatched,
     bundlePatchMode,
     settingsRebrand: settingsRebrand
-      ? { applied: settingsRebrand.applied, reason: settingsRebrand.reason, edits: settingsRebrand.edits }
+      ? {
+          applied: settingsRebrand.applied, reason: settingsRebrand.reason, edits: settingsRebrand.edits,
+          ...(settingsRebrand.connectionEntry ? { connectionEntry: settingsRebrand.connectionEntry } : {}),
+          ...(settingsRebrand.homeBell ? { homeBell: settingsRebrand.homeBell } : {}),
+          ...(settingsRebrand.listSort ? { listSort: settingsRebrand.listSort } : {}),
+        }
       : { applied: false, reason: 'bundle not pinned', edits: [] },
     bytepatchApplied,
     inputApk: path.resolve(options.inputApk),
@@ -647,6 +685,7 @@ export async function runPatchPipeline(options) {
     launcherIconsReplaced: iconResult.replaced,
     launcherIconsInserted: iconResult.inserted,
     adaptiveIconsPatched: iconResult.adaptiveIconsPatched,
+    brandDrawablesReplaced: iconResult.brandDrawablesReplaced,
   };
 
   const reportPath = path.join(path.dirname(outPath), 'patch-report.json');

@@ -325,6 +325,12 @@ export function patchHermesBundle(bundleBuffer, { host, pairingCode, token, meta
 export function suppressExpoUpdates(configObj) {
   if (typeof configObj !== 'object' || configObj === null) return configObj;
   const clone = JSON.parse(JSON.stringify(configObj));
+  if (typeof clone.name === 'string' && /^grok\s*bot$/i.test(clone.name.trim())) {
+    clone.name = 'RokBot';
+  }
+  if (typeof clone.extra?.expoClient?.name === 'string' && /^grok\s*bot$/i.test(clone.extra.expoClient.name.trim())) {
+    clone.extra.expoClient.name = 'RokBot';
+  }
   if (clone.updates) {
     clone.updates.enabled = false;
     clone.updates.checkOnLaunch = 'NEVER';

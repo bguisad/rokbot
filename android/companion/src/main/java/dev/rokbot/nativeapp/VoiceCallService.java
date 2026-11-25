@@ -44,8 +44,8 @@ public class VoiceCallService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(this, NotificationService.CHANNEL_MESSAGES)
             : new Notification.Builder(this);
+        NotificationService.applySmallIcon(this, builder);
         Notification notif = builder
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle(Localize.t(this, "语音通话中", "Voice Call Active"))
             .setContentText(Localize.t(this, "正在与 " + name + " 通话", "Speaking with " + name))
             .setContentIntent(pi)

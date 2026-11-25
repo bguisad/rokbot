@@ -114,6 +114,9 @@ final class HostProfile {
         try {
             Storage.setProfileCache(context, profile);
         } catch (Throwable ignored) {}
+        try {
+            ConnectionHistory.noteHostName(context, hostName(context));
+        } catch (Throwable ignored) {}
         if (changed) notifyListener();
     }
 

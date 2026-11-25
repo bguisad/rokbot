@@ -503,6 +503,18 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    /**
+     * GET /local/usage in the device time zone. `period` ("today", "7d" or "30d") keeps only that
+     * period in periods[]; null or empty returns every period (the 30-day ranking colours the models).
+     */
+    public static JSONObject getUsage(Context context, String period) throws Exception {
+        String tz = TimeZone.getDefault().getID();
+        String path = "/local/usage?timeZone=" + encodeQuery(tz);
+        if (period != null && !period.trim().isEmpty()) path += "&period=" + encodeQuery(period.trim());
+        HttpResult res = authedGet(context, path);
+        return requireJsonObject(res);
+    }
+
     public static JSONObject getComputers(Context context) throws Exception {
         HttpResult res = authedGet(context, "/local/computers");
         return requireJsonObject(res);

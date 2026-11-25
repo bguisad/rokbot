@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
@@ -61,6 +62,8 @@ public class PairingActivity extends Activity {
     private boolean mTailcatMode = false;
     private boolean mUsePasswordMode = false;
     private boolean mEditingConnection = false;
+    /** "添加新连接": full pairing while another connection stays saved in the history. */
+    private boolean mAddingConnection = false;
     private boolean mFromRnModal = false;
     private String mDraftHost = null;
     private String mDraftCode = null;
@@ -79,6 +82,17 @@ public class PairingActivity extends Activity {
     private File mStagedUpdateApk = null;
     private boolean mUpdateStaging = false;
     private boolean mPendingInstallAfterPerm = false;
+
+    // Connection & Diagnostics (rokbot.3)
+    public static final String EXTRA_ADD_CONNECTION = "addConnection";
+    private ConnectionProbe mProbe;
+    private ConnectionProbe.Status mLastStatus;
+    private TextView mStatusLine;
+    private TextView mStatusBadge;
+    private TextView mCurrentRowStatus;
+    private TextView mDiagPath;
+    private TextView mDiagLatency;
+    private android.app.AlertDialog mBusyDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -102,6 +116,9 @@ public class PairingActivity extends Activity {
             mEditingConnection = savedInstanceState.getBoolean("state_editing", false);
             mDraftHost = savedInstanceState.getString("state_host");
             mDraftCode = savedInstanceState.getString("state_code");
+            mAddingConnection = savedInstanceState.getBoolean("state_adding", false);
+        } else if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_ADD_CONNECTION, false)) {
+            mAddingConnection = true;
         }
         renderScreen();
     }
@@ -122,11 +139,23 @@ public class PairingActivity extends Activity {
         if (Storage.isPaired(this) && !mEditingConnection && mNeedsModelBanner != null) {
             refreshNeedsModelBanner();
         }
+        startProbeIfConnected();
+    }
+
+    @Override
+    protected void onPause() {
+        stopProbe();
+        super.onPause();
     }
 
     @Override
     protected void onDestroy() {
         mDestroyed = true;
+        stopProbe();
+        if (mBusyDialog != null) {
+            try { mBusyDialog.dismiss(); } catch (Throwable ignored) {}
+            mBusyDialog = null;
+        }
         mMainHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
@@ -168,6 +197,7 @@ public class PairingActivity extends Activity {
         outState.putBoolean("state_tailcat", mTailcatMode);
         outState.putBoolean("state_pwd_mode", mUsePasswordMode);
         outState.putBoolean("state_editing", mEditingConnection);
+        outState.putBoolean("state_adding", mAddingConnection);
         if (mHostInput != null && mHostInput.getText() != null) {
             outState.putString("state_host", mHostInput.getText().toString());
         }
@@ -177,9 +207,16 @@ public class PairingActivity extends Activity {
     }
 
     private void renderScreen() {
-        boolean connected = Storage.isPaired(this) && !mEditingConnection;
+        boolean connected = Storage.isPaired(this) && !mEditingConnection && !mAddingConnection;
+        stopProbe();
+        mStatusLine = null;
+        mStatusBadge = null;
+        mCurrentRowStatus = null;
+        mDiagPath = null;
+        mDiagLatency = null;
         if (connected) {
             buildConnectedUi();
+            startProbeIfConnected();
         } else {
             buildPairingUi();
         }
@@ -318,38 +355,15 @@ public class PairingActivity extends Activity {
         addSpacing(root, 12);
 
         TextView heading = new TextView(this);
-        heading.setText(Localize.t(this, "Host 连接", "Host Connection"));
+        heading.setText(Localize.t(this, "连接与诊断", "Connection & Diagnostics"));
+        heading.setContentDescription("connection_diagnostics_title");
         heading.setTextColor(p.textPrimary);
         heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 25);
         heading.setTypeface(Typeface.DEFAULT_BOLD);
         heading.setPadding(0, 0, 0, UiChrome.dp(this, 14));
         root.addView(heading);
 
-        LinearLayout card = UiChrome.makeCard(this, p);
-        boolean isTc = Storage.isTailcatEnabled(this);
-        TextView badge = new TextView(this);
-        badge.setText(isTc
-                ? Localize.t(this, "● Tailcat 已连接", "● Tailcat Connected")
-                : Localize.t(this, "● 已连接到 Host", "● Connected to Host"));
-        badge.setTextColor(p.success);
-        badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        badge.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(badge);
-
-        TextView addrTv = new TextView(this);
-        addrTv.setText(Storage.getGatewayUrl(this));
-        addrTv.setTextColor(p.textPrimary);
-        addrTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        addrTv.setPadding(0, UiChrome.dp(this, 8), 0, UiChrome.dp(this, 4));
-        card.addView(addrTv);
-
-        String pathInfo = isTc ? (" (" + TailcatManager.get().getTransportPath(this) + ")") : "";
-        TextView devTv = new TextView(this);
-        devTv.setText(Localize.t(this, "设备 ID: ", "Device ID: ") + Storage.getDeviceId(this) + pathInfo);
-        devTv.setTextColor(p.textSecondary);
-        devTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        card.addView(devTv);
-        root.addView(card);
+        root.addView(buildCurrentConnectionCard(p));
 
         // Non-blocking needsModel onboarding banner
         mNeedsModelBanner = UiChrome.makeCard(this, p);
@@ -442,7 +456,19 @@ public class PairingActivity extends Activity {
             root.addView(doneBtn);
         }
 
-        addSpacing(root, 12);
+        addSpacing(root, 6);
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "连接历史", "Connection history"), p));
+        root.addView(buildHistoryCard(p, true));
+
+        if (ListArrangement.isAvailable(this)) {
+            root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "会话列表", "Chat list"), p));
+            root.addView(buildListSortCard(p));
+        }
+
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "诊断", "Diagnostics"), p));
+        root.addView(buildDiagnosticsCard(p));
+
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "更多", "More"), p));
         LinearLayout quickGrid1 = new LinearLayout(this);
         quickGrid1.setOrientation(LinearLayout.HORIZONTAL);
         TextView pushBtn = UiChrome.makePillButton(this, Localize.t(this, "通知设置", "Notifications"), false, p,
@@ -518,6 +544,7 @@ public class PairingActivity extends Activity {
         addSpacing(root, 16);
         TextView unpairBtn = UiChrome.makePillButton(this,
                 Localize.t(this, "断开并解除配对", "Disconnect & Unpair"), false, p, v -> {
+                    ConnectionHistory.forgetCurrent(this);
                     TailcatManager.get().clear();
                     Storage.clearCredentials(this);
                     RokBotBootstrap.clearPairedBundle(this);
@@ -792,7 +819,7 @@ public class PairingActivity extends Activity {
         root.setPadding(UiChrome.dp(this, 22), UiChrome.dp(this, 14), UiChrome.dp(this, 22), UiChrome.dp(this, 24));
         scroll.addView(root);
 
-        root.addView(makeTopBarRow(p, mFromRnModal || mEditingConnection));
+        root.addView(makeTopBarRow(p, mFromRnModal || mEditingConnection || mAddingConnection));
 
         root.addView(UiChrome.makeRokLogoView(this, 56, p));
         addSpacing(root, 14);
@@ -808,7 +835,9 @@ public class PairingActivity extends Activity {
         TextView title = new TextView(this);
         title.setText(mEditingConnection
                 ? Localize.t(this, "修改 Host 连接", "Edit Host Connection")
-                : Localize.t(this, "连接你的 RokBot", "Connect your RokBot"));
+                : (mAddingConnection
+                        ? Localize.t(this, "添加新连接", "Add a connection")
+                        : Localize.t(this, "连接你的 RokBot", "Connect your RokBot")));
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(p.textPrimary);
@@ -867,7 +896,7 @@ public class PairingActivity extends Activity {
             initialHost = mDraftHost;
             mDraftHost = null;
         } else if (intentHost != null && !intentHost.isEmpty()) initialHost = intentHost;
-        else if (existingHost != null && !existingHost.isEmpty()) initialHost = existingHost;
+        else if (!mAddingConnection && existingHost != null && !existingHost.isEmpty()) initialHost = existingHost;
         else if (!preHost.isEmpty()) initialHost = preHost;
         if (TailcatManager.looksLikeTailcatInput(initialHost)) mTailcatMode = true;
         tcSwitch.setChecked(mTailcatMode);
@@ -1007,6 +1036,12 @@ public class PairingActivity extends Activity {
             updateAuthModeTabs(p);
         }
 
+        if (!Storage.isPaired(this) && !mEditingConnection && !ConnectionHistory.load(this).isEmpty()) {
+            addSpacing(root, 16);
+            root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "已保存的连接（无需重新配对）", "Saved connections (no pairing needed)"), p));
+            root.addView(buildHistoryCard(p, false));
+        }
+
         mProgress = new ProgressBar(this);
         mProgress.setVisibility(View.GONE);
         mProgress.setPadding(0, UiChrome.dp(this, 8), 0, UiChrome.dp(this, 4));
@@ -1028,9 +1063,10 @@ public class PairingActivity extends Activity {
         LinearLayout actionRow = new LinearLayout(this);
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
         actionRow.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        if (mEditingConnection) {
+        if (mEditingConnection || (mAddingConnection && Storage.isPaired(this))) {
             TextView cancelBtn = UiChrome.makePillButton(this, Localize.t(this, "取消", "Cancel"), false, p, v -> {
                 mEditingConnection = false;
+                mAddingConnection = false;
                 renderScreen();
             });
             LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1166,6 +1202,7 @@ public class PairingActivity extends Activity {
         new Thread(() -> {
             try {
                 if (mEditingConnection) {
+                    String historyKey = ConnectionHistory.currentKey(this);
                     String existingToken = Storage.getToken(this);
                     if (existingToken == null || existingToken.isEmpty()) {
                         throw new HostApiClient.ApiException(401, Localize.t(this,
@@ -1198,6 +1235,7 @@ public class PairingActivity extends Activity {
                         Storage.updateDirectConnection(this, server);
                         TailcatManager.get().clear();
                     }
+                    ConnectionHistory.recordCurrent(this, historyKey);
                     NotificationService.sync(this, true);
                     PushManager.getInstance(this).syncDeviceAsync(RokBotBootstrap.isForeground(), true);
                     RokBotBootstrap.reloadReactHost(this);
@@ -1210,6 +1248,8 @@ public class PairingActivity extends Activity {
                     return;
                 }
 
+                // Keep the connection we are leaving (with its latest token) in the history.
+                ConnectionHistory.recordCurrent(this);
                 HostApiClient.PairResult res = HostApiClient.pair(this, rawHost, code, password, useTc);
                 if (res.tailcat) {
                     Storage.saveTailcatCredentials(this, res.token, res.canonicalAddress, res.deviceId, res.networkIdentity, res.reportedGatewayUrl);
@@ -1228,6 +1268,8 @@ public class PairingActivity extends Activity {
                     }
                 } catch (Throwable ignored) {}
 
+                ConnectionHistory.recordCurrent(this);
+                mAddingConnection = false;
                 NotificationService.sync(this, true);
                 PushManager.getInstance(this).syncDeviceAsync(RokBotBootstrap.isForeground(), true);
                 // New pairing: drop the previous Host's profile and fetch this Host's one.
@@ -1268,6 +1310,525 @@ public class PairingActivity extends Activity {
                 });
             }
         }).start();
+    }
+
+    // ---- Connection & Diagnostics (rokbot.3) ----
+
+    private LinearLayout buildCurrentConnectionCard(UiChrome.Palette p) {
+        LinearLayout card = UiChrome.makeCard(this, p);
+        card.setContentDescription("current_connection_card");
+        boolean isTc = Storage.isTailcatEnabled(this);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView type = new TextView(this);
+        type.setText(isTc ? "Tailcat" : Localize.t(this, "服务器", "Server"));
+        type.setTextColor(p.textSecondary);
+        type.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        type.setTypeface(Typeface.DEFAULT_BOLD);
+        type.setPadding(UiChrome.dp(this, 8), UiChrome.dp(this, 2), UiChrome.dp(this, 8), UiChrome.dp(this, 2));
+        type.setBackground(UiChrome.roundRect(p.bgSurface2, UiChrome.dp(this, 8), 0, 0));
+        top.addView(type);
+        mStatusBadge = new TextView(this);
+        mStatusBadge.setText(isTc
+                ? Localize.t(this, "  ● Tailcat 已连接", "  ● Tailcat connected")
+                : Localize.t(this, "  ● 已连接到 Host", "  ● Connected to Host"));
+        mStatusBadge.setTextColor(p.success);
+        mStatusBadge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        mStatusBadge.setTypeface(Typeface.DEFAULT_BOLD);
+        top.addView(mStatusBadge);
+        card.addView(top);
+
+        String hostName = HostProfile.hostName(this);
+        ConnectionHistory.Entry current = null;
+        for (ConnectionHistory.Entry e : ConnectionHistory.load(this)) {
+            if (ConnectionHistory.isCurrent(this, e)) { current = e; break; }
+        }
+        String title = current != null ? current.displayName()
+                : (hostName != null ? hostName : ConnectionHistory.shortAddress(isTc ? ConnectionHistory.TYPE_TAILCAT : ConnectionHistory.TYPE_SERVER, Storage.getGatewayUrl(this)));
+        TextView nameTv = new TextView(this);
+        nameTv.setText(title);
+        nameTv.setTextColor(p.textPrimary);
+        nameTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        nameTv.setTypeface(Typeface.DEFAULT_BOLD);
+        nameTv.setPadding(0, UiChrome.dp(this, 10), 0, 0);
+        card.addView(nameTv);
+
+        TextView addrTv = new TextView(this);
+        addrTv.setText(Storage.getGatewayUrl(this));
+        addrTv.setTextColor(p.textPrimary);
+        addrTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        addrTv.setSingleLine(true);
+        addrTv.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        addrTv.setPadding(0, UiChrome.dp(this, 4), 0, UiChrome.dp(this, 4));
+        card.addView(addrTv);
+
+        mStatusLine = new TextView(this);
+        mStatusLine.setContentDescription("connection_path_status");
+        mStatusLine.setText(Localize.t(this, "路径与延迟：检测中…", "Route & latency: checking…"));
+        mStatusLine.setTextColor(p.blueAccent);
+        mStatusLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        mStatusLine.setTypeface(Typeface.DEFAULT_BOLD);
+        mStatusLine.setPadding(0, UiChrome.dp(this, 2), 0, UiChrome.dp(this, 4));
+        card.addView(mStatusLine);
+
+        TextView devTv = new TextView(this);
+        devTv.setText(Localize.t(this, "设备 ID: ", "Device ID: ") + Storage.getDeviceId(this));
+        devTv.setTextColor(p.textSecondary);
+        devTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        card.addView(devTv);
+        if (mLastStatus != null) applyProbeStatus(mLastStatus);
+        return card;
+    }
+
+    private LinearLayout buildHistoryCard(UiChrome.Palette p, boolean connectedPage) {
+        LinearLayout card = UiChrome.makeCard(this, p);
+        card.setContentDescription("connection_history_card");
+        card.setPadding(UiChrome.dp(this, 4), UiChrome.dp(this, 4), UiChrome.dp(this, 4), UiChrome.dp(this, 4));
+        java.util.List<ConnectionHistory.Entry> entries = ConnectionHistory.load(this);
+        boolean first = true;
+        for (ConnectionHistory.Entry e : entries) {
+            if (!first) card.addView(makeDivider(p));
+            first = false;
+            card.addView(makeHistoryRow(p, e));
+        }
+        if (connectedPage) {
+            if (!first) card.addView(makeDivider(p));
+            TextView add = new TextView(this);
+            add.setText(Localize.t(this, "＋  添加新连接", "＋  Add a connection"));
+            add.setContentDescription("add_connection_button");
+            add.setTextColor(p.blueAccent);
+            add.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            add.setTypeface(Typeface.DEFAULT_BOLD);
+            add.setPadding(UiChrome.dp(this, 14), UiChrome.dp(this, 14), UiChrome.dp(this, 14), UiChrome.dp(this, 14));
+            add.setOnClickListener(v -> startAddConnection(null, false));
+            card.addView(add);
+        }
+        return card;
+    }
+
+    private View makeDivider(UiChrome.Palette p) {
+        View d = new View(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, UiChrome.dp(this, 0.7f)));
+        lp.leftMargin = UiChrome.dp(this, 46);
+        d.setLayoutParams(lp);
+        d.setBackgroundColor(p.border);
+        return d;
+    }
+
+    @SuppressWarnings("ClickableViewAccessibility")
+    private View makeHistoryRow(UiChrome.Palette p, ConnectionHistory.Entry e) {
+        final boolean current = ConnectionHistory.isCurrent(this, e);
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        // Behind the row: revealed by a left swipe.
+        TextView deleteBg = new TextView(this);
+        deleteBg.setText(Localize.t(this, "删除", "Delete"));
+        deleteBg.setTextColor(0xFFFFFFFF);
+        deleteBg.setTypeface(Typeface.DEFAULT_BOLD);
+        deleteBg.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        deleteBg.setPadding(0, 0, UiChrome.dp(this, 22), 0);
+        deleteBg.setBackground(UiChrome.roundRect(p.danger, UiChrome.dp(this, 12), 0, 0));
+        deleteBg.setVisibility(View.INVISIBLE);
+        frame.addView(deleteBg, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackgroundColor(p.bgCard);
+        row.setPadding(UiChrome.dp(this, 12), UiChrome.dp(this, 11), UiChrome.dp(this, 12), UiChrome.dp(this, 11));
+        row.setContentDescription((current ? "connection_row_current:" : "connection_row:") + e.displayName());
+
+        TextView check = new TextView(this);
+        check.setText(current ? "✓" : "");
+        check.setTextColor(p.success);
+        check.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        check.setTypeface(Typeface.DEFAULT_BOLD);
+        check.setGravity(Gravity.CENTER);
+        row.addView(check, new LinearLayout.LayoutParams(UiChrome.dp(this, 30), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(this);
+        name.setText(e.displayName());
+        name.setTextColor(p.textPrimary);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(name);
+        TextView sub = new TextView(this);
+        sub.setText((e.isTailcat() ? "Tailcat" : Localize.t(this, "服务器", "Server")) + " · "
+                + ConnectionHistory.shortAddress(e.type, e.address));
+        sub.setTextColor(p.textSecondary);
+        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        texts.addView(sub);
+        TextView meta = new TextView(this);
+        meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        if (current) {
+            meta.setText(Localize.t(this, "当前连接 · 检测中…", "Current · checking…"));
+            meta.setTextColor(p.blueAccent);
+            mCurrentRowStatus = meta;
+        } else {
+            meta.setText(Localize.t(this, "上次使用 ", "Last used ") + formatLastUsed(e.lastUsedAt));
+            meta.setTextColor(p.textMuted);
+        }
+        texts.addView(meta);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        frame.addView(row, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        row.setOnClickListener(v -> {
+            if (current) {
+                Toast.makeText(this, Localize.t(this, "已是当前连接", "Already the current connection"), Toast.LENGTH_SHORT).show();
+            } else {
+                confirmSwitch(e);
+            }
+        });
+        row.setOnLongClickListener(v -> {
+            showRowMenu(e, current);
+            return true;
+        });
+        // Left swipe -> delete (not for the current connection).
+        final float slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+        final float[] down = new float[2];
+        final boolean[] swiping = new boolean[1];
+        row.setOnTouchListener((v, ev) -> {
+            if (current) return false;
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    down[0] = ev.getRawX();
+                    down[1] = ev.getRawY();
+                    swiping[0] = false;
+                    return false;
+                case android.view.MotionEvent.ACTION_MOVE: {
+                    float dx = ev.getRawX() - down[0];
+                    float dy = ev.getRawY() - down[1];
+                    if (!swiping[0] && dx < -slop && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                        swiping[0] = true;
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                        v.setPressed(false);
+                        v.cancelLongPress();
+                        deleteBg.setVisibility(View.VISIBLE);
+                    }
+                    if (swiping[0]) {
+                        v.setTranslationX(Math.min(0f, dx));
+                        return true;
+                    }
+                    return false;
+                }
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    if (swiping[0]) {
+                        swiping[0] = false;
+                        boolean past = v.getTranslationX() < -v.getWidth() * 0.28f
+                                && ev.getActionMasked() == android.view.MotionEvent.ACTION_UP;
+                        v.animate().translationX(0f).setDuration(160).withEndAction(() -> deleteBg.setVisibility(View.INVISIBLE)).start();
+                        if (past) confirmDelete(e);
+                        return true;
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        });
+        return frame;
+    }
+
+    private String formatLastUsed(long at) {
+        if (at <= 0) return "—";
+        long diff = System.currentTimeMillis() - at;
+        if (diff < 60_000L) return Localize.t(this, "刚刚", "just now");
+        if (diff < 3_600_000L) return Localize.t(this, (diff / 60_000L) + " 分钟前", (diff / 60_000L) + " min ago");
+        if (diff < 86_400_000L) return Localize.t(this, (diff / 3_600_000L) + " 小时前", (diff / 3_600_000L) + " h ago");
+        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.ROOT).format(new java.util.Date(at));
+    }
+
+    private void showRowMenu(ConnectionHistory.Entry e, boolean current) {
+        java.util.List<String> items = new ArrayList<>();
+        items.add(Localize.t(this, "重命名", "Rename"));
+        if (!current) items.add(Localize.t(this, "删除", "Delete"));
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(e.displayName())
+                .setItems(items.toArray(new String[0]), (d, which) -> {
+                    if (which == 0) showRenameDialog(e);
+                    else confirmDelete(e);
+                })
+                .show();
+    }
+
+    private void showRenameDialog(ConnectionHistory.Entry e) {
+        UiChrome.Palette p = UiChrome.palette(this);
+        EditText input = new EditText(this);
+        UiChrome.styleEditText(input, p, this);
+        input.setSingleLine(true);
+        input.setText(e.customName != null ? e.customName : "");
+        input.setHint(e.name != null ? e.name : ConnectionHistory.shortAddress(e.type, e.address));
+        input.setContentDescription("rename_connection_input");
+        LinearLayout box = new LinearLayout(this);
+        box.setPadding(UiChrome.dp(this, 20), UiChrome.dp(this, 8), UiChrome.dp(this, 20), 0);
+        box.addView(input, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(Localize.t(this, "重命名连接", "Rename connection"))
+                .setMessage(Localize.t(this, "留空则使用 Host 名称。", "Leave empty to use the Host name."))
+                .setView(box)
+                .setNegativeButton(Localize.t(this, "取消", "Cancel"), null)
+                .setPositiveButton(Localize.t(this, "保存", "Save"), (d, w) -> {
+                    ConnectionHistory.rename(this, e.id, input.getText().toString());
+                    renderScreen();
+                })
+                .show();
+    }
+
+    private void confirmDelete(ConnectionHistory.Entry e) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(Localize.t(this, "删除这个连接？", "Delete this connection?"))
+                .setMessage(Localize.t(this,
+                        e.displayName() + "\n删除后再连接需要重新配对。",
+                        e.displayName() + "\nConnecting again will need a new pairing."))
+                .setNegativeButton(Localize.t(this, "取消", "Cancel"), null)
+                .setPositiveButton(Localize.t(this, "删除", "Delete"), (d, w) -> {
+                    ConnectionHistory.delete(this, e.id);
+                    renderScreen();
+                })
+                .show();
+    }
+
+    private void confirmSwitch(ConnectionHistory.Entry e) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(Localize.t(this, "切换连接", "Switch connection"))
+                .setMessage(Localize.t(this,
+                        "切换到「" + e.displayName() + "」？\n当前连接会保存在历史中，可随时切回。",
+                        "Switch to \"" + e.displayName() + "\"?\nThe current connection stays in the history."))
+                .setNegativeButton(Localize.t(this, "取消", "Cancel"), null)
+                .setPositiveButton(Localize.t(this, "切换", "Switch"), (d, w) -> runSwitch(e))
+                .show();
+    }
+
+    private void runSwitch(ConnectionHistory.Entry e) {
+        showBusy(Localize.t(this, "正在切换到 " + e.displayName() + "…", "Switching to " + e.displayName() + "…"));
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            ConnectionHistory.SwitchException failure = null;
+            ConnectionHistory.Entry done = null;
+            try {
+                done = ConnectionHistory.switchTo(app, e.id);
+                RokBotBootstrap.reloadReactHost(app);
+            } catch (ConnectionHistory.SwitchException se) {
+                failure = se;
+            } catch (Throwable t) {
+                failure = new ConnectionHistory.SwitchException(ConnectionHistory.SwitchException.KIND_UNREACHABLE,
+                        t.getMessage() != null ? t.getMessage() : t.toString());
+            }
+            final ConnectionHistory.SwitchException err = failure;
+            final ConnectionHistory.Entry ok = done;
+            mMainHandler.post(() -> {
+                if (mDestroyed) return;
+                hideBusy();
+                if (err == null) {
+                    mLastStatus = null;
+                    Toast.makeText(this, Localize.t(this, "已切换到 ", "Switched to ") + (ok != null ? ok.displayName() : e.displayName()),
+                            Toast.LENGTH_SHORT).show();
+                    renderScreen();
+                    return;
+                }
+                android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this)
+                        .setTitle(Localize.t(this, "无法切换", "Could not switch"))
+                        .setMessage(err.getMessage())
+                        .setNegativeButton(Localize.t(this, "好", "OK"), null);
+                if (err.kind == ConnectionHistory.SwitchException.KIND_INVALID
+                        || err.kind == ConnectionHistory.SwitchException.KIND_LOCKED) {
+                    b.setPositiveButton(Localize.t(this, "重新配对", "Pair again"), (d, w) -> startAddConnection(e.address, e.isTailcat()));
+                }
+                b.show();
+            });
+        }, "RokBotConnectionSwitch").start();
+    }
+
+    private void startAddConnection(String prefillHost, boolean tailcat) {
+        if (Storage.isPaired(this)) {
+            final Context app = getApplicationContext();
+            new Thread(() -> ConnectionHistory.recordCurrent(app), "RokBotHistorySave").start();
+        }
+        mAddingConnection = true;
+        mEditingConnection = false;
+        mUsePasswordMode = false;
+        mDraftHost = prefillHost != null ? prefillHost : "";
+        mDraftCode = "";
+        mTailcatMode = tailcat;
+        renderScreen();
+    }
+
+    private void showBusy(String message) {
+        UiChrome.Palette p = UiChrome.palette(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(UiChrome.dp(this, 22), UiChrome.dp(this, 20), UiChrome.dp(this, 22), UiChrome.dp(this, 20));
+        box.addView(new ProgressBar(this));
+        TextView tv = new TextView(this);
+        tv.setText(message);
+        tv.setTextColor(p.textPrimary);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        tv.setPadding(UiChrome.dp(this, 16), 0, 0, 0);
+        box.addView(tv);
+        mBusyDialog = new android.app.AlertDialog.Builder(this).setView(box).setCancelable(false).create();
+        mBusyDialog.show();
+    }
+
+    private void hideBusy() {
+        if (mBusyDialog != null) {
+            try { mBusyDialog.dismiss(); } catch (Throwable ignored) {}
+            mBusyDialog = null;
+        }
+    }
+
+    private LinearLayout buildListSortCard(UiChrome.Palette p) {
+        LinearLayout card = UiChrome.makeCard(this, p);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView t = new TextView(this);
+        t.setText(Localize.t(this, "按最后消息排序", "Sort by last message"));
+        t.setTextColor(p.textPrimary);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        texts.addView(t);
+        TextView d = new TextView(this);
+        d.setText(Localize.t(this,
+                "与会话列表右上角的铜铃相同。开启后 Bot 按最后一条消息的时间排列，切换时会重新加载界面。",
+                "Same as the bell on the chat list. Bots are ordered by their last message; switching reloads the app UI."));
+        d.setTextColor(p.textSecondary);
+        d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        d.setPadding(0, UiChrome.dp(this, 3), UiChrome.dp(this, 10), 0);
+        texts.addView(d);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Switch sw = new Switch(this);
+        sw.setChecked(ListArrangement.isLastMessage(this));
+        sw.setContentDescription("list_sort_switch");
+        sw.setOnCheckedChangeListener((btn, checked) -> {
+            btn.setEnabled(false);
+            ListArrangement.setLastMessage(this, checked, () -> btn.setEnabled(true));
+        });
+        row.addView(sw);
+        card.addView(row);
+        return card;
+    }
+
+    private LinearLayout buildDiagnosticsCard(UiChrome.Palette p) {
+        LinearLayout card = UiChrome.makeCard(this, p);
+        card.setContentDescription("diagnostics_card");
+        boolean isTc = Storage.isTailcatEnabled(this);
+        mDiagPath = addDiagRow(card, p, Localize.t(this, "连接路径", "Route"), isTc ? "—" : Localize.t(this, "服务器直连（HTTP/HTTPS）", "Server (HTTP/HTTPS)"));
+        mDiagLatency = addDiagRow(card, p, Localize.t(this, "延迟（/health 往返）", "Latency (/health round trip)"), "—");
+        addDiagRow(card, p, Localize.t(this, "Tailcat 原生库", "Tailcat library"), TailcatBridge.isAvailable()
+                ? Localize.t(this, "已加载", "Loaded")
+                : Localize.t(this, "不可用", "Unavailable"));
+        addDiagRow(card, p, Localize.t(this, "版本", "Version"), UpdateManager.getCurrentVersionLabel(this));
+        TextView copy = UiChrome.makePillButton(this, Localize.t(this, "复制诊断信息", "Copy diagnostics"), false, p, v -> copyDiagnostics());
+        copy.setContentDescription("copy_diagnostics_button");
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = UiChrome.dp(this, 10);
+        copy.setLayoutParams(lp);
+        card.addView(copy);
+        return card;
+    }
+
+    private TextView addDiagRow(LinearLayout card, UiChrome.Palette p, String label, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, UiChrome.dp(this, 5), 0, UiChrome.dp(this, 5));
+        TextView l = new TextView(this);
+        l.setText(label);
+        l.setTextColor(p.textSecondary);
+        l.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        row.addView(l, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView v = new TextView(this);
+        v.setText(value);
+        v.setTextColor(p.textPrimary);
+        v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        v.setGravity(Gravity.END);
+        row.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.3f));
+        card.addView(row);
+        return v;
+    }
+
+    private void copyDiagnostics() {
+        StringBuilder sb = new StringBuilder();
+        boolean isTc = Storage.isTailcatEnabled(this);
+        sb.append("RokBot ").append(UpdateManager.getCurrentVersionLabel(this)).append('\n');
+        sb.append("type: ").append(isTc ? "tailcat" : "server").append('\n');
+        sb.append("address: ").append(Storage.getGatewayUrl(this)).append('\n');
+        sb.append("deviceId: ").append(Storage.getDeviceId(this)).append('\n');
+        ConnectionProbe.Status st = mLastStatus;
+        if (st != null) {
+            sb.append("path: ").append(isTc ? st.path : "server/" + st.httpRoute
+                    + (st.httpRouteSource != null ? " (" + st.httpRouteSource + ")" : "")).append('\n');
+            sb.append("latencyMs: ").append(st.latencyMs).append('\n');
+            sb.append("reachable: ").append(st.reachable).append('\n');
+        }
+        sb.append("tailcatLib: ").append(TailcatBridge.isAvailable()).append('\n');
+        sb.append("listSort: ").append(ListArrangement.isLastMessage(this) ? "lastMessage" : "official").append('\n');
+        sb.append("savedConnections: ").append(ConnectionHistory.load(this).size()).append('\n');
+        try {
+            ClipboardManager cm = getSystemService(ClipboardManager.class);
+            cm.setPrimaryClip(ClipData.newPlainText("RokBot diagnostics", sb.toString()));
+            Toast.makeText(this, Localize.t(this, "已复制诊断信息（不含凭证）", "Diagnostics copied (no credentials)"), Toast.LENGTH_SHORT).show();
+        } catch (Throwable ignored) {}
+    }
+
+    private void startProbeIfConnected() {
+        if (mDestroyed || mStatusLine == null || !Storage.isPaired(this) || mEditingConnection || mAddingConnection) return;
+        if (mProbe == null) mProbe = new ConnectionProbe(this, this::applyProbeStatus);
+        mProbe.start();
+    }
+
+    private void stopProbe() {
+        if (mProbe != null) mProbe.stop();
+    }
+
+    private void applyProbeStatus(ConnectionProbe.Status st) {
+        mLastStatus = st;
+        UiChrome.Palette p = UiChrome.palette(this);
+        String text = ConnectionProbe.describe(this, st);
+        if (mStatusLine != null) {
+            mStatusLine.setText(text);
+            mStatusLine.setTextColor(st.measured && (!st.reachable || st.credentialRejected) ? p.danger : p.blueAccent);
+        }
+        if (mStatusBadge != null && st.measured) {
+            boolean isTc = st.tailcat;
+            boolean ok = st.reachable && !st.credentialRejected;
+            mStatusBadge.setText(ok
+                    ? (isTc ? Localize.t(this, "  ● Tailcat 已连接", "  ● Tailcat connected") : Localize.t(this, "  ● 已连接到 Host", "  ● Connected to Host"))
+                    : (st.credentialRejected ? Localize.t(this, "  ● 凭证失效", "  ● Credential rejected") : Localize.t(this, "  ● 连接异常", "  ● Connection problem")));
+            mStatusBadge.setTextColor(ok ? p.success : p.danger);
+        }
+        if (mCurrentRowStatus != null) {
+            mCurrentRowStatus.setText(Localize.t(this, "当前连接 · ", "Current · ") + text);
+        }
+        if (mDiagPath != null && st.tailcat) {
+            String path = ConnectionProbe.PATH_DIRECT.equals(st.path) ? Localize.t(this, "直连（点对点）", "Direct (peer-to-peer)")
+                    : ConnectionProbe.PATH_RELAY.equals(st.path) ? Localize.t(this, "中继（DERP）", "Relay (DERP)")
+                    : Localize.t(this, "检测中（每 10 秒更新）", "Pending (updates every 10 s)");
+            mDiagPath.setText(path);
+        } else if (mDiagPath != null && st.measured) {
+            String why = "header".equals(st.httpRouteSource)
+                    ? Localize.t(this, "，由入口声明", ", declared by the entry")
+                    : "address".equals(st.httpRouteSource) ? Localize.t(this, "，按地址判断", ", from the address") : "";
+            String path = ConnectionProbe.PATH_DIRECT.equals(st.httpRoute)
+                    ? Localize.t(this, "直连（局域网 HTTP/HTTPS）", "Direct (LAN HTTP/HTTPS)") + why
+                    : ConnectionProbe.PATH_RELAY.equals(st.httpRoute)
+                    ? Localize.t(this, "中继（公网入口转发到 Host）", "Relay (public entry in front of the Host)") + why
+                    : Localize.t(this, "服务器（HTTP/HTTPS）", "Server (HTTP/HTTPS)");
+            mDiagPath.setText(path);
+        }
+        if (mDiagLatency != null) {
+            mDiagLatency.setText(!st.measured ? "—" : (!st.reachable ? Localize.t(this, "无响应", "No response")
+                    : (st.latencyMs >= 0 ? st.latencyMs + " ms" : "—")));
+        }
     }
 
     private void addSpacing(LinearLayout parent, int dp) {

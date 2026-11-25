@@ -2947,8 +2947,9 @@ test(
   };
 
   for (const buf of [unpairedRes.buffer, pairedRes.buffer]) {
-    // SettingsSheet +453 -> LoadTrue r14; LoadTrue r14 (95 0e 95 0e)
-    assert.deepEqual([...buf.subarray(0x1d8a0da, 0x1d8a0de)], [0x95, 0x0e, 0x95, 0x0e]);
+    // SettingsSheet +453: the recipe writes LoadTrue r14 x2 (95 0e 95 0e, showsDebugTools); since
+    // rokbot.3 applyConnectionEntry turns it into LoadConstFalse r14 x2 (no header bug button).
+    assert.deepEqual([...buf.subarray(0x1d8a0da, 0x1d8a0de)], [0x96, 0x0e, 0x96, 0x0e]);
     // BrowserSignInScreen +331 -> LoadFalse r7; LoadFalse r7 (96 07 96 07)
     assert.deepEqual([...buf.subarray(0x1b00b06, 0x1b00b0a)], [0x96, 0x07, 0x96, 0x07]);
     // isStatsigDisabled -> LoadTrue r0; Ret r0
@@ -3485,6 +3486,67 @@ test(
     }
   }
 );
+
+test('M1.6-Rebrand: replaces splash/notification drawables, rebrands app.config name while preserving grokbot scheme, and uses RokBot notification small icons', async () => {
+  const { patchLauncherIcons } = await import('../release/patch-android.mjs');
+  const { suppressExpoUpdates } = await import('../patchers/hermes.mjs');
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const logoDir = path.resolve(repoRoot, 'assets/logo/android');
+
+  // 1. Splash, bootsplash, and notification drawables are replaced with RokBot assets
+  const entries = [
+    createEntry('res/drawable-xxhdpi-v4/splashscreen_logo.png', Buffer.from('OLD_SPLASH')),
+    createEntry('res/drawable/bootsplash_logo.png', Buffer.from('OLD_BOOTSPLASH')),
+    createEntry('res/drawable-xhdpi/notification_icon.png', Buffer.from('OLD_NOTIF_ICON')),
+    createEntry('res/drawable/rn_edit_text_material.xml', Buffer.from('<inset/>')),
+  ];
+  const res = patchLauncherIcons(entries, logoDir);
+  assert.equal(res.brandDrawablesReplaced, 3);
+  const byName = new Map(res.entries.map(e => [e.name, e]));
+  assert.deepEqual(
+    entryBytes(byName.get('res/drawable-xxhdpi-v4/splashscreen_logo.png')),
+    fs.readFileSync(path.join(logoDir, 'mipmap-xxhdpi/ic_launcher_foreground.png'))
+  );
+  assert.deepEqual(
+    entryBytes(byName.get('res/drawable/bootsplash_logo.png')),
+    fs.readFileSync(path.join(logoDir, 'mipmap-xxhdpi/ic_launcher_foreground.png'))
+  );
+  assert.deepEqual(
+    entryBytes(byName.get('res/drawable-xhdpi/notification_icon.png')),
+    fs.readFileSync(path.join(logoDir, 'mipmap-xhdpi/ic_launcher_foreground.png'))
+  );
+  assert.equal(entryBytes(byName.get('res/drawable/rn_edit_text_material.xml')).toString('utf8'), '<inset/>');
+
+  // 2. Expo app.config rebrands display name without breaking Category-B grokbot:// scheme
+  const rebrandedCfg = suppressExpoUpdates({
+    name: 'Grok Bot',
+    scheme: 'grokbot',
+    extra: { expoClient: { name: 'Grok Bot' } },
+    updates: { enabled: true, url: 'https://u.expo.dev/test' },
+  });
+  assert.equal(rebrandedCfg.name, 'RokBot');
+  assert.equal(rebrandedCfg.extra.expoClient.name, 'RokBot');
+  assert.equal(rebrandedCfg.scheme, 'grokbot');
+  assert.equal(rebrandedCfg.updates.enabled, false);
+
+  // 3. Companion notification services must not use generic android.R.drawable.* small icons,
+  // and compiled classes2.dex must contain the rebuilt RokBot notification icon helper.
+  const notifJava = fs.readFileSync(
+    path.resolve(repoRoot, 'android/companion/src/main/java/dev/rokbot/nativeapp/NotificationService.java'),
+    'utf8'
+  );
+  const voiceJava = fs.readFileSync(
+    path.resolve(repoRoot, 'android/companion/src/main/java/dev/rokbot/nativeapp/VoiceCallService.java'),
+    'utf8'
+  );
+  assert.equal(/android\.R\.drawable\.(?:ic_dialog_info|ic_dialog_alert)/.test(notifJava), false);
+  assert.equal(/android\.R\.drawable\.ic_btn_speak_now/.test(voiceJava), false);
+  assert.ok(notifJava.includes('applySmallIcon('));
+  assert.ok(voiceJava.includes('NotificationService.applySmallIcon('));
+
+  const dexBuf = fs.readFileSync(path.resolve(repoRoot, 'android/bin/classes2.dex'));
+  assert.ok(dexBuf.includes(Buffer.from('rokbot_notification_icon')));
+});
 
 
 

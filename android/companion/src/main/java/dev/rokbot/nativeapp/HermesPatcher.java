@@ -236,6 +236,14 @@ public class HermesPatcher {
 
         ByteBuffer.wrap(bundle, bodyLengthOffset, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(bodyLen);
 
+        // Session list bell: "sort by last message" is a handful of verified in-place edits
+        // published by the build in gateway-template.json (hermes-settings.mjs listSortEdits).
+        if (ListArrangement.isLastMessage(context)) {
+            if (!applyListSortEdits(bundle, meta.optJSONObject("listSort"))) {
+                android.util.Log.w("RokBotHermes", "list sort edits unavailable; keeping the official order");
+            }
+        }
+
         MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
         sha1.update(bundle, 0, bundle.length - 20);
         byte[] digest = sha1.digest();
@@ -246,6 +254,66 @@ public class HermesPatcher {
         File outFile = new File(outDir, "index.android.bundle");
         writeAtomically(outFile, bundle);
         return outFile;
+    }
+
+    /** True when gateway-template.json carries the list sort edits (rokbot.3+ builds). */
+    static boolean hasListSort(Context context) {
+        try (InputStream is = context.getAssets().open("recipes/gateway-template.json")) {
+            JSONObject meta = new JSONObject(new String(readAllBytes(is), StandardCharsets.UTF_8));
+            JSONObject sort = meta.optJSONObject("listSort");
+            return sort != null && sort.optJSONArray("edits") != null && sort.optJSONArray("edits").length() > 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Applies {"edits":[{offset, original, patched}]} in place after checking every original
+     * byte first; nothing is written unless all anchors match. Mirrors applyListSortEdits in
+     * android/patchers/hermes-settings.mjs. The caller recomputes the footer SHA-1.
+     */
+    static boolean applyListSortEdits(byte[] bundle, JSONObject listSort) {
+        if (bundle == null || listSort == null) return false;
+        org.json.JSONArray edits = listSort.optJSONArray("edits");
+        if (edits == null || edits.length() == 0) return false;
+        int n = edits.length();
+        int[] offsets = new int[n];
+        byte[][] patched = new byte[n][];
+        for (int i = 0; i < n; i++) {
+            JSONObject e = edits.optJSONObject(i);
+            if (e == null) return false;
+            int off = e.optInt("offset", -1);
+            byte[] orig = hexToBytes(e.optString("original", ""));
+            byte[] next = hexToBytes(e.optString("patched", ""));
+            if (off < 0 || orig == null || next == null || orig.length == 0 || orig.length != next.length
+                    || off + orig.length > bundle.length - 20) {
+                return false;
+            }
+            for (int j = 0; j < orig.length; j++) {
+                if (bundle[off + j] != orig[j]) return false;
+            }
+            offsets[i] = off;
+            patched[i] = next;
+        }
+        for (int i = 0; i < n; i++) System.arraycopy(patched[i], 0, bundle, offsets[i], patched[i].length);
+        return true;
+    }
+
+    /** Extra .bundle-meta line so toggling the list bell regenerates the paired bundle. */
+    static String listSortMeta(Context context) {
+        return ListArrangement.isLastMessage(context) ? "\nlistSort=" + ListArrangement.MODE_LAST_MESSAGE : "";
+    }
+
+    static byte[] hexToBytes(String hex) {
+        if (hex == null || (hex.length() & 1) != 0) return null;
+        byte[] out = new byte[hex.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            int hi = Character.digit(hex.charAt(2 * i), 16);
+            int lo = Character.digit(hex.charAt(2 * i + 1), 16);
+            if (hi < 0 || lo < 0) return null;
+            out[i] = (byte) ((hi << 4) | lo);
+        }
+        return out;
     }
 
     private static void loadString(ByteBuffer buf, JSONObject opcodes, int reg, int idx) throws Exception {

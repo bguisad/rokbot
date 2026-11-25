@@ -19,7 +19,8 @@ test('Bundle refresh wiring: paired and unpaired bundles are keyed on the instal
   const boot = read('RokBotBootstrap.java');
   const body = boot.slice(boot.indexOf('public static synchronized File ensurePairedBundleFile(Context context, boolean force)'));
   const fn = body.slice(0, body.indexOf('\n    }\n') + 6);
-  assert.match(fn, /String expectedMeta = HermesPatcher\.pairedBundleMeta\(url, token, HermesPatcher\.installStamp\(context\)\);/);
+  // rokbot.3: the list sort mode is part of the key too (toggling it regenerates the bundle).
+  assert.match(fn, /String expectedMeta = HermesPatcher\.pairedBundleMeta\(url, token, HermesPatcher\.installStamp\(context\)\)\s*\+ HermesPatcher\.listSortMeta\(context\);/);
   assert.match(fn, /HermesPatcher\.isBundleCurrent\(pairedBundle, metaFile, expectedMeta\)/);
   assert.doesNotMatch(fn, /expectedMeta = url \+ "\\n" \+ token;/, 'legacy url+token-only meta is gone');
   assert.doesNotMatch(fn, /Storage\.(clear|set|remove)|clearPairedBundle/, 'a stale bundle never touches the pairing');
@@ -29,7 +30,8 @@ test('Bundle refresh wiring: paired and unpaired bundles are keyed on the instal
   assert.match(hp, /optString\("templateSha256", ""\)/);
   assert.match(hp, /pi\.lastUpdateTime/);
   // Both onAppCreate and the ReactNativeHost wrapper go through the checked paths.
-  assert.match(boot, /if \(Storage\.isPaired\(app\)\) \{\s*ensurePairedBundleFile\(app\);\s*\} else \{\s*ensureUnpairedBundleFile\(app\);/);
+  // rokbot.3: a paired start also records the current pairing in the connection history (background).
+  assert.match(boot, /if \(Storage\.isPaired\(app\)\) \{\s*(?:\/\/[^\n]*\n\s*)?(?:new Thread\(\(\) -> ConnectionHistory\.ensureCurrentRecorded\(app\), "RokBotHistoryMigrate"\)\.start\(\);\s*)?ensurePairedBundleFile\(app\);\s*\} else \{\s*ensureUnpairedBundleFile\(app\);/);
   const wrapper = fs.readFileSync(path.join(SRC, 'ReactHostWrapper.java'), 'utf8');
   assert.match(wrapper, /RokBotBootstrap\.ensurePairedBundleFile\(app\)/);
   assert.match(wrapper, /RokBotBootstrap\.ensureUnpairedBundleFile\(app\)/);

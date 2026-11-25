@@ -94,6 +94,30 @@ public class Storage {
         return new String(cipher.doFinal(sealed), StandardCharsets.UTF_8);
     }
 
+    /** AES-GCM with the Android Keystore key, for credentials kept outside the main prefs keys (connection history). */
+    static String sealForHistory(String plaintext) throws Exception {
+        return seal(plaintext);
+    }
+
+    static String openFromHistory(String sealed) {
+        try {
+            return open(sealed);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    static String getRawPref(Context context, String key) {
+        return prefs(context).getString(key, null);
+    }
+
+    static void setRawPref(Context context, String key, String value) {
+        SharedPreferences.Editor ed = prefs(context).edit();
+        if (value == null) ed.remove(key);
+        else ed.putString(key, value);
+        ed.commit();
+    }
+
     private static synchronized void putSealed(Context context, String key, String value) {
         SharedPreferences.Editor ed = prefs(context).edit();
         if (value == null || value.isEmpty()) {

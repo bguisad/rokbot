@@ -162,6 +162,7 @@ public class RokBotBootstrap {
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
                     HostProfile.refresh(activity, false);
                     AppUpdater.onReactActivityResumed(activity);
+                    ListArrangement.onReactResumed(activity);
                 }
             }
 
@@ -169,6 +170,7 @@ public class RokBotBootstrap {
             public void onActivityPaused(Activity activity) {
                 if (isReactActivity(activity)) {
                     setViewingAgentId(null);
+                    ListArrangement.onReactPaused(activity);
                 }
             }
 
@@ -235,6 +237,8 @@ public class RokBotBootstrap {
         sAppCreated = true;
         installNetworkInterceptor(app);
         if (Storage.isPaired(app)) {
+            // Devices paired before rokbot.3: put the current pairing into the connection history.
+            new Thread(() -> ConnectionHistory.ensureCurrentRecorded(app), "RokBotHistoryMigrate").start();
             ensurePairedBundleFile(app);
         } else {
             ensureUnpairedBundleFile(app);
@@ -281,7 +285,8 @@ public class RokBotBootstrap {
         if (url == null || url.isEmpty()) return null;
         // Keyed on the install too (template SHA-256 + versionCode + lastUpdateTime): an in-place
         // upgrade keeps files/RokBotPaired, and the old build's bundle must not outlive it.
-        String expectedMeta = HermesPatcher.pairedBundleMeta(url, token, HermesPatcher.installStamp(context));
+        String expectedMeta = HermesPatcher.pairedBundleMeta(url, token, HermesPatcher.installStamp(context))
+                + HermesPatcher.listSortMeta(context);
         if (!force && HermesPatcher.isBundleCurrent(pairedBundle, metaFile, expectedMeta)) {
             return pairedBundle;
         }
@@ -1714,6 +1719,13 @@ public class RokBotBootstrap {
         return matchesLabelOrCommaPrefix(s, "资料库", false) || matchesLabelOrCommaPrefix(s, "Library", true);
     }
 
+    /** Label built by the settings sheet for the Connection & Diagnostics row (zh, or "<Connection> & Diagnostics"). */
+    static boolean isConnectionEntryLabel(String raw) {
+        if (raw == null) return false;
+        String s = raw.trim();
+        return s.equals("连接与诊断") || (s.endsWith(" & Diagnostics") && s.length() > " & Diagnostics".length());
+    }
+
     private static boolean matchesUsageLabel(String s) {
         return matchesLabelOrCommaPrefix(s, "用量", false) || matchesLabelOrCommaPrefix(s, "Usage", true);
     }
@@ -1860,6 +1872,15 @@ public class RokBotBootstrap {
                 || s.equalsIgnoreCase("Continue with Grok")) {
             return (!paired && isInteractiveTarget && effW > 100f && effH >= 32f && effH <= 140f) ? PairingActivity.class : null;
         }
+        if (ListArrangement.isHeaderBellLabel(activity, s)) {
+            // rokbot.3b Bot list header bell (hermes-settings.mjs applyHomeBarBell): an RN bar button.
+            return (paired && isInteractiveTarget && ListArrangement.isHeaderBellGeometry(activity, view, effW, effH)
+                    && ListArrangement.isAvailable(activity)) ? ListArrangement.class : null;
+        }
+        if (isConnectionEntryLabel(s)) {
+            // rokbot.3 settings row (hermes-settings.mjs applyConnectionEntry): a full-width nav row.
+            return (isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? PairingActivity.class : null;
+        }
         if (s.equals("连接服务端") || s.equals("連接服務端") || s.equals("連接伺服器") || s.equalsIgnoreCase("Connect to Host")) {
             if (!paired) {
                 return (isInteractiveTarget && effW > 100f && effH >= 32f && effH <= 140f) ? PairingActivity.class : null;
@@ -1924,6 +1945,11 @@ public class RokBotBootstrap {
 
     private static void launchNativeTarget(Activity activity, Class<?> target) {
         if (activity == null || target == null) return;
+        if (target == ListArrangement.class) {
+            // Not a page: the list-sort bell switches the order in place (bundle regenerated + RN reload).
+            ListArrangement.onHeaderBellTapped(activity);
+            return;
+        }
         Class<?> dest = Storage.isPaired(activity) ? target : PairingActivity.class;
         Intent i = new Intent(activity, dest);
         if (dest == LibraryActivity.class) {

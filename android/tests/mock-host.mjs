@@ -117,6 +117,8 @@ export class MockHostServer {
   constructor(options = {}) {
     this.options = options;
     this.realHostProtocol = Boolean(options.realHostProtocol);
+    // Optional X-RokBot-Route on /health ('relay' | 'direct'), as a relay in front of a Host may add it.
+    this.routeHeader = options.routeHeader || null;
     this.publicUrl = options.publicUrl ? String(options.publicUrl).replace(/\/+$/, '') : null;
     this.port = options.port || 0;
     this.validPairingKey = (options.pairingKey || 'ABCDEF').toUpperCase();
@@ -653,6 +655,7 @@ export class MockHostServer {
 
     // Healthcheck endpoints
     if (pathname === '/health' || pathname === '/healthz') {
+      if (this.routeHeader) res.setHeader('X-RokBot-Route', this.routeHeader);
       return this._json(res, 200, { ok: true, initialized: true });
     }
 
