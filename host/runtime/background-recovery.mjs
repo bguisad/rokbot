@@ -20,7 +20,14 @@ import { dirname, join } from 'node:path';
  *   ones are reported, never re-run blindly); shells are re-watched; old markers are cleared
  *   after one notice;
  * - a watchdog wakes the bot when a subagent made no progress for a configurable time or
- *   vanished without a result, with dedup and backoff.
+ *   vanished without a result, with dedup and backoff. It also checks subagents it lost its
+ *   runner handle for (marker present, no live entry) and subagents that are neither reporting
+ *   progress nor settling, so a task that dies silently still reaches its bot;
+ * - a subagent stopped outside its parent's own turn (not by the parent's AbortSubagent) wakes
+ *   the parent with the reason instead of disappearing.
+ *
+ * Logging: one line when the watchdog starts, a debug line per pass (ROKBOT_BACKGROUND_DEBUG=1),
+ * info lines for stalls / vanished / orphaned work, and a periodic summary while work is tracked.
  */
 
 export const PENDING_WAKE_FILE_NAME = 'host-pending-wakes.json';
@@ -52,6 +59,9 @@ export function resolveBackgroundRecoveryConfig(env = process.env) {
     retryBaseMs: intFrom(env.ROKBOT_PENDING_WAKE_RETRY_MS, 2_000, { min: 1 }),
     retryMaxMs: intFrom(env.ROKBOT_PENDING_WAKE_RETRY_MAX_MS, 5 * 60_000, { min: 1 }),
     readyPollMs: intFrom(env.ROKBOT_BACKGROUND_READY_POLL_MS, 2_000, { min: 10 }),
+    /** Info-level "still watching N tasks" line while anything is tracked (0 disables). */
+    summaryEveryMs: intFrom(env.ROKBOT_BACKGROUND_SUMMARY_MS, 30 * 60_000),
+    debug: /^(1|true|yes|on)$/i.test(String(env.ROKBOT_BACKGROUND_DEBUG ?? '').trim()),
   };
 }
 
@@ -249,6 +259,7 @@ export function describeNotice(entry, notice, now) {
     }
     case 'vanished': {
       lines.push(`Background task ${taskLabel(entry)} stopped running without delivering a result (it exited abnormally or was killed).`);
+      if (notice.reason) lines.push(`- What the Host saw: ${clip(notice.reason, ACTIVITY_MAX)}`);
       lines.push(...progressLines(entry, now));
       lines.push(...promptBlock(entry));
       lines.push('Find out what it got done (CheckSubagent with its task id), then tell the user what happened and either finish the remaining work or dispatch it again if that is safe.');
@@ -328,7 +339,7 @@ function clipCompletion(completion) {
  */
 export class BackgroundRecovery {
   constructor({
-    filePath, deliver, isReady = () => true, isAgentGone = () => false, getRunner,
+    filePath, deliver, isReady = () => true, isAgentGone = () => false, getRunner, findRunner,
     buildCompletionPrompt, config = resolveBackgroundRecoveryConfig(), now = () => Date.now(),
     log = (line, level) => (level === 'error' ? console.error(line) : console.log(line)),
     setTimer = setTimeout, clearTimer = clearTimeout,
@@ -340,6 +351,8 @@ export class BackgroundRecovery {
     this.isReady = isReady;
     this.isAgentGone = isAgentGone;
     this.getRunner = getRunner;
+    /** Current registry runner of a bot without creating one (undefined when none is open). */
+    this.findRunner = findRunner;
     this.buildCompletionPrompt = buildCompletionPrompt;
     this.setTimer = setTimer;
     this.clearTimer = clearTimer;
@@ -358,19 +371,41 @@ export class BackgroundRecovery {
     this.ownPrompts = new Set();
     this.tickTimer = undefined;
     this.readyTimer = undefined;
+    /** Turns in flight per runner (user, automation and the Host's own wake turns). */
+    this.activeTurns = new WeakMap();
+    /** Marker key -> first time a running subagent marker had no runner that knows it. */
+    this.orphanSince = new Map();
+    this.detachedLogged = new Set();
+    this.lastSummaryAtMs = 0;
+    this.tickCount = 0;
+  }
+
+  debug(line) {
+    if (this.config.debug) this.log(line, 'debug');
   }
 
   /** Begin startup recovery as soon as local turns may run, then run the watchdog. */
   start() {
     if (this.disposed || this.readyTimer || this.tickTimer) return;
+    const { tickMs, stallMs, vanishGraceMs } = this.config;
+    const previous = this.store.list().filter((entry) => entry.hostBootId !== this.bootId).length;
+    this.log(`[rokbot:background] watchdog started (boot ${this.bootId.slice(0, 8)}, check every ${formatDuration(tickMs)}, stall after ${stallMs > 0 ? formatDuration(stallMs) : 'never (disabled)'}, vanish grace ${formatDuration(vanishGraceMs)}, ${previous} record(s) from the previous Host)`);
+    let waitingLogged = false;
     const poll = () => {
       this.readyTimer = undefined;
       if (this.disposed || this.shuttingDown) return;
       if (!this.ready()) {
+        if (!waitingLogged) {
+          waitingLogged = true;
+          this.log('[rokbot:background] waiting for local turns to be allowed before startup recovery');
+        }
         this.readyTimer = this.unref(this.setTimer(poll, this.config.readyPollMs));
         return;
       }
-      void this.recoverPrevious().finally(() => this.scheduleTick());
+      void this.recoverPrevious().finally(() => {
+        this.log(`[rokbot:background] watchdog running (${this.store.list().length} record(s) tracked)`);
+        this.scheduleTick();
+      });
     };
     poll();
   }
@@ -406,7 +441,7 @@ export class BackgroundRecovery {
     if (!runner || typeof runner !== 'object' || this.attached.has(runner)) return runner;
     this.attached.add(runner);
     runner.setPendingWakeArmedHandler?.((event) => this.onArmed(runner, event));
-    runner.setPendingWakeDisarmedHandler?.((event) => this.onDisarmed(event));
+    runner.setPendingWakeDisarmedHandler?.((event) => this.onDisarmed(event, runner));
     runner.setBackgroundSubagentHandler?.((completion) => this.onSubagentSettled(completion));
     runner.setBackgroundShellHandler?.((completion) => this.onShellSettled(completion));
 
@@ -426,11 +461,14 @@ export class BackgroundRecovery {
       const run = runner.run;
       const tracked = async (prompt, options, ...rest) => {
         const key = this.beginTurn(runner, agentId, prompt, options);
+        this.activeTurns.set(runner, (this.activeTurns.get(runner) ?? 0) + 1);
         let result;
         try {
           result = await run.call(runner, prompt, options, ...rest);
           return result;
         } finally {
+          const left = (this.activeTurns.get(runner) ?? 1) - 1;
+          if (left > 0) this.activeTurns.set(runner, left); else this.activeTurns.delete(runner);
           this.endTurn(key, result);
         }
       };
@@ -448,8 +486,15 @@ export class BackgroundRecovery {
     const key = pendingWakeKey(agentId, event.kind, workId);
     const now = this.now();
     const existing = this.store.get(key);
+    // A resumed subagent re-arms the id it settled under: drop the old result and retry state so the
+    // delivery of that result does not remove the new run's marker, and a restart does not replay it.
+    const {
+      completedPayload: _payload, settledAtMs: _settled, deliveryAttempts: _attempts, nextAttemptAtMs: _next,
+      stallNotices: _stalls, nextStallNoticeAtMs: _nextStall, lastStallNoticeAtMs: _lastStall, ...kept
+    } = existing ?? {};
     this.store.upsert({
-      ...(existing ?? {}),
+      ...kept,
+      armId: randomUUID(),
       agentId,
       kind: event.kind,
       workId,
@@ -468,6 +513,9 @@ export class BackgroundRecovery {
       pendingNotice: undefined,
     });
     this.live.set(key, { runner, missingSinceMs: undefined });
+    this.orphanSince.delete(key);
+    this.detachedLogged.delete(key);
+    this.debug(`[rokbot:background] tracking ${event.kind} ${workId} for ${agentId}${existing ? ' (re-armed)' : ''}`);
   }
 
   noteDispatch(runner, agentId, params) {
@@ -484,11 +532,30 @@ export class BackgroundRecovery {
     });
   }
 
-  onDisarmed(event) {
+  onDisarmed(event, runner) {
     if (!event) return;
     const key = pendingWakeKey(event.parentAgentId, event.kind, event.workId);
+    const entry = this.store.get(key);
     this.live.delete(key);
-    this.store.remove(key);
+    this.orphanSince.delete(key);
+    // The parent's own AbortSubagent runs inside one of its turns: it already knows. A stop with no
+    // parent turn in flight came from elsewhere, so the parent is told instead of losing the task.
+    const parentTurnActive = runner !== undefined && (this.activeTurns.get(runner) ?? 0) > 0;
+    if (!entry || entry.status !== 'running' || entry.kind !== 'subagent' || parentTurnActive || runner === undefined || this.shuttingDown) {
+      this.store.remove(key);
+      if (entry) this.log(`[rokbot:background] ${event.kind} ${event.workId} of ${event.parentAgentId} was stopped by its parent; no wake`);
+      return;
+    }
+    this.log(`[rokbot:background] ${event.kind} ${event.workId} of ${event.parentAgentId} was stopped outside its parent's turn; waking the parent`);
+    this.settle(key, {
+      parentAgentId: event.parentAgentId,
+      subagentAgentId: event.workId,
+      subagentType: entry.subagentType ?? 'unknown',
+      toolCallId: entry.toolCallId ?? '',
+      title: entry.title ?? event.workId,
+      status: 'error',
+      result: 'The background task was stopped before it finished, but not by you (no turn of yours was running when it was stopped). No result will arrive. Check what it already did before re-running it.',
+    }, { kind: 'subagent', workId: event.workId });
   }
 
   onSubagentSettled(completion) {
@@ -499,11 +566,13 @@ export class BackgroundRecovery {
       return;
     }
     this.live.delete(key);
+    this.orphanSince.delete(key);
     if (completion.automationRunUuid != null && completion.parentWakeRequested !== true) {
       // The automation runtime awaits this result itself; it is not a parent wake.
       this.store.remove(key);
       return;
     }
+    this.log(`[rokbot:background] subagent ${completion.subagentAgentId} of ${completion.parentAgentId} settled (${completion.status}); waking the parent`);
     this.settle(key, completion, { kind: 'subagent', workId: completion.subagentAgentId });
   }
 
@@ -653,12 +722,15 @@ export class BackgroundRecovery {
     }
   }
 
-  /** One watchdog pass: record progress, detect stalls and vanished subagents. */
+  /** One watchdog pass: record progress, detect stalls, vanished and orphaned subagents. */
   tick({ deliver = true } = {}) {
     if (this.disposed) return;
     const now = this.now();
     const ready = deliver && this.ready();
     const notify = new Set();
+    const seen = [];
+    this.tickCount++;
+    if (deliver) for (const agentId of this.adoptOrphans(now)) notify.add(agentId);
     for (const [key, live] of this.live) {
       const entry = this.store.get(key);
       if (!entry) {
@@ -686,16 +758,28 @@ export class BackgroundRecovery {
         try {
           held = live.runner.subagents?.heldSubagentIds?.()?.includes?.(entry.workId) === true;
         } catch {}
-        if (running || held || !deliver) continue;
-        live.missingSinceMs ??= now;
-        if (now - live.missingSinceMs >= this.config.vanishGraceMs) {
-          this.live.delete(key);
-          this.store.patch(key, { pendingNotice: { type: 'vanished', atMs: now } }, { flush: false });
-          notify.add(entry.agentId);
+        if (!deliver) continue;
+        if (!running && !held) {
+          live.missingSinceMs ??= now;
+          seen.push(`${entry.workId.slice(-8)}:missing ${formatDuration(now - live.missingSinceMs)}`);
+          if (now - live.missingSinceMs >= this.config.vanishGraceMs) {
+            this.live.delete(key);
+            this.store.patch(key, { pendingNotice: { type: 'vanished', atMs: now, reason: 'its runner no longer has it running and no result was delivered' } }, { flush: false });
+            this.log(`[rokbot:background] subagent ${entry.workId} of ${entry.agentId} vanished without a result (missing for ${formatDuration(now - live.missingSinceMs)}); waking the parent`);
+            notify.add(entry.agentId);
+          }
+          continue;
         }
+        // Still registered (running, or its result is held) but reporting nothing: no heartbeat and no
+        // settle. It gets the same stall clock as a silent running subagent instead of being skipped.
+        live.missingSinceMs = undefined;
+        this.store.patch(key, { lastSeenAtMs: now }, { flush: false });
+        seen.push(`${entry.workId.slice(-8)}:${held ? 'held' : 'no-info'} idle ${formatDuration(now - (entry.lastProgressAtMs || entry.startedAtMs || now))}`);
+        if (this.maybeStall(key, this.store.get(key), now, ready, undefined)) notify.add(entry.agentId);
         continue;
       }
       live.missingSinceMs = undefined;
+      this.noteDetached(key, entry, live.runner);
       const activity = Array.isArray(info.recentActivity) ? info.recentActivity : [];
       const lastActivity = activity.length > 0 ? clip(activity[activity.length - 1], ACTIVITY_MAX) : entry.lastActivity;
       const signature = `${info.toolCallCount ?? 0}|${activity.length}|${lastActivity ?? ''}`;
@@ -705,25 +789,18 @@ export class BackgroundRecovery {
         Object.assign(update, { progressSignature: signature, lastProgressAtMs: now, stallNotices: 0, nextStallNoticeAtMs: undefined });
       }
       const current = this.store.patch(key, update, { flush: false });
-      if (!ready || this.config.stallMs <= 0 || current.pendingNotice) continue;
-      const idleMs = now - (current.lastProgressAtMs || current.startedAtMs || now);
-      const notices = current.stallNotices ?? 0;
-      if (idleMs < this.config.stallMs || notices >= this.config.maxStallNotices) continue;
-      if (current.nextStallNoticeAtMs && now < current.nextStallNoticeAtMs) continue;
-      this.store.patch(key, {
-        stallNotices: notices + 1,
-        lastStallNoticeAtMs: now,
-        // Backoff: the next reminder for the same stall waits 2x, 4x... the stall window.
-        nextStallNoticeAtMs: now + this.config.stallMs * 2 ** (notices + 1),
-        pendingNotice: { type: 'stall', idleMs, elapsedMs: finiteOr(info.elapsedMs, now - (current.startedAtMs || now)), atMs: now },
-      }, { flush: false });
-      notify.add(entry.agentId);
+      seen.push(`${entry.workId.slice(-8)}:${current.toolCallCount ?? 0} calls idle ${formatDuration(now - (current.lastProgressAtMs || now))}`);
+      if (this.maybeStall(key, current, now, ready, info.elapsedMs)) notify.add(entry.agentId);
     }
     if (this.store.entries.size > 0) {
       this.store.heartbeatAtMs = now;
       this.store.dirty = true;
     }
     this.store.flush();
+    if (deliver) {
+      this.debug(`[rokbot:background] watchdog pass ${this.tickCount}: ${this.store.entries.size} record(s), ${this.live.size} live${seen.length ? ` [${seen.join(', ')}]` : ''}${ready ? '' : ' (deliveries paused: not ready)'}`);
+      this.maybeSummary(now);
+    }
     if (!ready) return;
     for (const agentId of this.notReadyAgents) notify.add(agentId);
     this.notReadyAgents.clear();
@@ -736,6 +813,89 @@ export class BackgroundRecovery {
       notify.add(entry.agentId);
     }
     for (const agentId of notify) this.queueDelivery(agentId);
+  }
+
+  /** Arm a stall notice when a running subagent has been idle for the stall window. */
+  maybeStall(key, current, now, ready, elapsedMs) {
+    if (!current || !ready || this.config.stallMs <= 0 || current.pendingNotice) return false;
+    const idleMs = now - (current.lastProgressAtMs || current.startedAtMs || now);
+    const notices = current.stallNotices ?? 0;
+    if (idleMs < this.config.stallMs || notices >= this.config.maxStallNotices) return false;
+    if (current.nextStallNoticeAtMs && now < current.nextStallNoticeAtMs) return false;
+    this.store.patch(key, {
+      stallNotices: notices + 1,
+      lastStallNoticeAtMs: now,
+      // Backoff: the next reminder for the same stall waits 2x, 4x... the stall window.
+      nextStallNoticeAtMs: now + this.config.stallMs * 2 ** (notices + 1),
+      pendingNotice: { type: 'stall', idleMs, elapsedMs: finiteOr(elapsedMs, now - (current.startedAtMs || now)), atMs: now },
+    }, { flush: false });
+    this.log(`[rokbot:background] subagent ${current.workId} of ${current.agentId} stalled: no progress for ${formatDuration(idleMs)} (notice ${notices + 1}/${this.config.maxStallNotices}, last action: ${clip(current.lastActivity ?? 'none', 120)}); waking the parent`);
+    return true;
+  }
+
+  /**
+   * Running subagent markers of this boot that no live runner handle covers (the handle was lost, or
+   * the marker was re-armed elsewhere): look the subagent up on the bot's current runner; if no
+   * runner knows it for the vanish grace, it died without a result.
+   */
+  adoptOrphans(now) {
+    const orphaned = new Set();
+    for (const entry of this.store.list()) {
+      if (entry.kind !== 'subagent' || entry.status !== 'running' || entry.hostBootId !== this.bootId || entry.pendingNotice) continue;
+      const key = keyOf(entry);
+      if (this.live.has(key)) {
+        this.orphanSince.delete(key);
+        continue;
+      }
+      let runner;
+      try {
+        runner = this.findRunner?.(entry.agentId);
+      } catch {}
+      let known = false;
+      try {
+        known = !!runner && (runner.getRunningSubagent?.(entry.workId) != null
+          || runner.subagents?.isRunning?.(entry.workId) === true
+          || runner.subagents?.heldSubagentIds?.()?.includes?.(entry.workId) === true);
+      } catch {}
+      if (known) {
+        this.attachRunner(runner, entry.agentId);
+        this.live.set(key, { runner, missingSinceMs: undefined });
+        this.orphanSince.delete(key);
+        this.log(`[rokbot:background] re-attached subagent ${entry.workId} of ${entry.agentId} to its bot's current runner`);
+        continue;
+      }
+      const since = this.orphanSince.get(key) ?? now;
+      this.orphanSince.set(key, since);
+      if (now - since < this.config.vanishGraceMs) continue;
+      this.orphanSince.delete(key);
+      this.store.patch(key, { pendingNotice: { type: 'vanished', atMs: now, reason: 'no runner of this Host has it running any more and no result was delivered' } }, { flush: false });
+      this.log(`[rokbot:background] subagent ${entry.workId} of ${entry.agentId} has no runner and no result (orphaned for ${formatDuration(now - since)}); waking the parent`);
+      orphaned.add(entry.agentId);
+    }
+    return orphaned;
+  }
+
+  /** Log once when a subagent keeps running on a runner its bot no longer uses (CheckSubagent cannot see it). */
+  noteDetached(key, entry, runner) {
+    if (this.detachedLogged.has(key) || typeof this.findRunner !== 'function') return;
+    let current;
+    try {
+      current = this.findRunner(entry.agentId);
+    } catch {
+      return;
+    }
+    if (!current || current === runner) return;
+    this.detachedLogged.add(key);
+    this.log(`[rokbot:background] subagent ${entry.workId} of ${entry.agentId} still runs on a previous runner of its bot (CheckSubagent from new turns cannot see it); its result will still wake the bot`);
+  }
+
+  maybeSummary(now) {
+    if (this.config.summaryEveryMs <= 0 || this.store.entries.size === 0) return;
+    if (this.lastSummaryAtMs && now - this.lastSummaryAtMs < this.config.summaryEveryMs) return;
+    this.lastSummaryAtMs = now;
+    const counts = {};
+    for (const entry of this.store.list()) counts[`${entry.kind}:${entry.status}`] = (counts[`${entry.kind}:${entry.status}`] ?? 0) + 1;
+    this.log(`[rokbot:background] watchdog alive: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ')} (${this.live.size} live)`);
   }
 
   recordTurnProgress(key, entry, runner, now) {
@@ -837,6 +997,8 @@ export class BackgroundRecovery {
     if (outcome === 'delivered') {
       for (const entry of entries) {
         const key = keyOf(entry);
+        // Re-armed during the wake (e.g. the bot resumed this task id): the marker now belongs to the new run.
+        if (this.reArmed(entry)) continue;
         if (entry.status === 'settled' || entry.pendingNotice?.type !== 'stall') {
           this.live.delete(key);
           this.store.remove(key, { flush: false });
@@ -853,6 +1015,8 @@ export class BackgroundRecovery {
       this.notReadyAgents.add(agentId);
       return false;
     }
+    entries = entries.filter((entry) => !this.reArmed(entry));
+    if (entries.length === 0) return false;
     const attempts = Math.max(...entries.map((entry) => entry.deliveryAttempts ?? 0)) + 1;
     if (attempts >= this.config.maxDeliveryAttempts) {
       for (const entry of entries) {
@@ -872,6 +1036,11 @@ export class BackgroundRecovery {
     this.log(`[rokbot:background] wake for ${agentId} not delivered (${failure?.message ?? outcome}); retry ${attempts} in ${delayMs} ms`, 'error');
     this.queueDelivery(agentId, delayMs);
     return false;
+  }
+
+  reArmed(entry) {
+    const current = this.store.get(keyOf(entry));
+    return !!current && current.status === 'running' && current.armId !== entry.armId;
   }
 
   /** Called before the Host stops: keep in-flight work and its last progress for the next start. */

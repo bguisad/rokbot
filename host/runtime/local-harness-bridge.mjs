@@ -725,6 +725,57 @@ export async function runBackgroundWake(tm, runtimeCtx, agentId, prompt, { sourc
   });
 }
 
+const DEFERRED_RETIRE_POLL_MS = 5_000;
+const deferredRetirements = new WeakMap();
+
+function runnerHasBackgroundWork(runner) {
+  try {
+    if (typeof runner?.hasRunningBackgroundWork === 'function') return runner.hasRunningBackgroundWork() === true;
+    return runner?.subagents?.hasPendingWork?.() === true || runner?.subagents?.hasRunningSubagents?.() === true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when retiring this session now would orphan background work running on its runner. */
+export function deferRetirementForBackgroundWork(lifecycle, session) {
+  const tm = lifecycle?.tm;
+  if (!session?.id || !tm || tm.disposed) return false;
+  if ((process.env.ROKBOT_DEFER_RETIRE_FOR_BACKGROUND ?? '1') === '0') return false;
+  if (session.db?.isOpen === false) return false;
+  if (tm.sessions?.deletedAgentIds?.has?.(session.id)) return false;
+  if (session === tm.sessions?.activeSession) return false;
+  const runner = tm.runnerRegistry?.runnerForSession?.(session);
+  if (!runner || !runnerHasBackgroundWork(runner)) return false;
+  let pending = deferredRetirements.get(session);
+  if (pending) return true;
+  const pollMs = Number(process.env.ROKBOT_DEFERRED_RETIRE_POLL_MS) > 0 ? Number(process.env.ROKBOT_DEFERRED_RETIRE_POLL_MS) : DEFERRED_RETIRE_POLL_MS;
+  const sinceMs = Date.now();
+  const log = tm.rokbotBackgroundRecovery?.log ?? ((line) => console.log(line));
+  log(`[rokbot:background] keeping ${session.id} open: its runner still has background work (session retirement deferred)`);
+  pending = { timer: undefined };
+  deferredRetirements.set(session, pending);
+  const check = () => {
+    pending.timer = undefined;
+    if (tm.disposed || session.db?.isOpen === false || tm.sessions?.deletedAgentIds?.has?.(session.id)) {
+      deferredRetirements.delete(session);
+      return;
+    }
+    if (runnerHasBackgroundWork(runner) && session !== tm.sessions?.activeSession) {
+      pending.timer = setTimeout(check, pollMs);
+      pending.timer.unref?.();
+      return;
+    }
+    deferredRetirements.delete(session);
+    log(`[rokbot:background] background work of ${session.id} ended after ${Math.round((Date.now() - sinceMs) / 1000)}s; retiring its session if idle`);
+    // The original checks again whether the session is active or running a turn.
+    void lifecycle.retireSession(session).catch?.(() => {});
+  };
+  pending.timer = setTimeout(check, pollMs);
+  pending.timer.unref?.();
+  return true;
+}
+
 /**
  * Persist and deliver background work for 2bb5e41 local runners: settle wakes, restart
  * recovery of interrupted turns/subagents/shells and the stall watchdog (see background-recovery.mjs).
@@ -756,6 +807,7 @@ export function installBackgroundRecovery(tm, { library, extensions, sandRoot, e
       const session = await tm.sessions.resolveBackgroundSession(agentId);
       return tm.ensureRunnerRegistry(runtimeCtx).getRunner(session);
     },
+    findRunner: (agentId) => tm.runnerRegistry?.peekRunner?.(agentId),
     buildCompletionPrompt: typeof library?.buildSubagentRevivalPrompt === 'function'
       ? (completions, context) => library.buildSubagentRevivalPrompt(completions, context)
       : undefined,
@@ -852,6 +904,12 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
   if (RunLifecycle?.prototype && typeof RunLifecycle.prototype.retireSession === 'function' && !RunLifecycle.prototype.retireSession.__rokbotRunnerEvict) {
     const origRetireSession = RunLifecycle.prototype.retireSession;
     const wrappedRetireSession = async function retireSession(session, ...rest) {
+      // 2bb5e41 retires a bot's session as soon as its last turn ends unless it is the active one; a
+      // background subagent/shell does not count as a run. Retiring closes the store and evicts the
+      // runner, so the next turn gets a fresh runner whose CheckSubagent/MessageSubagent cannot see
+      // the task still running on the old one (the 梦 app 566552ba case). Keep it open until the
+      // background work ended; the deferral re-tries the retirement then.
+      if (deferRetirementForBackgroundWork(this, session)) return undefined;
       try {
         return await origRetireSession.call(this, session, ...rest);
       } finally {
@@ -907,10 +965,19 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
             if (existing && existing.session === session && existing.session.db?.isOpen !== false) {
               return existing.runner;
             }
-            if (existing) runners.delete(session.id);
+            if (existing) {
+              runners.delete(session.id);
+              if (runnerHasBackgroundWork(existing.runner)) {
+                (this.rokbotBackgroundRecovery?.log ?? console.log)(`[rokbot:background] ${session.id} got a new runner while its previous one still runs background work; that work stays tracked and still wakes the bot`);
+              }
+            }
             const runner = createRunnerForSession(library, this, session, runtimeCtx);
             runners.set(session.id, { session, runner });
             return runner;
+          },
+          runnerForSession: (session) => {
+            const existing = session?.id ? runners.get(session.id) : undefined;
+            return existing && existing.session === session ? existing.runner : undefined;
           },
           peekRunner: (agentId) => {
             const existing = runners.get(agentId);
