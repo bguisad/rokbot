@@ -28,23 +28,33 @@
   [self dismissViewControllerAnimated:YES completion:nil];
 }
 - (void)reload {
-  NSMutableURLRequest *request = [NSMutableURLRequest
-      requestWithURL:[NSURL URLWithString:[RBConnection.shared.serverURL
-                                              stringByAppendingString:@"/local/computers"]]];
+  NSString *base = RBConnection.shared.serverURL;
+  NSString *token = RBConnection.shared.deviceToken;
+  NSURL *url = base.length ? [NSURL URLWithString:[base stringByAppendingString:@"/local/computers"]] : nil;
+  if (!url || !token.length) {
+    [self.refreshControl endRefreshing];
+    self.state = RBL(@"请先连接 Host。", @"Connect to Host first.");
+    self.computers = @[];
+    [self.tableView reloadData];
+    return;
+  }
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
   request.timeoutInterval = 20;
-  [request setValue:[@"Bearer " stringByAppendingString:RBConnection.shared.deviceToken ?: @""]
+  [request setValue:[@"Bearer " stringByAppendingString:token]
       forHTTPHeaderField:@"Authorization"];
   [[RBHTTPSession()
       dataTaskWithRequest:request
         completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
           id value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+          NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
+              ? ((NSHTTPURLResponse *)response).statusCode : 0;
           dispatch_async(dispatch_get_main_queue(), ^{
             [self.refreshControl endRefreshing];
-            if (error || ((NSHTTPURLResponse *)response).statusCode != 200 ||
+            if (error || status != 200 ||
                 ![value isKindOfClass:NSDictionary.class] ||
                 ![value[@"computers"] isKindOfClass:NSArray.class]) {
               self.state = RBL(@"加载失败，下拉重试。", @"Could not load. Pull to retry.");
-                self.computers = @[];
+              self.computers = @[];
             } else {
               self.computers = value[@"computers"];
               self.state = [value[@"available"] boolValue] ? RBL(@"尚无已连接的电脑", @"No connected computers") : RBL(@"Host 尚未就绪", @"Host is unavailable");

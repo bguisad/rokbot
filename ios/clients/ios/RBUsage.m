@@ -19,17 +19,33 @@
 - (void)close { [self dismissViewControllerAnimated:YES completion:nil]; }
 - (void)reload {
   self.status = RBL(@"正在加载…", @"Loading…");
-  NSString *zone = [NSTimeZone.localTimeZone.name stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
-  NSURL *url = [NSURL URLWithString:[RBConnection.shared.serverURL stringByAppendingFormat:@"/local/usage?timeZone=%@", zone]];
-  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url]; request.timeoutInterval = 20;
+  NSString *base = RBConnection.shared.serverURL;
   NSString *token = RBConnection.shared.deviceToken;
-  [request setValue:[@"Bearer " stringByAppendingString:token ?: @""] forHTTPHeaderField:@"Authorization"];
+  if (!base.length || !token.length) {
+    [self.refreshControl endRefreshing];
+    self.status = RBL(@"请先连接 Host。", @"Connect to Host first.");
+    [self.tableView reloadData];
+    return;
+  }
+  NSURLComponents *components = [NSURLComponents componentsWithString:[base stringByAppendingString:@"/local/usage"]];
+  components.queryItems = @[[NSURLQueryItem queryItemWithName:@"timeZone" value:NSTimeZone.localTimeZone.name ?: @"UTC"]];
+  NSURL *url = components.URL;
+  if (!url) {
+    [self.refreshControl endRefreshing];
+    self.status = RBL(@"加载失败，下拉重试。", @"Could not load. Pull to retry.");
+    [self.tableView reloadData];
+    return;
+  }
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url]; request.timeoutInterval = 20;
+  [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
   [[RBHTTPSession() dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
     id value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
+        ? ((NSHTTPURLResponse *)response).statusCode : 0;
     dispatch_async(dispatch_get_main_queue(), ^{
       [self.refreshControl endRefreshing];
       if (![token isEqual:RBConnection.shared.deviceToken]) return;
-      if (error || ((NSHTTPURLResponse *)response).statusCode != 200 || ![value isKindOfClass:NSDictionary.class] || ![value[@"total"] isKindOfClass:NSNumber.class]) {
+      if (error || status != 200 || ![value isKindOfClass:NSDictionary.class] || ![value[@"total"] isKindOfClass:NSNumber.class]) {
         self.status = RBL(@"加载失败，下拉重试。", @"Could not load. Pull to retry.");
       } else { self.usage = value; self.status = nil; }
       [self.tableView reloadData];
@@ -63,15 +79,38 @@
 + (void)open { RBPresentController([[RBUsageController alloc] initWithStyle:UITableViewStyleInsetGrouped]); }
 @end
 BOOL RBReplaceUsageView(UIView *view) {
-  if (!RBConnection.shared.deviceToken.length || ![@[@"用量", @"Usage"] containsObject:view.accessibilityLabel] || view.bounds.size.width < 300 || view.bounds.size.height < 44) return NO;
+  if (!RBConnection.shared.isPaired || view.bounds.size.width < 300 || view.bounds.size.height < 44) return NO;
+  if (RBHasAncestorPluginTag(view, 731989)) return NO;
+  static NSSet<NSString *> *labels;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ labels = [NSSet setWithArray:@[@"用量", @"Usage"]]; });
+  NSString *label = [view.accessibilityLabel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
   UIButton *button = (UIButton *)[view viewWithTag:731989];
+  if (button && label.length) {
+    NSString *childLabel = [button.accessibilityLabel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (childLabel.length) {
+      NSString *suffix = [@", " stringByAppendingString:childLabel];
+      if (label.length > suffix.length && [label hasSuffix:suffix])
+        label = [[label substringToIndex:label.length - suffix.length]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    }
+  }
+  if (![labels containsObject:label]) return NO;
+  RBRemoveDescendantPluginTag(view, 731989);
+  if (button && button.superview != view) button = nil;
   if (!button) {
     button = [UIButton buttonWithType:UIButtonTypeCustom]; button.tag = 731989;
+    button.frame = view.bounds;
     button.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [button addTarget:RBUsageEntry.class action:@selector(open) forControlEvents:UIControlEventTouchUpInside];
-    view.userInteractionEnabled = YES; [view addSubview:button];
+    if (!view.userInteractionEnabled) view.userInteractionEnabled = YES;
+    [view addSubview:button];
+    RBTrackModifiedView(view);
+  } else if (!CGRectEqualToRect(button.frame, view.bounds)) {
+    button.frame = view.bounds;
   }
-  button.frame = view.bounds; button.accessibilityLabel = RBL(@"用量", @"Usage");
-  button.accessibilityIdentifier = @"rokbot.usage.open";
+  NSString *localized = RBL(@"用量", @"Usage");
+  if (![button.accessibilityLabel isEqualToString:localized]) button.accessibilityLabel = localized;
+  if (![button.accessibilityIdentifier isEqualToString:@"rokbot.usage.open"]) button.accessibilityIdentifier = @"rokbot.usage.open";
   return YES;
 }

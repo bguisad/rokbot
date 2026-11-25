@@ -12,6 +12,7 @@
 #import "RBLocalize.h"
 #import "RBAppIntents.h"
 #import <Security/Security.h>
+#import <stdatomic.h>
 
 static NSString *RBConnAsString(id value) {
   return [value isKindOfClass:NSString.class] ? (NSString *)value : nil;
@@ -27,7 +28,7 @@ static BOOL RBConnBoolValue(id value, BOOL fallback) {
 
 static NSString *const RBURLKey = @"RokBotLocal.serverURL";
 static NSString *RBService(void) {
-  return [@"dev.rokbot.local." stringByAppendingString:NSBundle.mainBundle.bundleIdentifier];
+  return [@"dev.rokbot.local." stringByAppendingString:NSBundle.mainBundle.bundleIdentifier ?: @""];
 }
 static NSDictionary *RBKeychainQuery(void) {
   return @{
@@ -45,9 +46,12 @@ static NSString *RBReadToken(void) {
   return [[NSString alloc] initWithData:CFBridgingRelease(result) encoding:NSUTF8StringEncoding];
 }
 static BOOL RBWriteToken(NSString *token) {
+  NSData *data = [token dataUsingEncoding:NSUTF8StringEncoding];
+  if (!data.length)
+    return NO;
   NSMutableDictionary *q = [RBKeychainQuery() mutableCopy];
   NSDictionary *attrs = @{
-    (__bridge id)kSecValueData : [token dataUsingEncoding:NSUTF8StringEncoding],
+    (__bridge id)kSecValueData : data,
     (__bridge id)kSecAttrAccessible : (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
   };
   OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)q, (__bridge CFDictionaryRef)attrs);
@@ -78,6 +82,7 @@ static UIViewController *RBTop(void) {
 @property(nonatomic, strong) UISwitch *tailcat;
 @property(nonatomic, strong) UILabel *networkLabel;
 @property(nonatomic, strong) NSTimer *networkTimer;
+@property(nonatomic, strong) NSURLSession *pairSession;
 @property(nonatomic, assign) BOOL editingConnection;
 @property(nonatomic, assign) BOOL cancelled;
 @end
@@ -87,7 +92,12 @@ static UIViewController *RBTop(void) {
 @property(nonatomic, readwrite) NSURL *gatewayBundleURL;
 @property(nonatomic, weak) RBPairController *controller;
 @end
-@implementation RBConnection
+@implementation RBConnection {
+  NSString *_serverURL;
+  NSString *_deviceToken;
+  _Atomic(BOOL) _paired;
+  NSURL *_gatewayBundleURL;
+}
 + (instancetype)shared {
   static RBConnection *v;
   static dispatch_once_t once;
@@ -95,6 +105,33 @@ static UIViewController *RBTop(void) {
     v = [self new];
   });
   return v;
+}
+- (NSString *)serverURL {
+  @synchronized (self) { return _serverURL; }
+}
+- (void)setServerURL:(NSString *)serverURL {
+  @synchronized (self) {
+    _serverURL = [serverURL copy];
+    atomic_store_explicit(&_paired, _serverURL.length > 0 && _deviceToken.length > 0, memory_order_release);
+  }
+}
+- (NSString *)deviceToken {
+  @synchronized (self) { return _deviceToken; }
+}
+- (BOOL)isPaired {
+  return atomic_load_explicit(&_paired, memory_order_acquire);
+}
+- (void)setDeviceToken:(NSString *)deviceToken {
+  @synchronized (self) {
+    _deviceToken = [deviceToken copy];
+    atomic_store_explicit(&_paired, _serverURL.length > 0 && _deviceToken.length > 0, memory_order_release);
+  }
+}
+- (NSURL *)gatewayBundleURL {
+  @synchronized (self) { return _gatewayBundleURL; }
+}
+- (void)setGatewayBundleURL:(NSURL *)gatewayBundleURL {
+  @synchronized (self) { _gatewayBundleURL = [gatewayBundleURL copy]; }
 }
 - (BOOL)restore:(NSError **)error {
   RBDiagnosticsEvent(@"connection.credentials.begin", @{});
@@ -137,8 +174,17 @@ static UIViewController *RBTop(void) {
   SecItemDelete((__bridge CFDictionaryRef)RBKeychainQuery());
   [NSUserDefaults.standardUserDefaults removeObjectForKey:RBURLKey];
   [NSUserDefaults.standardUserDefaults removeObjectForKey:@"RokBotLocal.deviceId"];
+  [NSUserDefaults.standardUserDefaults synchronize];
   if (self.gatewayBundleURL)
     [NSFileManager.defaultManager removeItemAtURL:self.gatewayBundleURL error:nil];
+  NSURL *cachesDir =
+      [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory
+                                           inDomains:NSUserDomainMask]
+          .firstObject;
+  if (cachesDir) {
+    [NSFileManager.defaultManager removeItemAtURL:[cachesDir URLByAppendingPathComponent:@"RokBotPaired" isDirectory:YES] error:nil];
+    [NSFileManager.defaultManager removeItemAtURL:[cachesDir URLByAppendingPathComponent:@"GrokBotPaired" isDirectory:YES] error:nil];
+  }
   self.gatewayBundleURL = nil;
   self.serverURL = nil;
   self.deviceToken = nil;
@@ -184,15 +230,24 @@ static UIViewController *RBTop(void) {
 }
 - (void)viewWillAppear:(BOOL)animated {
   [super viewWillAppear:animated];
-  __weak RBPairController *weak = self;
-  self.networkTimer = [NSTimer scheduledTimerWithTimeInterval:2 repeats:YES block:^(NSTimer *timer) {
-    [weak updateNetworkState];
-  }];
+  [self.networkTimer invalidate];
+  self.networkTimer = nil;
+  if (RBNetworkEnabled()) {
+    __weak RBPairController *weak = self;
+    self.networkTimer = [NSTimer scheduledTimerWithTimeInterval:2 repeats:YES block:^(NSTimer *timer) {
+      [weak updateNetworkState];
+    }];
+    self.networkTimer.tolerance = 0.5;
+  }
   [self updateNetworkState];
 }
 - (void)viewWillDisappear:(BOOL)animated {
   [self.networkTimer invalidate]; self.networkTimer = nil;
   [super viewWillDisappear:animated];
+}
+- (void)dealloc {
+  [_networkTimer invalidate];
+  [_pairSession invalidateAndCancel];
 }
 - (void)updateNetworkState {
   if (self.editingConnection || !RBConnection.shared.deviceToken.length) return;
@@ -375,6 +430,8 @@ static UIViewController *RBTop(void) {
 - (void)networkChanged { self.address.placeholder = self.tailcat.on ? @"tailcat://connect/…" : @"https://bot.example.com"; }
 - (void)close {
   self.cancelled = YES;
+  [self.pairSession invalidateAndCancel];
+  self.pairSession = nil;
   RBNetworkRollback();
   [self dismissViewControllerAnimated:YES completion:nil];
 }
@@ -389,31 +446,43 @@ static UIViewController *RBTop(void) {
   self.connect.enabled = YES;
 }
 - (void)updateConnection:(NSString *)base {
+  NSString *token = RBConnection.shared.deviceToken;
+  if (!token.length) {
+    [self fail:RBL(@"无法验证此 Host 的设备凭据。", @"Could not verify this device with the Host.")];
+    return;
+  }
+  NSURL *statusURL = [NSURL URLWithString:[base stringByAppendingString:@"/connect/status"]];
+  if (!statusURL) {
+    [self fail:RBL(@"无法验证此 Host 的设备凭据。", @"Could not verify this device with the Host.")];
+    return;
+  }
   self.connect.enabled = NO; self.status.text = RBL(@"正在连接…", @"Connecting…");
-  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[base stringByAppendingString:@"/connect/status"]]];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:statusURL];
   request.timeoutInterval = 35;
-  [request setValue:[@"Bearer " stringByAppendingString:RBConnection.shared.deviceToken] forHTTPHeaderField:@"Authorization"];
+  [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
+  __weak typeof(self) weak = self;
   [[RBHTTPSession() dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
     NSDictionary *result = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
-      if (self.cancelled) return;
+      typeof(self) strong = weak;
+      if (!strong || strong.cancelled) return;
       NSInteger code = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
       NSDictionary *dict = [result isKindOfClass:NSDictionary.class] ? result : nil;
       BOOL disconnectedFlag = dict != nil && !RBConnBoolValue(dict[@"connected"], YES);
       if (error || code != 200 || disconnectedFlag) {
         NSString *errMsg = RBConnAsString(dict[@"error"]);
-        [self fail:errMsg.length ? errMsg : RBL(@"无法验证此 Host 的设备凭据。", @"Could not verify this device with the Host.")];
+        [strong fail:errMsg.length ? errMsg : RBL(@"无法验证此 Host 的设备凭据。", @"Could not verify this device with the Host.")];
         return;
       }
       NSString *deviceId = RBConnAsString(dict[@"deviceId"]);
       if (deviceId.length) {
         [NSUserDefaults.standardUserDefaults setObject:deviceId forKey:@"RokBotLocal.deviceId"];
       }
-      NSURL *bundle = [RBHermes writeGateway:base token:RBConnection.shared.deviceToken resources:RBConnection.shared.resourcesURL error:nil];
-      if (!bundle || !RBNetworkCommit()) { [self fail:RBL(@"无法保存连接。", @"Could not save connection.")]; return; }
+      NSURL *bundle = [RBHermes writeGateway:base token:token resources:RBConnection.shared.resourcesURL error:nil];
+      if (!bundle || !RBNetworkCommit()) { [strong fail:RBL(@"无法保存连接。", @"Could not save connection.")]; return; }
       [NSUserDefaults.standardUserDefaults setObject:RBNetworkAddress() forKey:RBURLKey];
       RBConnection.shared.serverURL = base; RBConnection.shared.gatewayBundleURL = bundle; RBSyncAppIntentCredentials();
-      [self dismissViewControllerAnimated:YES completion:^{ RBReloadReactHost(); if (RBConnection.shared.didConnect) RBConnection.shared.didConnect(); }];
+      [strong dismissViewControllerAnimated:YES completion:^{ RBReloadReactHost(); if (RBConnection.shared.didConnect) RBConnection.shared.didConnect(); }];
     });
   }] resume];
 }
@@ -434,11 +503,15 @@ static UIViewController *RBTop(void) {
                             : RBL(@"请输入配对码。", @"Enter a pairing code.")];
     return;
   }
+  NSURL *pairURL = [NSURL URLWithString:[base stringByAppendingString:@"/connect/pair"]];
+  if (!pairURL) {
+    [self fail:RBL(@"无法连接 Host。", @"Could not connect to Host.")];
+    return;
+  }
   self.connect.enabled = NO;
   self.status.text = RBL(@"正在连接…", @"Connecting…");
   self.status.textColor = UIColor.secondaryLabelColor;
-  NSMutableURLRequest *request = [NSMutableURLRequest
-      requestWithURL:[NSURL URLWithString:[base stringByAppendingString:@"/connect/pair"]]];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:pairURL];
   request.HTTPMethod = @"POST";
   request.timeoutInterval = 20;
   [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
@@ -455,11 +528,13 @@ static UIViewController *RBTop(void) {
   else
     pairBody[@"pairingKey"] = key;
   request.HTTPBody = [NSJSONSerialization dataWithJSONObject:pairBody options:0 error:nil];
+  [self.pairSession invalidateAndCancel];
   NSURLSessionConfiguration *sessionConfig =
       NSURLSessionConfiguration.ephemeralSessionConfiguration;
   NSURLSession *session = [NSURLSession sessionWithConfiguration:sessionConfig
                                                         delegate:self
                                                    delegateQueue:nil];
+  self.pairSession = session;
   __weak typeof(self) weak = self;
   [[session dataTaskWithRequest:request
               completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
@@ -470,6 +545,8 @@ static UIViewController *RBTop(void) {
                                        : 0;
                 dispatch_async(dispatch_get_main_queue(), ^{
                   typeof(self) strong = weak;
+                  if (strong && strong.pairSession == session)
+                    strong.pairSession = nil;
                   if (!strong || strong.cancelled)
                     return;
                   if (error) {
@@ -532,6 +609,7 @@ static UIViewController *RBTop(void) {
                   RBConnection.shared.deviceToken = token;
                   RBRestoreProfileCache();
                   RBConnection.shared.gatewayBundleURL = bundle;
+                  RBSyncAppIntentCredentials();
                   strong.key.text = @"";
                   [strong dismissViewControllerAnimated:YES
                                              completion:^{

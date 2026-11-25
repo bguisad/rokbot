@@ -5,6 +5,8 @@
 #import <sys/socket.h>
 #import <netinet/in.h>
 #import <unistd.h>
+#include <stdatomic.h>
+#include <string.h>
 
 extern char *RBTailcatIdentity(void);
 extern char *RBTailcatStart(const char *config);
@@ -14,6 +16,8 @@ extern void RBTailcatFree(char *text);
 
 static int RBActiveTunnel, RBPendingTunnel, RBReservedSocket = -1;
 static uint16_t RBActivePort, RBPendingPort;
+static atomic_bool RBActiveEnabledAtomic;
+static _Atomic(uint16_t) RBActivePortAtomic;
 static CFAbsoluteTime RBLastAttempt;
 static CFAbsoluteTime RBPeerUnhealthySince;
 static const CFTimeInterval RBPeerRecoveryGrace = 20;
@@ -51,7 +55,7 @@ static void RBNetworkDropPending(void) {
 }
 static NSDictionary *RBNetworkQuery(void) {
   return @{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,
-    (__bridge id)kSecAttrService:[@"rokbot.network." stringByAppendingString:NSBundle.mainBundle.bundleIdentifier],
+    (__bridge id)kSecAttrService:[@"rokbot.network." stringByAppendingString:NSBundle.mainBundle.bundleIdentifier ?: @""],
     (__bridge id)kSecAttrAccount:@"tailcat"};
 }
 static NSDictionary *RBNetworkRead(void) {
@@ -62,7 +66,9 @@ static NSDictionary *RBNetworkRead(void) {
   return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
 static BOOL RBNetworkWrite(NSDictionary *value) {
-  NSDictionary *attrs = @{(__bridge id)kSecValueData:[NSJSONSerialization dataWithJSONObject:value options:0 error:nil],
+  NSData *data = value ? [NSJSONSerialization dataWithJSONObject:value options:0 error:nil] : nil;
+  if (!data) return NO;
+  NSDictionary *attrs = @{(__bridge id)kSecValueData:data,
     (__bridge id)kSecAttrAccessible:(__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly};
   OSStatus result = SecItemUpdate((__bridge CFDictionaryRef)RBNetworkQuery(), (__bridge CFDictionaryRef)attrs);
   if (result == errSecItemNotFound) { NSMutableDictionary *q = [RBNetworkQuery() mutableCopy]; [q addEntriesFromDictionary:attrs]; result = SecItemAdd((__bridge CFDictionaryRef)q, NULL); }
@@ -70,17 +76,24 @@ static BOOL RBNetworkWrite(NSDictionary *value) {
 }
 static NSDictionary *RBNetworkResult(char *raw) {
   if (!raw) return nil;
-  NSData *data = [[NSString stringWithUTF8String:raw] dataUsingEncoding:NSUTF8StringEncoding]; RBTailcatFree(raw);
-  id result = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+  id result = nil;
+  if (raw[0] != '\0') {
+    NSData *data = [NSData dataWithBytes:raw length:strlen(raw)];
+    result = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+  }
+  RBTailcatFree(raw);
   return [result isKindOfClass:NSDictionary.class] ? result : nil;
 }
 NSString *RBNetworkAddress(void) {
   __block NSString *address; RBNetworkSync(^{ address = RBActiveNetwork[@"address"] ?: @""; }); return address;
 }
 BOOL RBNetworkEnabled(void) {
-  __block BOOL enabled; RBNetworkSync(^{ enabled = [RBActiveNetwork[@"enabled"] boolValue]; }); return enabled;
+  return atomic_load_explicit(&RBActiveEnabledAtomic, memory_order_acquire);
 }
 BOOL RBNetworkEnsureReadyForURL(NSURL *url) {
+  if (!atomic_load_explicit(&RBActiveEnabledAtomic, memory_order_acquire)) return YES;
+  uint16_t activePort = atomic_load_explicit(&RBActivePortAtomic, memory_order_acquire);
+  if (!activePort || ![url.host isEqualToString:@"127.0.0.1"] || url.port.integerValue != activePort) return YES;
   __block BOOL ready = YES;
   RBNetworkSync(^{
     if (![RBActiveNetwork[@"enabled"] boolValue] || ![url.host isEqual:@"127.0.0.1"] ||
@@ -88,8 +101,9 @@ BOOL RBNetworkEnsureReadyForURL(NSURL *url) {
     NSDictionary *status = RBActiveTunnel ? RBNetworkResult(RBTailcatStatus(RBActiveTunnel)) : nil;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
     BOOL listening = [status[@"listening"] boolValue];
+    BOOL hasError = [status[@"error"] isKindOfClass:NSString.class] && [status[@"error"] length] > 0;
     if (listening) {
-      if ([status[@"state"] isEqual:@"ready"] && ![status[@"error"] length]) {
+      if ([status[@"state"] isEqual:@"ready"] && !hasError) {
         RBPeerUnhealthySince = 0; RBPeerWasReady = YES;
         return;
       }
@@ -106,14 +120,21 @@ BOOL RBNetworkEnsureReadyForURL(NSURL *url) {
     int old = RBActiveTunnel; RBActiveTunnel = 0;
     if (old) RBTailcatStop(old); // Releases the local listener before asynchronous peer cleanup.
     RBNetworkReleaseSocket();
-    NSDictionary *config = @{@"mode":@"forward", @"link":RBActiveNetwork[@"address"],
-      @"identity":RBActiveNetwork[@"identity"], @"localPort":@(RBActivePort)};
+    NSString *link = [RBActiveNetwork[@"address"] isKindOfClass:NSString.class] ? RBActiveNetwork[@"address"] : nil;
+    id identity = RBActiveNetwork[@"identity"];
+    if (!link.length || !identity) {
+      RBStartFailures = MIN(RBStartFailures + 1, 8u);
+      return;
+    }
+    NSDictionary *config = @{@"mode":@"forward", @"link":link,
+      @"identity":identity, @"localPort":@(RBActivePort)};
     NSData *data = [NSJSONSerialization dataWithJSONObject:config options:0 error:nil];
-    NSString *raw = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    NSDictionary *result = RBNetworkResult(RBTailcatStart(raw.UTF8String));
+    NSString *raw = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    NSDictionary *result = raw ? RBNetworkResult(RBTailcatStart(raw.UTF8String)) : nil;
     int handle = [result[@"handle"] intValue];
-    ready = handle && [result[@"status"][@"listening"] boolValue] &&
-      RBNetworkPort(result[@"status"][@"localURL"]) == RBActivePort;
+    NSDictionary *resultStatus = [result[@"status"] isKindOfClass:NSDictionary.class] ? result[@"status"] : nil;
+    ready = handle && [resultStatus[@"listening"] boolValue] &&
+      RBNetworkPort(resultStatus[@"localURL"]) == RBActivePort;
     if (ready) { RBActiveTunnel = handle; RBStartFailures = 0; RBPeerUnhealthySince = now; }
     else { if (handle) RBTailcatStop(handle); RBStartFailures = MIN(RBStartFailures + 1, 8u); }
     RBDiagnosticsEvent(old ? @"connection.tunnel.restart" : @"connection.tunnel.start",
@@ -128,8 +149,8 @@ NSDictionary *RBNetworkStatus(void) {
     if (![RBActiveNetwork[@"enabled"] boolValue]) { status = @{@"state":@"direct", @"healthy":@YES}; return; }
     NSDictionary *value = RBActiveTunnel ? RBNetworkResult(RBTailcatStatus(RBActiveTunnel)) : nil;
     NSMutableDictionary *result = [(value ?: @{@"state":@"connecting"}) mutableCopy];
-    result[@"healthy"] = @([value[@"listening"] boolValue] && [value[@"state"] isEqual:@"ready"] &&
-      ![value[@"error"] length]);
+    BOOL hasError = [value[@"error"] isKindOfClass:NSString.class] && [value[@"error"] length] > 0;
+    result[@"healthy"] = @([value[@"listening"] boolValue] && [value[@"state"] isEqual:@"ready"] && !hasError);
     status = result;
   });
   return status;
@@ -154,13 +175,16 @@ NSString *RBNetworkPrepare(NSString *address, BOOL enabled, NSError **error) {
     if (!identity) return;
     record[@"identity"] = identity;
     NSDictionary *config = @{@"mode":@"forward", @"link":input ?: @"", @"identity":identity};
-    NSString *raw = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:config options:0 error:nil] encoding:NSUTF8StringEncoding];
+    NSData *configData = [NSJSONSerialization dataWithJSONObject:config options:0 error:nil];
+    NSString *raw = configData ? [[NSString alloc] initWithData:configData encoding:NSUTF8StringEncoding] : nil;
+    if (!raw) return;
     NSDictionary *result = RBNetworkResult(RBTailcatStart(raw.UTF8String));
     int handle = [result[@"handle"] intValue];
-    uint16_t port = RBNetworkPort(result[@"status"][@"localURL"]);
-    if (!handle || !port || ![result[@"status"][@"listening"] boolValue]) { if (handle) RBTailcatStop(handle); return; }
+    NSDictionary *resultStatus = [result[@"status"] isKindOfClass:NSDictionary.class] ? result[@"status"] : nil;
+    uint16_t port = RBNetworkPort(resultStatus[@"localURL"]);
+    if (!handle || !port || ![resultStatus[@"listening"] boolValue]) { if (handle) RBTailcatStop(handle); return; }
     RBPendingTunnel = handle; RBPendingPort = port; RBPendingNetwork = record;
-    prepared = result[@"status"][@"localURL"];
+    prepared = resultStatus[@"localURL"];
   });
   if (!prepared && error) *error = [NSError errorWithDomain:@"RokBotNetwork" code:1
     userInfo:@{NSLocalizedDescriptionKey:RBL(@"无法连接，请检查地址后重试。", @"Could not connect. Check the address and try again.")}];
@@ -173,6 +197,8 @@ BOOL RBNetworkCommit(void) {
     int old = RBActiveTunnel;
     RBNetworkReleaseSocket();
     RBActiveTunnel = RBPendingTunnel; RBActivePort = RBPendingPort; RBActiveNetwork = RBPendingNetwork;
+    atomic_store_explicit(&RBActivePortAtomic, RBActivePort, memory_order_release);
+    atomic_store_explicit(&RBActiveEnabledAtomic, [RBActiveNetwork[@"enabled"] boolValue], memory_order_release);
     RBPendingTunnel = 0; RBPendingPort = 0; RBPendingNetwork = nil;
     RBLastAttempt = 0; RBStartFailures = 0; RBPeerUnhealthySince = 0; RBPeerWasReady = NO;
     if (old) RBTailcatStop(old);
@@ -187,16 +213,37 @@ NSString *RBNetworkRestore(NSString *fallback) {
       address = [NSString stringWithFormat:@"http://127.0.0.1:%hu", RBActivePort]; return;
     }
     RBActiveNetwork = RBNetworkRead();
-    if (![RBActiveNetwork[@"enabled"] boolValue]) { address = RBActiveNetwork[@"address"] ?: fallback; return; }
+    BOOL enabled = [RBActiveNetwork[@"enabled"] boolValue];
+    if (!enabled) {
+      RBActivePort = 0;
+      atomic_store_explicit(&RBActivePortAtomic, 0, memory_order_release);
+      atomic_store_explicit(&RBActiveEnabledAtomic, false, memory_order_release);
+      address = RBActiveNetwork[@"address"] ?: fallback;
+      return;
+    }
     // Constructor restore never enters Go. Hold the port until the first request
     // starts the listener after dyld has completed its initializers.
     RBNetworkReleaseSocket();
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in local = {0}; local.sin_family = AF_INET; local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (fd < 0 || bind(fd, (struct sockaddr *)&local, sizeof(local)) != 0) { if (fd >= 0) close(fd); return; }
+    if (fd < 0 || bind(fd, (struct sockaddr *)&local, sizeof(local)) != 0) {
+      if (fd >= 0) close(fd);
+      RBActivePort = 0;
+      atomic_store_explicit(&RBActivePortAtomic, 0, memory_order_release);
+      atomic_store_explicit(&RBActiveEnabledAtomic, false, memory_order_release);
+      return;
+    }
     socklen_t size = sizeof(local);
-    if (getsockname(fd, (struct sockaddr *)&local, &size) != 0) { close(fd); return; }
+    if (getsockname(fd, (struct sockaddr *)&local, &size) != 0) {
+      close(fd);
+      RBActivePort = 0;
+      atomic_store_explicit(&RBActivePortAtomic, 0, memory_order_release);
+      atomic_store_explicit(&RBActiveEnabledAtomic, false, memory_order_release);
+      return;
+    }
     RBReservedSocket = fd; RBActivePort = ntohs(local.sin_port);
+    atomic_store_explicit(&RBActivePortAtomic, RBActivePort, memory_order_release);
+    atomic_store_explicit(&RBActiveEnabledAtomic, true, memory_order_release);
     RBActiveTunnel = 0; RBLastAttempt = 0; RBStartFailures = 0; RBPeerUnhealthySince = 0; RBPeerWasReady = NO;
     address = [NSString stringWithFormat:@"http://127.0.0.1:%hu", RBActivePort];
   });
@@ -207,6 +254,8 @@ void RBNetworkClear(void) {
     RBNetworkDropPending();
     int old = RBActiveTunnel;
     RBActiveTunnel = 0; RBActivePort = 0; RBActiveNetwork = nil;
+    atomic_store_explicit(&RBActivePortAtomic, 0, memory_order_release);
+    atomic_store_explicit(&RBActiveEnabledAtomic, false, memory_order_release);
     RBLastAttempt = 0; RBStartFailures = 0; RBPeerUnhealthySince = 0; RBPeerWasReady = NO;
     RBNetworkReleaseSocket();
     SecItemDelete((__bridge CFDictionaryRef)RBNetworkQuery());

@@ -7,13 +7,16 @@
 
 static NSString *RBCurrentAgent;
 void RBObserveRequest(NSURLRequest *request) {
-  if (![request.URL.path hasPrefix:@"/api/"] || !request.HTTPBody)
+  NSString *path = request.URL.path;
+  if (![path hasPrefix:@"/api/"] ||
+      ![path.lastPathComponent isEqualToString:@"openAgentWindowed"] ||
+      !request.HTTPBody.length)
     return;
   NSDictionary *body = [NSJSONSerialization JSONObjectWithData:request.HTTPBody
                                                        options:0
                                                          error:nil];
   NSString *agent = [body isKindOfClass:NSDictionary.class] ? body[@"id"] : nil;
-  if ([agent isKindOfClass:NSString.class] && agent.length && [request.URL.lastPathComponent isEqual:@"openAgentWindowed"])
+  if ([agent isKindOfClass:NSString.class] && agent.length)
     dispatch_async(dispatch_get_main_queue(), ^{ RBCurrentAgent = agent; });
 }
 @interface RBLibraryController
@@ -57,12 +60,19 @@ void RBObserveRequest(NSURLRequest *request) {
            path:(NSString *)path
            body:(NSDictionary *)body
        complete:(void (^)(NSData *, NSHTTPURLResponse *, NSError *))complete {
-  NSMutableURLRequest *r =
-      [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[RBConnection.shared.serverURL
-                                                                   stringByAppendingString:path]]];
+  NSString *base = RBConnection.shared.serverURL;
+  NSString *token = RBConnection.shared.deviceToken;
+  NSURL *url = base.length ? [NSURL URLWithString:[base stringByAppendingString:path]] : nil;
+  if (!url || !token.length) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      complete(nil, nil, [NSError errorWithDomain:@"RokBotLibrary" code:401 userInfo:nil]);
+    });
+    return;
+  }
+  NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:url];
   r.HTTPMethod = method;
   r.timeoutInterval = 30;
-  [r setValue:[@"Bearer " stringByAppendingString:RBConnection.shared.deviceToken ?: @""]
+  [r setValue:[@"Bearer " stringByAppendingString:token]
       forHTTPHeaderField:@"Authorization"];
   if (body) {
     r.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
@@ -70,8 +80,10 @@ void RBObserveRequest(NSURLRequest *request) {
   }
   [[RBHTTPSession() dataTaskWithRequest:r
                       completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                        NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class]
+                            ? (NSHTTPURLResponse *)response : nil;
                         dispatch_async(dispatch_get_main_queue(), ^{
-                          complete(data, (NSHTTPURLResponse *)response, error);
+                          complete(data, http, error);
                         });
                       }] resume];
 }

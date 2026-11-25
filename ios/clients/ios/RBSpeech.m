@@ -6,7 +6,7 @@
 
 @interface RBSpeechProtocol : NSURLProtocol
 @property(nonatomic,strong) NSURLSessionDataTask *task;
-@property(nonatomic,assign) BOOL cancelled;
+@property(atomic,assign) BOOL cancelled;
 @end
 
 @implementation RBSpeechProtocol
@@ -21,7 +21,9 @@
 }
 - (void)startLoading {
   RBConnection *connection = RBConnection.shared;
-  if (!connection.deviceToken.length || !connection.serverURL.length) {
+  NSString *serverURL = connection.serverURL;
+  NSString *deviceToken = connection.deviceToken;
+  if (!deviceToken.length || !serverURL.length) {
     [self fail:RBL(@"请先连接 Host。", @"Connect to Host first.") code:401]; return;
   }
   NSData *body = self.request.HTTPBody;
@@ -46,17 +48,24 @@
   }
   NSMutableDictionary *payload = [NSMutableDictionary dictionaryWithDictionary:parsed];
   payload[@"audioBase64"] = payload[@"audio"]; [payload removeObjectForKey:@"audio"];
-  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:
-    [connection.serverURL stringByAppendingString:@"/local/audio/transcriptions"]]];
+  NSURL *targetURL = [NSURL URLWithString:[serverURL stringByAppendingString:@"/local/audio/transcriptions"]];
+  if (!targetURL) {
+    [self fail:RBL(@"无法连接 Host。", @"Could not connect to Host.") code:400]; return;
+  }
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:targetURL];
   request.HTTPMethod = @"POST";
   request.allHTTPHeaderFields = @{@"Content-Type":@"application/json", @"Accept":@"application/json",
-    @"Authorization":[@"Bearer " stringByAppendingString:connection.deviceToken]};
+    @"Authorization":[@"Bearer " stringByAppendingString:deviceToken]};
   request.timeoutInterval = 125;
   request.HTTPBody = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
   RBDiagnosticsEvent(@"speech.request", @{@"mimeType":payload[@"mimeType"] ?: @"", @"bytes":@(body.length)});
   self.task = [RBHTTPSession() dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
     if (self.cancelled) return;
     if (error) { [self.client URLProtocol:self didFailWithError:error]; return; }
+    if (![response isKindOfClass:NSHTTPURLResponse.class]) {
+      [self.client URLProtocol:self didFailWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse userInfo:nil]];
+      return;
+    }
     NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
     RBDiagnosticsEvent(@"speech.response", @{@"status":@(http.statusCode)});
     NSHTTPURLResponse *original = [[NSHTTPURLResponse alloc] initWithURL:self.request.URL

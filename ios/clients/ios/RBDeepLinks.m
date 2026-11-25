@@ -1,9 +1,12 @@
 #import "RBDeepLinks.h"
+#import "RBConnection.h"
 #import "RBDiagnostics.h"
 #import <objc/message.h>
 #import <objc/runtime.h>
 
 static IMP RBOriginalLinkURL;
+static IMP RBOriginalOpenURL;
+static IMP RBOriginalUIAppOpenURL;
 static IMP RBOriginalInitialURL;
 static IMP RBOriginalStartObserving;
 static IMP RBOriginalStopObserving;
@@ -11,6 +14,37 @@ static BOOL RBObserving;
 static BOOL RBHasBeenActive;
 static NSURL *RBPendingNotificationURL;
 static NSURL *RBInitialNotificationURL;
+
+BOOL RBShouldBlockExternalURL(NSURL *url) {
+  if (![url isKindOfClass:NSURL.class]) return NO;
+  NSString *scheme = url.scheme.lowercaseString;
+  if (!scheme.length) return NO;
+  if ([scheme isEqualToString:@"itms-apps"] || [scheme isEqualToString:@"itms-appss"])
+    return YES;
+  if ([scheme isEqualToString:@"mailto"]) {
+    NSString *lower = url.absoluteString.lowercaseString;
+    for (NSString *token in @[@"grok", @"x.ai", @"cursor", @"anysphere", @"sand", @"feedback", @"support"]) {
+      if ([lower containsString:token]) return YES;
+    }
+    return NO;
+  }
+  if (![scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"])
+    return NO;
+  NSString *host = url.host.lowercaseString;
+  if (!host.length) return NO;
+  NSString *serverURL = RBConnection.shared.serverURL;
+  if (serverURL.length) {
+    NSString *serverHost = [NSURL URLWithString:serverURL].host.lowercaseString;
+    if (serverHost.length && [host isEqualToString:serverHost]) return NO;
+  }
+  if ([host isEqualToString:@"127.0.0.1"] || [host isEqualToString:@"localhost"])
+    return NO;
+  for (NSString *blocked in @[@"grok.com", @"x.ai", @"cursor.com", @"anysphere.co", @"sand.dev", @"grokbot.dev", @"apps.apple.com", @"itunes.apple.com"]) {
+    if ([host isEqualToString:blocked] || [host hasSuffix:[@"." stringByAppendingString:blocked]])
+      return YES;
+  }
+  return NO;
+}
 
 static void RBDeliverURL(NSURL *url) {
   RBDiagnosticsEvent(@"link.deliver", @{@"url":url.absoluteString ?: @""});
@@ -54,6 +88,24 @@ NSURL *RBNormalizeLocalURL(NSURL *url) {
 static BOOL RBLinkURL(id self, SEL cmd, id application, NSURL *url, NSDictionary *options) {
   return ((BOOL (*)(id, SEL, id, id, id))RBOriginalLinkURL)(
       self, cmd, application, RBNormalizeLocalURL(url), options);
+}
+
+static void RBRCTOpenURL(id self, SEL cmd, NSURL *url, void (^resolve)(id), void (^reject)(NSString *, NSString *, NSError *)) {
+  if (RBShouldBlockExternalURL(url)) {
+    RBDiagnosticsEvent(@"link.blocked", @{@"url": url.absoluteString ?: @""});
+    if (resolve) resolve(@NO);
+    return;
+  }
+  ((void (*)(id, SEL, id, id, id))RBOriginalOpenURL)(self, cmd, url, resolve, reject);
+}
+
+static void RBUIAppOpenURL(id self, SEL cmd, NSURL *url, NSDictionary *options, void (^completion)(BOOL)) {
+  if (RBShouldBlockExternalURL(url)) {
+    RBDiagnosticsEvent(@"link.blocked", @{@"url": url.absoluteString ?: @""});
+    if (completion) completion(NO);
+    return;
+  }
+  ((void (*)(id, SEL, id, id, id))RBOriginalUIAppOpenURL)(self, cmd, url, options, completion);
 }
 
 static void RBInitialURL(id self, SEL cmd, void (^resolve)(id), id reject) {
@@ -115,6 +167,15 @@ void RBInstallDeepLinks(void) {
   if (!RBOriginalLinkURL) {
     Method method = class_getClassMethod(linking, sel_registerName("application:openURL:options:"));
     if (method) RBOriginalLinkURL = method_setImplementation(method, (IMP)RBLinkURL);
+  }
+  if (!RBOriginalOpenURL) {
+    Method method = class_getInstanceMethod(linking, sel_registerName("openURL:resolve:reject:"));
+    if (method) RBOriginalOpenURL = method_setImplementation(method, (IMP)RBRCTOpenURL);
+  }
+  if (!RBOriginalUIAppOpenURL) {
+    Class appClass = NSClassFromString(@"UIApplication");
+    Method method = class_getInstanceMethod(appClass, sel_registerName("openURL:options:completionHandler:"));
+    if (method) RBOriginalUIAppOpenURL = method_setImplementation(method, (IMP)RBUIAppOpenURL);
   }
   if (!RBOriginalInitialURL) {
     Method method = class_getInstanceMethod(linking, sel_registerName("getInitialURL:reject:"));

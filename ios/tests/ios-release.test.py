@@ -505,8 +505,13 @@ class ReleaseOutput(unittest.TestCase):
         plugins = app / 'PlugIns'
         plugins.mkdir(parents=True)
 
+        widget_seq = b''.join(
+            struct.pack('<I', 0xd2800000 | (imm << 5))
+            for imm in ext_mod.WIDGETS_SCHEME_IMMEDIATES
+        )
+        widget_text = b'\x00' * 0x100 + widget_seq + b'\x00' * 0x100 + widget_seq + b'\x00' * 0x100
         ext_specs = {
-            'Widgets.appex': ('widgets', b'\x00' * 0x1c000),
+            'Widgets.appex': ('widgets', widget_text),
             'ImageShareExtension.appex': ('share', b'prefix-sand-mobile\0-suffix'),
             'NotificationService.appex': ('NotificationService', b'\xc0\x03\x5f\xd6' * 16),
         }
@@ -547,6 +552,13 @@ class ReleaseOutput(unittest.TestCase):
             self.assertEqual(loc['CFBundleDisplayName'], 'RokBot')
             self.assertEqual(loc['CFBundleName'], 'RokBot')
         self.assertIn(b'rblocal-ios\0', (plugins / 'ImageShareExtension.appex' / 'ExtBin').read_bytes())
+        widget_patched = (plugins / 'Widgets.appex' / 'ExtBin').read_bytes()
+        rewritten = [
+            index for index in range(len(widget_patched) - 16)
+            if tuple((w >> 5) & 0xFFFF for w in struct.unpack_from('<4I', widget_patched, index))
+            == ext_mod.WIDGETS_SCHEME_PARTS
+        ]
+        self.assertEqual(len(rewritten), 2)
 
 
 if __name__ == '__main__':

@@ -7,17 +7,18 @@
 #import <objc/message.h>
 #import <stdatomic.h>
 
-#if !defined(ROKBOT_VOICE_AEC3)
+#if !defined(ROKBOT_VOICE_AEC3) && !defined(GROKBOT_VOICE_AEC3)
 BOOL RBVoiceAudioAvailable(void) { return NO; }
+void RBVoiceAudioObserveSocket(id socket) { (void)socket; }
 #else
 // The original module retains its microphone tap, player, resampler and UI.
 // AEC3 uses the same engine's actual output to remove residual speaker echo.
 static BOOL RBVoiceAudioInstalled;
 static BOOL (*RBOriginalEngineStart)(AVAudioEngine *, SEL, NSError **);
 static void (*RBOriginalTap)(AVAudioNode *, SEL, AVAudioNodeBus, AVAudioFrameCount, AVAudioFormat *, AVAudioNodeTapBlock);
+static NSString *const RBVoiceAudioLock = @"RokBot.VoiceAudio";
 static __weak AVAudioEngine *RBCallEngine;
 static __weak id RBCallSocket;
-static void (*RBOriginalSocketOpen)(id, SEL);
 static const void *RBEchoKey = &RBEchoKey;
 @interface RBVoiceAudioContext : NSObject { @public atomic_bool failureQueued; }
 @property(atomic,strong) RBVoiceEcho *echo;
@@ -61,23 +62,31 @@ static BOOL RBIsVoiceSession(void) {
   return [AVAudioSession.sharedInstance.mode isEqual:AVAudioSessionModeVoiceChat];
 }
 static RBVoiceAudioContext *RBContextForEngine(AVAudioEngine *engine) {
+  if (!engine) return nil;
   RBVoiceAudioContext *context = objc_getAssociatedObject(engine, RBEchoKey);
-  if (!context) {
-    context = [RBVoiceAudioContext new];
-    objc_setAssociatedObject(engine, RBEchoKey, context, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  if (context) return context;
+  @synchronized (engine) {
+    context = objc_getAssociatedObject(engine, RBEchoKey);
+    if (!context) {
+      context = [RBVoiceAudioContext new];
+      objc_setAssociatedObject(engine, RBEchoKey, context, OBJC_ASSOCIATION_RETAIN);
+    }
   }
   return context;
 }
-static void RBOpenVoiceSocket(id socket, SEL selector) {
+void RBVoiceAudioObserveSocket(id socket) {
+  if (!socket) return;
   NSURL *url = ((id (*)(id, SEL))objc_msgSend)(socket, @selector(url));
-  if ([url.path isEqualToString:@"/local/voice/realtime"]) RBCallSocket = socket;
-  RBOriginalSocketOpen(socket, selector);
+  if ([url.path isEqualToString:@"/local/voice/realtime"]) {
+    @synchronized (RBVoiceAudioLock) { RBCallSocket = socket; }
+  }
 }
 static void RBFailVoiceAudio(AVAudioEngine *engine, RBVoiceAudioContext *context) {
   if (atomic_exchange(&context->failureQueued, true)) return;
   // Audio taps must not stop their own engine. The original realtime socket's
   // close event already ends the call and updates the original React UI.
-  id socket = RBCallSocket;
+  id socket = nil;
+  @synchronized (RBVoiceAudioLock) { socket = RBCallSocket; }
   dispatch_async(dispatch_get_main_queue(), ^{
     [engine stop];
     if ([socket respondsToSelector:@selector(closeWithCode:reason:)]) {
@@ -100,7 +109,7 @@ static BOOL RBConfigureVoiceEngine(AVAudioEngine *engine) {
       ^(AVAudioPCMBuffer *buffer, AVAudioTime *time) { [context.echo render:buffer atTime:time]; });
     context.referenceNode = mixer;
   }
-  RBCallEngine = engine;
+  @synchronized (RBVoiceAudioLock) { RBCallEngine = engine; }
   return YES;
 }
 static BOOL RBStartVoiceEngine(AVAudioEngine *engine, SEL selector, NSError **error) {
@@ -127,7 +136,7 @@ static BOOL RBStartVoiceEngine(AVAudioEngine *engine, SEL selector, NSError **er
 }
 static void RBInstallInputTap(AVAudioNode *node, SEL selector, AVAudioNodeBus bus,
     AVAudioFrameCount size, AVAudioFormat *format, AVAudioNodeTapBlock block) {
-  if (![node isKindOfClass:AVAudioInputNode.class] || !RBIsVoiceSession()) {
+  if (![node isKindOfClass:AVAudioInputNode.class] || !RBIsVoiceSession() || !node.engine) {
     RBOriginalTap(node, selector, bus, size, format, block); return;
   }
   RBVoiceAudioContext *context = RBContextForEngine(node.engine);
@@ -148,9 +157,6 @@ __attribute__((constructor)) static void RBInstallVoiceAudio(void) {
   if (!start || !tap) return;
   RBOriginalEngineStart = (void *)method_setImplementation(start, (IMP)RBStartVoiceEngine);
   RBOriginalTap = (void *)method_setImplementation(tap, (IMP)RBInstallInputTap);
-  Class socketClass = NSClassFromString(@"SRWebSocket");
-  Method open = class_getInstanceMethod(socketClass, @selector(open));
-  if (open) RBOriginalSocketOpen = (void *)method_setImplementation(open, (IMP)RBOpenVoiceSocket);
   RBVoiceAudioInstalled = YES;
   [NSNotificationCenter.defaultCenter addObserverForName:AVAudioEngineConfigurationChangeNotification
     object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
@@ -163,10 +169,14 @@ __attribute__((constructor)) static void RBInstallVoiceAudio(void) {
     }];
   [NSNotificationCenter.defaultCenter addObserverForName:AVAudioSessionRouteChangeNotification
     object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
-      AVAudioEngine *engine = RBCallEngine;
+      AVAudioEngine *engine = nil;
+      @synchronized (RBVoiceAudioLock) { engine = RBCallEngine; }
       // A new speaker/microphone route changes the acoustic path even if its
       // sample rate is unchanged. Rebuild the filter and timestamp ring.
-      if (engine) RBContextForEngine(engine).echo = nil;
+      if (engine) {
+        RBVoiceAudioContext *context = objc_getAssociatedObject(engine, RBEchoKey);
+        context.echo = nil;
+      }
     }];
 }
 

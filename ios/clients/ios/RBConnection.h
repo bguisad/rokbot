@@ -3,6 +3,7 @@
 + (instancetype)shared;
 @property(nonatomic, readonly) NSString *serverURL;
 @property(nonatomic, readonly) NSString *deviceToken;
+@property(nonatomic, readonly, getter=isPaired) BOOL paired;
 @property(nonatomic, readonly) NSURL *gatewayBundleURL;
 @property(nonatomic, strong) NSURL *resourcesURL;
 @property(nonatomic, copy) void (^didConnect)(void);
@@ -13,3 +14,13 @@
 @end
 FOUNDATION_EXPORT void RBReloadReactHost(void);
 FOUNDATION_EXPORT void RBOpenAgent(NSString *agentId);
+FOUNDATION_EXPORT void RBTrackModifiedView(UIView *view);
+FOUNDATION_EXPORT BOOL RBHasAncestorPluginTag(UIView *view, NSInteger tag);
+FOUNDATION_EXPORT void RBRemoveDescendantPluginTag(UIView *view, NSInteger tag);
+typedef NS_ENUM(NSInteger, RBSettingsContextState) {
+  RBSettingsContextUnknown = 0,
+  RBSettingsContextNo = 1,
+  RBSettingsContextYes = 2,
+};
+FOUNDATION_EXPORT RBSettingsContextState RBGlobalSettingsContextState(UIView *view);
+FOUNDATION_EXPORT BOOL RBIsGlobalSettingsContext(UIView *view);

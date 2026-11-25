@@ -36,12 +36,19 @@ static Class RBInstalledDelegate;
 static NSDictionary *RBDevicePushState;
 static NSString *RBDevicePushStateIdentity;
 static char RBOriginalSwitchTargets;
+static char RBHiddenPushEntryKey;
 static NSString *RBPushStateKey(void) {
   return [@"RokBotLocal.pushState." stringByAppendingString:
     [NSUserDefaults.standardUserDefaults stringForKey:@"RokBotLocal.deviceId"] ?: @"unpaired"];
 }
 static void RBPushDiagnostic(NSString *event, NSDictionary *values) {
-  if (!getenv("ROKBOT_VALIDATE_CAPTURE")) return;
+  static BOOL capture;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    capture = getenv("ROKBOT_VALIDATE_CAPTURE") != NULL ||
+              getenv("GROKBOT_VALIDATE_CAPTURE") != NULL;
+  });
+  if (!capture) return;
   NSURL *dir = [[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"HostValidation"];
   [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
   NSMutableDictionary *report = [values mutableCopy]; report[@"event"] = event;
@@ -89,9 +96,15 @@ static UIViewController *RBPushTop(void) {
 static void RBDeviceRequest(NSString *method, NSDictionary *body,
                             void (^done)(NSDictionary *, NSError *)) {
   NSString *base = RBConnection.shared.serverURL, *token = RBConnection.shared.deviceToken;
-  if (!base.length || !token.length) return;
-  NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:
-    [NSURL URLWithString:[base stringByAppendingString:@"/local/device"]]];
+  NSURL *url = base.length ? [NSURL URLWithString:[base stringByAppendingString:@"/local/device"]] : nil;
+  if (!url || !token.length) {
+    if (done) {
+      NSError *err = [NSError errorWithDomain:@"RokBotDevice" code:401 userInfo:nil];
+      dispatch_async(dispatch_get_main_queue(), ^{ done(nil, err); });
+    }
+    return;
+  }
+  NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:url];
   r.HTTPMethod = method; r.timeoutInterval = 15;
   [r setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
   if (body) {
@@ -99,7 +112,7 @@ static void RBDeviceRequest(NSString *method, NSDictionary *body,
     [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
   }
   [[RBHTTPSession() dataTaskWithRequest:r completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-    NSDictionary *value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    id value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     NSDictionary *dict = RBPushAsDict(value);
     NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
                            ? ((NSHTTPURLResponse *)response).statusCode
@@ -109,19 +122,26 @@ static void RBDeviceRequest(NSString *method, NSDictionary *body,
     NSString *respErr = RBPushAsString(dict[@"error"]) ?: @"";
     RBPushDiagnostic(@"request", @{@"method":method,@"status":@(status),@"errorDomain":error.domain ?: @"",@"errorCode":@(error.code),@"responseError":respErr});
     dispatch_async(dispatch_get_main_queue(), ^{
-      if (![base isEqual:RBConnection.shared.serverURL] || ![token isEqual:RBConnection.shared.deviceToken]) return;
+      if (![base isEqual:RBConnection.shared.serverURL] || ![token isEqual:RBConnection.shared.deviceToken]) {
+        if (done) done(nil, [NSError errorWithDomain:@"RokBotDevice" code:NSURLErrorCancelled userInfo:nil]);
+        return;
+      }
       NSDictionary *push = RBPushAsDict(dict[@"push"]);
       if (!error && push) {
         // Persist only display state, never push tokens, URLs, or JSON nulls.
         NSString *provider = RBPushAsString(push[@"provider"]);
         NSString *authorization = RBPushAsString(push[@"authorization"]);
-        RBDevicePushState = @{@"provider":provider.length ? provider : @"none",
+        NSDictionary *nextState = @{@"provider":provider.length ? provider : @"none",
                               @"configured":RBPushBoolValue(push[@"configured"], NO) ? @YES : @NO,
                               @"enabled":RBPushBoolValue(push[@"enabled"], NO) ? @YES : @NO,
                               @"authorization":authorization.length ? authorization : @"notDetermined"};
-        RBDevicePushStateIdentity = RBPushStateKey();
-        [NSUserDefaults.standardUserDefaults setObject:RBDevicePushState forKey:RBPushStateKey()];
-        [NSNotificationCenter.defaultCenter postNotificationName:@"RokBotPushStateChanged" object:nil];
+        NSString *key = RBPushStateKey();
+        if (![key isEqualToString:RBDevicePushStateIdentity] || ![nextState isEqualToDictionary:RBDevicePushState]) {
+          RBDevicePushState = nextState;
+          RBDevicePushStateIdentity = key;
+          [NSUserDefaults.standardUserDefaults setObject:RBDevicePushState forKey:key];
+          [NSNotificationCenter.defaultCenter postNotificationName:@"RokBotPushStateChanged" object:nil];
+        }
       }
       if (done) done(dict, error);
     });
@@ -131,9 +151,9 @@ static void RBReportDevice(UNNotificationSettings *settings) {
   NSString *environment = RBPushEnvironment();
   RBPushDiagnostic(@"registration", @{@"environment":environment ?: (id)NSNull.null,@"authorization":RBAuthName(settings.authorizationStatus),@"tokenPresent":@(RBAPNsToken.length > 0),@"registrationError":RBRegistrationError ?: @""});
   NSMutableDictionary *body = [@{
-    @"name": UIDevice.currentDevice.name,
+    @"name": UIDevice.currentDevice.name ?: @"",
     @"kind": UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? @"ipad" : @"iphone",
-    @"bundleId": NSBundle.mainBundle.bundleIdentifier,
+    @"bundleId": NSBundle.mainBundle.bundleIdentifier ?: @"",
     @"clientDeviceId": RBClientDeviceId(),
     @"appVersion": [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"",
     // Objective-C comparison expressions box as NSNumber(int), which JSON
@@ -153,17 +173,23 @@ static void RBReportDevice(UNNotificationSettings *settings) {
 void RBPushSetForeground(BOOL foreground) {
   if (!RBConnection.shared.deviceToken.length) return;
   __block UIBackgroundTaskIdentifier task = UIBackgroundTaskInvalid;
-  if (!foreground)
-    task = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Host notification state" expirationHandler:^{
+  void (^endTask)(void) = ^{
+    void (^finish)(void) = ^{
       if (task != UIBackgroundTaskInvalid) {
-        [UIApplication.sharedApplication endBackgroundTask:task]; task = UIBackgroundTaskInvalid;
+        UIBackgroundTaskIdentifier current = task;
+        task = UIBackgroundTaskInvalid;
+        [UIApplication.sharedApplication endBackgroundTask:current];
       }
-    }];
+    };
+    if ([NSThread isMainThread]) finish();
+    else dispatch_async(dispatch_get_main_queue(), finish);
+  };
+  if (!foreground)
+    task = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Host notification state"
+                                                      expirationHandler:endTask];
   RBDeviceRequest(@"PUT", @{@"foreground":foreground ? @YES : @NO}, ^(NSDictionary *value, NSError *error) {
     RBDiagnosticsEvent(@"presence.report", @{@"foreground":foreground ? @YES : @NO, @"success":error ? @NO : @YES});
-    if (task != UIBackgroundTaskInvalid) {
-      [UIApplication.sharedApplication endBackgroundTask:task]; task = UIBackgroundTaskInvalid;
-    }
+    endTask();
   });
 }
 static BOOL RBClaimNotification(NSString *identity) {
@@ -244,7 +270,9 @@ static void RBRegistered(id self, SEL cmd, UIApplication *app, NSData *token) {
   NSMutableString *value = [NSMutableString stringWithCapacity:token.length * 2];
   for (NSUInteger i=0; i<token.length; i++) [value appendFormat:@"%02x",bytes[i]];
   RBAPNsToken = value; RBRegistrationError = nil;
-  [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) { RBReportDevice(s); }];
+  [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
+    dispatch_async(dispatch_get_main_queue(), ^{ RBReportDevice(s); });
+  }];
 }
 static void RBFailed(id self, SEL cmd, UIApplication *app, NSError *error) {
   if (!RBConnection.shared.deviceToken.length) {
@@ -255,7 +283,9 @@ static void RBFailed(id self, SEL cmd, UIApplication *app, NSError *error) {
   // That expected missing-entitlement error is unrelated to Bark delivery.
   if (!RBPushEnvironment()) { RBRegistrationError = nil; return; }
   RBRegistrationError = [NSString stringWithFormat:@"%@ (%ld)",error.domain,(long)error.code];
-  [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) { RBReportDevice(s); }];
+  [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
+    dispatch_async(dispatch_get_main_queue(), ^{ RBReportDevice(s); });
+  }];
 }
 static IMP RBHook(Class cls, SEL selector, IMP replacement) {
   Method method = class_getInstanceMethod(cls, selector);
@@ -282,7 +312,8 @@ static NSString *RBPromptKey(void) {
 }
 static void RBShowBark(void) {
   if (RBPromptVisible || !RBConnection.shared.deviceToken.length) return;
-  UIViewController *top = RBPushTop(); if (!top) return;
+  UIViewController *top = RBPushTop();
+  if (!top || [top isKindOfClass:UIAlertController.class] || top.beingDismissed) return;
   RBPromptVisible = YES;
   UIAlertController *alert = [UIAlertController alertControllerWithTitle:RBL(@"接收通知", @"Notifications")
     message:RBL(@"粘贴 Bark 推送链接", @"Paste your Bark notification URL")
@@ -295,16 +326,20 @@ static void RBShowBark(void) {
   [alert addAction:[UIAlertAction actionWithTitle:RBL(@"稍后", @"Not now") style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
     RBPromptVisible = NO; [NSUserDefaults.standardUserDefaults setBool:YES forKey:RBPromptKey()];
   }]];
+  __weak UIAlertController *weakAlert = alert;
   [alert addAction:[UIAlertAction actionWithTitle:RBL(@"保存", @"Save") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
     RBPromptVisible = NO;
-    NSString *input = alert.textFields.firstObject.text;
+    NSString *input = weakAlert.textFields.firstObject.text;
     RBDeviceRequest(@"PUT", @{ @"push": @{ @"provider": @"bark", @"barkUrl": input ?: @"" } }, ^(NSDictionary *value, NSError *error) {
       if (!error) { [NSUserDefaults.standardUserDefaults setBool:YES forKey:RBPromptKey()]; return; }
+      if ([error.domain isEqualToString:@"RokBotDevice"] && error.code == NSURLErrorCancelled) return;
       UIAlertController *failed = [UIAlertController alertControllerWithTitle:RBL(@"未能保存", @"Could not save")
         message:RBL(@"请检查 Bark 链接和服务端连接。", @"Check the Bark URL and Host connection.") preferredStyle:UIAlertControllerStyleAlert];
       [failed addAction:[UIAlertAction actionWithTitle:RBL(@"重试", @"Retry") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { RBShowBark(); }]];
       [failed addAction:[UIAlertAction actionWithTitle:RBL(@"稍后", @"Not now") style:UIAlertActionStyleCancel handler:nil]];
-      [RBPushTop() presentViewController:failed animated:YES completion:nil];
+      UIViewController *presenter = RBPushTop();
+      if (presenter && ![presenter isKindOfClass:UIAlertController.class] && !presenter.beingDismissed)
+        [presenter presentViewController:failed animated:YES completion:nil];
     });
   }]];
   [top presentViewController:alert animated:YES completion:nil];
@@ -353,9 +388,21 @@ static UISwitch *RBNotificationSwitch(UIView *view) {
       if ([child isKindOfClass:UISwitch.class]) { control = (UISwitch *)child; break; }
   return control;
 }
+static void RBAssociateHiddenPushEntry(UISwitch *control, RBPushEntry *entry) {
+  if (!control) return;
+  if (!entry) {
+    objc_setAssociatedObject(control, &RBHiddenPushEntryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return;
+  }
+  NSHashTable<RBPushEntry *> *box = objc_getAssociatedObject(control, &RBHiddenPushEntryKey);
+  if (box && box.anyObject == entry) return;
+  box = [NSHashTable weakObjectsHashTable];
+  [box addObject:entry];
+  objc_setAssociatedObject(control, &RBHiddenPushEntryKey, box, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 void RBResetPushView(UIView *view) {
   UISwitch *control = RBNotificationSwitch(view);
-  NSMapTable *targets = objc_getAssociatedObject(control, &RBOriginalSwitchTargets);
+  NSMapTable *targets = control ? objc_getAssociatedObject(control, &RBOriginalSwitchTargets) : nil;
   if (targets) {
     [control removeTarget:RBPushEntry.class action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
     for (id target in targets)
@@ -363,16 +410,50 @@ void RBResetPushView(UIView *view) {
         [control addTarget:target action:NSSelectorFromString(action) forControlEvents:UIControlEventValueChanged];
     objc_setAssociatedObject(control, &RBOriginalSwitchTargets, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
+  NSHashTable<RBPushEntry *> *hiddenBox = control ? objc_getAssociatedObject(control, &RBHiddenPushEntryKey) : nil;
+  if (hiddenBox) {
+    RBPushEntry *linked = hiddenBox.anyObject;
+    objc_setAssociatedObject(control, &RBHiddenPushEntryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (control.hidden) control.hidden = NO;
+    if ([linked isKindOfClass:RBPushEntry.class] && linked.originalSwitch == control) {
+      linked.originalSwitch = nil;
+      [linked removeFromSuperview];
+    }
+  }
   RBPushEntry *entry = (RBPushEntry *)[view viewWithTag:731990];
   if ([entry isKindOfClass:RBPushEntry.class]) {
-    entry.originalSwitch.hidden = NO;
+    UISwitch *orig = entry.originalSwitch;
+    if (orig) {
+      objc_setAssociatedObject(orig, &RBHiddenPushEntryKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      if (orig.hidden) orig.hidden = NO;
+      entry.originalSwitch = nil;
+    }
     [entry removeFromSuperview];
   }
 }
 BOOL RBReplacePushView(UIView *view) {
-  if (!RBConnection.shared.deviceToken.length) return NO;
+  if (!RBConnection.shared.isPaired) return NO;
   UISwitch *control = RBNotificationSwitch(view);
-  if (!control || ![@[@"通知", @"Notifications"] containsObject:control.accessibilityLabel]) return NO;
+  static NSSet<NSString *> *switchLabels;
+  static NSSet<NSString *> *authorizedStates;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    switchLabels = [NSSet setWithArray:@[@"通知", @"Notifications"]];
+    authorizedStates = [NSSet setWithArray:@[@"authorized", @"provisional", @"ephemeral"]];
+  });
+  if (!control || !control.accessibilityLabel.length || ![switchLabels containsObject:control.accessibilityLabel]) return NO;
+  // Scope global push replacement to the App Settings screen so per-Bot
+  // "Notifications" toggles inside Bot Settings keep their native behavior.
+  // When the view temporarily leaves the window without a fresh cache hit,
+  // leave any existing replacement untouched until it re-enters the window.
+  RBSettingsContextState settingsState = RBGlobalSettingsContextState(view);
+  if (settingsState != RBSettingsContextYes) {
+    if (settingsState == RBSettingsContextNo &&
+        (objc_getAssociatedObject(control, &RBOriginalSwitchTargets) != nil ||
+         objc_getAssociatedObject(control, &RBHiddenPushEntryKey) != nil))
+      RBResetPushView(view);
+    return NO;
+  }
   NSString *identity = RBPushStateKey();
   NSDictionary *state = [RBDevicePushStateIdentity isEqual:identity] ? RBDevicePushState :
     [NSUserDefaults.standardUserDefaults dictionaryForKey:identity];
@@ -386,11 +467,14 @@ BOOL RBReplacePushView(UIView *view) {
       objc_setAssociatedObject(control, &RBOriginalSwitchTargets, targets, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
       [control removeTarget:nil action:nil forControlEvents:UIControlEventValueChanged];
       [control addTarget:RBPushEntry.class action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+      RBTrackModifiedView(view);
+      RBTrackModifiedView(control);
     }
-    if (state && control.enabled)
-      control.on = RBPushBoolValue(state[@"enabled"], NO) &&
-                   [@[@"authorized", @"provisional", @"ephemeral"]
-                       containsObject:RBPushAsString(state[@"authorization"]) ?: @""];
+    if (state && control.enabled) {
+      BOOL shouldBeOn = RBPushBoolValue(state[@"enabled"], NO) &&
+          [authorizedStates containsObject:RBPushAsString(state[@"authorization"]) ?: @""];
+      if (control.on != shouldBeOn) control.on = shouldBeOn;
+    }
     return YES;
   }
   UIView *row = control.superview;
@@ -405,23 +489,44 @@ BOOL RBReplacePushView(UIView *view) {
   if (!entry) {
     entry = [RBPushEntry buttonWithType:UIButtonTypeCustom];
     entry.tag = 731990; entry.originalSwitch = control;
-    entry.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    entry.frame = rowFrame;
+    entry.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     entry.stateLabel = [UILabel new]; entry.stateLabel.font = [UIFont systemFontOfSize:17];
     entry.stateLabel.textColor = UIColor.secondaryLabelColor; entry.stateLabel.textAlignment = NSTextAlignmentRight;
     entry.chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
     entry.chevron.tintColor = UIColor.tertiaryLabelColor;
     [entry addSubview:entry.stateLabel]; [entry addSubview:entry.chevron];
     [entry addTarget:entry action:@selector(open) forControlEvents:UIControlEventTouchUpInside];
-    row.userInteractionEnabled = YES; [row addSubview:entry];
+    if (!row.userInteractionEnabled) row.userInteractionEnabled = YES;
+    [row addSubview:entry];
+  } else {
+    if (entry.originalSwitch != control) {
+      UISwitch *previous = entry.originalSwitch;
+      if (previous) {
+        RBAssociateHiddenPushEntry(previous, nil);
+        if (previous.hidden) previous.hidden = NO;
+      }
+      entry.originalSwitch = control;
+    }
+    if (!CGRectEqualToRect(entry.frame, rowFrame)) entry.frame = rowFrame;
   }
-  control.hidden = YES;
-  entry.frame = rowFrame; entry.layer.zPosition = 1000; [row bringSubviewToFront:entry];
+  RBAssociateHiddenPushEntry(control, entry);
+  RBTrackModifiedView(row);
+  RBTrackModifiedView(view);
+  RBTrackModifiedView(control);
+  if (!control.hidden) control.hidden = YES;
+  if (entry.layer.zPosition != 1000) entry.layer.zPosition = 1000;
+  if (row.subviews.lastObject != entry) [row bringSubviewToFront:entry];
   BOOL configured = [RBPushAsString(state[@"provider"]) isEqualToString:@"bark"] &&
                     RBPushBoolValue(state[@"configured"], NO);
-  entry.stateLabel.text = configured ? RBL(@"Bark 已配置", @"Bark configured") : RBL(@"Bark 未配置", @"Bark not configured");
-  entry.stateLabel.frame = CGRectMake(entry.bounds.size.width - 204, (entry.bounds.size.height - 22) / 2, 160, 22);
-  entry.chevron.frame = CGRectMake(entry.bounds.size.width - 34, (entry.bounds.size.height - 16) / 2, 10, 16);
-  entry.accessibilityLabel = [RBL(@"通知，", @"Notifications, ") stringByAppendingString:entry.stateLabel.text];
+  NSString *stateText = configured ? RBL(@"Bark 已配置", @"Bark configured") : RBL(@"Bark 未配置", @"Bark not configured");
+  if (![entry.stateLabel.text isEqualToString:stateText]) entry.stateLabel.text = stateText;
+  CGRect labelFrame = CGRectMake(entry.bounds.size.width - 204, (entry.bounds.size.height - 22) / 2, 160, 22);
+  if (!CGRectEqualToRect(entry.stateLabel.frame, labelFrame)) entry.stateLabel.frame = labelFrame;
+  CGRect chevronFrame = CGRectMake(entry.bounds.size.width - 34, (entry.bounds.size.height - 16) / 2, 10, 16);
+  if (!CGRectEqualToRect(entry.chevron.frame, chevronFrame)) entry.chevron.frame = chevronFrame;
+  NSString *entryLabel = [RBL(@"通知，", @"Notifications, ") stringByAppendingString:stateText];
+  if (![entry.accessibilityLabel isEqualToString:entryLabel]) entry.accessibilityLabel = entryLabel;
   return YES;
 }
 void RBPushRefresh(void) {
@@ -429,8 +534,8 @@ void RBPushRefresh(void) {
   RBInstallPushDelegate();
   UNUserNotificationCenter *center = UNUserNotificationCenter.currentNotificationCenter;
   [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
-    RBReportDevice(s);
     dispatch_async(dispatch_get_main_queue(), ^{
+      RBReportDevice(s);
       if (RBPushEnvironment()) {
         if (s.authorizationStatus == UNAuthorizationStatusNotDetermined && !RBAuthorizing && !RBAuthorizationAttempted) {
           RBAuthorizing = YES; RBAuthorizationAttempted = YES;

@@ -6,33 +6,146 @@
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <dlfcn.h>
 #import <sys/sysctl.h>
 #import <objc/runtime.h>
+#import <stdatomic.h>
 static NSDictionary *RBLoadedBundle;
-@interface RBTaskTiming : NSObject
+static atomic_bool RBDiagnosticsActive;
+static void *RBTaskTimingContext = &RBTaskTimingContext;
+static BOOL RBValidateCaptureEnv(void) {
+  static BOOL enabled;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    enabled = getenv("ROKBOT_VALIDATE_CAPTURE") != NULL ||
+              getenv("GROKBOT_VALIDATE_CAPTURE") != NULL;
+  });
+  return enabled;
+}
+static NSURL *RBValidationDirectory(void) {
+  return [[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject
+      URLByAppendingPathComponent:@"HostValidation" isDirectory:YES];
+}
+BOOL RBDiagnosticsEnabled(void) {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    BOOL active = RBValidateCaptureEnv();
+    if (!active) {
+      NSURL *directory = RBValidationDirectory();
+      active = directory != nil &&
+          [NSFileManager.defaultManager fileExistsAtPath:
+            [directory URLByAppendingPathComponent:@"enable-notification-diagnostics"].path];
+    }
+    atomic_store_explicit(&RBDiagnosticsActive, active, memory_order_relaxed);
+    if (!RBValidateCaptureEnv()) {
+      [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification
+                                                      object:nil
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *n) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+          NSURL *dir = RBValidationDirectory();
+          BOOL enabled = dir != nil &&
+              [NSFileManager.defaultManager fileExistsAtPath:
+                [dir URLByAppendingPathComponent:@"enable-notification-diagnostics"].path];
+          atomic_store_explicit(&RBDiagnosticsActive, enabled, memory_order_relaxed);
+        });
+      }];
+    }
+  });
+  return atomic_load_explicit(&RBDiagnosticsActive, memory_order_relaxed);
+}
+@interface RBTaskTiming : NSObject {
+  atomic_bool _removed;
+}
+- (BOOL)claimRemoval;
 @end
 @implementation RBTaskTiming
+- (BOOL)claimRemoval {
+  return !atomic_exchange(&_removed, true);
+}
 - (void)observeValueForKeyPath:(NSString *)path ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+  if (context != RBTaskTimingContext) {
+    [super observeValueForKeyPath:path ofObject:object change:change context:context];
+    return;
+  }
   NSURLSessionTask *task = object;
   if (task.state != NSURLSessionTaskStateCompleted) return;
-  RBDiagnosticsEvent(@"network.taskComplete", @{@"path":task.originalRequest.URL.path ?: @"", @"status":@(((NSHTTPURLResponse *)task.response).statusCode), @"error":@(task.error.code)});
-  [task removeObserver:self forKeyPath:@"state"];
-  objc_setAssociatedObject(task, @selector(observeValueForKeyPath:ofObject:change:context:), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  if (![self claimRemoval]) return;
+  NSInteger status = [task.response isKindOfClass:NSHTTPURLResponse.class]
+      ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
+  RBDiagnosticsEvent(@"network.taskComplete", @{@"path":task.originalRequest.URL.path ?: @"", @"status":@(status), @"error":@(task.error.code)});
+  [task removeObserver:self forKeyPath:@"state" context:RBTaskTimingContext];
+  objc_setAssociatedObject(task, RBTaskTimingContext, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 @end
 void RBDiagnosticsObserveTask(NSURLSessionTask *task) {
-  if (!getenv("ROKBOT_VALIDATE_CAPTURE")) return;
+  if (!RBValidateCaptureEnv() || !task || task.state == NSURLSessionTaskStateCompleted) return;
   RBTaskTiming *observer = [RBTaskTiming new];
-  objc_setAssociatedObject(task, @selector(observeValueForKeyPath:ofObject:change:context:), observer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-  [task addObserver:observer forKeyPath:@"state" options:NSKeyValueObservingOptionNew context:nil];
+  objc_setAssociatedObject(task, RBTaskTimingContext, observer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  [task addObserver:observer forKeyPath:@"state" options:NSKeyValueObservingOptionNew context:RBTaskTimingContext];
+  if (task.state == NSURLSessionTaskStateCompleted && [observer claimRemoval]) {
+    [task removeObserver:observer forKeyPath:@"state" context:RBTaskTimingContext];
+    objc_setAssociatedObject(task, RBTaskTimingContext, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
 }
 static IMP RBOriginalNetworkComplete, RBOriginalSplashReady;
+typedef void (^RBRCTFatalHandler)(NSError *);
+static RBRCTFatalHandler RBPreviousFatalHandler;
+static IMP RBOriginalReportFatalException;
+static IMP RBOriginalReportSoftException;
+static IMP RBOriginalReportException;
+static IMP RBOriginalReportFatal;
+static IMP RBOriginalReportSoft;
+static void RBReportFatal(id self, SEL selector, NSString *message, NSArray *stack,
+                          double exceptionId, NSString *extraDataAsJSON) {
+  RBDiagnosticsEvent(@"javascript.fatal", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[],
+    @"exceptionId": @(exceptionId),
+    @"extraDataAsJSON": extraDataAsJSON ?: @""
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double, NSString *))RBOriginalReportFatal)(
+      self, selector, message, stack, exceptionId, extraDataAsJSON);
+}
+static void RBReportSoft(id self, SEL selector, NSString *message, NSArray *stack,
+                         double exceptionId, NSString *extraDataAsJSON) {
+  RBDiagnosticsEvent(@"javascript.soft", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[],
+    @"exceptionId": @(exceptionId),
+    @"extraDataAsJSON": extraDataAsJSON ?: @""
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double, NSString *))RBOriginalReportSoft)(
+      self, selector, message, stack, exceptionId, extraDataAsJSON);
+}
+static void RBFatal(id self, SEL selector, NSString *message, NSArray *stack, double exceptionId) {
+  RBDiagnosticsEvent(@"javascript.fatal", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[]
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double))RBOriginalReportFatalException)(
+      self, selector, message, stack, exceptionId);
+}
+static void RBSoft(id self, SEL selector, NSString *message, NSArray *stack, double exceptionId) {
+  RBDiagnosticsEvent(@"javascript.soft", @{
+    @"message": message ?: @"",
+    @"stack": stack ?: @[]
+  });
+  ((void (*)(id, SEL, NSString *, NSArray *, double))RBOriginalReportSoftException)(
+      self, selector, message, stack, exceptionId);
+}
+static void RBReport(id self, SEL selector, void *data) {
+  RBDiagnosticsEvent(@"javascript.exception", @{});
+  ((void (*)(id, SEL, void *))RBOriginalReportException)(self, selector, data);
+}
 static void RBSplashReady(id self, SEL selector) {
   RBDiagnosticsEvent(@"splash.appReady", @{});
   ((void (*)(id,SEL))RBOriginalSplashReady)(self,selector);
 }
 static void RBNetworkComplete(id self, SEL selector, NSURLSession *session, NSURLSessionTask *task, NSError *error) {
-  RBDiagnosticsEvent(@"network.complete", @{@"path":task.originalRequest.URL.path ?: @"", @"status":@(((NSHTTPURLResponse *)task.response).statusCode), @"error":@(error.code)});
+  NSInteger status = [task.response isKindOfClass:NSHTTPURLResponse.class]
+      ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
+  RBDiagnosticsEvent(@"network.complete", @{@"path":task.originalRequest.URL.path ?: @"", @"status":@(status), @"error":@(error.code)});
   ((void (*)(id,SEL,id,id,id))RBOriginalNetworkComplete)(self,selector,session,task,error);
 }
 static BOOL RBContainsReadyLabel(UIView *view, NSString *label) {
@@ -42,15 +155,10 @@ static BOOL RBContainsReadyLabel(UIView *view, NSString *label) {
   for (UIView *child in view.subviews) if (RBContainsReadyLabel(child, label)) return YES;
   return NO;
 }
-static NSURL *RBValidationDirectory(void) {
-  return [[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject
-      URLByAppendingPathComponent:@"HostValidation" isDirectory:YES];
-}
 void RBDiagnosticsEvent(NSString *event, NSDictionary *values) {
+  if (!RBDiagnosticsEnabled()) return;
   NSURL *directory = RBValidationDirectory();
-  if (!getenv("ROKBOT_VALIDATE_CAPTURE") &&
-      ![NSFileManager.defaultManager fileExistsAtPath:
-        [directory URLByAppendingPathComponent:@"enable-notification-diagnostics"].path]) return;
+  if (!directory) return;
   @synchronized (RBConnection.class) {
     [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
     NSURL *file = [directory URLByAppendingPathComponent:@"notification-events.json"];
@@ -87,12 +195,78 @@ static NSDictionary *RBBundleDescription(NSURL *url) {
 }
 void RBDiagnosticsRecordBundle(NSURL *requested, NSURL *loaded) {
   RBDiagnosticsEvent(@"bundle.load", @{@"requested":requested.lastPathComponent ?: @"", @"loaded":loaded.lastPathComponent ?: @""});
-  if (getenv("ROKBOT_VALIDATE_CAPTURE"))
+  if (RBValidateCaptureEnv())
     RBLoadedBundle = @{@"requested":RBBundleDescription(requested), @"loaded":RBBundleDescription(loaded)};
 }
+static void *RBResolveReactSymbol(const char *symbolName) {
+  void *sym = dlsym(RTLD_DEFAULT, symbolName);
+  if (sym) return sym;
+  const char *classImage = class_getImageName(NSClassFromString(@"RCTExceptionsManager"));
+  if (classImage) {
+    void *image = dlopen(classImage, RTLD_LAZY | RTLD_NOLOAD);
+    if (image) {
+      sym = dlsym(image, symbolName);
+      dlclose(image);
+      if (sym) return sym;
+    }
+  }
+  for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+    const char *path = _dyld_get_image_name(i);
+    if (!path || !strstr(path, "/React.framework/React")) continue;
+    void *image = dlopen(path, RTLD_LAZY | RTLD_NOLOAD);
+    if (image) {
+      sym = dlsym(image, symbolName);
+      dlclose(image);
+      if (sym) return sym;
+    }
+  }
+  return NULL;
+}
 __attribute__((constructor)) static void RBInstallDiagnostics(void) {
-  if (!getenv("ROKBOT_VALIDATE_CAPTURE"))
+  if (!RBValidateCaptureEnv())
     return;
+  typedef void (*RBSetFatalHandler)(RBRCTFatalHandler);
+  typedef RBRCTFatalHandler (*RBGetFatalHandler)(void);
+  RBSetFatalHandler setFatalHandler =
+      (RBSetFatalHandler)RBResolveReactSymbol("RCTSetFatalHandler");
+  RBGetFatalHandler getFatalHandler =
+      (RBGetFatalHandler)RBResolveReactSymbol("RCTGetFatalHandler");
+  if (setFatalHandler) {
+    RBPreviousFatalHandler = getFatalHandler ? getFatalHandler() : nil;
+    setFatalHandler(^(NSError *error) {
+      RBDiagnosticsEvent(@"native.fatal", @{
+        @"domain": error.domain ?: @"",
+        @"code": @(error.code),
+        @"reason": error.localizedDescription ?: @""
+      });
+      if (RBPreviousFatalHandler) {
+        RBPreviousFatalHandler(error);
+      } else {
+        // Match React Native's default fatal handler by raising an NSException
+        // instead of swallowing the fatal error during validation runs.
+        [NSException raise:@"RCTFatalException"
+                    format:@"Unhandled React Native fatal error: %@",
+                           error.localizedDescription ?: @"(unknown)"];
+      }
+    });
+  }
+  Class exceptions = NSClassFromString(@"RCTExceptionsManager");
+  Method fatalWithExtra = class_getInstanceMethod(
+      exceptions, NSSelectorFromString(@"reportFatal:stack:exceptionId:extraDataAsJSON:"));
+  Method softWithExtra = class_getInstanceMethod(
+      exceptions, NSSelectorFromString(@"reportSoft:stack:exceptionId:extraDataAsJSON:"));
+  Method fatal = class_getInstanceMethod(
+      exceptions, @selector(reportFatalException:stack:exceptionId:));
+  Method soft = class_getInstanceMethod(
+      exceptions, @selector(reportSoftException:stack:exceptionId:));
+  Method report = class_getInstanceMethod(exceptions, @selector(reportException:));
+  if (fatalWithExtra)
+    RBOriginalReportFatal = method_setImplementation(fatalWithExtra, (IMP)RBReportFatal);
+  if (softWithExtra)
+    RBOriginalReportSoft = method_setImplementation(softWithExtra, (IMP)RBReportSoft);
+  if (fatal) RBOriginalReportFatalException = method_setImplementation(fatal, (IMP)RBFatal);
+  if (soft) RBOriginalReportSoftException = method_setImplementation(soft, (IMP)RBSoft);
+  if (report) RBOriginalReportException = method_setImplementation(report, (IMP)RBReport);
   Method networkComplete = class_getInstanceMethod(NSClassFromString(@"RCTHTTPRequestHandler"), @selector(URLSession:task:didCompleteWithError:));
   if (networkComplete) RBOriginalNetworkComplete = method_setImplementation(networkComplete,(IMP)RBNetworkComplete);
   for (NSString *name in @[@"RCTJavaScriptWillStartLoadingNotification", @"RCTJavaScriptWillStartExecutingNotification", @"RCTJavaScriptDidLoadNotification", @"RCTContentDidAppearNotification"])
