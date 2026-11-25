@@ -203,9 +203,29 @@ test('a parent stopping its own subagent clears the marker without a wake', asyn
   const { r, delivered } = recovery(t);
   const runner = r.attachRunner(fakeRunner(PARENT), PARENT);
   await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-stop', subagentType: 'executor', prompt: 'x' });
+  // AbortSubagent is a tool of the parent: it runs inside one of the parent's turns.
+  let release;
+  runner.block = new Promise((resolve) => { release = resolve; });
+  const turn = runner.run('stop that task', { requestSource: 'turn' });
   runner.handlers.disarmed({ parentAgentId: PARENT, kind: 'subagent', workId: 'sand-subagent-stop' });
+  release();
+  await turn;
+  await settle();
   assert.equal(r.store.list().length, 0);
   assert.equal(delivered.length, 0);
+});
+
+test('a subagent stopped while its parent has no turn running wakes the parent with the reason', async (t) => {
+  const { r, delivered } = recovery(t);
+  const runner = r.attachRunner(fakeRunner(PARENT), PARENT);
+  await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-cut', subagentType: 'executor', prompt: 'Migrate the static assets' });
+  runner.handlers.disarmed({ parentAgentId: PARENT, kind: 'subagent', workId: 'sand-subagent-cut' });
+  await settle();
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].source, 'background-completion');
+  assert.match(delivered[0].prompt, /stopped before it finished, but not by you/);
+  assert.match(delivered[0].prompt, /sand-subagent-cut/);
+  assert.equal(r.store.list().length, 0);
 });
 
 test('after a restart the bot is told which subagent and turn were interrupted and where they stopped', async (t) => {
@@ -498,4 +518,155 @@ test('long-running background shells are re-watched however old they are, not re
   assert.deepEqual(next.watched.map((w) => w.id), ['shell-dev-server']);
   assert.equal(delivered.length, 0);
   assert.equal(r.store.list()[0].markedAtMs, Date.parse('2026-11-20T00:00:00Z'), 'the original start time is kept');
+});
+
+// ---- 梦 app 566552ba (2026-11-25 21:49 +08) and the silent watchdog ----
+
+test('the watchdog logs when it starts, a debug line per pass, and an info line when it reports a stall', async (t) => {
+  const { r, c, logs, delivered } = recovery(t, { config: { tickMs: 60_000, stallMs: 5 * 60_000, debug: true } });
+  const runner = r.attachRunner(fakeRunner(DREAM), DREAM);
+  r.start();
+  await settle();
+  assert.ok(logs.some(({ line }) => /watchdog started .*check every 1 min, stall after 5 min/.test(line)), 'startup line');
+  assert.ok(logs.some(({ line }) => /watchdog running/.test(line)), 'running line once ready');
+  await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-566552ba', subagentType: 'executor', prompt: 'static assets to COS' });
+  runner.progress('sand-subagent-566552ba', '[pending] AwaitShell');
+  c.advance(60_000);
+  await c.runDue();
+  const passes = logs.filter(({ line, level }) => level === 'debug' && /watchdog pass \d+: 1 record\(s\), 1 live \[6817ef6dfe5f|watchdog pass \d+: 1 record/.test(line));
+  assert.ok(passes.length >= 1, `debug pass line, got ${JSON.stringify(logs)}`);
+  for (let i = 0; i < 6; i++) {
+    c.advance(60_000);
+    await c.runDue();
+  }
+  assert.equal(delivered.length, 1);
+  const stall = logs.find(({ line }) => /subagent sand-subagent-566552ba of .* stalled: no progress for 5 min/.test(line));
+  assert.ok(stall, 'stall info line');
+  assert.notEqual(stall.level, 'debug');
+  assert.notEqual(stall.level, 'error');
+});
+
+test('without ROKBOT_BACKGROUND_DEBUG the per-pass line stays quiet', async (t) => {
+  const { r, c, logs } = recovery(t);
+  r.attachRunner(fakeRunner(DREAM), DREAM);
+  r.start();
+  await settle();
+  c.advance(60_000);
+  await c.runDue();
+  assert.equal(logs.filter(({ level }) => level === 'debug').length, 0);
+  assert.equal(resolveBackgroundRecoveryConfig({ ROKBOT_BACKGROUND_DEBUG: '1' }).debug, true);
+  assert.equal(resolveBackgroundRecoveryConfig({}).debug, false);
+});
+
+test('566552ba: a subagent still running on a runner its bot replaced stays tracked and its result still wakes the bot', async (t) => {
+  let current;
+  const { r, c, delivered, logs } = recovery(t, { config: { tickMs: 60_000, stallMs: 15 * 60_000 } });
+  r.findRunner = () => current;
+  const old = r.attachRunner(fakeRunner(DREAM), DREAM);
+  current = old;
+  r.start();
+  await settle();
+  await old.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-566552ba', subagentType: 'executor', prompt: 'static assets to COS' });
+  // 21:49 the dispatching turn ends and the session retires: the next turn builds a new runner.
+  current = r.attachRunner(fakeRunner(DREAM), DREAM);
+  for (let i = 0; i < 70; i++) {
+    old.progress('sand-subagent-566552ba', `[done] Shell #${i}`);
+    c.advance(60_000);
+    await c.runDue();
+  }
+  assert.equal(delivered.length, 0, 'it is alive and progressing: no stall, no vanish');
+  assert.equal(logs.filter(({ line }) => /still runs on a previous runner/.test(line)).length, 1, 'the detached runner is logged once');
+  old.finish('sand-subagent-566552ba', 'completed', 'Static assets now load from dl.cosfoc.cn.');
+  await settle();
+  assert.equal(delivered.length, 1);
+  assert.match(delivered[0].prompt, /dl\.cosfoc\.cn/);
+  assert.equal(r.store.list().length, 0);
+});
+
+test('a subagent marker with no runner handle and no result is found by the watchdog and reported as vanished', async (t) => {
+  const { r, c, delivered, logs } = recovery(t, { config: { tickMs: 60_000, vanishGraceMs: 120_000 } });
+  let current;
+  r.findRunner = () => current;
+  const runner = r.attachRunner(fakeRunner(DREAM), DREAM);
+  r.start();
+  await settle();
+  await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-ghost', subagentType: 'executor', prompt: 'Build the preview' });
+  // The live handle is lost (e.g. the marker was rewritten) and the worker died silently: no heartbeat, no settle.
+  r.live.clear();
+  runner.vanish('sand-subagent-ghost');
+  current = fakeRunner(DREAM);
+  for (let i = 0; i < 4; i++) {
+    c.advance(60_000);
+    await c.runDue();
+  }
+  assert.equal(delivered.length, 1);
+  assert.match(delivered[0].prompt, /stopped running without delivering a result/);
+  assert.match(delivered[0].prompt, /no runner of this Host has it running/);
+  assert.ok(logs.some(({ line }) => /sand-subagent-ghost .* has no runner and no result/.test(line)));
+  assert.equal(r.store.list().length, 0);
+});
+
+test('a lost runner handle is re-attached when the bot\'s current runner still runs the subagent', async (t) => {
+  const { r, c, delivered } = recovery(t, { config: { tickMs: 60_000, vanishGraceMs: 60_000 } });
+  const runner = r.attachRunner(fakeRunner(DREAM), DREAM);
+  r.findRunner = () => runner;
+  r.start();
+  await settle();
+  await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-back', subagentType: 'executor', prompt: 'x' });
+  r.live.clear();
+  for (let i = 0; i < 5; i++) {
+    runner.progress('sand-subagent-back', `[done] Shell ${i}`);
+    c.advance(60_000);
+    await c.runDue();
+  }
+  assert.equal(delivered.length, 0);
+  assert.ok(r.live.size === 1);
+  runner.finish('sand-subagent-back', 'completed', 'done');
+  await settle();
+  assert.equal(delivered.length, 1);
+});
+
+test('a subagent that is still registered but reports nothing (no heartbeat, no settle) gets a stall notice', async (t) => {
+  const { r, c, delivered } = recovery(t, { config: { tickMs: 60_000, stallMs: 15 * 60_000 } });
+  const runner = r.attachRunner(fakeRunner(DREAM), DREAM);
+  r.start();
+  await settle();
+  await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-zombie', subagentType: 'executor', prompt: 'Upload to COS' });
+  // The run promise is still pending (isRunning) but getRunningSubagent has nothing: its worker died.
+  runner.getRunningSubagent = () => null;
+  for (let i = 0; i < 14; i++) {
+    c.advance(60_000);
+    await c.runDue();
+  }
+  assert.equal(delivered.length, 0, 'not before the stall window');
+  for (let i = 0; i < 2; i++) {
+    c.advance(60_000);
+    await c.runDue();
+  }
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].source, 'background-stall');
+  assert.match(delivered[0].prompt, /sand-subagent-zombie/);
+});
+
+test('a task resumed during its completion wake keeps its new marker', async (t) => {
+  const { r, delivered, state } = recovery(t);
+  const runner = r.attachRunner(fakeRunner(DREAM), DREAM);
+  await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-e8b9cb3f', subagentType: 'executor', prompt: 'static assets' });
+  // 23:03:59 it fails with "fetch failed"; the wake turn resumes the same id (23:04:12).
+  const deliver = r.deliverWake;
+  r.deliverWake = async (agentId, prompt, info) => {
+    await runner.subagents.dispatchBackgroundSubagent({ subagentAgentId: 'sand-subagent-e8b9cb3f', subagentType: 'executor', prompt: 'You stopped on fetch failed; continue', resume: true });
+    return deliver(agentId, prompt, info);
+  };
+  runner.finish('sand-subagent-e8b9cb3f', 'error', 'fetch failed');
+  await settle();
+  assert.equal(delivered.length, 1);
+  assert.equal(state.outcome, 'delivered');
+  const [marker] = r.store.list();
+  assert.ok(marker, 'the resumed run is still tracked');
+  assert.equal(marker.status, 'running');
+  assert.equal(marker.completedPayload, undefined, 'the delivered result is not kept on the new run');
+  assert.ok(r.live.has(`${DREAM}\u0000subagent\u0000sand-subagent-e8b9cb3f`));
+  const saved = parsePendingWakeFile(readFileSync(r.store.filePath, 'utf8'));
+  assert.equal(saved[0].status, 'running', 'a restart would report it as interrupted, not replay the old result');
 });
