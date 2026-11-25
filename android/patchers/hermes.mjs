@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import { rebrandPinnedHermesResources } from './hermes-settings.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -208,13 +209,17 @@ export function synthesizeHermesBytecode(templateBundle, meta, url, token = '') 
  * When patching an unpinned/dummy or mismatched APK build without force=true, leaves the HBC untouched
  * so the native companion (`assets/rokbot-preconfig.json` + `NetworkInterceptor`) handles Host routing safely.
  */
-export function patchHermesBundleSafely(bundleBuffer, { host, pairingCode, token, meta, recipesDir = RECIPES_DIR, force = false } = {}) {
+export function patchHermesBundleSafely(bundleBuffer, { host, pairingCode, token, meta, recipesDir = RECIPES_DIR, force = false, rebrandSettings = true } = {}) {
   const metadata = meta || loadGatewayTemplateMetadata();
   const actualSha256 = sha256Hex(bundleBuffer);
   const pinMatched = metadata.originalSha256 ? actualSha256 === metadata.originalSha256 : null;
 
   if (metadata.originalSha256 && actualSha256 === metadata.originalSha256) {
-    const pinned = synthesizePinnedResources(bundleBuffer, recipesDir);
+    const recipeOutputs = synthesizePinnedResources(bundleBuffer, recipesDir);
+    // RokBot settings-sheet rebrand (in-place, size-preserving; see hermes-settings.mjs).
+    const pinned = rebrandSettings
+      ? rebrandPinnedHermesResources(recipeOutputs)
+      : { ...recipeOutputs, settingsRebrand: { applied: false, reason: 'disabled', edits: [] } };
     if (!host) {
       return {
         buffer: pinned.unpairedHbc,
@@ -226,6 +231,7 @@ export function patchHermesBundleSafely(bundleBuffer, { host, pairingCode, token
         unpairedHbc: pinned.unpairedHbc,
         gatewayTemplateHbc: pinned.gatewayTemplateHbc,
         gatewayTemplateJson: pinned.gatewayTemplateJson,
+        settingsRebrand: pinned.settingsRebrand,
         reason: 'Applied pinned unpaired.hbc bytepatch and prepared gateway-template assets',
       };
     }
@@ -245,6 +251,7 @@ export function patchHermesBundleSafely(bundleBuffer, { host, pairingCode, token
       unpairedHbc: pinned.unpairedHbc,
       gatewayTemplateHbc: pinned.gatewayTemplateHbc,
       gatewayTemplateJson: pinned.gatewayTemplateJson,
+      settingsRebrand: pinned.settingsRebrand,
       reason: 'Applied pinned gateway-template bytepatch, synthesized HBC v98 config, and updated footer SHA-1',
     };
   }

@@ -477,6 +477,7 @@ export async function runPatchPipeline(options) {
   let unpairedHbc = null;
   let gatewayTemplateHbc = null;
   let gatewayTemplateJson = null;
+  let settingsRebrand = null;
   patchedEntries = patchedEntries.map(entry => {
     if (entry.name === 'assets/index.android.bundle') {
       const origBundle = entryBytes(entry);
@@ -493,6 +494,7 @@ export async function runPatchPipeline(options) {
       unpairedHbc = res.unpairedHbc || null;
       gatewayTemplateHbc = res.gatewayTemplateHbc || null;
       gatewayTemplateJson = res.gatewayTemplateJson || null;
+      settingsRebrand = res.settingsRebrand || null;
       return createEntry(entry.name, res.buffer, { store: false });
     }
     if (entry.name === 'assets/app.config' || entry.name === 'assets/expo-constants.json') {
@@ -602,6 +604,9 @@ export async function runPatchPipeline(options) {
     pinMatched: Boolean(pkgMatched && hbcPinMatched === true),
     hbcPinMatched,
     bundlePatchMode,
+    settingsRebrand: settingsRebrand
+      ? { applied: settingsRebrand.applied, reason: settingsRebrand.reason, edits: settingsRebrand.edits }
+      : { applied: false, reason: 'bundle not pinned', edits: [] },
     bytepatchApplied,
     inputApk: path.resolve(options.inputApk),
     outputApk: outPath,
