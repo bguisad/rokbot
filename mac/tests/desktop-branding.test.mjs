@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  applyRokBotHelperInfoPlist,
   applyRokBotInfoPlist,
   installBundleIcon,
   resolveRokBotLogoPaths,
@@ -21,6 +22,7 @@ import {
   SHORTCUT_NAME,
   agentFromLink,
   initialLink,
+  normalizeDesktopWindowTitle,
   resolveDesktopProfile,
 } from '../clients/desktop/platform.mjs';
 
@@ -184,4 +186,28 @@ test('desktop branding constants, profile isolation, i18n alias, and deep links 
   assert.equal(initialLink(['RokBot.exe', 'grokbot-local://agent/old', 'rokbot-local://agent/new']), 'rokbot-local://agent/new');
   assert.equal(initialLink(['Grok Bot.exe', '--flag', 'grokbot-local://agent/abc']), 'grokbot-local://agent/abc');
   assert.equal(initialLink(['RokBot.exe']), null);
+
+  assert.equal(normalizeDesktopWindowTitle('Grok Bot'), 'RokBot');
+  assert.equal(normalizeDesktopWindowTitle('Chat — Grok Bot'), 'Chat — RokBot');
+  assert.equal(normalizeDesktopWindowTitle(''), 'RokBot');
+  assert.equal(normalizeDesktopWindowTitle('RokBot'), 'RokBot');
+
+  const helperInfo = {
+    CFBundleIdentifier: 'com.anysphere.sand.helper.Renderer',
+    CFBundleName: 'Grok Bot Helper (Renderer)',
+    CFBundleDisplayName: 'Grok Bot Helper (Renderer)',
+    CFBundleExecutable: 'Grok Bot Helper (Renderer)',
+  };
+  assert.equal(applyRokBotHelperInfoPlist(helperInfo, { originalBundleId: 'com.anysphere.sand' }), true);
+  assert.equal(helperInfo.CFBundleIdentifier, 'dev.rokbot.local.helper.Renderer');
+  assert.equal(helperInfo.CFBundleName, 'RokBot Helper (Renderer)');
+  assert.equal(helperInfo.CFBundleDisplayName, 'RokBot Helper (Renderer)');
+  assert.equal(helperInfo.CFBundleExecutable, 'Grok Bot Helper (Renderer)');
+});
+
+test('desktop workspace.css overrides .sand-grok-bot-mark with the RokBot logo mark', async () => {
+  const css = await readFile(path.join(macRoot, 'clients/desktop/workspace.css'), 'utf8');
+  assert.match(css, /\.sand-grok-bot-mark\s*\{[^}]*background-image:\s*url\("data:image\/svg\+xml,/);
+  assert.match(css, /rokbot-chassis/);
+  assert.match(css, /\.sand-grok-bot-mark\s*>\s*\*\s*\{[^}]*opacity:\s*0\s*!important/);
 });

@@ -51,4 +51,7 @@ func TestDirectoryOwnership(t *testing.T) {
 	if len(footerMagic) != 16 || footerMagic != "ROKBOT-SETUP-V1\x00" {
 		t.Fatalf("unexpected footerMagic: %q (%d)", footerMagic, len(footerMagic))
 	}
+	if appName != "RokBot Local" || uninstaller != "Uninstall RokBot Local.exe" {
+		t.Fatalf("unexpected branding constants: appName=%q uninstaller=%q", appName, uninstaller)
+	}
 }

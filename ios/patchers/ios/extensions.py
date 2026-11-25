@@ -33,7 +33,32 @@ def text_section(data, commands):
     return result
 
 
-def prepare_extensions(app, bundle_id, group, commands):
+def rebrand_info_strings(bundle, display_name):
+    for strings_path in sorted(bundle.glob('*.lproj/InfoPlist.strings')):
+        if not strings_path.is_file():
+            continue
+        try:
+            strings = plistlib.loads(strings_path.read_bytes())
+        except (plistlib.InvalidFileException, ValueError, OSError):
+            continue
+        if not isinstance(strings, dict):
+            continue
+        changed = False
+        for key in ('CFBundleDisplayName', 'CFBundleName'):
+            if key in strings and strings[key] != display_name:
+                strings[key] = display_name
+                changed = True
+        for key, value in list(strings.items()):
+            if key.startswith('NS') and key.endswith('UsageDescription') and isinstance(value, str):
+                updated = value.replace('Grok Bot', display_name).replace('GrokBot', display_name)
+                if updated != value:
+                    strings[key] = updated
+                    changed = True
+        if changed:
+            strings_path.write_bytes(plistlib.dumps(strings, fmt=plistlib.FMT_BINARY))
+
+
+def prepare_extensions(app, bundle_id, group, commands, display_name='RokBot'):
     plugins = app / 'PlugIns'
     if not plugins.exists():
         raise ValueError('Missing original extensions; provide the complete IPA or explicitly use --remove-extensions')
@@ -68,9 +93,12 @@ def prepare_extensions(app, bundle_id, group, commands):
             data = data.replace(b'sand-mobile\0', b'rblocal-ios\0')
         path.write_bytes(data)
         info['CFBundleIdentifier'] = bundle_id + '.' + suffix
+        info['CFBundleName'] = display_name
+        info['CFBundleDisplayName'] = display_name
         info['SandAppGroupIdentifier'] = group
         info.pop('UISupportedDevices', None)
         (extension / 'Info.plist').write_bytes(plistlib.dumps(info))
+        rebrand_info_strings(extension, display_name)
         records.append({'name': name, 'bundleId': info['CFBundleIdentifier'],
                         'sourceTextSha256': expected, 'appGroup': group})
     return records

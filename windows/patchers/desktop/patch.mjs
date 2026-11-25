@@ -16,11 +16,12 @@ import { applyReleaseRecipes } from '../../../mac/patchers/desktop/release-recip
 import { extractNotificationPolicy } from '../../../mac/patchers/desktop/extract-policy.mjs';
 import { acquireDesktopSource } from '../../../mac/patchers/desktop/download-original.mjs';
 import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from './update-config.mjs';
-import { replaceAsarIntegrity, stripAuthenticode } from './pe.mjs';
+import { replaceAsarIntegrity, replaceResources, stripAuthenticode } from './pe.mjs';
 import {
   APP_DISPLAY_NAME,
   APP_USER_MODEL_ID,
   PROFILE_DISPLAY_PATH,
+  WINDOWS_PE_VERSION_STRINGS,
   resolveRokBotWindowsLogoPaths,
   resolveSetupStubSource,
   resolveWindowsTailcatSource,
@@ -141,8 +142,15 @@ async function build() {
 
   // The executable embeds the expected ASAR header hash; its Authenticode signature
   // cannot survive that change and is removed rather than left invalid.
+  // Replace PE icon and version resources with RokBot branding after stripping Authenticode.
   const exePath = path.join(stagedApp, EXE);
-  const exe = stripAuthenticode(replaceAsarIntegrity(await readFile(exePath), supported.asarHeaderSha256, headerSha256));
+  const exeWithIntegrity = stripAuthenticode(
+    replaceAsarIntegrity(await readFile(exePath), supported.asarHeaderSha256, headerSha256),
+  );
+  const exe = replaceResources(exeWithIntegrity, {
+    ico: await readFile(icoPath),
+    versionStrings: WINDOWS_PE_VERSION_STRINGS,
+  });
   await writeFile(exePath, exe);
   await cp(resolveWindowsTailcatSource(windowsRoot), path.join(stagedApp, 'resources/rokbot-tailcat.exe'));
   await cp(path.join(repo, 'mac/network/TAILCAT-LICENSE'), path.join(stagedApp, 'resources/TAILCAT-LICENSE'));
@@ -154,7 +162,7 @@ async function build() {
   const manifest = { patchedAt: new Date().toISOString(), version: supported.version,
     architecture: supported.architecture, originalAsarSha256: asarSha256, patchedAsarSha256: await hashFile(outAsar),
     asarHeaderSha256: headerSha256, originalEntry: previousMain, patchedEntry: pkg.main, appUserModelId: APP_USER_MODEL_ID,
-    executable: { originalSha256: exeSha256, patchedSha256: sha(exe), signature: 'removed' },
+    executable: { originalSha256: exeSha256, patchedSha256: sha(exe), signature: 'removed', resourcesPatched: true },
     profile: PROFILE_DISPLAY_PATH, automaticUpdates: Boolean(updateConfig), ...(updateConfig ?? {}), computerUse: 'unavailable on Windows',
     ...iconVerification, unpackedFiles: patchedUnpacked.size, timings: { patchSeconds } };
   await writeFile(path.join(stagedApp, 'resources/rokbot-local.patch.json'), JSON.stringify(manifest, null, 2));

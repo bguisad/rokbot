@@ -17,7 +17,7 @@ import zipfile
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extensions import identifier, prepare_extensions
+from extensions import identifier, prepare_extensions, rebrand_info_strings
 from signing import sign
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -47,10 +47,13 @@ def apply_app_icons(app, info, icon_dir):
                 stale.unlink()
     for src, dst in sources:
         shutil.copy2(src, dst)
-    for key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFiles~ipad', 'CFBundleIconFile'):
+    for key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFiles~ipad', 'CFBundleIconFile', 'CFBundleIcons~iphone'):
         info.pop(key, None)
     info['CFBundleIcons'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['RokBotAppIcon60x60']}}
     info['CFBundleIcons~ipad'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['RokBotAppIcon60x60', 'RokBotAppIcon76x76', 'RokBotAppIcon83.5x83.5']}}
+    info.pop('UILaunchImages', None)
+    if isinstance(info.get('UILaunchScreen'), dict) and isinstance(info['UILaunchScreen'].get('UIImageName'), str):
+        info['UILaunchScreen'] = {**info['UILaunchScreen'], 'UIImageName': 'RokBotAppIcon60x60'}
 
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
@@ -158,7 +161,7 @@ def main():
     removed=[]
     if (app/'PlugIns').exists() and a.remove_extensions:
         removed=[x.name for x in (app/'PlugIns').iterdir()];shutil.rmtree(app/'PlugIns')
-    extensions=[] if a.remove_extensions else prepare_extensions(app,a.bundle_id,group,commands)
+    extensions=[] if a.remove_extensions else prepare_extensions(app,a.bundle_id,group,commands,display_name=a.display_name)
     for pth in app.rglob('*'):
         if not pth.is_file():continue
         data=pth.read_bytes()
@@ -186,9 +189,13 @@ def main():
     info.pop('GrokBotPresenceAppGroup',None)
     apply_app_icons(app,info,a.icon_dir or default_icon_dir())
     info['NSAppTransportSecurity']={'NSAllowsArbitraryLoads':True,'NSAllowsLocalNetworking':True}
+    for key,value in list(info.items()):
+        if key.startswith('NS') and key.endswith('UsageDescription') and isinstance(value,str):
+            info[key]=value.replace('Grok Bot',a.display_name).replace('GrokBot',a.display_name)
     info['NSLocalNetworkUsageDescription']='连接你配置的局域网 Host，接收消息并查看执行电脑。'
     if isinstance(info.get('Braze'),dict):info['Braze']={**info['Braze'],'UseBrazePush':False,'RequestPushPermissionsAutomatically':False}
     (app/'Info.plist').write_bytes(plistlib.dumps(info))
+    rebrand_info_strings(app,a.display_name)
     disable_expo_updates(app)
     frameworks=app/'Frameworks';frameworks.mkdir(exist_ok=True)
     if not a.without_injection:shutil.copy2(a.dylib,frameworks/'RokBotLocal.dylib')

@@ -1049,10 +1049,54 @@ export function registerTests(test, ctx) {
 
     if (ctx.repoCheck) {
       const repoScan = await ctx.repoChecks.scanRepoRebranding(ctx.repoRoot, {
-        includePaths: ['assets', 'docs', 'mac/clients', 'mac/patchers', 'windows/patchers', 'windows/tools', 'android/patchers', 'ios/patchers'],
+        includePaths: ['assets', 'docs', 'mac/clients', 'mac/patchers', 'windows/patchers', 'windows/tools', 'web/client', 'web/patchers', 'android/patchers', 'android/release', 'ios/patchers', 'ios/release'],
         excludePaths: ['docs/REBRAND_COMPAT.md'],
       });
       ctx.assert.equal(repoScan.ok, true, JSON.stringify(repoScan.violations.slice(0, 5)));
+
+      // Verify newly completed platform rebrand hooks remain wired
+      const [
+        webPatch,
+        webShell,
+        webCss,
+        winPe,
+        winBrand,
+        winPatch,
+        macCss,
+        macPlatform,
+        macBrand,
+        androidNotif,
+        androidVoice,
+        androidPatch,
+        androidHermes,
+        iosExt,
+        iosPatch,
+      ] = await Promise.all([
+        readFile(path.join(ctx.repoRoot, 'web', 'patchers', 'patch.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'web', 'client', 'web-shell.js'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'web', 'client', 'web.css'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'windows', 'patchers', 'desktop', 'pe.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'windows', 'patchers', 'desktop', 'brand-assets.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'windows', 'patchers', 'desktop', 'patch.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'mac', 'clients', 'desktop', 'workspace.css'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'mac', 'clients', 'desktop', 'platform.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'mac', 'patchers', 'desktop', 'brand-assets.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'android', 'companion', 'src', 'main', 'java', 'dev', 'rokbot', 'nativeapp', 'NotificationService.java'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'android', 'companion', 'src', 'main', 'java', 'dev', 'rokbot', 'nativeapp', 'VoiceCallService.java'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'android', 'release', 'patch-android.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'android', 'patchers', 'hermes.mjs'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'ios', 'patchers', 'ios', 'extensions.py'), 'utf8'),
+        readFile(path.join(ctx.repoRoot, 'ios', 'patchers', 'ios', 'patch-app.py'), 'utf8'),
+      ]);
+      ctx.assert.ok(webPatch.includes('<title>RokBot</title>'), 'web/patchers/patch.mjs must set <title>RokBot</title>');
+      ctx.assert.ok(webShell.includes("../client/icon.png"), 'web/client/web-shell.js Notification must set icon');
+      ctx.assert.ok(webCss.includes('.sand-grok-bot-mark'), 'web/client/web.css must override .sand-grok-bot-mark');
+      ctx.assert.ok(winPe.includes('replaceResources') && winBrand.includes('WINDOWS_PE_VERSION_STRINGS') && winPatch.includes('replaceResources'), 'Windows PE resource patching must be wired');
+      ctx.assert.ok(macCss.includes('.sand-grok-bot-mark') && macPlatform.includes('normalizeDesktopWindowTitle') && macBrand.includes('applyRokBotHelperInfoPlist'), 'macOS/desktop title, mark, and helper plist rebrand hooks must exist');
+      ctx.assert.ok(androidNotif.includes('applySmallIcon') && androidVoice.includes('applySmallIcon'), 'Android services must use NotificationService.applySmallIcon');
+      ctx.assert.equal(/android\.R\.drawable\.(?:ic_dialog_info|ic_dialog_alert|ic_btn_speak_now)/.test(androidNotif + androidVoice), false, 'Android services must not use generic android.R.drawable notification icons');
+      ctx.assert.ok(androidPatch.includes('brandDrawablesReplaced') && androidHermes.includes("'RokBot'"), 'Android patcher must rebrand splash/notification drawables and app.config name');
+      ctx.assert.ok(iosExt.includes('rebrand_info_strings') && iosPatch.includes('rebrand_info_strings') && iosPatch.includes('CFBundleIcons~iphone'), 'iOS patcher must rebrand extension display names, InfoPlist.strings, and legacy icon/launch keys');
     }
   });
 

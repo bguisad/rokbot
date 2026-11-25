@@ -48,6 +48,22 @@ export function applyRokBotInfoPlist(info) {
   return info;
 }
 
+/** Rebrand Electron Framework helper Info.plist metadata while keeping CFBundleExecutable intact. */
+export function applyRokBotHelperInfoPlist(helper, { originalBundleId, targetBundleId = BUNDLE_IDENTIFIER }) {
+  let changed = false;
+  if (typeof helper.CFBundleIdentifier === 'string' && helper.CFBundleIdentifier.startsWith(originalBundleId)) {
+    helper.CFBundleIdentifier = helper.CFBundleIdentifier.replace(originalBundleId, targetBundleId);
+    changed = true;
+  }
+  for (const key of ['CFBundleName', 'CFBundleDisplayName']) {
+    if (typeof helper[key] === 'string' && /\bGrok\s*Bot\b/i.test(helper[key])) {
+      helper[key] = helper[key].replace(/\bGrok\s*Bot\b/gi, BUNDLE_NAME);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 export async function verifyRokBotIcons({ icnsPath, iconPngPath, outIconPath, outAsarPath, asarModule }) {
   if (existsSync(path.join(path.dirname(outIconPath), 'Assets.car'))) {
     throw new Error('RokBot 图标替换校验失败（Assets.car 未移除）。');

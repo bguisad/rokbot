@@ -271,8 +271,20 @@ class ReleaseOutput(unittest.TestCase):
                 'CFBundlePrimaryIcon': {'CFBundleIconName': 'AppIcon', 'CFBundleIconFiles': ['AppIcon60x60']},
                 'CFBundleAlternateIcons': {'Alt': {'CFBundleIconFiles': ['AltIcon']}},
             },
+            'CFBundleIcons~iphone': {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['AppIcon60x60']}},
+            'UILaunchImages': [{'UILaunchImageName': 'LaunchImage'}],
+            'UILaunchScreen': {'UIImageName': 'AppIcon', 'UIColorName': 'LaunchBackground'},
+            'NSMicrophoneUsageDescription': 'Grok Bot needs microphone access',
+            'NSCameraUsageDescription': 'GrokBot needs camera access',
             'LSApplicationQueriesSchemes': ['custom-scheme', 'altstore', 'custom-scheme'],
         }))
+        lproj = source_app / 'en.lproj'
+        lproj.mkdir()
+        (lproj / 'InfoPlist.strings').write_bytes(plistlib.dumps({
+            'CFBundleDisplayName': 'Grok Bot',
+            'CFBundleName': 'GrokBot',
+            'NSMicrophoneUsageDescription': 'Grok Bot needs microphone access',
+        }, fmt=plistlib.FMT_BINARY))
         (source_app / 'Expo.plist').write_bytes(plistlib.dumps({'EXUpdatesEnabled': True}))
         (source_app / 'Demo').write_bytes(synthetic_arm64_macho())
         dylib = self.root / 'RokBotLocal.dylib'
@@ -292,13 +304,22 @@ class ReleaseOutput(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         info = plistlib.loads((self.output / 'Payload' / 'Demo.app' / 'Info.plist').read_bytes())
-        for legacy_key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFiles~ipad', 'CFBundleIconFile'):
+        for legacy_key in ('CFBundleIconName', 'CFBundleIconFiles', 'CFBundleIconFiles~ipad', 'CFBundleIconFile',
+                           'CFBundleIcons~iphone', 'UILaunchImages'):
             self.assertNotIn(legacy_key, info)
         self.assertNotIn('CFBundleAlternateIcons', info['CFBundleIcons'])
         self.assertNotIn('CFBundleIconName', info['CFBundleIcons']['CFBundlePrimaryIcon'])
         self.assertEqual(info['CFBundleName'], 'RokBot')
         self.assertEqual(info['CFBundleDisplayName'], 'RokBot')
+        self.assertEqual(info['UILaunchScreen'], {'UIImageName': 'RokBotAppIcon60x60', 'UIColorName': 'LaunchBackground'})
+        self.assertEqual(info['NSMicrophoneUsageDescription'], 'RokBot needs microphone access')
+        self.assertEqual(info['NSCameraUsageDescription'], 'RokBot needs camera access')
         self.assertEqual(info['LSApplicationQueriesSchemes'], ['custom-scheme', 'altstore', 'sidestore', 'itms-services'])
+
+        loc_strings = plistlib.loads((self.output / 'Payload' / 'Demo.app' / 'en.lproj' / 'InfoPlist.strings').read_bytes())
+        self.assertEqual(loc_strings['CFBundleDisplayName'], 'RokBot')
+        self.assertEqual(loc_strings['CFBundleName'], 'RokBot')
+        self.assertEqual(loc_strings['NSMicrophoneUsageDescription'], 'RokBot needs microphone access')
 
     def test_patch_app_ignores_non_list_application_queries_schemes(self):
         pins = json.loads(MANIFEST.read_text(encoding='utf-8'))
@@ -457,6 +478,75 @@ class ReleaseOutput(unittest.TestCase):
             for term in ('1.16.0', '23152', '--remove-extensions', 'itms-services',
                          'AltStore', 'SideStore', 'RBModels', 'RBUpdater', 'clientDeviceId'):
                 self.assertIn(term, doc, f'{term} missing from ios/{doc_name}')
+
+    def test_prepare_extensions_rebrands_display_name_bundle_name_and_strings(self):
+        sys.path.insert(0, str(IOS_ROOT / 'patchers' / 'ios'))
+        import extensions as ext_mod
+        sys.path.insert(0, str(APP_PATCHER.parent))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('patch_app_mod', APP_PATCHER)
+        patch_app_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(patch_app_mod)
+
+        def macho_with_text(text_bytes):
+            section = struct.pack('<16s16sQQIIIIIIII', b'__text', b'__TEXT', 0x100004000,
+                                  len(text_bytes), 4096, 2, 0, 0, 0, 0, 0, 0)
+            seg_cmd_size = 72 + len(section)
+            segment = struct.pack('<II16sQQQQIIII', 0x19, seg_cmd_size, b'__TEXT', 0x100000000,
+                                  4096 + len(text_bytes), 0, 4096 + len(text_bytes), 7, 5, 1, 0) + section
+            header = struct.pack('<IIIIIIII', 0xfeedfacf, 0x100000c, 0, 2, 1, len(segment), 0, 0)
+            payload = bytearray(4096 + len(text_bytes))
+            payload[:len(header)] = header
+            payload[len(header):len(header) + len(segment)] = segment
+            payload[4096:] = text_bytes
+            return bytes(payload)
+
+        app = self.root / 'Demo.app'
+        plugins = app / 'PlugIns'
+        plugins.mkdir(parents=True)
+
+        ext_specs = {
+            'Widgets.appex': ('widgets', b'\x00' * 0x1c000),
+            'ImageShareExtension.appex': ('share', b'prefix-sand-mobile\0-suffix'),
+            'NotificationService.appex': ('NotificationService', b'\xc0\x03\x5f\xd6' * 16),
+        }
+        patched_map = {}
+        for appex_name, (suffix, text_bytes) in ext_specs.items():
+            ext_dir = plugins / appex_name
+            ext_dir.mkdir()
+            (ext_dir / 'Info.plist').write_bytes(plistlib.dumps({
+                'CFBundleIdentifier': 'co.anysphere.sand.' + suffix,
+                'CFBundleExecutable': 'ExtBin',
+                'CFBundleName': 'Grok Bot',
+                'CFBundleDisplayName': 'Grok Bot',
+            }))
+            lproj = ext_dir / 'en.lproj'
+            lproj.mkdir()
+            (lproj / 'InfoPlist.strings').write_bytes(plistlib.dumps({
+                'CFBundleDisplayName': 'Grok Bot',
+                'CFBundleName': 'Grok Bot',
+            }, fmt=plistlib.FMT_BINARY))
+            (ext_dir / 'ExtBin').write_bytes(macho_with_text(text_bytes))
+            patched_map[appex_name] = (suffix, hashlib.sha256(text_bytes).hexdigest())
+
+        orig_extensions = ext_mod.EXTENSIONS
+        ext_mod.EXTENSIONS = patched_map
+        try:
+            records = ext_mod.prepare_extensions(app, 'dev.rokbot.local', 'group.dev.rokbot.local', patch_app_mod.commands)
+        finally:
+            ext_mod.EXTENSIONS = orig_extensions
+
+        self.assertEqual(len(records), 3)
+        for appex_name, (suffix, _) in ext_specs.items():
+            info = plistlib.loads((plugins / appex_name / 'Info.plist').read_bytes())
+            self.assertEqual(info['CFBundleIdentifier'], f'dev.rokbot.local.{suffix}')
+            self.assertEqual(info['CFBundleName'], 'RokBot')
+            self.assertEqual(info['CFBundleDisplayName'], 'RokBot')
+            self.assertEqual(info['SandAppGroupIdentifier'], 'group.dev.rokbot.local')
+            loc = plistlib.loads((plugins / appex_name / 'en.lproj' / 'InfoPlist.strings').read_bytes())
+            self.assertEqual(loc['CFBundleDisplayName'], 'RokBot')
+            self.assertEqual(loc['CFBundleName'], 'RokBot')
+        self.assertIn(b'rblocal-ios\0', (plugins / 'ImageShareExtension.appex' / 'ExtBin').read_bytes())
 
 
 if __name__ == '__main__':

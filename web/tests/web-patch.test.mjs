@@ -26,6 +26,8 @@ test('the interface entry gains the web bridge, its own frames and secure realti
   for (const frames of ['frame-src sand-html-preview: sand-canvas: sand-mcp-app: sand-visualization:;', 'frame-src sand-html-preview: sand-canvas: sand-mcp-app:;']) {
     const html = webIndexHtml(page(frames));
     assert.ok(html.indexOf(WEB_TAGS) < html.indexOf('<script type="module" crossorigin src="./assets/index-'), 'the bridge loads before the interface');
+    assert.ok(html.includes('<title>RokBot</title>'), 'document title is rebranded to RokBot');
+    assert.ok(!html.includes('<title>Grok Bot</title>'), 'official title is removed');
     assert.match(html, /frame-src sand-html-preview: sand-canvas: sand-mcp-app:[a-z: -]* 'self';/);
     assert.match(html, /connect-src 'self' ws: wss: sand-media:/);
     for (const asset of ['../client/boot-data.js', '../client/bridge.js', '../client/web-shell.js', '../client/web.css',

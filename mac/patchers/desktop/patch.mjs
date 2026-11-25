@@ -14,6 +14,7 @@ import { acquireDesktopSource } from './download-original.mjs';
 import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from './update-config.mjs';
 import {
   PROFILE_DISPLAY_PATH,
+  applyRokBotHelperInfoPlist,
   applyRokBotInfoPlist,
   installBundleIcon,
   resolveRokBotLogoPaths,
@@ -187,8 +188,7 @@ try {
     const helpers = run('find', [path.join(output, 'Contents/Frameworks'), '-name', 'Info.plist']).trim().split('\n').filter(Boolean);
     for (const filename of helpers) {
       const helper = plist(filename);
-      if (helper.CFBundleIdentifier?.startsWith(supported.bundleId)) {
-        helper.CFBundleIdentifier = helper.CFBundleIdentifier.replace(supported.bundleId, info.CFBundleIdentifier);
+      if (applyRokBotHelperInfoPlist(helper, { originalBundleId: supported.bundleId, targetBundleId: info.CFBundleIdentifier })) {
         await writePlist(filename, helper);
       }
     }

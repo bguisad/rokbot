@@ -12,13 +12,14 @@ import {
   APP_DISPLAY_NAME,
   APP_USER_MODEL_ID as WINDOWS_APP_USER_MODEL_ID,
   PROFILE_DISPLAY_PATH,
+  WINDOWS_PE_VERSION_STRINGS,
   resolveRokBotWindowsLogoPaths,
   resolveSetupStubSource,
   resolveWindowsTailcatSource,
   stageLocalClientWindowsIcons,
   verifyRokBotWindowsIcons,
 } from '../patchers/desktop/brand-assets.mjs';
-import { applicationIcon, replaceAsarIntegrity } from '../patchers/desktop/pe.mjs';
+import { applicationIcon, hasAuthenticode, replaceAsarIntegrity, replaceResources, versionInfo } from '../patchers/desktop/pe.mjs';
 import { buildWindowsResourceSyso } from '../tools/build-installer-syso.mjs';
 import { acquireDesktopSource, resolveDesktopDownloadUrl } from '../../mac/patchers/desktop/download-original.mjs';
 import { replaceWindowsAsarIntegrityHex } from '../../mac/clients/desktop/asar-install.mjs';
@@ -429,4 +430,178 @@ test('ROKBOT_DESKTOP_DOWNLOAD_BASE overrides Windows official installer URLs and
     }),
     /校验失败|大小不匹配/,
   );
+});
+
+test('pe.replaceResources replaces RT_ICON, RT_GROUP_ICON, and RT_VERSION while preserving other resources and shifting .reloc', async () => {
+  const { icoPath } = resolveRokBotWindowsLogoPaths(repoRoot);
+  const rokbotIco = await readFile(icoPath);
+  const rokbot256Png = await readFile(path.join(repoRoot, 'assets/logo/rokbot-icon-256.png'));
+
+  // 1. Real PE (rokbot-setup-stub.exe, where .rsrc is the last section): replace icon cleanly.
+  const stub = await readFile(resolveSetupStubSource(windowsRoot));
+  const patchedStub = replaceResources(stub, { ico: rokbotIco });
+  assert.equal(applicationIcon(patchedStub).ico.equals(rokbotIco), true);
+  assert.equal(applicationIcon(patchedStub).png.equals(rokbot256Png), true);
+
+  // 2. Synthetic 64-bit PE with .text, .rsrc (icon + RT_VERSION + RT_MANIFEST), .reloc, and Authenticode.
+  const align4 = v => (v + 3) & ~3;
+  const encodeVersionNode = (key, type, value, children = []) => {
+    const keyBuf = Buffer.from(`${key}\0`, 'utf16le');
+    const hdrLen = align4(6 + keyBuf.length);
+    const valWords = type === 1 ? value.length / 2 : value.length;
+    const parts = [Buffer.alloc(hdrLen)];
+    keyBuf.copy(parts[0], 6);
+    if (value.length) parts.push(value);
+    let cur = hdrLen + value.length;
+    if (children.length) {
+      const pad = align4(cur) - cur;
+      if (pad) { parts.push(Buffer.alloc(pad)); cur += pad; }
+      children.forEach((child, i) => {
+        if (i > 0) {
+          const spad = align4(cur) - cur;
+          if (spad) { parts.push(Buffer.alloc(spad)); cur += spad; }
+        }
+        parts.push(child);
+        cur += child.length;
+      });
+    }
+    const out = Buffer.concat(parts);
+    out.writeUInt16LE(out.length, 0);
+    out.writeUInt16LE(valWords, 2);
+    out.writeUInt16LE(type, 4);
+    return out;
+  };
+  const verStr = (k, v) => encodeVersionNode(k, 1, Buffer.from(`${v}\0`, 'utf16le'));
+  const fixedInfo = Buffer.alloc(52);
+  fixedInfo.writeUInt32LE(0xfeef04bd, 0);
+  const stringTable = encodeVersionNode('040904b0', 1, Buffer.alloc(0), [
+    verStr('CompanyName', 'xAI'),
+    verStr('FileDescription', 'Grok Bot'),
+    verStr('FileVersion', '1.2.3'),
+    verStr('InternalName', 'Grok Bot'),
+    verStr('LegalCopyright', 'Copyright xAI'),
+    verStr('OriginalFilename', 'Grok Bot.exe'),
+    verStr('ProductName', 'Grok Bot'),
+    verStr('ProductVersion', '1.2.3'),
+  ]);
+  const stringFileInfo = encodeVersionNode('StringFileInfo', 1, Buffer.alloc(0), [stringTable]);
+  const translation = encodeVersionNode('Translation', 0, Buffer.from([0x09, 0x04, 0xb0, 0x04]));
+  const varFileInfo = encodeVersionNode('VarFileInfo', 1, Buffer.alloc(0), [translation]);
+  const oldVersionBytes = encodeVersionNode('VS_VERSION_INFO', 0, fixedInfo, [stringFileInfo, varFileInfo]);
+
+  const oldIconPng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  const oldGroup = Buffer.alloc(6 + 14);
+  oldGroup.writeUInt16LE(1, 2);
+  oldGroup.writeUInt16LE(1, 4);
+  oldGroup[6] = 16; oldGroup[7] = 16;
+  oldGroup.writeUInt32LE(oldIconPng.length, 6 + 8);
+  oldGroup.writeUInt16LE(1, 6 + 12);
+  const manifestXml = Buffer.from('<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"/>', 'utf8');
+
+  // Build minimal .rsrc with RT_ICON(3), RT_GROUP_ICON(14), RT_VERSION(16), RT_MANIFEST(24) at VA 0x2000.
+  const rsrcVa = 0x2000;
+  const rsrcRawOff = 0x400;
+  const items = [
+    { type: 3, id: 1, data: oldIconPng },
+    { type: 14, id: 101, data: oldGroup },
+    { type: 16, id: 1, data: oldVersionBytes },
+    { type: 24, id: 1, data: manifestXml },
+  ];
+  const rootSize = 16 + items.length * 8;
+  const typeDirSize = 16 + 8;
+  const langDirSize = 16 + 8;
+  const dataEntrySize = 16;
+  const headerSize = rootSize + items.length * (typeDirSize + langDirSize + dataEntrySize);
+  let cursor = align4(headerSize);
+  const offsets = items.map(it => { const at = cursor; cursor = align4(cursor + it.data.length); return at; });
+  const rsrcBuf = Buffer.alloc(cursor);
+  rsrcBuf.writeUInt16LE(items.length, 14);
+  items.forEach((it, idx) => {
+    const typeDirAt = rootSize + idx * typeDirSize;
+    const langDirAt = rootSize + items.length * typeDirSize + idx * langDirSize;
+    const entryAt = rootSize + items.length * (typeDirSize + langDirSize) + idx * dataEntrySize;
+    rsrcBuf.writeUInt32LE(it.type, 16 + idx * 8);
+    rsrcBuf.writeUInt32LE((0x80000000 | typeDirAt) >>> 0, 16 + idx * 8 + 4);
+    rsrcBuf.writeUInt16LE(1, typeDirAt + 14);
+    rsrcBuf.writeUInt32LE(it.id, typeDirAt + 16);
+    rsrcBuf.writeUInt32LE((0x80000000 | langDirAt) >>> 0, typeDirAt + 20);
+    rsrcBuf.writeUInt16LE(1, langDirAt + 14);
+    rsrcBuf.writeUInt32LE(0x0409, langDirAt + 16);
+    rsrcBuf.writeUInt32LE(entryAt, langDirAt + 20);
+    rsrcBuf.writeUInt32LE(rsrcVa + offsets[idx], entryAt);
+    rsrcBuf.writeUInt32LE(it.data.length, entryAt + 4);
+    it.data.copy(rsrcBuf, offsets[idx]);
+  });
+
+  const rsrcRawSize = Math.ceil(rsrcBuf.length / 0x200) * 0x200;
+  const relocVa = 0x3000;
+  const relocRawOff = rsrcRawOff + rsrcRawSize;
+  const relocBytes = Buffer.from([0x00, 0x10, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00]);
+  const relocRawSize = 0x200;
+  const certOff = relocRawOff + relocRawSize;
+  const certBytes = Buffer.from('FAKE-AUTH-CERT');
+
+  const peBuf = Buffer.alloc(certOff + certBytes.length);
+  peBuf.write('MZ', 0, 'latin1');
+  peBuf.writeUInt32LE(0x80, 0x3c);
+  peBuf.write('PE\0\0', 0x80, 'latin1');
+  peBuf.writeUInt16LE(3, 0x80 + 6); // 3 sections: .text, .rsrc, .reloc
+  const optSize = 240;
+  peBuf.writeUInt16LE(optSize, 0x80 + 20);
+  const opt = 0x80 + 24;
+  peBuf.writeUInt16LE(0x20b, opt);
+  peBuf.writeUInt32LE(rsrcRawSize + relocRawSize, opt + 8); // SizeOfInitializedData
+  peBuf.writeUInt32LE(0x1000, opt + 32); // SectionAlignment
+  peBuf.writeUInt32LE(0x200, opt + 36); // FileAlignment
+  peBuf.writeUInt32LE(0x4000, opt + 56); // SizeOfImage
+  const dirs = opt + 112;
+  peBuf.writeUInt32LE(rsrcVa, dirs + 2 * 8);
+  peBuf.writeUInt32LE(rsrcBuf.length, dirs + 2 * 8 + 4);
+  peBuf.writeUInt32LE(certOff, dirs + 4 * 8);
+  peBuf.writeUInt32LE(certBytes.length, dirs + 4 * 8 + 4);
+  peBuf.writeUInt32LE(relocVa, dirs + 5 * 8);
+  peBuf.writeUInt32LE(relocBytes.length, dirs + 5 * 8 + 4);
+
+  const secAt = opt + optSize;
+  const writeSec = (idx, name, vsize, va, rsize, roff) => {
+    const at = secAt + idx * 40;
+    peBuf.write(name, at, 'ascii');
+    peBuf.writeUInt32LE(vsize, at + 8);
+    peBuf.writeUInt32LE(va, at + 12);
+    peBuf.writeUInt32LE(rsize, at + 16);
+    peBuf.writeUInt32LE(roff, at + 20);
+  };
+  writeSec(0, '.text', 0x100, 0x1000, 0x200, 0x200);
+  writeSec(1, '.rsrc', rsrcBuf.length, rsrcVa, rsrcRawSize, rsrcRawOff);
+  writeSec(2, '.reloc', relocBytes.length, relocVa, relocRawSize, relocRawOff);
+  rsrcBuf.copy(peBuf, rsrcRawOff);
+  relocBytes.copy(peBuf, relocRawOff);
+  certBytes.copy(peBuf, certOff);
+
+  assert.equal(hasAuthenticode(peBuf), true);
+  assert.equal(versionInfo(peBuf).ProductName, 'Grok Bot');
+
+  const patchedPe = replaceResources(peBuf, {
+    ico: rokbotIco,
+    versionStrings: WINDOWS_PE_VERSION_STRINGS,
+  });
+  assert.equal(hasAuthenticode(patchedPe), false);
+  assert.equal(applicationIcon(patchedPe).ico.equals(rokbotIco), true);
+  assert.equal(applicationIcon(patchedPe).png.equals(rokbot256Png), true);
+  assert.deepEqual(versionInfo(patchedPe), {
+    CompanyName: 'RokBot',
+    FileDescription: 'RokBot Local',
+    FileVersion: '1.2.3',
+    InternalName: 'RokBot Local',
+    LegalCopyright: 'RokBot',
+    OriginalFilename: 'RokBot Local.exe',
+    ProductName: 'RokBot Local',
+    ProductVersion: '1.2.3',
+  });
+  // Verify RT_MANIFEST was preserved and .reloc was shifted cleanly.
+  assert.equal(patchedPe.includes(manifestXml), true);
+  const newRelocVa = patchedPe.readUInt32LE(dirs + 5 * 8);
+  assert.ok(newRelocVa > relocVa);
+  assert.equal(patchedPe.readUInt32LE(secAt + 2 * 40 + 12), newRelocVa);
+  assert.ok(patchedPe.readUInt32LE(opt + 56) >= newRelocVa + relocRawSize);
 });

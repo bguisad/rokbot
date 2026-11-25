@@ -5,6 +5,14 @@ import path from 'node:path';
 export const APP_DISPLAY_NAME = 'RokBot Local';
 export const APP_USER_MODEL_ID = 'dev.rokbot.local';
 export const PROFILE_DISPLAY_PATH = '%APPDATA%\\RokBot Local';
+export const WINDOWS_PE_VERSION_STRINGS = {
+  ProductName: APP_DISPLAY_NAME,
+  FileDescription: APP_DISPLAY_NAME,
+  CompanyName: 'RokBot',
+  InternalName: APP_DISPLAY_NAME,
+  OriginalFilename: 'RokBot Local.exe',
+  LegalCopyright: 'RokBot',
+};
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 

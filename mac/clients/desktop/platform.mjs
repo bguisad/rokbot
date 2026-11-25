@@ -154,3 +154,9 @@ export function agentFromLink(link) {
     return decodeURIComponent(url.pathname.slice(1));
   } catch { return null; }
 }
+
+/** Rewrite upstream renderer window titles (e.g. "Grok Bot") to "RokBot". */
+export function normalizeDesktopWindowTitle(title) {
+  if (typeof title !== 'string' || !title.trim()) return 'RokBot';
+  return title.replace(/\bGrok\s*Bot\b/gi, 'RokBot');
+}

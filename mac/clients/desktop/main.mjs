@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { rokText as localText, setLocaleSource } from './i18n.mjs';
 import { credentialStore, credentialUnavailableText, finishPairingWindow, pair, verifyDevice, openTransport, restoreConnection, savedConnectionMatches } from './connection.mjs';
 import { APP_USER_MODEL_ID, canRegisterDesktopIntegration, connectWindowChrome, createTray, ensureStartMenuShortcut, initialLink, isWindows,
-  resolveDesktopProfile, windowChrome, windowHandlers } from './platform.mjs';
+  normalizeDesktopWindowTitle, resolveDesktopProfile, windowChrome, windowHandlers } from './platform.mjs';
 import { createGateway } from './gateway.mjs';
 import { createClientPersistence } from './client-persistence.mjs';
 import { createAttachmentHandlers, createAttachmentMediaResolver } from './attachments.mjs';
@@ -270,6 +270,13 @@ async function showWorkspace() {
   win.webContents.on('preload-error', (_event, _file, error) => console.error('[preload]', error.message));
   win.webContents.on('render-process-gone', (_event, details) => console.error('[renderer]', details.reason));
   const workspaceStyle = await readFile(path.join(clientRoot, 'workspace.css'), 'utf8');
+  win.on('page-title-updated', (event, title) => {
+    const nextTitle = normalizeDesktopWindowTitle(title);
+    if (nextTitle !== title) {
+      event.preventDefault();
+      win.setTitle(nextTitle);
+    }
+  });
   win.webContents.on('did-finish-load', () => {
     void win.webContents.insertCSS(workspaceStyle).catch(error => console.error('[workspace-style]', error.message));
   });

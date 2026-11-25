@@ -65,7 +65,9 @@ function notify(item) {
   if (document.visibilityState === 'visible' && webState.viewingAgent === agentId) return;
   try {
     const notification = new Notification(String(item.title || 'RokBot').slice(0, 200), {
-      body: String(item.body ?? '').slice(0, 1000), tag: `rokbot-${agentId}`,
+      body: String(item.body ?? '').slice(0, 1000),
+      icon: '../client/icon.png',
+      tag: `rokbot-${agentId}`,
     });
     notification.onclick = () => {
       window.focus();

@@ -79,6 +79,7 @@ export function webIndexHtml(html) {
   if (at < 0 || html.indexOf(MODULE_ANCHOR, at + 1) >= 0 || frames.length !== 1 || connects.length !== 1)
     throw new Error('界面入口与支持的版本不一致。');
   return (html.slice(0, at) + WEB_TAGS + html.slice(at))
+    .replace(/<title>\s*Grok Bot\s*<\/title>/gi, '<title>RokBot</title>')
     .replace(FRAME_ANCHOR, sources => `${sources.slice(0, -1)} 'self';`)
     .replace(CONNECT_ANCHOR, "connect-src 'self' ws: wss: ");
 }
