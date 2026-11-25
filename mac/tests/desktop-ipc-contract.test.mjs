@@ -49,6 +49,9 @@ test('desktop IPC probes require a trusted window, a declaration and an installe
   }
   assert.equal(invoked, 0, 'probing is side-effect free');
   assert.equal(await call('fixtureView'), 1);
+  assert.deepEqual(await call('listCursorTeamMembers', { teamId: 1 }), { members: [] });
+  assert.equal(await call('getGrokBotInviteByEmailEligibility'), 'unknown');
+  assert.equal(await call('getGrokBotAutomationPurchase', { agentId: 'a', automationId: 'b' }), null);
   await assert.rejects(call('toString'), /does not implement/);
 });
 

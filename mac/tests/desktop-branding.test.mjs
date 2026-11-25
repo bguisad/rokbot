@@ -211,3 +211,10 @@ test('desktop workspace.css overrides .sand-grok-bot-mark with the RokBot logo m
   assert.match(css, /rokbot-chassis/);
   assert.match(css, /\.sand-grok-bot-mark\s*>\s*\*\s*\{[^}]*opacity:\s*0\s*!important/);
 });
+
+test('arm64 Mac builds pass --pagesize 16384 when signing binaries and the app bundle', async () => {
+  const patcher = await readFile(path.join(macRoot, 'patchers/desktop/patch.mjs'), 'utf8');
+  assert.match(patcher, /const signPageSize = supported\.architecture === 'arm64' \? \['--pagesize', '16384'\] : \[\];/);
+  const codesignCalls = patcher.match(/run\('codesign',[^\n]+\.\.\.signPageSize/g) ?? [];
+  assert.equal(codesignCalls.length, 2);
+});
