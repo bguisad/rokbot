@@ -291,6 +291,7 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   t.after(() => host.close());
 
   const hostOrigin = `http://127.0.0.1:${host.server.address().port}`;
+  const webOrigin = `http://127.0.0.1:${host.webServer.address().port}`;
   const adminPassword = 'AdminPass123!';
   const adminToken = await host.auth.setup(host.auth.setupKey, adminPassword);
   const adminCookie = `rokbot_admin=${adminToken}`;
@@ -309,22 +310,30 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   const { zip } = bundleZip(files, buildInfo);
   await host.webClient.install(zip);
 
-  // Verify /web/manifest.webmanifest and /local-client/icon.png on Host
-  const manifestRes = await fetch(`${hostOrigin}/web/manifest.webmanifest`);
+  // Verify /web/manifest.webmanifest and /local-client/icon.png on the web listener
+  const manifestRes = await fetch(`${webOrigin}/web/manifest.webmanifest`);
   assert.equal(manifestRes.status, 200);
   const manifestJson = await manifestRes.json();
   assert.deepEqual(manifestJson.icons.map(i => i.src), ['/web/client/icon.png', '/web/client/icon-512.png']);
 
-  // 1. Pair an admin-web session via /admin/api/web-client/open
+  // 1. Pair an admin-web session via /admin/api/web-client/open ticket -> /web/api/ticket
   const openRes = await fetch(`${hostOrigin}/admin/api/web-client/open`, {
     method: 'POST',
     headers: { cookie: adminCookie, 'content-type': 'application/json', 'x-rokbot-csrf': '1' },
     body: JSON.stringify({ deviceName: 'Admin Web Test' }),
   });
   assert.equal(openRes.status, 201);
-  let activeWebCookie = openRes.headers.get('set-cookie').split(';')[0];
+  assert.equal(openRes.headers.get('set-cookie'), null);
+  const openTicket = new URLSearchParams((await openRes.json()).url.split('#')[1]).get('ticket');
+  const ticketRes = await fetch(`${webOrigin}/web/api/ticket`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-rokbot-web': '1' },
+    body: JSON.stringify({ ticket: openTicket }),
+  });
+  assert.equal(ticketRes.status, 201);
+  let activeWebCookie = ticketRes.headers.get('set-cookie').split(';')[0];
 
-  const iconRes = await fetch(`${hostOrigin}/local-client/icon.png`, {
+  const iconRes = await fetch(`${webOrigin}/local-client/icon.png`, {
     headers: { cookie: activeWebCookie },
   });
   assert.equal(iconRes.status, 200);
@@ -396,7 +405,7 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   const realNodeFetch = fetch;
   const wrappedTransport = async (input, init = {}) => {
     const rawUrl = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
-    const resolved = new URL(rawUrl, hostOrigin);
+    const resolved = new URL(rawUrl, webOrigin);
     if (interceptLocalModel401 && resolved.pathname === '/local/model') {
       return new Response(JSON.stringify({ error: 'feature unauthorized' }), {
         status: 401,
@@ -404,7 +413,7 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
       });
     }
     const headers = new Headers(init.headers ?? {});
-    if (activeWebCookie && resolved.origin === hostOrigin) headers.set('cookie', activeWebCookie);
+    if (activeWebCookie && resolved.origin === webOrigin) headers.set('cookie', activeWebCookie);
     return realNodeFetch(resolved.href, { ...init, headers });
   };
 
@@ -415,8 +424,8 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   });
   setGlobal('document', fakeDoc);
   setGlobal('location', {
-    origin: hostOrigin,
-    href: `${hostOrigin}/web/renderer/index.html`,
+    origin: webOrigin,
+    href: `${webOrigin}/web/renderer/index.html`,
     pathname: '/web/renderer/index.html',
     search: '',
     hash: '',
@@ -483,7 +492,7 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   const origBootFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const raw = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
-    if (new URL(raw, hostOrigin).pathname === '/local/voice/status') {
+    if (new URL(raw, webOrigin).pathname === '/local/voice/status') {
       return new Response(JSON.stringify({ enabled: true }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     return origBootFetch(input, init);
@@ -620,7 +629,7 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
 
   // Switch activeWebCookie to a pairing-key Web session -> canConfigureModel: false, 403, step-up with adminPassword, blank apiKey preservation
   const { pairingKey } = await host.auth.createPairing();
-  const pairRes = await fetch(`${hostOrigin}/web/api/pair`, {
+  const pairRes = await fetch(`${webOrigin}/web/api/pair`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-rokbot-web': '1' },
     body: JSON.stringify({ pairingKey, deviceName: 'Guest Web Browser', clientDeviceId: 'web-guest-1' }),
