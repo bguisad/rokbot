@@ -565,6 +565,11 @@ fi
 local_url="http://${display_host}:${public_port}"
 access_url="${public_url:-$local_url}"
 access_url="${access_url%/}"
+web_public_url="${ROKBOT_WEB_PUBLIC_URL:-$(get_env_value_from_file "$ENV_FILE" "ROKBOT_WEB_PUBLIC_URL" || true)}"
+web_port="${ROKBOT_WEB_PUBLIC_PORT:-$(get_env_value_from_file "$ENV_FILE" "ROKBOT_WEB_PUBLIC_PORT" || true)}"
+web_port="${web_port:-18081}"
+web_access_url="${web_public_url:-http://${display_host}:${web_port}}"
+web_access_url="${web_access_url%/}/web/"
 
 echo ""
 echo "RokBot is running."
@@ -573,6 +578,7 @@ if [[ -n "$public_url" ]]; then
   echo "  Public URL:       ${access_url}"
 fi
 echo "  Admin Console:    ${access_url}/admin"
+echo "  Web Client:       ${web_access_url}"
 echo "  Env Config:       ${PWD}/${ENV_FILE} (mode 0600: ports, image tags, proxy settings, ROKBOT_BOX_TOKEN; optional CLI vars)"
 echo ""
 echo "First-time onboarding:"

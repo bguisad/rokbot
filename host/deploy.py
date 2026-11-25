@@ -3,6 +3,7 @@
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import errno
 import ipaddress
 import json
 import os
@@ -10,12 +11,22 @@ from pathlib import Path
 import posixpath
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 RELEASE = Path(__file__).resolve().parent / 'release'
+MEMORY_COMPOSE = RELEASE / 'compose.memory.yaml'
+MIN_DOCKER_ENGINE = (26, 0, 0)
+MIN_DOCKER_API = (1, 45, 0)
+MIN_COMPOSE = (2, 26, 0)
+DEFAULT_PORT, DEFAULT_WEB_PORT = 18080, 18081
+WEB_SETTINGS = (
+    'ROKBOT_PUBLIC_URL', 'ROKBOT_PUBLIC_PORT', 'ROKBOT_WEB_PUBLIC_URL', 'ROKBOT_WEB_PUBLIC_PORT',
+    'GROKBOT_PUBLIC_URL', 'GROKBOT_PUBLIC_PORT', 'GROKBOT_WEB_PUBLIC_URL', 'GROKBOT_WEB_PUBLIC_PORT',
+)
 sys.path.insert(0, str(RELEASE))
 from platforms import BOX, check_box_execution, docker_platform
 import backup as volume_backup
@@ -35,13 +46,77 @@ def endpoint(value):
     return value.rstrip('/')
 
 
+def same_origin(first, second):
+    def key(value):
+        url = urlsplit(value)
+        return url.scheme, (url.hostname or '').lower(), url.port or {'http': 80, 'https': 443}[url.scheme]
+    return key(first) == key(second)
+
+
+def instance_env(home):
+    """The address settings Compose substitutes: the process environment first, then the instance .env."""
+    raw = {}
+    path = home / '.env'
+    if path.is_file():
+        for line in path.read_text(encoding='utf-8').splitlines():
+            key, sep, value = line.partition('=')
+            key, value = key.strip(), value.strip()
+            if sep and key in WEB_SETTINGS:
+                quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in '"\''
+                raw[key] = value[1:-1] if quoted else value
+    raw.update({key: os.environ[key] for key in WEB_SETTINGS if key in os.environ})
+    values = {}
+    for suffix in ('PUBLIC_URL', 'PUBLIC_PORT', 'WEB_PUBLIC_URL', 'WEB_PUBLIC_PORT'):
+        if f'ROKBOT_{suffix}' in raw:
+            values[f'ROKBOT_{suffix}'] = raw[f'ROKBOT_{suffix}']
+        elif f'GROKBOT_{suffix}' in raw:
+            values[f'ROKBOT_{suffix}'] = raw[f'GROKBOT_{suffix}']
+    return values
+
+
+def web_client_url(values):
+    """Where the web client is served: its own URL, or the main host name with the web client port."""
+    if values.get('ROKBOT_WEB_PUBLIC_URL'):
+        return endpoint(values['ROKBOT_WEB_PUBLIC_URL']) + '/web/'
+    main = urlsplit(values.get('ROKBOT_PUBLIC_URL') or f"http://127.0.0.1:{values.get('ROKBOT_PUBLIC_PORT') or DEFAULT_PORT}")
+    host = f'[{main.hostname}]' if ':' in (main.hostname or '') else main.hostname
+    return f"{main.scheme}://{host}:{values.get('ROKBOT_WEB_PUBLIC_PORT') or DEFAULT_WEB_PORT}/web/"
+
+
+def check_web_address(home):
+    """Refuse a web client address equal to the admin address before anything changes; the Host would not start."""
+    values = instance_env(home)
+    main, web = values.get('ROKBOT_PUBLIC_URL'), values.get('ROKBOT_WEB_PUBLIC_URL')
+    if main and web and {urlsplit(main).scheme, urlsplit(web).scheme} <= {'http', 'https'} and same_origin(main, web):
+        raise ValueError('ROKBOT_WEB_PUBLIC_URL must differ from ROKBOT_PUBLIC_URL: the web client needs its own '
+                         'address, such as its own subdomain behind the reverse proxy.')
+
+
+def web_notice(home):
+    values = instance_env(home)
+    https = urlsplit(values.get('ROKBOT_PUBLIC_URL') or 'http:').scheme == 'https'
+    proxy = '' if values.get('ROKBOT_WEB_PUBLIC_URL') or not https else (
+        ' Behind a reverse proxy, give the web client its own entry (a subdomain) and set ROKBOT_WEB_PUBLIC_URL'
+        ' in the instance .env.')
+    print(f'Web client: {web_client_url(values)} (its own port and address; old /web/ links'
+          f' on the main address redirect there).{proxy}', file=sys.stderr, flush=True)
+
+
 def initialise(home, args):
     if not 1 <= args.port <= 65535:
         raise ValueError('Port must be 1..65535')
+    args.web_port = args.port + 1 if args.web_port is None else args.web_port
+    if not 1 <= args.web_port <= 65535:
+        raise ValueError('Web client port must be 1..65535')
     listen = str(ipaddress.ip_address(args.listen))
     if not args.public_url and listen != '127.0.0.1':
         raise ValueError('Set --public-url to the address clients will actually enter.')
     origin = endpoint(args.public_url or f'http://127.0.0.1:{args.port}')
+    web_origin = endpoint(args.web_public_url) if args.web_public_url else None
+    if not web_origin and args.port == args.web_port:
+        raise ValueError('Web client port must differ from --port.')
+    if same_origin(origin, web_origin or web_client_url({'ROKBOT_PUBLIC_URL': origin, 'ROKBOT_WEB_PUBLIC_PORT': str(args.web_port)})):
+        raise ValueError('Web client address must differ from the main admin address.')
     if ':' in listen:
         listen = f'[{listen}]'
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -51,15 +126,32 @@ def initialise(home, args):
         raise ValueError('Configuration already exists; init never overwrites it. Use status or update.') from None
     with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as config:
         config.write(f'ROKBOT_LISTEN_ADDRESS={listen}\nROKBOT_PUBLIC_PORT={args.port}\nROKBOT_PUBLIC_URL={origin}\n'
+                     f'ROKBOT_WEB_PUBLIC_PORT={args.web_port}\n'
+                     + (f'ROKBOT_WEB_PUBLIC_URL={web_origin}\n' if web_origin else '') +
                      f'ROKBOT_MODE={"remote" if args.host_only else "local"}\nROKBOT_PROJECT={args.project}\n')
-    print(json.dumps({'configCreated': True, 'publicUrl': origin}))
+    print(json.dumps({'configCreated': True, 'publicUrl': origin, 'webClientUrl': web_client_url(instance_env(home))}))
 
 
-def compose(args, home):
+def compose(args, home, *, memory=False):
     if not (home / '.env').is_file():
         raise ValueError('No .env in the instance directory. Run init first or select --home.')
     name = 'compose.host.yaml' if args.host_only else 'compose.yaml'
-    return ['docker', 'compose', '--env-file', str(home / '.env'), '-p', args.project, '-f', str(RELEASE / name)]
+    overlay = ['-f', str(MEMORY_COMPOSE)] if memory else []
+    return ['docker', 'compose', '--env-file', str(home / '.env'), '-p', args.project, '-f', str(RELEASE / name), *overlay]
+
+
+def memory_overlay(dc):
+    return str(MEMORY_COMPOSE) in dc
+
+
+def memory_supported():
+    # Engines before 26 ignore subpath and would mount the whole host-data volume, keys included.
+    try:
+        check_runtime_versions()
+    except ValueError as error:
+        print(f'Bot memory reading on its desktop stays off: {error}', file=sys.stderr)
+        return False
+    return True
 
 
 def instance_settings(args, home):
@@ -124,7 +216,9 @@ def compose_mounts(service, definition):
         tmpfs = [tmpfs]
     mounts.extend({'type': 'tmpfs', 'target': item.partition(':')[0]} for item in tmpfs)
 
-    roots = volume_backup.MOUNTS[service].values()
+    roots = set(volume_backup.MOUNTS[service].values())
+    data_targets = set(volume_backup.BOX_DATA_TARGETS) if service == 'box' else set()
+    allowed = roots | data_targets
     by_target = {}
     for mount in mounts:
         target = mount.get('target')
@@ -133,8 +227,8 @@ def compose_mounts(service, definition):
         dest = posixpath.normpath('/' + target.lstrip('/'))
         if dest in by_target:
             raise ValueError(f'Duplicate effective Compose mount on {service} at {dest}.')
-        if dest not in roots and (mount.get('type') != 'tmpfs' or
-                any(posixpath.commonpath((root, dest)) in (root, dest) for root in roots)):
+        if dest not in allowed and (mount.get('type') != 'tmpfs' or
+                any(posixpath.commonpath((root, dest)) in (root, dest) for root in allowed)):
             raise ValueError(f'Unmanaged mount on {service} at {dest} would be omitted from the backup.')
         by_target[dest] = mount
     return by_target
@@ -153,6 +247,17 @@ def instance_images(dc, project, services, existing, pinned=None):
                     mount.get('type') != 'volume' or mount.get('source') != suffix or
                     mount.get('target') != dest or mount.get('read_only') or (mount.get('volume') or {}).get('subpath')):
                 raise ValueError(f'Effective Compose mount {s}:{dest} does not select the root of the expected writable project volume.')
+        if s == 'box':
+            expected = volume_backup.BOX_DATA_TARGETS if memory_overlay(dc) else {}
+            if {t for t in volume_backup.BOX_DATA_TARGETS if t in mounts} != set(expected):
+                raise ValueError('Effective Compose Host-data mounts on box do not match the selected Compose files.')
+            for target, tree in expected.items():
+                mount = mounts[target]
+                subpath = (mount.get('volume') or {}).get('subpath')
+                if (mount.get('type') != 'volume' or mount.get('source') != 'host-data' or
+                        mount.get('target') != target or mount.get('read_only') is not True or
+                        subpath != str(volume_backup.DATA_SOURCE_ROOT / tree)):
+                    raise ValueError(f'Effective Compose mount box:{target} is not a read-only mount of the approved Host-data tree.')
     images = {s: config['services'][s]['image'] for s in services}
     if pinned is not None and images != pinned:
         raise ValueError('Effective Compose configuration did not select the requested immutable images.')
@@ -172,7 +277,53 @@ def build(args, image):
     run(cmd)
 
 
-def inventory(project, services, *, new):
+def published_ports(dc, existing):
+    config = json.loads(run(dc + ['config', '--format', 'json'], env=volume_policy(existing), capture=True).stdout)
+    ports = {}
+    for name, service in config.get('services', {}).items():
+        for item in service.get('ports') or ():
+            if isinstance(item, dict) and item.get('published'):
+                port = str(item['published'])
+                if port in ports:
+                    raise ValueError(f'Port {port} is published twice by this instance. Set ROKBOT_WEB_PUBLIC_PORT in '
+                                     'its .env to a free port other than ROKBOT_PUBLIC_PORT.')
+                ports[port] = name, item.get('host_ip') or '0.0.0.0'
+    return ports
+
+
+def port_in_use(address, port):
+    """True when a program outside Docker already listens where Compose would publish the port."""
+    address = address.strip('[]')
+    try:
+        family = socket.AF_INET6 if ipaddress.ip_address(address).version == 6 else socket.AF_INET
+    except ValueError:
+        return False
+    with socket.socket(family, socket.SOCK_STREAM) as probe:
+        if os.name != 'nt':
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind((address, int(port)))
+        except OSError as error:
+            return error.errno in (errno.EADDRINUSE, getattr(errno, 'WSAEADDRINUSE', errno.EADDRINUSE))
+    return False
+
+
+def check_free_ports(dc, project, existing):
+    """Refuse ports another container or program already uses, before building, stopping or restoring."""
+    own = set(volume_backup.project_ids(project))
+    for port, (service, address) in sorted(published_ports(dc, existing).items()):
+        users = run(['docker', 'ps', '-q', '--no-trunc', '--filter', f'publish={port}'], capture=True).stdout.split()
+        if any(cid not in own for cid in users):
+            raise ValueError(f'Port {port} of {service} is already published by another container. Give this instance '
+                             'its own ports: ROKBOT_PUBLIC_PORT and ROKBOT_WEB_PUBLIC_PORT in its .env '
+                             '(init --port and --web-port).')
+        if not users and port_in_use(address, port):
+            raise ValueError(f'Port {port} of {service} is already in use by another program on this machine. Free it, '
+                             'or give this instance other ports: ROKBOT_PUBLIC_PORT and ROKBOT_WEB_PUBLIC_PORT in '
+                             'its .env (init --port and --web-port).')
+
+
+def inventory(project, services, *, new, legacy_writable=False):
     volumes = volume_backup.project_volumes(project)
     expected = {f'{project}_{suffix}' for s in services for suffix in volume_backup.MOUNTS[s]}
     if new:
@@ -183,7 +334,8 @@ def inventory(project, services, *, new):
     if volumes != expected:
         raise ValueError('Volume set does not match this topology; check the original project, --home and --host-only.')
     volume_backup.verify_volumes(project, volumes)
-    containers = volume_backup.project_services(project, services)
+    containers = volume_backup.project_services(project, services, host_data=project+'_host-data' in volumes,
+                                                legacy_writable=legacy_writable)
     volume_backup.verify_users(volumes, containers)
     return containers
 
@@ -205,8 +357,66 @@ def startup_images(services, host_id):
     return images
 
 
+def version_tuple(text, label):
+    match = re.match(r'\s*v?(\d+)\.(\d+)(?:\.(\d+))?(?:$|[-+~.])', text or '')
+    if not match:
+        raise ValueError(f'Unrecognized {label} version: {text}')
+    return tuple(int(part or 0) for part in match.groups())
+
+
+def require_version(actual, minimum, label):
+    if actual < minimum:
+        found = '.'.join(map(str, actual))
+        required = '.'.join(map(str, minimum))
+        raise ValueError(f'{label} {found} is too old; version {required} or newer is required for Host-data subpath mounts.')
+
+
+def compose_version():
+    version = run(['docker', 'compose', 'version', '--short'], capture=True).stdout.strip()
+    return '.'.join(map(str, version_tuple(version, 'Compose')))
+
+
+def check_runtime_versions():
+    try:
+        server = json.loads(run(['docker', 'version', '--format', '{{json .Server}}'], capture=True).stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError('Docker did not report usable Engine version details.') from error
+    if not isinstance(server, dict):
+        raise ValueError('Docker Engine is unavailable; start it before configuring Host data mounts.')
+    engine = server.get('Version')
+    api = server.get('ApiVersion')
+    if not isinstance(engine, str) or not isinstance(api, str):
+        raise ValueError('Docker did not report both Engine and API versions.')
+    engine_version = version_tuple(engine, 'Engine')
+    api_version = version_tuple(api, 'API')
+    compose = compose_version()
+    compose_number = version_tuple(compose, 'Compose')
+    require_version(engine_version, MIN_DOCKER_ENGINE, 'Docker Engine')
+    require_version(api_version, MIN_DOCKER_API, 'Docker API')
+    require_version(compose_number, MIN_COMPOSE, 'Docker Compose')
+    return {'dockerEngineVersion': engine, 'dockerApiVersion': api, 'composeVersion': compose}
+
+
+def ensure_host_data(project, image):
+    name = project+'_host-data'
+    if name not in set(volume_backup.output('volume', 'ls', '-q').splitlines()):
+        run(['docker', 'volume', 'create',
+             '--label', f'{volume_backup.PROJECT_LABEL}={project}',
+             '--label', f'{volume_backup.VOLUME_LABEL}=host-data',
+             '--label', f'{volume_backup.VERSION_LABEL}={compose_version()}',
+             name], capture=True)
+    labels = volume_backup.volume_labels(name)
+    if labels.get(volume_backup.PROJECT_LABEL) != project or labels.get(volume_backup.VOLUME_LABEL) != 'host-data':
+        raise ValueError('The Host data volume does not belong to the selected project.')
+    run(['docker', 'run', '--rm', '--pull=never', '--network', 'none', '--read-only', '--user', '0:0',
+         '--entrypoint', 'python3', '--mount', f'type=volume,src={name},dst=/data,volume-nocopy', image,
+         '/opt/rokbot/release/data_init.py', '/data/runtime/host-data'])
+
+
 def up_and_wait(dc, project, services, images, *, existing):
     instance_images(dc, project, services, existing, pinned=images)
+    if 'box' in services and memory_overlay(dc):
+        ensure_host_data(project, images['host'])
     run(dc + ['up', '-d', '--pull', 'never', '--wait', '--wait-timeout', '180'], env=volume_policy(existing, images))
     current = inventory(project, services, new=False)
     if (set(current) != set(services) or any(c['State']['Status'] != 'running' for c in current.values()) or
@@ -217,7 +427,7 @@ def up_and_wait(dc, project, services, images, *, existing):
 def stop_failed_start(dc, project, services, existing, notice, error):
     try:
         run(dc + ['stop'], env=volume_policy(existing))
-        current = volume_backup.project_services(project, services)
+        current = volume_backup.project_services(project, services, legacy_writable=True)
         if any(c['State']['Status'] not in ('exited', 'created') for c in current.values()):
             raise ValueError('some services remain active')
     except (OSError, ValueError, subprocess.SubprocessError) as stop_error:
@@ -300,7 +510,7 @@ def upgrade(args, home, dc, services, image, old, root, continuing):
         raise ValueError('Previous Host image identity is unavailable; refusing to switch.')
     with staged_host(args, services) as images:
         candidate_id = images['host']
-        current = inventory(args.project, services, new=False)
+        current = inventory(args.project, services, new=False, legacy_writable=True)
         if state(current) != state(old) or instance_images(dc, args.project, services, True)['host'] != image:
             raise ValueError('The instance changed during the build; no service was switched.')
         offline_only = volume_backup.check_lineage(root, args.project, continuing=continuing)
@@ -391,11 +601,21 @@ def recover(args, home, dc, services):
 def operate(args, home, dc):
     services = ('host',) if args.host_only else ('host', 'box')
     if args.action == 'recover':
+        check_web_address(home)
+        check_free_ports(dc, args.project, False)
         return recover(args, home, dc, services)
     image = instance_images(dc, args.project, services, args.action != 'up')['host']
-    current = inventory(args.project, services, new=args.action == 'up')
+    current = inventory(args.project, services, new=args.action == 'up', legacy_writable=args.action in ('backup', 'update'))
     if args.action == 'backup':
+        if volume_backup.writable_box_data(current):
+            print('This box still has writable Host-data mounts. Run update to replace them with read-only ones.',
+                  file=sys.stderr, flush=True)
         return backup(args, home, current['host']['Image'] if 'host' in current else image)
+    check_web_address(home)
+    check_free_ports(dc, args.project, args.action != 'up')
+    if args.action == 'update' and volume_backup.writable_box_data(current) and memory_overlay(dc):
+        print('Box currently mounts Host-data writable; this update replaces those mounts with read-only ones.',
+              file=sys.stderr, flush=True)
     root = volume_backup.local_lineage(args.project) if args.action == 'update' else args.project
     # Builders also publish fixed shared base/desktop tags. One daemon-wide writer covers aliases and rollback.
     with volume_backup.lineage_lock(root), volume_backup.operation_lock('rokbot-image-publication-lock'):
@@ -425,6 +645,7 @@ def operate(args, home, dc):
                         stop_failed_start(dc, args.project, services, False, 'Installation failed. No volumes were removed.', error)
                     finally:
                         revert_tag(previous, images['host'], image)
+    web_notice(home)
     run(dc + ['ps'])
 
 
@@ -435,8 +656,12 @@ def main(argv=None):
     parser.add_argument('--host-only', action='store_true', help='Use a separately deployed execution node')
     sub = parser.add_subparsers(dest='action', required=True)
     init = sub.add_parser('init', help='Create .env once; never overwrite an existing deployment')
-    init.add_argument('--listen', default='127.0.0.1'); init.add_argument('--port', type=int, default=18080)
+    init.add_argument('--listen', default='127.0.0.1'); init.add_argument('--port', type=int, default=DEFAULT_PORT)
     init.add_argument('--public-url', help='URL entered on clients; no subpath')
+    init.add_argument('--web-port', type=int,
+                      help=f'Port of the web client, which has its own address; default --port + 1 ({DEFAULT_WEB_PORT})')
+    init.add_argument('--web-public-url', help='Web client URL when it is not the --public-url host name with --web-port, '
+                      'e.g. its own HTTPS subdomain behind a reverse proxy; no subpath')
     recovery = sub.add_parser('recover', help='Restore and start a NEW project from verified volumes and recorded immutable images')
     recovery.add_argument('--directory', required=True, type=Path, help='Backup directory containing manifest.json')
     for cmd, help_text in [('doctor', 'Check Docker, Compose, architecture and desktop compatibility'),
@@ -461,7 +686,9 @@ def main(argv=None):
         report = {'ok': False, 'project': args.project, 'existingConfig': (home / '.env').is_file()}
         try:
             platform = docker_platform()
-            report.update(hostPlatform=platform, composeVersion=run(['docker', 'compose', 'version', '--short'], capture=True).stdout.strip(),
+            memory = not args.host_only and memory_supported()
+            report.update(hostPlatform=platform, memoryMounts=memory,
+                          composeVersion=run(['docker', 'compose', 'version', '--short'], capture=True).stdout.strip(),
                           desktop='remote' if args.host_only else 'native' if platform == BOX['platform'] else 'emulated-amd64',
                           existingVolumes=sorted(volume_backup.project_volumes(args.project)), resources=daemon_resources())
             help_text = run(['docker', 'compose', 'up', '--help'], capture=True).stdout
@@ -469,7 +696,10 @@ def main(argv=None):
                 raise ValueError('This Compose version cannot wait for service health. Install a Compose v2 with up --wait-timeout.')
             report['hostDataVolumes'] = run(['docker', 'volume', 'ls', '-q', '--filter', 'label=com.docker.compose.volume=host-data'], capture=True).stdout.splitlines()
             if report['existingConfig']:
-                run(compose(args, home) + ['config', '--quiet'])
+                run(compose(args, home, memory=memory) + ['config', '--quiet'])
+                report['webClientUrl'] = web_client_url(instance_env(home))
+                check_free_ports(compose(args, home), args.project, bool(report['existingVolumes']))
+                check_web_address(home)
             if not args.host_only:
                 check_box_execution(platform)
             report['ok'] = True
@@ -479,7 +709,7 @@ def main(argv=None):
         if not report['ok']:
             raise SystemExit(1)
         return
-    dc = compose(args, home)
+    dc = compose(args, home, memory=args.action in ('up', 'update', 'recover') and not args.host_only and memory_supported())
     if args.action in ('status', 'logs', 'setup-key'):
         return run(dc + {'status': ['ps', '--all'], 'logs': ['logs', '--tail', '100', 'host'],
                          'setup-key': ['exec', '-T', 'host', 'cat', '/data/setup-key']}[args.action])

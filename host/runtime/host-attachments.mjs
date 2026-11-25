@@ -3,15 +3,29 @@ import { constants } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// compose.memory.yaml mounts this tree read-only on a same-machine Bot computer, at the path
+// the Host itself uses.
+const MOUNTED_AGENTS = '/data/runtime/host-data/agents';
+
+/** True when the Bot computer already reads the Host's agents tree through the read-only mount. */
+export function agentsMountedOnBox(agents, env = process.env) {
+  const enabled = (env.ROKBOT_HOST_MEMORY_MOUNTS ?? env.GROKBOT_HOST_MEMORY_MOUNTS) === '1';
+  return enabled && agents === MOUNTED_AGENTS;
+}
+
 // Host and execution nodes need not share a filesystem. The original prompt
 // identifies managed attachments as already present on the Bot computer.
-export async function syncTurnAttachments(options, turn, library, root = process.env.SAND_DATA_ROOT) {
+// With the read-only memory mounts they already are there, and writing a copy
+// would fail with EROFS and end the turn.
+export async function syncTurnAttachments(options, turn, library, root = process.env.SAND_DATA_ROOT, env = process.env) {
   const paths = [...turn.attachedFilePaths ?? [],
     ...(turn.selectedImages ?? []).map(image => image.path),
     ...(turn.selectedVideos ?? []).map(video => video.path)];
-  if (!root || !paths.length || typeof options?.remoteBox?.uploadFile !== 'function') return;
+  if (!root || !paths.length) return;
   const resolvedRoot = resolve(root);
   const agents = join(resolvedRoot, 'agents');
+  if (agentsMountedOnBox(agents, env)) return;
+  if (typeof options?.remoteBox?.uploadFile !== 'function') return;
   const realRoot = await realpath(resolvedRoot);
   const realAgents = await realpath(agents);
   if (realAgents !== join(realRoot, 'agents')) {
