@@ -1,4 +1,5 @@
 import { constructRecoveredModules } from './recovered-modules.mjs';
+import { detectSilentToolCallEnding, wrapCreateTurnSettle } from './turn-continuity.mjs';
 
 const memoryFailureTags = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT',
   'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'AbortError', 'TimeoutError']);
@@ -39,7 +40,20 @@ export function constructRecoveredHostFlow(library, directory) {
   if (Object.keys(overrides).length === 0) {
     throw new TypeError('Missing Host flow dependency: runMemoryExtraction');
   }
-  return constructRecoveredModules(library.hostFlowRecoveryPlan, { ...original, ...overrides }, directory, 'Host flow');
+  const needsSilentToolDetector = library.hostFlowRecoveryPlan?.modules?.some(
+    module => Array.isArray(module.dependencies) && module.dependencies.includes('turnEndedOnSilentToolCalls'),
+  );
+  if (needsSilentToolDetector && typeof original.turnEndedOnSilentToolCalls !== 'function') {
+    throw new TypeError('Missing Host flow dependency: turnEndedOnSilentToolCalls');
+  }
+  if (typeof original.turnEndedOnSilentToolCalls === 'function') {
+    overrides.turnEndedOnSilentToolCalls = messages => detectSilentToolCallEnding(messages);
+  }
+  return constructRecoveredModules(library.hostFlowRecoveryPlan, { ...original, ...overrides }, directory, 'Host flow', {
+    overrides: {
+      createTurnSettle: recovered => wrapCreateTurnSettle(recovered),
+    },
+  });
 }
 
 export async function installRecoveredHostFlow(library, directory) {
