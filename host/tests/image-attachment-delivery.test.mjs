@@ -456,9 +456,12 @@ if (configuredSeed || configuredArchive) {
       if (ct.includes('application/connect+proto')) {
         res.writeHead(200, { 'content-type': 'application/connect+proto' });
         res.end(Buffer.concat([Buffer.from([0, 0, 0, 0, 0]), Buffer.from([2, 0, 0, 0, 2, 0x7b, 0x7d])]));
-      } else {
+      } else if (ct.includes('application/json')) {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end('{}');
+      } else {
+        res.writeHead(200, { 'content-type': 'application/proto' });
+        res.end();
       }
     });
     const mockExecBase = await listenHttp(mockExecServer);

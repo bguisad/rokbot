@@ -261,10 +261,10 @@ test('createModelSession applies image pruning and compression across all 3 API 
   }
 });
 
-test('catalogContextPolicy caps 1M-context auto summaryThresholdTokens at 160K while preserving smaller windows', () => {
+test('catalogContextPolicy scales summaryThresholdTokens proportionally for 1M and smaller context windows', () => {
   assert.deepEqual(catalogContextPolicy('deepseek-v4.1-flash', 1_048_576), {
     contextWindowTokens: 1_048_576,
-    summaryThresholdTokens: 160_000,
+    summaryThresholdTokens: 786_000,
     contextSource: 'provider',
   });
   assert.deepEqual(catalogContextPolicy('provider-200k', 200_000), {

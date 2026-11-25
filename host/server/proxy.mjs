@@ -127,6 +127,7 @@ export function sseRewriter(rewrite) {
   });
 }
 export const DEFAULT_SSE_KEEPALIVE_MS = 20_000;
+export const DEFAULT_UPSTREAM_HEADERS_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 0x7fff_ffff;
 export function sseKeepalive(intervalMs = DEFAULT_SSE_KEEPALIVE_MS) {
   const delay = Number(intervalMs);
@@ -196,6 +197,7 @@ export function proxyHttp(
     ticketCookie,
     transformHtml,
     sseKeepaliveMs = DEFAULT_SSE_KEEPALIVE_MS,
+    headersTimeoutMs = DEFAULT_UPSTREAM_HEADERS_TIMEOUT_MS,
   },
 ) {
   const transport = target.protocol === "https:" ? https : http;
@@ -211,7 +213,7 @@ export function proxyHttp(
   );
   const timer = setTimeout(
     () => upstream.destroy(new Error("Upstream headers timeout")),
-    30_000,
+    headersTimeoutMs,
   );
   upstream.once("close", () => clearTimeout(timer));
   upstream.on("response", (incoming) => {
