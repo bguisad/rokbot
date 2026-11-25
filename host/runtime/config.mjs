@@ -38,13 +38,14 @@ export async function loadModelConfig({ env = process.env } = {}) {
   const dataDir = env.ROKBOT_DATA_DIR ?? env.GROKBOT_DATA_DIR ?? resolve(path, '..');
   const common = {
     jevApiKey: legacy.jevApiKey,
+    dataDirectory: dataDir,
     usageDirectory: resolve(dataDir, 'usage'),
     routingDirectory: resolve(dataDir, 'routing'),
   };
   const routingJson = values[MODEL_ROUTING_ENV] ?? values.GROKBOT_MODEL_ROUTING;
   if (!routingJson) {
     if (!legacy.baseUrl || !legacy.apiKey) throw new Error('Missing model configuration');
-    return { ...legacy, ...common, modelBaseUrls: [legacy.baseUrl] };
+    return { ...legacy, contextMode: 'manual', effortsMode: 'manual', ...common, modelBaseUrls: [legacy.baseUrl] };
   }
   const { config: modelRouting } = parseModelRouting(routingJson, legacy);
   const route = modelRouteForAgent(modelRouting);

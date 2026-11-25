@@ -181,6 +181,8 @@ export async function createSelfHostServer(options = {}) {
     filename: options.modelFile ?? process.env.ROKBOT_MODEL_ENV ?? process.env.GROKBOT_MODEL_ENV,
     onModelSaved: options.onModelSaved,
     getReloadStatus: options.getReloadStatus,
+    fetchImpl: options.modelFetch,
+    autoSync: options.modelAutoSync !== false,
   });
   const modelSettings = await new DeviceModelSettings(dataDir).load();
   const updates = await new UpdatesManager(dataDir, {
@@ -220,6 +222,15 @@ export async function createSelfHostServer(options = {}) {
   federation.onRoleChange = () => connections.close();
   const voice = new Voice({ config: voiceConfig, speech, synthesis, auth, connections,
     hostCall: internalHostClient(hostUrl, internalToken) });
+  const modelContextSyncIntervalMs = options.modelContextSyncIntervalMs ?? 6 * 60 * 60_000;
+  const modelContextSyncTimer = options.modelAutoSync !== false && modelContextSyncIntervalMs > 0
+    ? setInterval(() => {
+      void models.getSyncSettings().then(syncSettings => {
+        if (syncSettings.autoSync) return models.syncAllProviders({ onlyAuto: true });
+      }).catch(error => console.warn(`[models] periodic context sync failed: ${error.message}`));
+    }, modelContextSyncIntervalMs)
+    : null;
+  modelContextSyncTimer?.unref();
   const desktopCapabilities = new DesktopCapabilities({ authenticate: device, connections, internalToken, enabled: () => harness.current().macComputer });
   const browserProviders = new DesktopBrowserProviders({ authenticate: device, connections, hostUrl, internalToken, enabled: key => harness.current()[key] });
   let executionRevision = executionNode.active()?.revision;
@@ -537,7 +548,23 @@ export async function createSelfHostServer(options = {}) {
         { ...(await models.save(await jsonBody(request))), devicePolicy: modelSettings.current() },
       );
     if (method === "POST" && path === "/admin/api/model/catalog") {
+      limiter.check(`model-catalog:${request.socket.remoteAddress}`, 30);
       return sendJson(response, 200, await models.catalog(await jsonBody(request)));
+    }
+    if (method === "POST" && path === "/admin/api/model/resolve") {
+      limiter.check(`model-resolve:${request.socket.remoteAddress}`, 30);
+      return sendJson(response, 200, await models.resolve(await jsonBody(request)));
+    }
+    if (method === "POST" && path === "/admin/api/model/sync-contexts") {
+      limiter.check(`model-sync-contexts:${request.socket.remoteAddress}`, 12);
+      const syncResult = await models.syncAllProviders({ force: true, clearObserved: true });
+      return sendJson(response, 200, { ...(await models.publicConfig()), devicePolicy: modelSettings.current(), syncResult });
+    }
+    if (method === "PUT" && path === "/admin/api/model/sync-settings") {
+      return sendJson(response, 200, { ...(await models.saveSyncSettings(await jsonBody(request))), devicePolicy: modelSettings.current() });
+    }
+    if (method === "POST" && path === "/admin/api/model/observed/clear") {
+      return sendJson(response, 200, { ...(await models.clearObserved(await jsonBody(request, 64 * 1024, { allowEmpty: true }))), devicePolicy: modelSettings.current() });
     }
     if (method === "POST" && path === "/admin/api/model/classify") {
       limiter.check(`classifier-test:${request.socket.remoteAddress}`, 10);
@@ -1207,12 +1234,19 @@ export async function createSelfHostServer(options = {}) {
       }
       federation.start();
       void network.start(`127.0.0.1:${server.address().port}`).catch(() => {});
+      if (options.modelAutoSync !== false) {
+        void models.getSyncSettings().then(syncSettings => {
+          if (syncSettings.autoSync) return models.syncAllProviders({ onlyAuto: true });
+        }).catch(error => console.warn(`[models] startup context sync failed: ${error.message}`));
+      }
       return server.address();
     },
     async close() {
       await federation.close();
       await network.close();
       desktopCapabilities.close(); browserProviders.close();
+      if (modelContextSyncTimer) clearInterval(modelContextSyncTimer);
+      await models.close();
       await voice.close(); await synthesis.close(); await voiceConfig.close();
       await speech.close();
       notifications.close();
