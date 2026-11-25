@@ -2,6 +2,7 @@ import { createReplyNotifier } from './reply-notifier.mjs';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
+import { inspect } from 'node:util';
 import { readNotificationSettings } from '../server/notification-settings.mjs';
 import { DEFAULT_NOTIFICATION_FREQUENCY } from '../clients/shared/notification-frequency.mjs';
 
@@ -80,7 +81,8 @@ export async function startLocalNotifications(context, library) {
       else if (event.kind === 'notification-agents') notifier.handleAgentsEvent(event.event, event.presence);
       else if (event.kind === 'notification-agent-upserted') notifier.handleAgentUpsertedEvent(event.event, event.presence);
       else if (event.kind === 'notification-agent-forgotten') notifier.forget(event.agentId);
-    }).catch(error => context.host.log(`Local notification settings/update failed: ${error.name}`));
+      // inspect() keeps the full stack, the cause chain and every error inside an AggregateError.
+    }).catch(error => context.host.log(`Local notification settings/update failed: ${inspect(error, { depth: 4 })}`));
   });
   context.onStop(async () => {
     stopping = true; unsubscribe(); clearTimeout(timer); abort.abort();
