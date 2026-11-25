@@ -279,18 +279,14 @@ public class RokBotBootstrap {
             }
         }
         if (url == null || url.isEmpty()) return null;
-        String expectedMeta = url + "\n" + token;
-        if (!force && pairedBundle.exists() && pairedBundle.length() > 0 && metaFile.exists()) {
-            try (FileInputStream fis = new FileInputStream(metaFile)) {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                byte[] buf = new byte[512];
-                int n;
-                while ((n = fis.read(buf)) > 0) baos.write(buf, 0, n);
-                String curMeta = new String(baos.toByteArray(), StandardCharsets.UTF_8);
-                if (expectedMeta.equals(curMeta)) {
-                    return pairedBundle;
-                }
-            } catch (Throwable ignored) {}
+        // Keyed on the install too (template SHA-256 + versionCode + lastUpdateTime): an in-place
+        // upgrade keeps files/RokBotPaired, and the old build's bundle must not outlive it.
+        String expectedMeta = HermesPatcher.pairedBundleMeta(url, token, HermesPatcher.installStamp(context));
+        if (!force && HermesPatcher.isBundleCurrent(pairedBundle, metaFile, expectedMeta)) {
+            return pairedBundle;
+        }
+        if (pairedBundle.exists()) {
+            android.util.Log.i("RokBotBootstrap", "paired bundle is stale (pairing or install changed); regenerating from this APK's gateway-template");
         }
         if (!HermesPatcher.hasGatewayTemplate(context)) {
             return pairedBundle.exists() ? pairedBundle : null;
@@ -298,8 +294,8 @@ public class RokBotBootstrap {
         try {
             File generated = HermesPatcher.generatePairedBundle(context, url, token);
             if (generated != null && generated.exists() && generated.length() > 0) {
-                try (FileOutputStream fos = new FileOutputStream(metaFile)) {
-                    fos.write(expectedMeta.getBytes(StandardCharsets.UTF_8));
+                try {
+                    HermesPatcher.writeAtomically(metaFile, expectedMeta.getBytes(StandardCharsets.UTF_8));
                 } catch (Throwable ignored) {}
             }
             return generated;
