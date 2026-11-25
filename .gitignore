@@ -49,3 +49,6 @@ host/server/node_modules/
 android/companion/build/
 android/test-target/build/
 ios/.runtime/
+
+# Web client bundle a local Host image build may place here (never commit it)
+host/web-bundle/

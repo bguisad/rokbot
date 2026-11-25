@@ -12,6 +12,7 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import zipfile
 from bytepatch import file_digest
 from platforms import BOX as BOX_SPEC, INPUTS, check_box_execution, docker_platform
 
@@ -70,6 +71,38 @@ def prepare_box(box_archive):
     return identity
 
 
+def web_bundle(target, bundle=None, source=None):
+    """Put the web client bundle for the image in target/web.zip; return its SHA-256 or None.
+
+    The bundle carries the official interface from the administrator's own installer, so it only
+    goes into this local-only image when asked for; never push such an image to a public registry.
+    """
+    target.mkdir()
+    if source:
+        patcher = ROOT.parent / 'web/patchers/patch.mjs'
+        node = shutil.which('node')
+        if not patcher.is_file():
+            raise ValueError('--web-source needs the full repository (web/patchers/patch.mjs); use --web-bundle with a ready ZIP.')
+        if not node:
+            raise ValueError('--web-source needs Node.js 22.12+ to run web/patchers/patch.mjs.')
+        output = target.parent / 'web-output'
+        run(node, str(patcher), '--source', str(source.resolve(strict=True)), '--output', str(output), '--force',
+            stdout=subprocess.DEVNULL)
+        built = sorted(output.glob('RokBotLocal-web-*.zip'))
+        if len(built) != 1:
+            raise ValueError('web/patchers/patch.mjs did not produce exactly one bundle')
+        bundle = built[0]
+    if not bundle:
+        return None
+    bundle = bundle.resolve(strict=True)
+    if not zipfile.is_zipfile(bundle) or 'web-bundle.json' not in zipfile.ZipFile(bundle).namelist():
+        raise ValueError('Not a web client bundle from web/patchers/patch.mjs: ' + str(bundle))
+    shutil.copy2(bundle, target / 'web.zip')
+    if source:
+        shutil.rmtree(bundle.parent)  # keep the build context to inputs/ and web/
+    return file_digest(target / 'web.zip')
+
+
 def choose_runtime(platform, host_only):
     if platform == 'linux/arm64':
         return 'rokbot-arm-runtime:local', not host_only
@@ -85,6 +118,10 @@ def main():
     modes.add_argument('--host-only', action='store_true', help='Build a Host for a separate execution node')
     parser.add_argument('--image', default='rokbot-host:local')
     parser.add_argument('--base-image', default='rokbot-patch-base:local')
+    web = parser.add_mutually_exclusive_group()
+    web.add_argument('--web-source', type=Path,
+                     help='Official Grok_Bot_1.2.3_Setup.exe: build the web client bundle into this local-only image')
+    web.add_argument('--web-bundle', type=Path, help='A bundle ZIP from web/patchers/patch.mjs to build into this local-only image')
     args = parser.parse_args()
     manifest = INPUTS
     started = time.monotonic()
@@ -118,12 +155,14 @@ def main():
         base_seconds = time.monotonic()-started-input_seconds
         (work / 'inputs').mkdir()
         shutil.copy2(archive, work / 'inputs/host.tgz')
+        web_sha256 = web_bundle(work / 'web', args.web_bundle, args.web_source)
         run('docker', 'build', '--platform', platform, '-f', str(ROOT / 'release/Dockerfile.host'),
             '--build-arg', f'PATCH_IMAGE={args.base_image}', '--build-arg', f'RUNTIME_IMAGE={runtime_image}',
-            '--build-arg', f'HOST_REVISION={manifest["archive"]["version"]}', '-t', args.image, str(work))
+            '--build-arg', f'HOST_REVISION={manifest["archive"]["version"]}',
+            '--build-arg', f'WEB_BUNDLE_SHA256={web_sha256 or ""}', '-t', args.image, str(work))
     print(json.dumps({'image': args.image, 'platform': platform, 'boxImage': box_image, 'inputSeconds': round(input_seconds, 3),
         'baseBuildSeconds': round(base_seconds, 3), 'finalBuildSeconds': round(time.monotonic()-started-input_seconds-base_seconds, 3),
-        'originalImageId': identity, 'distribution': 'local-only'}))
+        'originalImageId': identity, 'webBundleSha256': web_sha256, 'distribution': 'local-only'}))
 
 
 if __name__ == '__main__':

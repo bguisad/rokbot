@@ -144,6 +144,31 @@ class DeploymentTests(unittest.TestCase):
         with patch.object(deploy, 'run') as called: deploy.build(args, 'candidate')
         self.assertEqual(called.call_args.args[0][-3:], ['--host-only', '--host-archive', str(archive.resolve())])
 
+    def test_web_bundle_flags_reach_the_image_build(self):
+        bundle = self.home / 'web.zip'; bundle.touch()
+        args = SimpleNamespace(host_only=False, host_archive=None, box_archive=None, web_source=None, web_bundle=bundle)
+        with patch.object(deploy, 'run') as called: deploy.build(args, 'candidate')
+        self.assertEqual(called.call_args.args[0][-2:], ['--web-bundle', str(bundle.resolve())])
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            deploy.main(self.args + ['update', '--web-source', 'a.exe', '--web-bundle', 'b.zip'])
+
+    def test_web_bundle_is_copied_checked_and_optional(self):
+        import zipfile
+        self.assertIsNone(builder.web_bundle(self.home / 'none'))
+        self.assertEqual(list((self.home / 'none').iterdir()), [], 'the image still gets an empty web-bundle/')
+        good = self.home / 'RokBotLocal-web-1.2.3.zip'
+        with zipfile.ZipFile(good, 'w') as archive:
+            archive.writestr('web-bundle.json', '{}'); archive.writestr('client/bridge.js', '')
+        digest = builder.web_bundle(self.home / 'web', good)
+        self.assertEqual(digest, hashlib.sha256(good.read_bytes()).hexdigest())
+        self.assertEqual((self.home / 'web/web.zip').read_bytes(), good.read_bytes())
+        bad = self.home / 'other.zip'
+        with zipfile.ZipFile(bad, 'w') as archive: archive.writestr('client/bridge.js', '')
+        with self.assertRaisesRegex(ValueError, 'Not a web client bundle'): builder.web_bundle(self.home / 'bad', bad)
+        dockerfile = (HOST / 'release/Dockerfile.host').read_text(encoding='utf-8')
+        self.assertIn('COPY web/ web-bundle/', dockerfile)
+        self.assertIn('dev.rokbot.web-bundle-sha256=${WEB_BUNDLE_SHA256}', dockerfile)
+
     def test_2bb5e41_release_containers_and_healthcheck_timeout(self):
         manifest = json.loads((HOST / 'recipes/host/manifest.json').read_text(encoding='utf-8'))
         self.assertEqual(manifest['archive']['version'], '2bb5e41')

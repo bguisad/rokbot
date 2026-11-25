@@ -41,10 +41,12 @@ If the 1.2.3 interface does not work for you, add `--version 0.71.2` to use the 
 
 Either:
 
-- **Admin page**: open **Web client** on the Host admin page, click **Choose a file and upload** and pick the ZIP you just built. The web client is enabled when the upload finishes.
+- **Admin page**: open **Web client** on the Host admin page, click **Choose a file and upload** and pick the ZIP you just built. The web client is on by default, so it works as soon as the upload finishes; it stays off only if an administrator turned off **Enable the web client**.
 - **Command line**: add `--upload` when building, for example `node web/patchers/patch.mjs --upload https://bot.example.org`. The administrator password is read from the `ROKBOT_ADMIN_PASSWORD` environment variable, the file given with `--password-file`, or the terminal; it never goes on the command line.
 
 The Host checks the size and SHA-256 of every file against the bundle's own manifest. If anything does not match, nothing is installed and the previous bundle stays in place.
+
+**Built into the image**: when you build the Host image on your own machine, the bundle can go straight into it, with no upload: `python3 host/release/build-docker.py --web-source windows/.cache/Grok_Bot_1.2.3_Setup.exe …` (or `--web-bundle <a built ZIP>`; `host/deploy.py up/update` accept both too). When no bundle has been uploaded, the Host installs the image's copy at startup and the admin page shows "built into the Host"; an image with a different bundle replaces it. An uploaded bundle always takes precedence, and deleting it falls back to the built-in one. Such an image contains the official interface: keep it to yourself and never push it to a public registry. The prebuilt public images do not include a bundle.
 
 ### 3. Sign in
 
@@ -102,7 +104,7 @@ Before every release, Playwright runs the full flow at 8 emulated device sizes (
 
 - **Update the interface**: build and upload a new bundle. It replaces the old one as a whole; signed-in browsers keep their pairing and only need a reload. After upgrading RokBot, build the bundle again with the tools from the same release.
 - **Pause**: turn off **Enable the web client** on the **Web client** page. The bundle stays, and signed-in browsers cannot open the web client until you turn it back on.
-- **Delete**: click **Delete the bundle**. The web client is disabled. Signed-in browsers stay listed under **Devices & notifications**, where you can revoke them.
+- **Delete**: click **Delete the bundle** to delete an uploaded bundle. The web client then uses the image's built-in bundle if there is one, and stops otherwise. The built-in bundle cannot be deleted; turn off **Enable the web client** instead. Signed-in browsers stay listed under **Devices & notifications**, where you can revoke them.
 
 ## Troubleshooting
 

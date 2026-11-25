@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { crc32, deflateRawSync } from 'node:zlib';
 import { Auth } from '../server/auth.mjs';
-import { BUNDLE_SCHEMA, WebClient, bundlePath, readBundleZip, verifyBundle, webManifest } from '../server/web-client.mjs';
+import { BUNDLE_SCHEMA, WebClient, adminDisabled, builtinBundlePath, bundlePath, readBundleZip, verifyBundle, webManifest } from '../server/web-client.mjs';
 
 const REQUIRED = ['renderer/index.html', 'client/boot-data.js', 'client/compat.js', 'client/bridge.js', 'client/native.js',
   'client/web-shell.js', 'client/official-preload.js', 'client/vnc-bridge.js', 'client/vnc-preload.js', 'client/icon.png'];
@@ -53,7 +53,7 @@ async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'rokbot-web-test-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const auth = await new Auth(dir).load();
-  const web = await new WebClient(dir, { auth }).load();
+  const web = await new WebClient(dir, { auth, builtin: null }).load();
   return { dir, auth, web };
 }
 
@@ -103,7 +103,7 @@ test('installing enables the first bundle, serves it compressed and keeps the ch
   const filesWith512 = bundleFiles('1.2.1');
   filesWith512.set('client/icon-512.png', Buffer.from('/* 512x512 icon */'));
   const dir512 = join(dir, 'with-512');
-  const webWith512 = await new WebClient(dir512, { auth }).load();
+  const webWith512 = await new WebClient(dir512, { auth, builtin: null }).load();
   await webWith512.install(bundle(filesWith512, { version: '1.2.1' }));
   assert.deepEqual(webManifest(webWith512).icons, [
     { src: '/web/client/icon.png', sizes: '256x256', type: 'image/png', purpose: 'any' },
@@ -137,11 +137,100 @@ test('installing enables the first bundle, serves it compressed and keeps the ch
 
   // A restart after an interrupted upload removes what the upload left behind.
   await mkdir(join(dir, 'web-client', 'stage-0123456789ab'));
-  const reloaded = await new WebClient(dir, { auth }).load();
+  const reloaded = await new WebClient(dir, { auth, builtin: null }).load();
   assert.deepEqual((await readdir(join(dir, 'web-client'))).sort(), ['current']);
   assert.equal(reloaded.status().rendererVersion, '1.2.0');
   assert.equal((await reloaded.remove()).installed, false);
   assert.equal(existsSync(join(dir, 'web-client', 'current')), false);
+});
+
+test('the web client is on unless the administrator turned it off, for new and older web-client.json files', async t => {
+  // Older files: defaults had enabled:false, deleting the bundle wrote enabled:false with no installedAt;
+  // only the switch could leave enabled:false beside an installed bundle.
+  assert.equal(adminDisabled({ version: 1, installedAt: null }), false, 'a new Host');
+  assert.equal(adminDisabled({ version: 1, enabled: false, installedAt: null }), false, 'old defaults or a deleted bundle');
+  assert.equal(adminDisabled({ version: 1, enabled: true, installedAt: '2026-11-01T00:00:00.000Z' }), false);
+  assert.equal(adminDisabled({ version: 1, enabled: false, installedAt: '2026-11-01T00:00:00.000Z' }), true, 'turned off with the switch');
+  assert.equal(adminDisabled({ version: 1, enabled: true, disabled: true, installedAt: null }), true, 'the new marker wins');
+
+  const { dir, auth, web } = await fixture(t);
+  assert.equal(web.status().enabled, true, 'a new Host shows the switch on');
+  assert.equal(existsSync(join(dir, 'web-client.json')), false, 'nothing is written before a choice is made');
+  await web.install(bundle());
+  await web.setEnabled(false);
+  assert.deepEqual(JSON.parse(await readFile(join(dir, 'web-client.json'), 'utf8')).disabled, true);
+  await web.remove();
+  const kept = await new WebClient(dir, { auth, builtin: null }).load();
+  await kept.install(bundle());
+  assert.deepEqual([kept.status().enabled, kept.available], [false, false], 'deleting and uploading again keeps the switch off');
+
+  // An older Host left enabled:false behind when its bundle was deleted: the next upload is on.
+  const old = await mkdtemp(join(tmpdir(), 'rokbot-web-old-'));
+  t.after(() => rm(old, { recursive: true, force: true }));
+  await writeFile(join(old, 'web-client.json'), JSON.stringify({ version: 1, enabled: false, installedAt: null }));
+  const legacy = await new WebClient(old, { auth, builtin: null }).load();
+  assert.equal(legacy.status().enabled, true);
+  assert.equal((await legacy.install(bundle())).available, true);
+  // An older Host turned off with the switch stays off.
+  await writeFile(join(old, 'web-client.json'), JSON.stringify({ version: 1, enabled: false, installedAt: '2026-11-01T00:00:00.000Z' }));
+  const off = await new WebClient(old, { auth, builtin: null }).load();
+  assert.deepEqual([off.installed, off.status().enabled, off.available, off.source], [true, false, false, 'upload']);
+});
+
+test('a Host image bundle serves without an upload, an upload takes precedence and a new image replaces its own', async t => {
+  const { dir, auth } = await fixture(t);
+  assert.equal(builtinBundlePath({ ROKBOT_WEB_BUNDLE: 'none' }), null);
+  assert.equal(builtinBundlePath({ ROKBOT_WEB_BUNDLE: '' }), null);
+  assert.equal(builtinBundlePath({ ROKBOT_WEB_BUNDLE: '/x/web.zip' }), '/x/web.zip');
+  assert.match(builtinBundlePath({}), /[\/]web-bundle[\/]web\.zip$/);
+  const image = join(dir, 'image-web.zip');
+  await writeFile(image, bundle(bundleFiles('1.2.3'), { version: '1.2.3' }));
+  const data = join(dir, 'data');
+  const web = await new WebClient(data, { auth, builtin: image }).load();
+  assert.deepEqual([web.status().builtin, web.status().enabled], [true, true]);
+  await web.installing;
+  assert.deepEqual([web.available, web.source, web.status().rendererVersion], [true, 'builtin', '1.2.3']);
+  await assert.rejects(web.remove(), /内置界面包不能删除/);
+
+  // A restart with the same image keeps the installed copy; an upload replaces it and stays.
+  const stat = JSON.parse(await readFile(join(data, 'web-client.json'), 'utf8'));
+  const again = await new WebClient(data, { auth, builtin: image }).load();
+  await again.installing;
+  assert.equal(JSON.parse(await readFile(join(data, 'web-client.json'), 'utf8')).installedAt, stat.installedAt);
+  await again.install(bundle(bundleFiles('1.2.4'), { version: '1.2.4' }));
+  await writeFile(image, bundle(bundleFiles('1.2.5'), { version: '1.2.5' }));
+  const uploaded = await new WebClient(data, { auth, builtin: image }).load();
+  await uploaded.installing;
+  assert.deepEqual([uploaded.source, uploaded.status().rendererVersion], ['upload', '1.2.4'], 'the upload takes precedence');
+
+  // Deleting the upload falls back to the image's bundle, and the switch still applies to it.
+  await uploaded.setEnabled(false);
+  const removed = await uploaded.remove();
+  assert.deepEqual([removed.installed, removed.source, removed.rendererVersion, removed.enabled, removed.available],
+    [true, 'builtin', '1.2.5', false, false]);
+  await uploaded.setEnabled(true);
+  assert.equal(uploaded.available, true);
+
+  // A new image with a different bundle replaces the one the previous image installed.
+  await writeFile(image, bundle(bundleFiles('1.2.6'), { version: '1.2.6' }));
+  const updated = await new WebClient(data, { auth, builtin: image }).load();
+  await updated.installing;
+  assert.deepEqual([updated.source, updated.status().rendererVersion, updated.available], ['builtin', '1.2.6', true]);
+
+  // A broken image bundle is logged and leaves the Host without one rather than failing to start.
+  const brokenData = join(dir, 'broken');
+  const broken = join(dir, 'broken.zip');
+  await writeFile(broken, 'not a zip');
+  const errors = [];
+  t.mock.method(console, 'error', message => errors.push(String(message)));
+  const none = await new WebClient(brokenData, { auth, builtin: broken }).load();
+  await none.installing;
+  assert.deepEqual([none.installed, none.available], [false, false]);
+  assert.match(errors.join('\n'), /built-in bundle not installed/);
+  // Without an image bundle the switch still needs an upload first.
+  const plain = await new WebClient(join(dir, 'plain'), { auth, builtin: join(dir, 'missing.zip') }).load();
+  assert.equal(plain.status().builtin, false);
+  await assert.rejects(plain.setEnabled(true), /请先上传/);
 });
 
 test('the browser cookie is a device token only for web devices, with the header and the Host origin', async t => {
