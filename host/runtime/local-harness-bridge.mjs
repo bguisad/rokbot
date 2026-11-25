@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
 
@@ -175,6 +175,47 @@ function normalizeAttachmentPath(rawPath) {
     }
   }
   return trimmed;
+}
+
+const BOX_ATTACHMENT_TIMEOUT_MS = 120_000;
+
+function isPathInside(root, path) {
+  if (!root) return false;
+  const rel = relative(resolve(root), resolve(path));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/**
+ * SendToUser/SendToAgent call the runner's `ingestAttachment(sourcePath)` and expect the Host path
+ * of the saved copy. The attachments extension's `ingest` is `(agentDir, sourcePath)` and only reads
+ * the Host filesystem, so bind the agent dir and fetch box files (e.g. /workspace/...) from the box.
+ */
+export function createAttachmentIngest({ library, attachmentsExt, remoteBox, agentId, agentDir, timeoutMs = BOX_ATTACHMENT_TIMEOUT_MS } = {}) {
+  if (typeof attachmentsExt?.ingest !== 'function') return undefined;
+  return async function ingestAttachment(sourcePath) {
+    const path = normalizeAttachmentPath(sourcePath);
+    const onBox = path.length > 0 && isAbsolute(path) && !isPathInside(agentDir, path) &&
+      typeof remoteBox?.downloadFile === 'function' && typeof attachmentsExt.upload === 'function';
+    if (!onBox) return (await attachmentsExt.ingest(agentDir, path)).absolutePath;
+
+    const [ctx, cancel] = library.createContext().withCancel();
+    const timer = setTimeout(() => cancel(new Error('Attachment download from the box timed out')), timeoutMs);
+    let bytes;
+    try {
+      bytes = await remoteBox.downloadFile(ctx, agentId, path);
+    } catch (error) {
+      throw new Error(`No readable file at ${path} on the box (${error?.message ?? error}).`, { cause: error });
+    } finally {
+      clearTimeout(timer);
+      cancel();
+    }
+    const saved = await attachmentsExt.upload({
+      agentId,
+      filename: basename(path),
+      bytesBase64: Buffer.from(bytes ?? []).toString('base64'),
+    });
+    return saved.path;
+  };
 }
 
 function parseDataUrlBytes(dataUrl) {
@@ -606,7 +647,7 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     webFetchService: inferenceExt?.createWebFetch?.(),
     generateImageService,
     generateImageResourceAccessor,
-    ingestAttachment: attachmentsExt?.ingest,
+    ingestAttachment: createAttachmentIngest({ library, attachmentsExt, remoteBox, agentId, agentDir }),
     persistImage,
     readMediaDimensions: attachmentsExt?.readMediaDimensions,
     getAgentId: () => agentId,
