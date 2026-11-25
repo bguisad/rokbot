@@ -118,7 +118,31 @@ public final class UpdateManager {
         }
     }
 
+    /** Non-2xx answer from the update feed or download endpoint (404 = nothing published yet). */
+    public static final class HttpStatusException extends IOException {
+        public final int status;
+
+        HttpStatusException(int status, String message) {
+            super(message);
+            this.status = status;
+        }
+    }
+
     private UpdateManager() {}
+
+    /** Android only replaces an installed package with an equal or higher versionCode; we only offer strictly higher ones. */
+    public static boolean isNewerVersionCode(long installedVersionCode, long availableVersionCode) {
+        return availableVersionCode > 0 && availableVersionCode > installedVersionCode;
+    }
+
+    public static String getInstalledVersionName(Context context) {
+        try {
+            PackageInfo pi = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            return pi.versionName != null ? pi.versionName : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
 
     public static String getCurrentVersionLabel(Context context) {
         try {
@@ -534,15 +558,30 @@ public final class UpdateManager {
         return raw.replace(":", "").trim().toLowerCase(Locale.US);
     }
 
+    /** REQUEST_INSTALL_PACKAGES is an app-op on Android 8+: the user must allow "install unknown apps" for RokBot. */
+    public static boolean canInstallPackages(Context context) {
+        if (Build.VERSION.SDK_INT < 26) return true;
+        try {
+            return context.getPackageManager().canRequestPackageInstalls();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** Opens the per-app "Install unknown apps" switch for RokBot. */
+    public static void openInstallPermissionSettings(Context context) {
+        Intent perm = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:" + context.getPackageName()));
+        perm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(perm);
+    }
+
     public static boolean launchInstaller(Context context, File apkFile) throws IOException {
         if (apkFile == null || !apkFile.isFile()) {
             throw new IOException(Localize.t(context, "更新包文件不存在", "Staged APK missing"));
         }
-        if (Build.VERSION.SDK_INT >= 26 && !context.getPackageManager().canRequestPackageInstalls()) {
-            Intent perm = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:" + context.getPackageName()));
-            perm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(perm);
+        if (!canInstallPackages(context)) {
+            openInstallPermissionSettings(context);
             return false;
         }
         Uri contentUri = ApkUpdateProvider.uriFor(context, apkFile);
@@ -566,12 +605,19 @@ public final class UpdateManager {
         }
         String stagedCert = extractCertSha256(info);
         if (stagedCert == null || !stagedCert.equalsIgnoreCase(expectedCertSha256)) {
-            throw new IOException(Localize.t(ctx, "更新包签名证书与当前应用不一致", "Staged APK certificate mismatch"));
+            throw new IOException(Localize.t(ctx, "更新包签名证书与当前应用不一致，已拒绝安装", "Staged APK certificate mismatch; refusing to install"));
+        }
+        long stagedVersionCode = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+        long installedVersionCode = getInstalledVersionCode(ctx);
+        if (stagedVersionCode > 0 && installedVersionCode > 0 && stagedVersionCode < installedVersionCode) {
+            throw new IOException(Localize.t(ctx,
+                    "更新包版本号 " + stagedVersionCode + " 低于当前版本 " + installedVersionCode + "，系统无法覆盖安装",
+                    "Staged APK versionCode " + stagedVersionCode + " is lower than installed " + installedVersionCode));
         }
     }
 
     @SuppressWarnings("deprecation")
-    private static String getInstalledCertSha256(Context ctx) {
+    static String getInstalledCertSha256(Context ctx) {
         try {
             PackageManager pm = ctx.getPackageManager();
             int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
@@ -755,7 +801,7 @@ public final class UpdateManager {
         try {
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {
-                throw new IOException("HTTP " + code + " fetching " + urlStr);
+                throw new HttpStatusException(code, "HTTP " + code + " fetching " + urlStr);
             }
             try (InputStream is = new BufferedInputStream(conn.getInputStream())) {
                 return readAllBytes(is, maxBytes);
@@ -772,7 +818,7 @@ public final class UpdateManager {
         try {
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {
-                throw new IOException("HTTP " + code + " downloading update");
+                throw new HttpStatusException(code, "HTTP " + code + " downloading update");
             }
             long total = conn.getContentLengthLong();
             if (total <= 0) total = expectedSize;

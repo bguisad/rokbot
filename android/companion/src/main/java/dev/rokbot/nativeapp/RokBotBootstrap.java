@@ -161,6 +161,7 @@ public class RokBotBootstrap {
                     // Returning from ProfileActivity or another app: repaint, then re-fetch.
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
                     HostProfile.refresh(activity, false);
+                    AppUpdater.onReactActivityResumed(activity);
                 }
             }
 
@@ -208,6 +209,8 @@ public class RokBotBootstrap {
             Context ctx = app != null ? app : activity.getApplicationContext();
             PushManager.getInstance(ctx).onForegroundChanged(true);
             HostProfile.refresh(ctx, true);
+            // Cold start and every return to the foreground; AppUpdater throttles to once per 6 h.
+            AppUpdater.onAppForeground(activity);
         }
     }
 
@@ -925,6 +928,7 @@ public class RokBotBootstrap {
     private static final int TAG_HOOKED_CLICK = 0x67626f74;
     private static final int TAG_OVERRIDDEN_TARGET = 0x67626f75;
     private static final int TAG_IDENTITY_ROLE = 0x67626f76;
+    private static final int TAG_VERSION_LINE = 0x67626f77;
 
     private static final class PendingTap {
         final Class<?> target;
@@ -1788,6 +1792,12 @@ public class RokBotBootstrap {
         if (isSwitchLikeView(view)) return null;
         boolean paired = Storage.isPaired(activity);
         String label = extractViewText(view);
+        if (paired && label != null && (isRnView(view) || isReactActivity(activity))
+                && (isUpdateEntryLabel(label) || (view instanceof TextView && isVersionLine(activity, (TextView) view, label.trim())))) {
+            // SettingsSheet About version line and the official "Update to latest version" entry
+            // open our Host update channel instead of the Play Store.
+            return view.getWidth() > 0 && view.getHeight() > 0 ? UpdateActivity.class : null;
+        }
         Object tag = view.getTag(TAG_OVERRIDDEN_TARGET);
         if (tag instanceof String) {
             if (label != null && label.trim().equals(tag)) {
@@ -1934,6 +1944,104 @@ public class RokBotBootstrap {
         } catch (Throwable t) {
             android.util.Log.w("RokBotBootstrap", "launchNativeTarget failed for " + dest.getSimpleName(), t);
         }
+    }
+
+    // ---- Host update channel in the RN SettingsSheet ----
+
+    /** The official build's "Update to latest version" entry (it opened the Play Store). */
+    static boolean isUpdateEntryLabel(String raw) {
+        if (raw == null) return false;
+        String s = raw.trim();
+        return s.equalsIgnoreCase("Update to latest version") || s.equals("更新到最新版本") || s.equals("更新至最新版本");
+    }
+
+    /** expo-application renders the About block line as "versionName (versionCode)". */
+    static String rnVersionLine(String versionName, long versionCode) {
+        if (versionName == null || versionName.isEmpty() || versionCode <= 0) return null;
+        return versionName + " (" + versionCode + ")";
+    }
+
+    private static String rnVersionLine(Context context) {
+        return rnVersionLine(UpdateManager.getInstalledVersionName(context), UpdateManager.getInstalledVersionCode(context));
+    }
+
+    private static boolean isVersionLine(Context context, TextView tv, String label) {
+        if (tv instanceof android.widget.EditText) return false;
+        Object tag = tv.getTag(TAG_VERSION_LINE);
+        if (tag instanceof String && label.equals(tag)) return true;
+        String base = rnVersionLine(context);
+        return base != null && base.equals(label);
+    }
+
+    /** Appends "· 已是最新版本" / "· 有新版本" to the About version line and makes room for it. */
+    private static void applyVersionLine(Activity activity, TextView tv, String label) {
+        if (!isReactActivity(activity) && !isRnView(tv)) return;
+        Object tag = tv.getTag(TAG_VERSION_LINE);
+        String base = rnVersionLine(activity);
+        boolean ours = tag instanceof String && label.equals(tag);
+        if (base == null || (!ours && !base.equals(label))) {
+            if (tag != null) tv.setTag(TAG_VERSION_LINE, null);
+            return;
+        }
+        int st = AppUpdater.state();
+        String[] candidates;
+        if (st == AppUpdater.STATE_CHECKING || st == AppUpdater.STATE_ERROR || st == AppUpdater.STATE_IDLE) {
+            // Keep the last shown status while re-checking; fall back to the bare version otherwise.
+            candidates = new String[] { ours ? label : base };
+        } else {
+            candidates = AppUpdater.versionLineCandidates(base, UpdateManager.getInstalledVersionName(activity),
+                    st, Localize.isChinese(activity));
+        }
+        String want = candidates[candidates.length - 1];
+        int widenTo = -1;
+        try {
+            for (String c : candidates) {
+                int need = (int) Math.ceil(tv.getPaint().measureText(c)) + tv.getPaddingLeft() + tv.getPaddingRight() + 2;
+                if (tv.getWidth() <= 0 || need <= tv.getWidth()) { want = c; widenTo = -1; break; }
+                if (canWidenCentered(tv, need)) { want = c; widenTo = need; break; }
+            }
+        } catch (Throwable ignored) {}
+        tv.setTag(TAG_VERSION_LINE, want);
+        if (!want.equals(label)) {
+            tv.setText(want);
+        }
+        try {
+            tv.setMaxLines(1);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            if (widenTo > tv.getWidth()) {
+                int extra = widenTo - tv.getWidth();
+                int left = tv.getLeft() - extra / 2;
+                tv.setGravity(android.view.Gravity.CENTER_HORIZONTAL | (tv.getGravity() & android.view.Gravity.VERTICAL_GRAVITY_MASK));
+                tv.layout(left, tv.getTop(), left + widenTo, tv.getBottom());
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * RN sized the line (and its centered About column) for the bare version. Growing it symmetrically
+     * past the column is fine as long as no clipping ancestor would cut the wider text.
+     */
+    private static boolean canWidenCentered(TextView tv, int need) {
+        int[] loc = new int[2];
+        tv.getLocationOnScreen(loc);
+        int center = loc[0] + tv.getWidth() / 2;
+        int l = center - need / 2;
+        int r = l + need;
+        android.view.ViewParent p = tv.getParent();
+        for (int depth = 0; p instanceof ViewGroup && depth < 12; depth++) {
+            ViewGroup g = (ViewGroup) p;
+            if (g.getClipChildren() || isScrollableContainer(g)) {
+                g.getLocationOnScreen(loc);
+                return l >= loc[0] && r <= loc[0] + g.getWidth();
+            }
+            p = g.getParent();
+        }
+        return false;
+    }
+
+    /** AppUpdater state changed: refresh the version line on visible RN screens. */
+    static void onUpdateStateChanged() {
+        rescanCurrentActivityIdentity();
     }
 
     // ---- Host profile over the pinned bundle's synthetic identity (iOS RBReplaceProfileView parity) ----
@@ -2142,6 +2250,7 @@ public class RokBotBootstrap {
             }
             if (paired && view instanceof TextView && !(view instanceof android.widget.EditText)) {
                 applyIdentityText(activity, (TextView) view, label.trim());
+                applyVersionLine(activity, (TextView) view, label.trim());
             }
             if (SYNTHETIC_IDENTITY_AVATAR.equalsIgnoreCase(label.trim())) {
                 applyAvatarOverlay(activity, view, paired);

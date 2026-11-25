@@ -66,7 +66,6 @@ public class PairingActivity extends Activity {
     private String mDraftCode = null;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private volatile boolean mDestroyed = false;
-    private static volatile boolean sSessionAutoUpdateChecked = false;
 
     private LinearLayout mNeedsModelBanner;
     private LinearLayout mUpdateBannerCard;
@@ -501,7 +500,7 @@ public class PairingActivity extends Activity {
         LinearLayout quickGrid4 = new LinearLayout(this);
         quickGrid4.setOrientation(LinearLayout.HORIZONTAL);
         mCheckUpdatesBtn = UiChrome.makePillButton(this, Localize.t(this, "检查更新", "Check for Updates"), false, p,
-                v -> runUpdateCheck(true));
+                v -> startActivity(new Intent(this, UpdateActivity.class)));
         mCheckUpdatesBtn.setContentDescription("check_for_updates_button");
         mCheckUpdatesBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         quickGrid4.addView(mCheckUpdatesBtn);
@@ -525,7 +524,6 @@ public class PairingActivity extends Activity {
                     mAvailableUpdate = null;
                     mStagedUpdateApk = null;
                     mPendingInstallAfterPerm = false;
-                    sSessionAutoUpdateChecked = false;
                     PushManager.getInstance(this).onForegroundChanged(false);
                     NotificationService.sync(this);
                     RokBotBootstrap.reloadReactHost(this);
@@ -539,11 +537,9 @@ public class PairingActivity extends Activity {
         UiChrome.applyRootInsets(this, scroll);
 
         refreshNeedsModelBanner();
+        // Automatic checks, prompts and installs live in AppUpdater / UpdateActivity.
         if (mAvailableUpdate != null) {
             renderAvailableUpdateBanner(mAvailableUpdate);
-        } else if (!sSessionAutoUpdateChecked) {
-            sSessionAutoUpdateChecked = true;
-            runUpdateCheck(false);
         }
     }
 
@@ -1237,6 +1233,9 @@ public class PairingActivity extends Activity {
                 // New pairing: drop the previous Host's profile and fetch this Host's one.
                 HostProfile.clear();
                 HostProfile.refresh(this, true);
+                // ...and this Host's Android update channel.
+                AppUpdater.onPairingChanged(this);
+                AppUpdater.onAppForeground(this);
 
                 boolean needsModel = false;
                 try {

@@ -254,6 +254,18 @@ public class Storage {
         ed.commit();
     }
 
+    public static long getLongPref(Context context, String key, long defaultValue) {
+        try {
+            return prefs(context).getLong(key, defaultValue);
+        } catch (ClassCastException e) {
+            return defaultValue;
+        }
+    }
+
+    public static void setLongPref(Context context, String key, long value) {
+        prefs(context).edit().putLong(key, value).commit();
+    }
+
     public static String getThemePreference(Context context) {
         return prefs(context).getString("theme_mode", "auto");
     }
