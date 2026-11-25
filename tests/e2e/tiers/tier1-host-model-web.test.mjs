@@ -831,6 +831,10 @@ export function registerTests(test, ctx) {
       ctx.assert.ok(bootData.includes('x-rokbot-web'));
       const gateway = await readFile(path.join(ctx.repoRoot, 'web', 'client', 'gateway.js'), 'utf8');
       ctx.assert.ok(/COORDINATOR_VERSION\s*=\s*3/.test(gateway));
+      const webShell = await readFile(path.join(ctx.repoRoot, 'web', 'client', 'web-shell.js'), 'utf8');
+      ctx.assert.ok(webShell.includes("../client/icon.png"));
+      const webCss = await readFile(path.join(ctx.repoRoot, 'web', 'client', 'web.css'), 'utf8');
+      ctx.assert.ok(webCss.includes('.sand-grok-bot-mark'));
     }
   });
 }
