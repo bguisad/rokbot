@@ -208,8 +208,10 @@ test('the wind chime toggle left of Search switches the order and shows its stat
   assert.equal(button.props.isSelected, false);
   assert.equal(button.props.className, 'rokbot-list-mode-toggle');
   assert.deepEqual(button.props.style, { header: true }, 'the header button style of Search and New Bot');
-  let { svg, parts } = svgParts(button.props.glyph);
+  let { icon, svg, parts } = svgParts(button.props.glyph);
   assert.equal(svg.props.viewBox, '0 0 16 16');
+  // Web phones keep the class and the marked glyph: android.css draws it as a copper bell there.
+  assert.equal(icon.props['data-rokbot-icon'], 'wind-chime');
   assert.equal(parts.filter(part => part.type === 'rect').length, 3, 'three chime tubes');
   assert.ok(parts.filter(part => part.type === 'rect').every(part => part.props.fill === 'none'), 'outlined while off');
 

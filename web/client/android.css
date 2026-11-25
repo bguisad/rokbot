@@ -134,6 +134,10 @@ html.rokbot-phone {
   --rokbot-back-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 5l-7 7 7 7'/%3E%3C/svg%3E");
   --rokbot-close-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E");
   --rokbot-chevron-down-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  /* Copper bell of the list order toggle (sort by last message): hanging loop, flared body with
+     one band, arched lip, clapper. Outlined while off; while on the body is filled. */
+  --rokbot-copper-bell-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='2.1' r='1'/%3E%3Cpath d='M5.6 3.8Q8 3.2 10.4 3.8C10.6 7.2 11.3 9.6 12.9 11.3Q8 9.9 3.1 11.3C4.7 9.6 5.4 7.2 5.6 3.8ZM5.2 7.4H10.8M8 10.7V12.6'/%3E%3Ccircle cx='8' cy='13.8' r='1' fill='black'/%3E%3C/svg%3E");
+  --rokbot-copper-bell-on-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cdefs%3E%3Cmask id='b'%3E%3Crect width='16' height='16' fill='white'/%3E%3Cpath d='M5.2 7.4H10.8' stroke='black' stroke-width='1.1'/%3E%3C/mask%3E%3C/defs%3E%3Ccircle cx='8' cy='2.1' r='1'/%3E%3Cpath d='M5.6 3.8Q8 3.2 10.4 3.8C10.6 7.2 11.3 9.6 12.9 11.3Q8 9.9 3.1 11.3C4.7 9.6 5.4 7.2 5.6 3.8Z' fill='black' mask='url(%23b)'/%3E%3Cpath d='M8 10.7V12.6'/%3E%3Ccircle cx='8' cy='13.8' r='1' fill='black'/%3E%3C/svg%3E");
   /* Bubbles of the original interface, in the official phone app's colours and sizes. */
   --sand-transcript-bubble-user-fill: var(--rokbot-bubble-user);
   --sand-transcript-bubble-user-text: #fff;
@@ -237,9 +241,9 @@ html.rokbot-phone .sand-info-pane__resize-handle {
   display: none !important;
 }
 
-/* Bot list: top-left account, top-right + button, bottom-left Connect apps button, and bottom
-   full-width Search pill (matching official phone screenshots). The bottom controls stay above
-   the official list rows (z-index 10), which reach the bottom of the screen. */
+/* Bot list: top-left account, top-right + button (with the list order toggle left of it), bottom-left
+   Connect apps button, and bottom full-width Search pill (matching official phone screenshots). The
+   bottom controls stay above the official list rows (z-index 10), which reach the bottom of the screen. */
 html.rokbot-phone .sand-agents-sidebar__header {
   height: 56px !important;
   min-height: 56px !important;
@@ -340,20 +344,28 @@ html.rokbot-phone button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):
   font-weight: 400;
   color: var(--rokbot-label-2);
 }
-/* The wind chime toggle (sort by last message) sits left of the Search field, after Connect apps;
-   while on it keeps the official selected tint of the desktop header button. */
-html.rokbot-phone button.rokbot-list-mode-toggle:not(#\#):not(#\#):not(#\#):not(#\#) {
-  position: fixed !important;
-  z-index: 11 !important;
-  left: 64px !important;
-  bottom: 12px !important;
-}
+/* The list order toggle (sort by last message) stays in the header beside New Bot, a round header
+   button like it; while on it keeps the official selected tint of the desktop header button. On
+   phones its wind chime is drawn as a copper bell, on the official 16 px grid and ~1.3 px stroke. */
 html.rokbot-phone button.rokbot-list-mode-toggle[aria-pressed="true"]:not(#\#):not(#\#):not(#\#):not(#\#) {
   background: linear-gradient(var(--sand-bg-accent-secondary), var(--sand-bg-accent-secondary)), var(--rokbot-glass) !important;
   color: var(--sand-text-accent-primary) !important;
 }
-html.rokbot-phone button.rokbot-list-mode-toggle ~ button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):not(#\#) {
-  left: 116px !important;
+html.rokbot-phone button.rokbot-list-mode-toggle [data-rokbot-icon] > svg {
+  display: none !important;
+}
+html.rokbot-phone button.rokbot-list-mode-toggle [data-rokbot-icon]::before {
+  content: "";
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: var(--rokbot-copper-bell-icon) center / 16px no-repeat;
+  mask: var(--rokbot-copper-bell-icon) center / 16px no-repeat;
+}
+html.rokbot-phone button.rokbot-list-mode-toggle[aria-pressed="true"] [data-rokbot-icon]::before {
+  -webkit-mask-image: var(--rokbot-copper-bell-on-icon);
+  mask-image: var(--rokbot-copper-bell-on-icon);
 }
 html.rokbot-phone .sand-agents-sidebar__footer button[aria-haspopup="menu"] .sand-kit-base-avatar {
   width: 44px !important;
