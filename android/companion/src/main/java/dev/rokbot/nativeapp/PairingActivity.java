@@ -1234,6 +1234,9 @@ public class PairingActivity extends Activity {
 
                 NotificationService.sync(this, true);
                 PushManager.getInstance(this).syncDeviceAsync(RokBotBootstrap.isForeground(), true);
+                // New pairing: drop the previous Host's profile and fetch this Host's one.
+                HostProfile.clear();
+                HostProfile.refresh(this, true);
 
                 boolean needsModel = false;
                 try {

@@ -2559,6 +2559,42 @@ public class VerifyR3Harness {
         accountTxt.text = "Regular chat bubble";
         check(resolveViewM.invoke(null, reactAct, accountTxt) == null, "Recycled Fabric TextView must clear stale Profile override tag");
 
+        // 3b) Host profile (GET /local/profile, F1): title -> displayName, second line -> hostName,
+        //     persisted to profileCache, and a later profile change repaints the existing rewrite.
+        FakeViewGroup profileCard = new FakeViewGroup();
+        profileCard.wPx = 680; profileCard.hPx = 120; // 340dp x 60dp SettingsSheet account row
+        FakeTextView profileTitle = new FakeTextView();
+        profileTitle.topPx = 10; profileTitle.wPx = 400; profileTitle.hPx = 48; profileTitle.text = "dev-gateway@localhost";
+        FakeTextView profileSub = new FakeTextView();
+        profileSub.topPx = 62; profileSub.wPx = 400; profileSub.hPx = 36; profileSub.text = "dev-gateway@localhost";
+        profileCard.addMockChild(profileTitle);
+        profileCard.addMockChild(profileSub);
+        Method applyProfileM = Class.forName("dev.rokbot.nativeapp.HostProfile")
+                .getDeclaredMethod("apply", android.content.Context.class, org.json.JSONObject.class);
+        applyProfileM.setAccessible(true);
+        org.json.JSONObject hostProfile = new org.json.JSONObject();
+        hostProfile.put("displayName", "IKUN");
+        hostProfile.put("hostName", "Grok Bot Host");
+        hostProfile.put("avatarDataUrl", org.json.JSONObject.NULL);
+        applyProfileM.invoke(null, reactAct, hostProfile);
+        org.json.JSONObject cachedProfile = Storage.getProfileCache(app);
+        check(cachedProfile != null && "IKUN".equals(cachedProfile.optString("displayName", "")), "HostProfile.apply must persist profileCache");
+        scanViewsM.invoke(null, reactAct, profileCard);
+        check("IKUN".equals(String.valueOf(profileTitle.getText())), "Account title must show Host displayName: " + profileTitle.getText());
+        check("Grok Bot Host".equals(String.valueOf(profileSub.getText())), "Account subtitle must show Host hostName: " + profileSub.getText());
+        check(resolveViewM.invoke(null, reactAct, profileTitle) == ProfileActivity.class, "Rewritten account row must still open ProfileActivity");
+        org.json.JSONObject renamed = new org.json.JSONObject();
+        renamed.put("displayName", "Xiaobai");
+        renamed.put("hostName", "RokBot Host");
+        applyProfileM.invoke(null, reactAct, renamed);
+        scanViewsM.invoke(null, reactAct, profileCard);
+        check("Xiaobai".equals(String.valueOf(profileTitle.getText())), "Profile change must repaint rewritten title: " + profileTitle.getText());
+        check("RokBot Host".equals(String.valueOf(profileSub.getText())), "Profile change must repaint rewritten subtitle: " + profileSub.getText());
+        org.json.JSONObject invalidProfile = new org.json.JSONObject();
+        invalidProfile.put("displayName", "");
+        applyProfileM.invoke(null, reactAct, invalidProfile);
+        check("Xiaobai".equals(Storage.getProfileCache(app).optString("displayName", "")), "Empty displayName must not replace the cached profile");
+
         // 4) SettingsSheet wide "Debug" row (340dp x 52dp) must NOT hijack, while compact toolbar icon (44dp x 40dp) DOES open PairingActivity
         FakeViewGroup settingsDebugRow = new FakeViewGroup();
         settingsDebugRow.wPx = 680; settingsDebugRow.hPx = 104; // 340dp x 52dp
@@ -2661,7 +2697,7 @@ public class VerifyR3Harness {
         sidebarAppsCard.addMockChild(sidebarEmail);
         sidebarAppsCard.addMockChild(connectAppsTxt);
         scanViewsM.invoke(null, reactAct, sidebarAppsCard);
-        check("dev-gateway@localhost".equals(String.valueOf(sidebarEmail.getText())), "SidebarIdentityBar with Connect apps must NOT rewrite email");
+        check("Xiaobai".equals(String.valueOf(sidebarEmail.getText())), "SidebarIdentityBar must show Host displayName: " + sidebarEmail.getText());
         check(resolveViewM.invoke(null, reactAct, sidebarEmail) == null, "SidebarIdentityBar with Connect apps must NOT open ProfileActivity");
 
         FakeViewGroup sidebarFooterWrap = new FakeViewGroup();
@@ -2716,7 +2752,7 @@ public class VerifyR3Harness {
         sbRoot.addMockChild(sbRow1Wrap);
         sbRoot.addMockChild(sbRow2);
         scanViewsM.invoke(null, reactAct, sbRoot);
-        check("dev-gateway@localhost".equals(String.valueOf(sbEmail4.getText())), "4-level SidebarIdentityBar (>48 nodes) must NOT rewrite email");
+        check("Xiaobai".equals(String.valueOf(sbEmail4.getText())), "4-level SidebarIdentityBar (>48 nodes) must show Host displayName: " + sbEmail4.getText());
         check(resolveViewM.invoke(null, reactAct, sbEmail4) == null, "4-level SidebarIdentityBar must NOT hijack ProfileActivity");
 
         // 11) Wrapped right-slot header bar (depth=1 inside 70dp header) with 160dp Connect to Host pill -> PairingActivity

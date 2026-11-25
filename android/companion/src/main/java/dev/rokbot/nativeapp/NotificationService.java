@@ -564,6 +564,8 @@ public class NotificationService extends Service {
                             public void onConnected() {
                                 releaseWakeLock(wl);
                                 updateForegroundNotification(false);
+                                // Host connection (re)established: pick up profile edits made elsewhere.
+                                HostProfile.refresh(NotificationService.this, true);
                             }
 
                             @Override

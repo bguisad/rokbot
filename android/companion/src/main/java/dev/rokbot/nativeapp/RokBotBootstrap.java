@@ -70,6 +70,8 @@ public class RokBotBootstrap {
 
         Storage.init(app);
         clearExpoCache(app);
+        // Paint the cached Host profile on cold start, repaint whenever a fresh one arrives.
+        HostProfile.setListener(RokBotBootstrap::rescanCurrentActivityIdentity);
         installNetworkInterceptor(app);
         NotificationService.createChannels(app);
         TailcatManager.get().setResetListener(() -> NotificationService.poke(app));
@@ -155,6 +157,11 @@ public class RokBotBootstrap {
                 }
                 hookExpoClientsFromActivity(app, activity);
                 maybeAttachRnViewInterceptor(activity);
+                if (isReactActivity(activity) && Storage.isPaired(activity)) {
+                    // Returning from ProfileActivity or another app: repaint, then re-fetch.
+                    getMainHandler().post(() -> rescanActivityIdentity(activity));
+                    HostProfile.refresh(activity, false);
+                }
             }
 
             @Override
@@ -200,6 +207,7 @@ public class RokBotBootstrap {
             Application app = activity.getApplication();
             Context ctx = app != null ? app : activity.getApplicationContext();
             PushManager.getInstance(ctx).onForegroundChanged(true);
+            HostProfile.refresh(ctx, true);
         }
     }
 
@@ -916,6 +924,7 @@ public class RokBotBootstrap {
 
     private static final int TAG_HOOKED_CLICK = 0x67626f74;
     private static final int TAG_OVERRIDDEN_TARGET = 0x67626f75;
+    private static final int TAG_IDENTITY_ROLE = 0x67626f76;
 
     private static final class PendingTap {
         final Class<?> target;
@@ -1029,12 +1038,14 @@ public class RokBotBootstrap {
                 attachWindowTouchInterceptor(activity);
                 View decor = activity.getWindow() != null ? activity.getWindow().getDecorView() : null;
                 if (decor == null) return;
+                pruneAvatarOverlays(activity);
                 scanAndWireRnViews(activity, decor);
                 final boolean[] scanScheduled = new boolean[1];
                 final Runnable scanTask = () -> {
                     scanScheduled[0] = false;
                     if (activity.isFinishing() || activity.isDestroyed()) return;
                     try {
+                        pruneAvatarOverlays(activity);
                         scanAndWireRnViews(activity, decor);
                     } catch (Throwable ignored) {}
                 };
@@ -1925,6 +1936,199 @@ public class RokBotBootstrap {
         }
     }
 
+    // ---- Host profile over the pinned bundle's synthetic identity (iOS RBReplaceProfileView parity) ----
+
+    private static final String SYNTHETIC_IDENTITY = "dev-gateway@localhost";
+    private static final String SYNTHETIC_IDENTITY_AVATAR = "dev-gateway@localhost avatar";
+    private static final int IDENTITY_ROLE_TITLE = 1;
+    private static final int IDENTITY_ROLE_SUBTITLE = 2;
+    private static final WeakHashMap<View, AvatarOverlay> sAvatarOverlays = new WeakHashMap<>();
+
+    /** First identity line: Host displayName (falls back to the Host address until a profile is known). */
+    private static String identityTitle(Context context) {
+        String name = HostProfile.displayName(context);
+        return name != null && !name.isEmpty() ? name : resolveDisplayHostLabel(context);
+    }
+
+    /** Second identity line in the SettingsSheet account row: Host name, like iOS RBProfileHostName. */
+    private static String identitySubtitle(Context context) {
+        String host = HostProfile.hostName(context);
+        return host != null && !host.isEmpty() ? host : resolveDisplayHostLabel(context);
+    }
+
+    /**
+     * The SettingsSheet account row renders the synthetic email twice (title + subtitle). A text
+     * that has an identity sibling above it in the same column is the subtitle.
+     */
+    private static boolean isIdentitySubtitle(TextView tv) {
+        if (!(tv.getParent() instanceof ViewGroup)) return false;
+        ViewGroup parent = (ViewGroup) tv.getParent();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View sib = parent.getChildAt(i);
+            if (sib == tv || !(sib instanceof TextView)) continue;
+            CharSequence t = ((TextView) sib).getText();
+            boolean identity = (t != null && SYNTHETIC_IDENTITY.equalsIgnoreCase(t.toString().trim()))
+                    || Integer.valueOf(IDENTITY_ROLE_TITLE).equals(sib.getTag(TAG_IDENTITY_ROLE));
+            if (identity && sib.getTop() < tv.getTop()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Rewrites {@code dev-gateway@localhost} (and our own earlier rewrite, when the profile changed)
+     * to the Host profile. Applies everywhere the synthetic user is shown, including the sidebar
+     * SidebarIdentityBar; which taps open ProfileActivity is still decided by resolveIdentityContainer.
+     */
+    private static void applyIdentityText(Activity activity, TextView tv, String label) {
+        Object role = tv.getTag(TAG_IDENTITY_ROLE);
+        Object tag = tv.getTag(TAG_OVERRIDDEN_TARGET);
+        boolean synthetic = SYNTHETIC_IDENTITY.equalsIgnoreCase(label);
+        boolean ours = role instanceof Integer && tag instanceof String && label.equals(tag);
+        if (!synthetic && !ours) return;
+        int r = ours ? (Integer) role : (isIdentitySubtitle(tv) ? IDENTITY_ROLE_SUBTITLE : IDENTITY_ROLE_TITLE);
+        String want = r == IDENTITY_ROLE_SUBTITLE ? identitySubtitle(activity) : identityTitle(activity);
+        tv.setTag(TAG_IDENTITY_ROLE, r);
+        tv.setTag(TAG_OVERRIDDEN_TARGET, want);
+        if (!want.equals(label)) {
+            tv.setText(want);
+            try {
+                // RN measured the width for the synthetic email; never wrap into a second line.
+                tv.setMaxLines(1);
+                tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    /**
+     * Draws the Host avatar (or a coloured initial) over the synthetic user's avatar through the
+     * parent's ViewGroupOverlay: it paints above the RN letter sibling, follows the parent's
+     * transforms and scrolling, and never receives touches, so the RN Account button still opens
+     * SettingsSheet.
+     */
+    private static void applyAvatarOverlay(Activity activity, View avatarView, boolean paired) {
+        try {
+            AvatarOverlay ov = sAvatarOverlays.get(avatarView);
+            boolean usable = paired && HostProfile.hasProfile(activity)
+                    && avatarView.getParent() instanceof ViewGroup
+                    && avatarView.getWidth() > 0 && avatarView.getHeight() > 0;
+            if (!usable) {
+                if (ov != null) removeAvatarOverlay(avatarView, ov);
+                return;
+            }
+            ViewGroup host = (ViewGroup) avatarView.getParent();
+            if (ov != null && ov.host.get() != host) {
+                removeAvatarOverlay(avatarView, ov);
+                ov = null;
+            }
+            if (ov == null) {
+                ov = new AvatarOverlay(avatarView, host);
+                host.getOverlay().add(ov);
+                sAvatarOverlays.put(avatarView, ov);
+            }
+            int size = Math.min(avatarView.getWidth(), avatarView.getHeight());
+            long rev = HostProfile.revision();
+            if (ov.bitmap == null || ov.revision != rev || ov.sizePx != size) {
+                ov.bitmap = HostProfile.avatarBitmap(activity, size);
+                ov.revision = rev;
+                ov.sizePx = size;
+            }
+            ov.backdrop = UiChrome.isDark(activity) ? 0xFF2C2C2E : 0xFFF2F2F2;
+            ov.setBounds(0, 0, Math.max(1, host.getWidth()), Math.max(1, host.getHeight()));
+            ov.invalidateSelf();
+            host.invalidate();
+        } catch (Throwable ignored) {}
+    }
+
+    private static void removeAvatarOverlay(View avatarView, AvatarOverlay ov) {
+        sAvatarOverlays.remove(avatarView);
+        try {
+            ViewGroup host = ov.host.get();
+            if (host != null) {
+                host.getOverlay().remove(ov);
+                host.invalidate();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /** Drops overlays whose avatar view was recycled by Fabric, moved, detached or unpaired. */
+    private static void pruneAvatarOverlays(Activity activity) {
+        try {
+            boolean paired = Storage.isPaired(activity);
+            for (View v : new ArrayList<>(sAvatarOverlays.keySet())) {
+                AvatarOverlay ov = sAvatarOverlays.get(v);
+                if (ov == null) continue;
+                CharSequence desc = v.getContentDescription();
+                boolean stale = !paired || !HostProfile.hasProfile(activity)
+                        || desc == null || !SYNTHETIC_IDENTITY_AVATAR.equalsIgnoreCase(desc.toString().trim())
+                        || v.getParent() != ov.host.get() || !v.isAttachedToWindow();
+                if (stale) removeAvatarOverlay(v, ov);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    static void rescanActivityIdentity(Activity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+        try {
+            View decor = activity.getWindow() != null ? activity.getWindow().getDecorView() : null;
+            if (decor == null) return;
+            pruneAvatarOverlays(activity);
+            scanAndWireRnViews(activity, decor);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void rescanCurrentActivityIdentity() {
+        Activity a = sCurrentActivity.get();
+        if (a != null) rescanActivityIdentity(a);
+        Activity main = sLastMainActivity.get();
+        if (main != null && main != a) rescanActivityIdentity(main);
+    }
+
+    private static final class AvatarOverlay extends android.graphics.drawable.Drawable {
+        final WeakReference<View> avatar;
+        final WeakReference<ViewGroup> host;
+        final android.graphics.Paint paint = new android.graphics.Paint(
+                android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
+        final android.graphics.RectF dst = new android.graphics.RectF();
+        android.graphics.Bitmap bitmap;
+        long revision = -1;
+        int sizePx;
+        int backdrop = 0xFFF2F2F2;
+        int alpha = 255;
+
+        AvatarOverlay(View avatarView, ViewGroup hostView) {
+            avatar = new WeakReference<>(avatarView);
+            host = new WeakReference<>(hostView);
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            View a = avatar.get();
+            if (a == null || bitmap == null || a.getParent() != host.get()
+                    || a.getVisibility() != View.VISIBLE || a.getAlpha() <= 0f) {
+                return;
+            }
+            CharSequence desc = a.getContentDescription();
+            if (desc == null || !SYNTHETIC_IDENTITY_AVATAR.equalsIgnoreCase(desc.toString().trim())) return;
+            float w = a.getWidth();
+            float h = a.getHeight();
+            float size = Math.min(w, h);
+            float left = a.getX() + (w - size) / 2f;
+            float top = a.getY() + (h - size) / 2f;
+            dst.set(left, top, left + size, top + size);
+            int a8 = Math.round(alpha * Math.max(0f, Math.min(1f, a.getAlpha())));
+            paint.setShader(null);
+            paint.setColor(backdrop);
+            paint.setAlpha(a8);
+            canvas.drawOval(dst, paint);
+            paint.setAlpha(a8);
+            canvas.drawBitmap(bitmap, null, dst, paint);
+        }
+
+        @Override public void setAlpha(int a) { alpha = a; }
+        @Override public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+    }
+
     private static void scanAndWireRnViews(Activity activity, View view) {
         if (view == null) return;
         String label = extractViewText(view);
@@ -1934,15 +2138,13 @@ public class RokBotBootstrap {
             Object tag = view.getTag(TAG_OVERRIDDEN_TARGET);
             if (tag instanceof String && (!paired || !label.trim().equals(tag))) {
                 view.setTag(TAG_OVERRIDDEN_TARGET, null);
+                view.setTag(TAG_IDENTITY_ROLE, null);
             }
-            if (view instanceof TextView && "dev-gateway@localhost".equalsIgnoreCase(label.trim()) && paired) {
-                float density = Math.max(1f, activity.getResources().getDisplayMetrics().density);
-                boolean allowRewrite = !isReactActivity(activity) || resolveIdentityContainer(activity, view, density) != null;
-                if (allowRewrite) {
-                    String hostLabel = resolveDisplayHostLabel(activity);
-                    view.setTag(TAG_OVERRIDDEN_TARGET, hostLabel);
-                    ((TextView) view).setText(hostLabel);
-                }
+            if (paired && view instanceof TextView && !(view instanceof android.widget.EditText)) {
+                applyIdentityText(activity, (TextView) view, label.trim());
+            }
+            if (SYNTHETIC_IDENTITY_AVATAR.equalsIgnoreCase(label.trim())) {
+                applyAvatarOverlay(activity, view, paired);
             }
             if (!isReactActivity(activity)) {
                 Class<?> target = resolveNativeTargetForView(activity, view);

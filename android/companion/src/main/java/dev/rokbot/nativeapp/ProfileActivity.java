@@ -308,7 +308,7 @@ public class ProfileActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONObject p = HostApiClient.getProfile(this);
-                Storage.setProfileCache(this, p);
+                HostProfile.apply(this, p);
                 mMain.post(() -> {
                     String name = p.isNull("displayName") ? "" : p.optString("displayName", "");
                     mNameInput.setText(name);
@@ -329,7 +329,8 @@ public class ProfileActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONObject p = HostApiClient.updateProfile(this, name, mAvatarDataUrl);
-                Storage.setProfileCache(this, p);
+                // Persists profileCache and repaints the RN identity row/avatar immediately.
+                HostProfile.apply(this, p);
                 mMain.post(() -> {
                     Toast.makeText(this, Localize.t(this, "资料已更新", "Profile updated"), Toast.LENGTH_SHORT).show();
                     finish();

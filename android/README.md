@@ -18,7 +18,7 @@
 - **完全对齐 iOS `RBBootstrap` 的 6 个原生界面（无自制主界面、无悬浮工具栏劫持）**
   - 保留官方 RN 主启动器 `MainActivity` 及原版 Bot 列表 / 对话 / 语音 / 连接器 UI，仅拦截对应 iOS `RBBootstrap.m` 的 6 个入口：
     1. **连接 / 登录 (`PairingActivity`)**：对齐官方 Connect UI（`connect.html`）与 iOS `RBConnection.m`。
-    2. **个人资料 (`ProfileActivity`)**：查看/编辑自建 Host 个人资料（支持 `RBDELTA1` 增量补丁更新，并兼容读取旧版 `GBDELTA1`）并自动将 RN 中的 `dev-gateway@localhost` 文本替换为 Host 显示名。
+    2. **个人资料 (`ProfileActivity`)**：查看/编辑自建 Host 个人资料（支持 `RBDELTA1` 增量补丁更新，并兼容读取旧版 `GBDELTA1`）。RN 界面中原版写死的合成用户 `dev-gateway@localhost` 会被替换为 Host 用户资料（`GET /local/profile`，由 `HostProfile` 管理）：设置页账户行与侧栏 `SidebarIdentityBar` 的文字显示 `displayName`（设置页第二行显示 `hostName`），`dev-gateway@localhost avatar` 头像通过父视图的 ViewGroupOverlay 叠加 `avatarDataUrl`（无头像时显示首字母），覆盖层不拦截点击。资料缓存在 `profileCache`，冷启动先用缓存显示；连上 Host、RN 回到前台（onResume）以及 `ProfileActivity` 保存后会重新拉取。尚未拿到资料时文字回退为 Host 地址。
     3. **通知设置 (`PushSettingsActivity`)**：支持测试推送、UnifiedPush / ntfy / Webhook / FCM 配置。
     4. **Bot 资料库 (`LibraryActivity`)**：通过 `NetworkInterceptor` 自动追踪 `/api/openAgentWindowed`、`/api/getAgentTranscriptTail`、`/api/getAgentTranscript` 与 `/api/sendPrompt` 中的当前 `agentId`，按 Bot 管理文件上传、预览与删除。
     5. **Bot 电脑 (`ComputersActivity` & `ComputerViewerActivity`)**：查询 `/api/getForeverBoxStatus`、唤醒 `/api/ensureForeverBox` 并通过内置回环代理加载交互式 noVNC 桌面。

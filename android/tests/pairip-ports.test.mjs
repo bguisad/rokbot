@@ -92,7 +92,7 @@ test('Pairip ports replay upstream bodies through pinned trampolines and fail cl
   assert.match(ports, /finishQuietly\(act, "fullscreen setup failed", t\)/);
 
   const dex = fs.readFileSync(path.join(PROJECT_ROOT, 'android/bin/classes2.dex'));
-  for (const s of ['Ldev/rokbot/nativeapp/PairipActivityPorts;', 'fullscreen_options']) {
+  for (const s of ['Ldev/rokbot/nativeapp/PairipActivityPorts;', 'fullscreen_options', 'Ldev/rokbot/nativeapp/HostProfile;']) {
     assert.ok(dex.includes(Buffer.from(s)), `android/bin/classes2.dex must be rebuilt with ${s}`);
   }
 });
