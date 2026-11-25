@@ -81,6 +81,13 @@ async function stop(signal) {
   computers?.close();
   const deadline = setTimeout(() => process.exit(1), 10_000);
   deadline.unref();
+  // Persist in-flight turns/background work (and their last progress) before dispose aborts them,
+  // so the next start can tell each bot what was interrupted.
+  try {
+    host.transcript?.rokbotBackgroundRecovery?.beginShutdown(signal);
+  } catch (error) {
+    console.warn('[local-host] could not record in-flight work:', error?.message ?? error);
+  }
   await gateway?.close();
   await host.dispose();
   await executionTransport.close();

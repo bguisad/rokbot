@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
+import { BackgroundRecovery, pendingWakeFilePath, resolveBackgroundRecoveryConfig } from './background-recovery.mjs';
 
 const patchedLibraries = new WeakSet();
 
@@ -624,7 +625,7 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     lastReactionApplied: () => lastReactionApplied,
   };
 
-  return new RunnerClass({
+  const runner = new RunnerClass({
     agentStore: session.agentStore,
     inference: inferenceExt?.port,
     box,
@@ -677,6 +678,82 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     sendToAgent: createAgentMessageSender({ tm, fromAgentId: agentId, federation: federationExt }),
     transport,
   });
+  tm.rokbotBackgroundRecovery?.attachRunner(runner, agentId);
+  return runner;
+}
+
+/**
+ * Run one hidden wake turn for a bot, serialized with its other runs (the d0a4baa
+ * subagent-revival path). Resolves 'delivered', 'superseded', 'paused' or 'cancelled'.
+ */
+export async function runBackgroundWake(tm, runtimeCtx, agentId, prompt, { source = 'background-revival' } = {}) {
+  return await withBackgroundSessionLease(tm.sessions, agentId, async (session) => {
+    const runner = tm.ensureRunnerRegistry(runtimeCtx).getRunner(session);
+    let outcome = 'cancelled';
+    const task = async () => {
+      tm.runLifecycle?.beginSessionRun?.(session);
+      try {
+        const result = await runner.run(prompt, {
+          hidden: true,
+          isSilenceAllowed: true,
+          autoReviewEpoch: 'continue',
+        }, { kind: 'all' });
+        if (result?.aborted) outcome = 'superseded';
+        else if (result?.pausedForUpgrade === true) outcome = 'paused';
+        else outcome = 'delivered';
+      } finally {
+        tm.runLifecycle?.endSessionRun?.(session);
+        await tm.roster?.emitAgentUpdate?.(agentId);
+      }
+    };
+    if (tm.runLifecycle?.enqueueExclusiveRun) {
+      await tm.runLifecycle.enqueueExclusiveRun(agentId, task, {
+        lane: 'background', source, onCancelled: () => { outcome = 'cancelled'; },
+      });
+    } else {
+      await task();
+    }
+    return outcome;
+  });
+}
+
+/**
+ * Persist and deliver background work for 2bb5e41 local runners: settle wakes, restart
+ * recovery of interrupted turns/subagents/shells and the stall watchdog (see background-recovery.mjs).
+ */
+export function installBackgroundRecovery(tm, { library, extensions, sandRoot, env = process.env, config, log } = {}) {
+  if (!tm) return undefined;
+  if (tm.rokbotBackgroundRecovery) return tm.rokbotBackgroundRecovery;
+  const root = sandRoot ?? library?.getSandRootDir?.();
+  if (!root) return undefined;
+  const runtimeCtx = { extensions };
+  const gatedByResumeOwnership = Array.isArray(library?.hostExtensionRegistry)
+    && library.hostExtensionRegistry.some((extension) => extension?.id === 'resume-ownership');
+  const hostLog = log ?? ((line, level) => (level === 'error' ? console.error(line) : console.log(line)));
+  const recovery = new BackgroundRecovery({
+    filePath: pendingWakeFilePath(root),
+    config: config ?? resolveBackgroundRecoveryConfig(env),
+    log: hostLog,
+    deliver: (agentId, prompt, { source }) => runBackgroundWake(tm, runtimeCtx, agentId, prompt, { source }),
+    // resume-ownership blocks local work from its start until the startup resume released it;
+    // before it has started, the turn-execution default (allowed) says nothing about readiness.
+    isReady: () => {
+      if (tm.disposed) return false;
+      if (gatedByResumeOwnership && extensions?.('resume-ownership') === undefined) return false;
+      if (extensions?.('turn-execution')?.isLocalWorkAllowed === false) return false;
+      return (tm.getPauseState?.()?.owner ?? null) === null;
+    },
+    isAgentGone: (agentId) => tm.sessions?.isAgentGone?.(agentId) === true,
+    getRunner: async (agentId) => {
+      const session = await tm.sessions.resolveBackgroundSession(agentId);
+      return tm.ensureRunnerRegistry(runtimeCtx).getRunner(session);
+    },
+    buildCompletionPrompt: typeof library?.buildSubagentRevivalPrompt === 'function'
+      ? (completions, context) => library.buildSubagentRevivalPrompt(completions, context)
+      : undefined,
+  });
+  tm.rokbotBackgroundRecovery = recovery;
+  return recovery;
 }
 
 /**
@@ -1149,6 +1226,13 @@ export function decorateHostExtensionsFor2bb5e41(extension, api, { context, libr
       extensions: (id) => apis.get(id),
       isInferenceReady: getInferenceReady,
     });
+    if ((process.env.ROKBOT_BACKGROUND_RECOVERY ?? '1') !== '0') {
+      const recovery = installBackgroundRecovery(api, { library, extensions: (id) => apis.get(id) });
+      if (recovery) {
+        context?.onStop?.(() => recovery.dispose());
+        recovery.start();
+      }
+    }
     api.ensureRunnerRegistry?.({ extensions: (id) => apis.get(id) });
     if (typeof api.runServerScheduledAutomation !== 'function' && api.automationRuntime?.runServerScheduledAutomation) {
       api.runServerScheduledAutomation = (...args) => api.automationRuntime.runServerScheduledAutomation(...args);
