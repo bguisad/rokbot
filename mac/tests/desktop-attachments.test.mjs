@@ -183,3 +183,51 @@ test('a remote chunk failure preserves the destination and removes the partial d
   assert.equal(await readFile(f.destination, 'utf8'), 'previous contents');
   assert.deepEqual(await readdir(f.profile), [path.basename(f.destination)]);
 });
+
+test('Host video and audio attachments play from a seekable local file URL, not the image reader', async t => {
+  const mediaDir = await mkdtemp(path.join(tmpdir(), 'rokbot-media-'));
+  t.after(() => rm(mediaDir, { recursive: true, force: true }));
+  const video = Buffer.concat([Buffer.from('000000206674797069736f6d', 'hex'), Buffer.alloc(chunk + 1234, 7)]);
+  const audio = Buffer.from('ID3 fixture audio');
+  const files = { '/data/agents/a/attachments/clip.mp4': [video, 'video/mp4'], '/data/agents/a/attachments/voice.mp3': [audio, 'audio/mpeg'] };
+  const calls = [];
+  const command = async (method, args) => {
+    calls.push([method, args]);
+    assert.equal(method, 'readAttachmentChunk', 'video and audio must not go through readAttachmentImage');
+    const [bytes, mime] = files[args.path];
+    return { totalSize: bytes.length, mime, resolvedName: path.basename(args.path),
+      bytesBase64: bytes.subarray(args.offset, args.offset + Math.min(args.length, chunk)).toString('base64') };
+  };
+  const media = createAttachmentMediaResolver({ command, withStaged: async () => null, nativeImage: {}, mediaDir });
+  const source = 'file:///data/agents/a/attachments/clip.mp4';
+  const [first, second] = await Promise.all([media({ source, rendition: 'preview' }), media({ source })]);
+  assert.deepEqual(first, second);
+  assert.equal(first.kind, 'video');
+  assert.equal(first.width, null);
+  assert.match(first.src, /^file:\/\/.*\.mp4$/);
+  assert.deepEqual(await readFile(new URL(first.src)), video);
+  const reads = calls.filter(([, args]) => args.path.endsWith('clip.mp4'));
+  assert.ok(reads.every(([, args]) => args.videoPlayback === true));
+  assert.equal(reads.filter(([, args]) => args.length > 0).length, 2, 'concurrent renders share one copy');
+  calls.length = 0;
+  assert.deepEqual(await media({ source }), first);
+  assert.deepEqual(calls.map(([, args]) => args.length), [0], 'a cached copy is reused after a size probe');
+
+  const sound = await media({ source: 'file:///data/agents/a/attachments/voice.mp3' });
+  assert.equal(sound.kind, 'audio');
+  assert.deepEqual(await readFile(new URL(sound.src)), audio);
+  assert.ok(calls.filter(([, args]) => args.path.endsWith('voice.mp3')).every(([, args]) => args.videoPlayback === undefined));
+  assert.ok((await readdir(mediaDir)).every(name => !name.endsWith('.part')));
+});
+
+test('a Host video that changes or is missing while copying leaves no playable file behind', async t => {
+  const mediaDir = await mkdtemp(path.join(tmpdir(), 'rokbot-media-'));
+  t.after(() => rm(mediaDir, { recursive: true, force: true }));
+  const media = createAttachmentMediaResolver({ withStaged: async () => null, nativeImage: {}, mediaDir,
+    command: async (_method, { offset, length }) => ({ totalSize: offset ? chunk + 2 : chunk + 1, mime: 'video/mp4',
+      bytesBase64: Buffer.alloc(Math.min(length, chunk), 1).toString('base64') }) });
+  await assert.rejects(media({ source: 'file:///data/agents/a/attachments/clip.mp4' }), /changed/i);
+  assert.deepEqual(await readdir(mediaDir), []);
+  const missing = createAttachmentMediaResolver({ command: async () => null, withStaged: async () => null, nativeImage: {}, mediaDir });
+  await assert.rejects(missing({ source: 'file:///data/agents/a/attachments/gone.webm' }), /not found/i);
+});

@@ -61,6 +61,9 @@ const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'im
   mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav',
   zip: 'application/zip', html: 'text/html', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+// Same extensions as the Host's video/audio MIME tables; the original renderer plays these in a media element.
+export const playableMediaKind = name => typeof name !== 'string' ? null
+  : /\.(?:mp4|m4v|mov|webm|ogv)$/i.test(name) ? 'video' : /\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba)$/i.test(name) ? 'audio' : null;
 export const mimeFor = name => MIME[String(name).split('.').pop()?.toLowerCase()] ?? 'application/octet-stream';
 const baseName = value => String(value ?? '').split('/').filter(Boolean).pop() || 'download';
 
@@ -117,6 +120,33 @@ export function createAttachments({ command, staging, onProgress }) {
     const chunk = await request('readAttachmentChunk', { ...args, offset, length });
     return chunk === null ? null : chunkBytes(chunk, length, expectedSize);
   }
+  // The original renderer plays video and audio from a media element URL (CSP `media-src 'self' blob:`).
+  // Read the whole file through the gateway once; a blob URL keeps it seekable without Range requests.
+  const mediaUrls = new Map();
+  async function remoteMediaBlob(remote, kind) {
+    const args = { path: remote, ...(kind === 'video' ? { videoPlayback: true } : {}) };
+    const info = await request('readAttachmentChunk', { ...args, offset: 0, length: 0 });
+    if (info === null) throw new Error('Attachment not found');
+    const size = totalSize(info);
+    if (size === 0 || size > VIDEO_LIMIT) throw new Error(rokText('附件为空或过大，无法播放。', 'Attachment is empty or too large to play.'));
+    const parts = [];
+    for (let offset = 0; offset < size;) {
+      const chunk = await readChunk(args, offset, Math.min(CHUNK_BYTES, size - offset), size);
+      if (chunk === null) throw new Error('Attachment not found');
+      parts.push(chunk);
+      offset += chunk.length;
+    }
+    return new Blob(parts, { type: info.mime || mimeFor(remote) });
+  }
+  function playableMedia(key, kind, blob) {
+    let url = mediaUrls.get(key);
+    if (!url) {
+      url = Promise.resolve().then(blob).then(value => URL.createObjectURL(value));
+      url.catch(() => mediaUrls.delete(key));
+      mediaUrls.set(key, url);
+    }
+    return url.then(src => kind === 'video' ? { kind, src, width: null, height: null } : { kind, src });
+  }
   const commits = new Map();
   async function upload({ agentId, path: source, filename }, progress, cancel) {
     const staged = staging.read(source);
@@ -148,6 +178,12 @@ export function createAttachments({ command, staging, onProgress }) {
       const staged = staging.read(source);
       const remote = remoteAttachmentPath(source);
       if (!staged && (remote === null || remote.startsWith(STAGING_PREFIX))) throw new Error('Invalid attachment path');
+      const mediaKind = playableMediaKind(staged ? staged.filename : remote);
+      if (mediaKind) {
+        return staged
+          ? playableMedia(`staged\0${staging.localPath(source)}`, mediaKind, () => new Blob([staged.bytes], { type: staged.type }))
+          : playableMedia(`${mediaKind}\0${remote}`, mediaKind, () => remoteMediaBlob(remote, mediaKind));
+      }
       const result = staged ? { dataUrl: dataUrl(staged.bytes, staged.type) }
         : await command('readAttachmentImage', { path: remote, rendition: rendition === 'original' ? 'original' : 'preview' }, timeout(30000));
       if (!/^data:image\/(png|jpeg|webp|gif);base64,/.test(result?.dataUrl)) throw new Error('Unsupported attachment');
