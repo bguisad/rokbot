@@ -10,7 +10,7 @@
 
 - **官方 Split XAPK/APKS 合并与 Google Play Pairip 去校验**
   - **多分包合并 (`xapk.mjs` & `arsc.mjs`)**：纯 Node.js 解包官方 `.xapk` / `.apks` / `.apk`，剥离 `libpairipcore.so`，合并基础包、`arm64-v8a` 原生库与密度/语言分包的 `resources.arsc` 与资源文件，替换 RokBot 桌面/启动器 `mipmap-*` 图标，输出单一通用签名 APK（推荐 `android/output/rokbot-android-patched.apk`）。
-  - **Pairip 防篡改中和 (`pairip-dex.mjs`, `pairip-elf.mjs`, `PairipVmBridge`, `RokBotAppComponentFactory`)**：中和 Pairip DEX 签名/授权校验并接管 `VMRunner` 调度，清理原生 `.so` 的 `DT_NEEDED libpairipcore.so`、`DT_INIT` 跳板、`ExecuteProgram` 重定位与固定 `.data` 加密区，并移除清单中的 Pairip 与 Play 分包元数据。
+  - **Pairip 防篡改中和 (`pairip-dex.mjs`, `pairip-elf.mjs`, `PairipVmBridge`, `RokBotAppComponentFactory`)**：中和 Pairip DEX 签名/授权校验并接管 `VMRunner` 调度，清理原生 `.so` 的 `DT_NEEDED libpairipcore.so`、`DT_INIT` 跳板、`ExecuteProgram` 重定位与固定 `.data` 加密区，并移除清单中的 Pairip 与 Play 分包元数据。被 Pairip 虚拟化的 Activity 生命周期方法由 `PairipActivityPorts` 按上游源码移植执行（expo-video 全屏页的 onCreate/onPause/onDestroy、expo-web-browser `BrowserProxyActivity`、CanHub 裁剪页、Play Core 对话框、Braze WebView），不会只调 `super`；RokBot 用不到的 Play 计费与 Google 登录页返回 `RESULT_CANCELED` 并立即关闭。
 - **安全配对与多传输连接 (`PairingActivity`)**
   - 支持直接填写 `http://` / `https://` 地址、**6 位配对码 / 管理员密码**切换、**局域网 / mDNS (`_rokbot._tcp.`) 自动扫描**，以及内置 **Tailcat 加密隧道（`tailcat://connect/...`）**。
   - 原生封装 `arm64-v8a` `libgroktailcat.so` + `libgroktailcatjni.so`（强制 **16KB 页对齐**，兼容 Android 15/16；因预编译 JNI 二进制导出 `Java_dev_grokbot_local_TailcatBridge_*` 符号且仓库不含其 C JNI 源码，`dev.grokbot.local.TailcatBridge` 与该组预编译 `.so` 文件名作为二进制 ABI 兼容层保留），支持自动重连、健康探测与网络切换恢复。

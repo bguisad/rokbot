@@ -158,6 +158,28 @@ public final class PairipVmBridge {
                 case "RHhGPK9YBacRoUYw":
                 case "M6G0fpsg1qPpAo7T":
                     return null;
+                // 1.26.0 (3212) Activity.onCreate bodies that Pairip virtualized. Calling only
+                // super.onCreate left these Activities half-initialised (expo-video fullscreen
+                // crashed in onPostCreate on lateinit mContentView), so each one gets a port.
+                case "0S9N6t3pFyc7VPPl":
+                    return portedOnCreate(vmId, args, PairipActivityPorts.FULLSCREEN_PLAYER);
+                case "RKuIoSarf15NBRcX":
+                    return portedOnCreate(vmId, args, PairipActivityPorts.BROWSER_PROXY);
+                case "5q5q5Yxdr81312tm":
+                    return portedOnCreate(vmId, args, PairipActivityPorts.CROP_IMAGE);
+                case "L9rRYkEWpLsSoOnW":
+                    return portedOnCreate(vmId, args, PairipActivityPorts.PLAY_CORE_DIALOG);
+                case "GU0LCjESbvj9UT2P":
+                    return portedOnCreate(vmId, args, PairipActivityPorts.BRAZE_WEBVIEW);
+                case "sAkN0RxZouDqCE6s": // ProxyBillingActivity
+                case "SoGry6x665HebzTB": // ProxyBillingActivityV2
+                case "uX2I4kjoqIXRjoXt": // SignInHubActivity
+                    if (args.length > 0 && args[0] instanceof Activity) {
+                        PairipActivityPorts.cancelUnsupportedOnCreate(
+                                (Activity) args[0], PairipActivityPorts.bundleArg(args), "onCreate$001");
+                    }
+                    return null;
+                // Legacy 1.16.0 ids (not present in the 1.26.0 dex).
                 case "Kxck2Zh2u5FhF1tJ":
                 case "5IFjnPl4DG0uh4Kg":
                 case "t5fsBS6auL9smZvu":
@@ -167,22 +189,40 @@ public final class PairipVmBridge {
                 case "PUVMLsjjxw6ZKJms":
                 case "Pkq2lQp4VRLsamk4":
                 case "yPnWNF0r6C07GQhs":
-                case "0S9N6t3pFyc7VPPl":
-                case "sAkN0RxZouDqCE6s":
-                case "SoGry6x665HebzTB":
-                case "GU0LCjESbvj9UT2P":
-                case "5q5q5Yxdr81312tm":
-                case "uX2I4kjoqIXRjoXt":
-                case "L9rRYkEWpLsSoOnW":
-                case "RKuIoSarf15NBRcX":
                     handleGenericActivityOnCreate(args);
                     return null;
+                case "I5hfm577V3jsppLY": { // FullscreenPlayerActivity.onDestroy
+                    Activity act = PairipActivityPorts.activityArg(args, PairipActivityPorts.FULLSCREEN_PLAYER);
+                    if (act != null) {
+                        try {
+                            PairipActivityPorts.fullscreenPlayerOnDestroy(act);
+                            return null;
+                        } catch (Throwable t) {
+                            Log.w(TAG, "FullscreenPlayerActivity.onDestroy port failed", t);
+                            return null; // super.onDestroy already ran first inside the port
+                        }
+                    }
+                    callZeroArgSynthetic(args, "onDestroy$001", Activity.class);
+                    return null;
+                }
+                case "v9LqZUpcQtcB3Nwo": { // FullscreenPlayerActivity.onPause
+                    Activity act = PairipActivityPorts.activityArg(args, PairipActivityPorts.FULLSCREEN_PLAYER);
+                    if (act != null) {
+                        try {
+                            PairipActivityPorts.fullscreenPlayerOnPause(act);
+                            return null;
+                        } catch (Throwable t) {
+                            Log.w(TAG, "FullscreenPlayerActivity.onPause port failed", t);
+                            return null; // the port's finally block always calls super.onPause
+                        }
+                    }
+                    callZeroArgSynthetic(args, "onPause$009", Activity.class);
+                    return null;
+                }
                 case "WbIJsghkGJChf1aD":
-                case "I5hfm577V3jsppLY":
                     callZeroArgSynthetic(args, "onDestroy$001", Activity.class);
                     return null;
                 case "64riMf9qOhm1Imox":
-                case "v9LqZUpcQtcB3Nwo":
                     callZeroArgSynthetic(args, "onPause$009", Activity.class);
                     return null;
                 case "6w7tcpHbdgFFcnqH":
@@ -429,6 +469,49 @@ public final class PairipVmBridge {
             Log.w(TAG, "FileProvider.query fallback error", t);
             return new MatrixCursor(new String[0]);
         }
+    }
+
+    /**
+     * Runs the Java port of a virtualized Activity.onCreate. Falls back to the old super-only
+     * behaviour for unexpected classes (other builds), and finishes the Activity if the port
+     * fails after super.onCreate so the framework never reaches onStart/onPostCreate half-built.
+     */
+    private static Object portedOnCreate(String vmId, Object[] args, String expectedClass) {
+        Activity act = PairipActivityPorts.activityArg(args, expectedClass);
+        if (act == null) {
+            Log.w(TAG, "VM id " + vmId + " not on " + expectedClass + "; super-only fallback");
+            handleGenericActivityOnCreate(args);
+            return null;
+        }
+        Bundle saved = PairipActivityPorts.bundleArg(args);
+        try {
+            switch (expectedClass) {
+                case PairipActivityPorts.FULLSCREEN_PLAYER:
+                    PairipActivityPorts.fullscreenPlayerOnCreate(act, saved);
+                    break;
+                case PairipActivityPorts.BROWSER_PROXY:
+                    PairipActivityPorts.browserProxyOnCreate(act, saved);
+                    break;
+                case PairipActivityPorts.CROP_IMAGE:
+                    PairipActivityPorts.cropImageOnCreate(act, saved);
+                    break;
+                case PairipActivityPorts.PLAY_CORE_DIALOG:
+                    PairipActivityPorts.playCoreDialogOnCreate(act, saved);
+                    break;
+                case PairipActivityPorts.BRAZE_WEBVIEW:
+                    PairipActivityPorts.brazeWebViewOnCreate(act, saved);
+                    break;
+                default:
+                    handleGenericActivityOnCreate(args);
+                    break;
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, expectedClass + ".onCreate port failed; finishing", t);
+            try {
+                if (!act.isFinishing()) act.finish();
+            } catch (Throwable ignored) {}
+        }
+        return null;
     }
 
     private static void handleGenericActivityOnCreate(Object[] args) {
