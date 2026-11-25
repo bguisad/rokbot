@@ -97,6 +97,13 @@ for (const target of ['windows', 'mac']) {
     assert.match(eagerAdded, /rokListIsGroupId\(e\.id\)/);
     assert.match(eagerAdded, /e\.pendingAction==null/);
     assert.match(eagerAdded, /function rokArrangeAgents\(/);
+    // The wind chime toggle left of Search, and generated groups without menu or drag.
+    assert.match(eagerAdded, /\(0,Z\.jsx\)\(RokListModeButton,\{\}\),/);
+    assert.match(eagerAdded, /function RokListModeButton\(/);
+    assert.match(eagerAdded, /function RokWindChimeGlyph\(/);
+    assert.match(eagerAdded, /rokListIsGroupId\(n\.id\)\?null:/);
+    assert.match(eagerAdded, /disabled:rokListIsGroupId\(n\.id\)/);
+    assert.match(eagerAdded, /\|\|rokListIsGroupId\(n\.id\)/);
   });
 }
 

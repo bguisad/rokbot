@@ -146,7 +146,7 @@ test('activity mode: generated sections, local folding, and no section edits rea
   assert.equal(context.rokListGuardEdits(null), null);
   assert.equal(context.rokListIsGroupId('rokbot:pending'), true);
   assert.equal(context.rokListIsGroupId('__agents__'), false);
-  assert.equal(context.rokListGroupName('rokbot:pending', (zhText, en) => en), 'Waiting on you');
+  assert.equal(context.rokListGroupName('rokbot:pending', (zhText, en) => en), 'Needs attention');
 });
 
 test('Settings > General switches the arrangement through the shared store', () => {
@@ -178,4 +178,78 @@ test('Settings > General switches the arrangement through the shared store', () 
 
   context.__rokListArrangement = undefined;
   assert.equal(render().toggle.props.isDisabled, true, 'no app store: the toggle is shown disabled');
+});
+
+/** The extension with the app module's header parts: tooltip He, round button ET, Z (JSX). */
+function loadWithHeader(options) {
+  const page = load(options);
+  const jsx = (type, props, key) => ({ type, props, key });
+  Object.assign(page.context, { Z: { jsx, jsxs: jsx }, He: 'Tooltip', ET: 'HeaderButton', fA: { newButton: { header: true } } });
+  return page;
+}
+const svgParts = glyph => {
+  const icon = glyph.type(glyph.props);
+  return { icon, svg: icon.props.children, parts: icon.props.children.props.children };
+};
+
+test('the wind chime toggle left of Search switches the order and shows its state', () => {
+  const { context, storage } = loadWithHeader();
+  const store = context.rokListStore();
+  const render = () => {
+    const tooltip = context.RokListModeButton();
+    return { tooltip, button: tooltip.props.children };
+  };
+  let { tooltip, button } = render();
+  assert.equal(tooltip.type, 'Tooltip');
+  assert.equal(tooltip.props.content, '按最后消息时间排列');
+  assert.equal(button.type, 'HeaderButton', 'the official round header button');
+  assert.equal(button.props['aria-label'], '按最后消息时间排列');
+  assert.equal(button.props['aria-pressed'], false);
+  assert.equal(button.props.isSelected, false);
+  assert.equal(button.props.className, 'rokbot-list-mode-toggle');
+  assert.deepEqual(button.props.style, { header: true }, 'the header button style of Search and New Bot');
+  let { svg, parts } = svgParts(button.props.glyph);
+  assert.equal(svg.props.viewBox, '0 0 16 16');
+  assert.equal(parts.filter(part => part.type === 'rect').length, 3, 'three chime tubes');
+  assert.ok(parts.filter(part => part.type === 'rect').every(part => part.props.fill === 'none'), 'outlined while off');
+
+  button.props.onClick();
+  assert.equal(store.getMode(), 'activity');
+  assert.deepEqual(JSON.parse(storage.getItem('rokbot.listArrangement.v1')), { mode: 'activity', collapsed: [] }, 'the Settings switch reads the same entry');
+  ({ tooltip, button } = render());
+  assert.equal(button.props['aria-pressed'], true);
+  assert.equal(button.props.isSelected, true, 'the official selected state');
+  assert.equal(button.props['aria-label'], '按最后消息时间排列', 'the name stays; the pressed state carries on/off');
+  assert.equal(tooltip.props.content, '恢复默认排序');
+  ({ parts } = svgParts(button.props.glyph));
+  assert.ok(parts.filter(part => part.type === 'rect').every(part => part.props.fill === 'currentColor'), 'filled while on');
+
+  // Settings switches back: the button follows the store.
+  store.setMode('default');
+  ({ button } = render());
+  assert.equal(button.props['aria-pressed'], false);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.rokListToggleText(true, undefined))), { label: 'Sort by last message', tooltip: 'Back to the default order' });
+});
+
+test('the toggle and the Settings switch stay in sync both ways', () => {
+  const page = loadWithHeader();
+  const store = page.context.rokListStore();
+  const jsx = (type, props) => ({ type, props });
+  const settings = vm.createContext({
+    __rokListArrangement: store, grokText: zh, window: {},
+    $: { jsx, jsxs: jsx }, Q: { useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot() },
+    Vn: 'Section', X: 'Row', gn: 'Toggle', q: 'Button', Ft: {}, gr: {},
+  });
+  settings.globalThis = settings;
+  vm.runInContext(generalPane, settings);
+  const switchProps = () => settings.RokListArrangementSettings().props.children.props.children.props;
+  const buttonProps = () => page.context.RokListModeButton().props.children.props;
+  buttonProps().onClick();
+  assert.equal(switchProps().isChecked, true, 'the button turned the Settings switch on');
+  switchProps().onToggle();
+  assert.equal(buttonProps()['aria-pressed'], false, 'the Settings switch turned the button off');
+  let notified = 0;
+  store.subscribe(() => notified++);
+  buttonProps().onClick();
+  assert.equal(notified, 1, 'subscribers (the sidebar and Settings) hear about every change');
 });

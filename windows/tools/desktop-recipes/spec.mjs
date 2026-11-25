@@ -270,6 +270,16 @@ export function specForTarget(target = 'windows') {
       { replace: 'isSynthetic:e.id===ile,', text: 'isSynthetic:e.id===ile||rokListIsGroupId(e.id),' },
       { replace: 'function V_t(e,t){let n=null;return e.awaitingUserResponse==null?',
         text: 'function V_t(e,t){let n=null;return e.awaitingUserResponse==null&&e.pendingAction==null?' },
+      // The wind chime toggle sits left of Search in the list header (Web phones: left of the
+      // Search field, web/client/android.css).
+      { replace: ':null,p,f==null?(0,Z.jsx)(He,{content:g({id:`2hjDEV`})',
+        text: ':null,(0,Z.jsx)(RokListModeButton,{}),p,f==null?(0,Z.jsx)(He,{content:g({id:`2hjDEV`})' },
+      // A generated group has no section menu: it cannot be renamed, moved or deleted.
+      { replace: 'Oe=(0,Z.jsxs)(Bw,{children:[ue,De]})', text: 'Oe=(0,Z.jsxs)(Bw,{children:[ue,rokListIsGroupId(n.id)?null:De]})' },
+      // It is neither dragged (only the drag listeners are left off, so the header stays an
+      // enabled fold button) nor a drop target for Bots: the order comes from the messages.
+      { replace: 'let le=o?void 0:j,ue;', text: 'let le=o||rokListIsGroupId(n.id)?void 0:j,ue;' },
+      { replace: 'P={id:D.dndId,data:D.payload}', text: 'P={id:D.dndId,data:D.payload,disabled:rokListIsGroupId(n.id)}' },
       { append: extension('eager-app.js') },
       { append: extension('list-arrangement.js') },
     ]),

@@ -137,7 +137,7 @@ function RokListArrangementSettings() {
   const state = Q.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const label = grokText('按最后消息时间排列', 'Sort by last message');
   const description = grokText('最新消息在前，分为「待处理」「未读」「已读」三组；关闭后恢复默认排列。',
-    'Newest message first, grouped into Waiting on you, Unread and Read. Turn off for the default order.');
+    'Newest message first, grouped into Needs attention, Unread and Read. Turn off for the default order.');
   return $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('会话列表', 'Chat list'), children: $.jsx(X, {
     anchorId: null, label, description, variant: 'card',
     children: $.jsx(gn, { isChecked: state.mode === 'activity', isDisabled: store === rokListNoStore, label,

@@ -51,9 +51,9 @@
       "source": "dist/renderer/assets/chunk-general-pane-DQZ54SyA.js",
       "newFile": false,
       "recipe": "005.gbp.gz",
-      "sha256": "ac70a8cda31a2fe52aa0bcc10ca42d18d0c180ac7b7ea6ae5a163d7da6520583",
-      "targetBytes": 219761,
-      "addedBytes": 88059
+      "sha256": "4512ab556722a1b92e81b2491e19d96f06da6f3529bd2513c03fd5bd13f664b7",
+      "targetBytes": 219762,
+      "addedBytes": 88060
     },
     {
       "path": "dist/renderer/assets/chunk-marketplace-browse-model-BlgGQ3lx.js",
@@ -132,9 +132,9 @@
       "source": "dist/renderer/assets/index.eager-app-DodVIpEt.js",
       "newFile": false,
       "recipe": "014.gbp.gz",
-      "sha256": "d75041c0d7cad37e73dc680109d411aa5dbe18140af46b3e8e6feca393c41e42",
-      "targetBytes": 5411974,
-      "addedBytes": 18822
+      "sha256": "0335fb24924898ba6d6b8a52334de31adf4c62eeb58bd33721ee2d42fb534ea1",
+      "targetBytes": 5414785,
+      "addedBytes": 21633
     },
     {
       "path": "dist/renderer/assets/index.eager-common-D2eZn7JB.js",

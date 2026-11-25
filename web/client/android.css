@@ -238,7 +238,8 @@ html.rokbot-phone .sand-info-pane__resize-handle {
 }
 
 /* Bot list: top-left account, top-right + button, bottom-left Connect apps button, and bottom
-   full-width Search pill (matching official phone screenshots). */
+   full-width Search pill (matching official phone screenshots). The bottom controls stay above
+   the official list rows (z-index 10), which reach the bottom of the screen. */
 html.rokbot-phone .sand-agents-sidebar__header {
   height: 56px !important;
   min-height: 56px !important;
@@ -273,7 +274,7 @@ html.rokbot-phone .sand-agents-sidebar__footer button[aria-haspopup="menu"] {
 }
 html.rokbot-phone .sand-agents-sidebar__footer button:not([aria-haspopup="menu"]):not(#\#):not(#\#):not(#\#):not(#\#) {
   position: fixed !important;
-  z-index: 4 !important;
+  z-index: 11 !important;
   left: 12px !important;
   bottom: 12px !important;
   width: 44px !important;
@@ -306,7 +307,7 @@ html.rokbot-phone .sand-agents-sidebar__footer button:not([aria-haspopup="menu"]
 }
 html.rokbot-phone button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):not(#\#) {
   position: fixed !important;
-  z-index: 4 !important;
+  z-index: 11 !important;
   left: 64px !important;
   right: 12px !important;
   bottom: 12px !important;
@@ -338,6 +339,21 @@ html.rokbot-phone button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):
   font-size: 16px;
   font-weight: 400;
   color: var(--rokbot-label-2);
+}
+/* The wind chime toggle (sort by last message) sits left of the Search field, after Connect apps;
+   while on it keeps the official selected tint of the desktop header button. */
+html.rokbot-phone button.rokbot-list-mode-toggle:not(#\#):not(#\#):not(#\#):not(#\#) {
+  position: fixed !important;
+  z-index: 11 !important;
+  left: 64px !important;
+  bottom: 12px !important;
+}
+html.rokbot-phone button.rokbot-list-mode-toggle[aria-pressed="true"]:not(#\#):not(#\#):not(#\#):not(#\#) {
+  background: linear-gradient(var(--sand-bg-accent-secondary), var(--sand-bg-accent-secondary)), var(--rokbot-glass) !important;
+  color: var(--sand-text-accent-primary) !important;
+}
+html.rokbot-phone button.rokbot-list-mode-toggle ~ button.sand-agents-sidebar__search:not(#\#):not(#\#):not(#\#):not(#\#) {
+  left: 116px !important;
 }
 html.rokbot-phone .sand-agents-sidebar__footer button[aria-haspopup="menu"] .sand-kit-base-avatar {
   width: 44px !important;
