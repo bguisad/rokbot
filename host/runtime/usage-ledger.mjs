@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -8,6 +8,7 @@ export function usageCounts(raw = {}) {
   const output = count(raw.completion_tokens ?? raw.output_tokens);
   return { input, output, total: count(raw.total_tokens ?? input + output),
     cached: count(raw.prompt_cache_hit_tokens ?? raw.prompt_tokens_details?.cached_tokens),
+    cacheWrite: count(raw.cache_creation_input_tokens),
     reasoning: count(raw.completion_tokens_details?.reasoning_tokens) };
 }
 export async function recordUsage(directory, { raw, model, kind = 'chat', effort, requestId, profileId, providerId, at = new Date() }) {
@@ -19,23 +20,120 @@ export async function recordUsage(directory, { raw, model, kind = 'chat', effort
   // Each process appends one short JSON line; no read/modify/write race with the admin server.
   await appendFile(join(directory, timestamp.slice(0, 10) + '.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
-export async function todayUsage(directory, timeZone = 'UTC', now = new Date()) {
-  const date = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
-  const today = date.format(now), rows = [], seen = new Set();
-  for (const offset of [-1, 0, 1]) {
-    const day = new Date(now.getTime() + offset * 86400000).toISOString().slice(0, 10);
-    const text = await readFile(join(directory, day + '.jsonl'), 'utf8').catch(error => {
-      if (error.code === 'ENOENT') return ''; throw error;
-    });
-    for (const line of text.split('\n')) {
-      let row; try { row = JSON.parse(line); } catch { continue; }
-      if (!row?.id || seen.has(row.id) || !Number.isFinite(Date.parse(row.at)) || date.format(new Date(row.at)) !== today) continue;
-      seen.add(row.id); rows.push(row);
-    }
+
+// Summed per row. `cached` is the part of `input` read from the provider's prompt cache and
+// `cacheWrite` the part written to it; both are already inside `input` and `total`.
+export const USAGE_FIELDS = Object.freeze(['input', 'output', 'total', 'cached', 'cacheWrite', 'reasoning']);
+// Periods end today in the requested time zone and count whole local days.
+export const USAGE_PERIODS = Object.freeze([
+  Object.freeze({ id: 'today', days: 1 }), Object.freeze({ id: '7d', days: 7 }), Object.freeze({ id: '30d', days: 30 }),
+]);
+const DAY = 86400000;
+
+// Ledger files are one UTC day each. Past days no longer change, so a file is parsed again only
+// when its size or modification time does; the local date of each row is kept per time zone.
+const files = new Map();
+async function ledgerRows(path) {
+  const info = await stat(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  if (!info) { files.delete(path); return null; }
+  const key = `${info.size}:${info.mtimeMs}`, cached = files.get(path);
+  if (cached?.key === key) return cached;
+  const rows = [];
+  for (const line of (await readFile(path, 'utf8')).split('\n')) {
+    let row; try { row = JSON.parse(line); } catch { continue; }
+    const at = Date.parse(row?.at);
+    if (!row?.id || !Number.isFinite(at)) continue;
+    const kept = { id: row.id, model: row.model, atMs: at };
+    for (const field of USAGE_FIELDS) kept[field] = row[field];
+    rows.push(kept);
   }
-  const sum = group => group.reduce((value, row) => {
-    for (const key of ['input', 'output', 'total', 'cached', 'reasoning']) value[key] += row[key] ?? 0;
-    value.requests++; return value;
-  }, { input: 0, output: 0, total: 0, cached: 0, reasoning: 0, requests: 0 });
-  return { date: today, timeZone, ...sum(rows), models: [...new Set(rows.map(row => row.model))].map(model => ({ model, ...sum(rows.filter(row => row.model === model)) })) };
+  const entry = { key, rows, dates: new Map() };
+  files.set(path, entry);
+  return entry;
 }
+// The local date and hour of each row, "2026-11-25T13", per time zone.
+function localHours(entry, zone) {
+  let stamps = entry.dates.get(zone);
+  if (!stamps) {
+    const format = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+    // Every zone offset is a multiple of 15 minutes: format each quarter hour once, not each row.
+    const quarters = new Map();
+    stamps = entry.rows.map(row => {
+      const quarter = Math.floor(row.atMs / 900000);
+      if (!quarters.has(quarter)) {
+        const parts = Object.fromEntries(format.formatToParts(new Date(quarter * 900000)).map(part => [part.type, part.value]));
+        quarters.set(quarter, `${parts.year}-${parts.month}-${parts.day}T${parts.hour === '24' ? '00' : parts.hour}`);
+      }
+      return quarters.get(quarter);
+    });
+    entry.dates.set(zone, stamps);
+  }
+  return stamps;
+}
+const shiftDate = (date, days) => {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+};
+const empty = () => Object.fromEntries([...USAGE_FIELDS, 'requests'].map(key => [key, 0]));
+function add(sum, row) {
+  for (const key of USAGE_FIELDS) sum[key] += Number.isSafeInteger(row[key]) && row[key] > 0 ? row[key] : 0;
+  sum.requests++;
+  return sum;
+}
+function summarize(rows) {
+  const all = empty(), models = new Map();
+  for (const row of rows) {
+    add(all, row);
+    const model = typeof row.model === 'string' && row.model ? row.model : 'unknown';
+    add(models.get(model) ?? models.set(model, { model, ...empty() }).get(model), row);
+  }
+  return { ...all, models: [...models.values()].sort((a, b) => b.total - a.total || a.model.localeCompare(b.model)) };
+}
+
+// Each period is split into buckets for a chart: hours for today, local days otherwise.
+// Every bucket is listed, also the empty ones, with the same totals and models as a period.
+function buckets(items, period, today) {
+  const hourly = period.days === 1, keys = [];
+  if (hourly) for (let hour = 0; hour < 24; hour++) keys.push(`${today}T${String(hour).padStart(2, '0')}`);
+  else for (let day = 1 - period.days; day <= 0; day++) keys.push(shiftDate(today, day));
+  const groups = new Map(keys.map(key => [key, []]));
+  for (const item of items) groups.get(hourly ? item.stamp : item.date)?.push(item.row);
+  return { unit: hourly ? 'hour' : 'day', buckets: keys.map(start => ({ start, ...summarize(groups.get(start)) })) };
+}
+
+/**
+ * Today's totals in `timeZone` (the original response fields) plus `periods`: today, the last 7
+ * and the last 30 local days, each with the same totals, a per-model breakdown and `buckets`
+ * (per hour for today, per day otherwise). `period` keeps only that period in `periods`.
+ */
+export async function usageSummary(directory, timeZone = 'UTC', now = new Date(), { period: only } = {}) {
+  const zone = new Intl.DateTimeFormat('en-CA', { timeZone }).resolvedOptions().timeZone;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const longest = Math.max(...USAGE_PERIODS.map(period => period.days));
+  const first = shiftDate(today, 1 - longest), seen = new Set(), rows = [];
+  // Every UTC day that can hold a row of a local day in [first, today], whatever the offset.
+  for (let day = shiftDate(first, -1); day <= shiftDate(today, 1); day = shiftDate(day, 1)) {
+    const entry = await ledgerRows(join(directory, day + '.jsonl'));
+    if (!entry) continue;
+    const stamps = localHours(entry, zone);
+    entry.rows.forEach((row, index) => {
+      const stamp = stamps[index], date = stamp.slice(0, 10);
+      if (date < first || date > today || seen.has(row.id)) return;
+      seen.add(row.id); rows.push({ row, date, stamp });
+    });
+  }
+  // Drop cached files that have aged out of every period.
+  for (const path of files.keys()) {
+    const name = path.slice(-16, -6);
+    if (path.startsWith(join(directory, '/')) && name < shiftDate(first, -1)) files.delete(path);
+  }
+  const periods = USAGE_PERIODS.map(period => {
+    const from = shiftDate(today, 1 - period.days), items = rows.filter(item => item.date >= from);
+    return { id: period.id, days: period.days, from, to: today, ...summarize(items.map(item => item.row)), ...buckets(items, period, today) };
+  });
+  const { id, days, from, to, unit, buckets: _, ...current } = periods[0];
+  return { date: today, timeZone, ...current, periods: only ? periods.filter(period => period.id === only) : periods };
+}
+
+/** The original name: today's usage, now with `periods` as well. */
+export const todayUsage = usageSummary;

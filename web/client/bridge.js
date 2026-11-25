@@ -301,6 +301,7 @@ window.localBot = Object.freeze({
   installUpdate: expectedVersion => native('update-install', { expectedVersion: expectedVersion ?? '' }),
   getLocalStatus: () => modelBridge.getLocalStatus(),
   getModelConfig: () => modelBridge.getModelConfig(),
+  getUsage: payload => modelBridge.getUsage(payload),
   updateModelConfig: payload => modelBridge.updateModelConfig(payload),
   fetchModelCatalog: payload => modelBridge.fetchModelCatalog(payload),
   testModelConfig: payload => modelBridge.testModelConfig(payload),

@@ -98,6 +98,21 @@ export function createModelBridge({ getGateway, getConnected, text = rokText } =
       }
     },
 
+    /** The Host's token usage (GET /local/usage): today's totals, `periods` and per-model rows. */
+    async getUsage(payload = {}) {
+      const gw = activeGateway();
+      if (!gw) return disconnectedResult();
+      try {
+        let timeZone = typeof payload?.timeZone === 'string' ? payload.timeZone : '';
+        try { if (timeZone) new Intl.DateTimeFormat('en', { timeZone }); } catch { timeZone = ''; }
+        if (!timeZone) timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        const data = await gw.request(`/local/usage?timeZone=${encodeURIComponent(timeZone)}`, undefined, AbortSignal.timeout(20000), 'GET');
+        return { ok: true, ...(data && typeof data === 'object' ? data : {}) };
+      } catch (error) {
+        return failureResult(error);
+      }
+    },
+
     async getModelConfig() {
       const gw = activeGateway();
       if (!gw) return disconnectedResult();

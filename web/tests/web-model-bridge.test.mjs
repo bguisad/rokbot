@@ -562,6 +562,24 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   assert.deepEqual(await ipc.invoke('dune-rpc:main:m:requestDesktopNotificationPermission'), { ok: true, value: { status: 'granted', canOpenSettings: false } });
   assert.deepEqual(await ipc.invoke('dune-rpc:main:m:openDesktopNotificationSettings'), { ok: true, value: false });
 
+  // window.localBot.getUsage reads the Host's usage ledger: today's totals plus periods per model.
+  const usageAt = new Date(Date.now() - 60000).toISOString();
+  await mkdir(path.join(dataDir, 'usage'), { recursive: true });
+  await writeFile(path.join(dataDir, 'usage', usageAt.slice(0, 10) + '.jsonl'), [
+    { id: 'u1', at: usageAt, model: 'gpt-5', kind: 'chat', input: 12000, output: 345, total: 12345, cached: 10000, cacheWrite: 0, reasoning: 0 },
+    { id: 'u2', at: usageAt, model: 'claude-opus', kind: 'chat', input: 900, output: 100, total: 1000, cached: 0, cacheWrite: 50, reasoning: 0 },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n');
+  const usage = await localBot.getUsage({ timeZone: 'UTC' });
+  assert.equal(usage.ok, true);
+  assert.equal(usage.timeZone, 'UTC');
+  assert.equal(usage.total, 13345);
+  assert.equal(usage.requests, 2);
+  assert.deepEqual(usage.periods.map(period => [period.id, period.total]), [['today', 13345], ['7d', 13345], ['30d', 13345]]);
+  assert.deepEqual(usage.models.map(item => [item.model, item.input, item.output, item.cached, item.cacheWrite, item.total, item.requests]),
+    [['gpt-5', 12000, 345, 10000, 0, 12345, 1], ['claude-opus', 900, 100, 0, 50, 1000, 1]]);
+  // A time zone the Host rejects falls back to this browser's own.
+  assert.equal((await localBot.getUsage({ timeZone: 'Not/AZone' })).ok, true);
+
   // Verify window.localBot model endpoints under admin-web session
   const adminStatus = await localBot.getLocalStatus();
   assert.equal(adminStatus.ok, true);

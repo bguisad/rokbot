@@ -10,6 +10,18 @@
 import { readFileSync } from 'node:fs';
 
 const extension = name => readFileSync(new URL(`./extensions/${name}`, import.meta.url), 'utf8');
+// The admin page's count formatter and usage charts, shipped to the settings (Usage section).
+const publicFile = name => readFileSync(new URL(`../../../host/server/public/${name}`, import.meta.url), 'utf8');
+const usageFormat = () => publicFile('usage-format.js');
+// rok-usage-charts.js: usage-charts.js importing the renderer's copy of the formatter, with
+// usage-charts.css as a string (the admin page links it; the settings add it in a <style>).
+export function usageCharts() {
+  const source = publicFile('usage-charts.js'), from = "from './usage-format.js';";
+  if (source.split(from).length !== 2) throw new Error('usage-charts.js must import usage-format.js once');
+  return source.replace(from, "from './rok-usage-format.js';") + `\nexport const ROK_USAGE_CHART_CSS = ${JSON.stringify(publicFile('usage-charts.css'))};\n`;
+}
+const USAGE_FORMAT = "import { formatCount as rokFormatCount, formatExactCount as rokFormatExactCount, withRequestUnit as rokWithRequestUnit } from './rok-usage-format.js';\n"
+  + "import { usageView as rokUsageView, attachUsageTooltip as rokAttachUsageTooltip, ROK_USAGE_CHART_CSS } from './rok-usage-charts.js';\n";
 const asset = name => `dist/renderer/assets/${name}`;
 const edit = (name, edits) => ({ path: asset(name), source: asset(name), edits });
 const I18N = "import { grokText } from './grok-local-i18n.js';\n";
@@ -123,6 +135,8 @@ export function specForTarget(target = 'windows') {
     },
 
     { path: asset('grok-local-i18n.js'), source: null, edits: [{ append: extension('grok-local-i18n.js') }] },
+    { path: asset('rok-usage-format.js'), source: null, edits: [{ append: usageFormat() }] },
+    { path: asset('rok-usage-charts.js'), source: null, edits: [{ append: usageCharts() }] },
 
     // No crash reports leave the local client.
     edit(chunks.sentrySdk, [
@@ -157,9 +171,11 @@ export function specForTarget(target = 'windows') {
     ]),
 
     // Settings > General: the account card shows this Host and opens the connection dialog;
-    // model configuration & realtime voice are local settings; no security key proxy (drop C=va, keep S=Xi).
+    // model configuration & realtime voice are local settings; the Host's token usage per model;
+    // no security key proxy (drop C=va, keep S=Xi).
     edit(chunks.generalPane, [
       { prepend: I18N },
+      { prepend: USAGE_FORMAT },
       { replace: '(W=(0,$.jsx)(`span`,{className:U,children:F}),',
         text: '(W=typeof F==`string`?(0,$.jsx)(GrokAccountName,{className:U,name:F,onCommit:name=>n.updateName(name)}):(0,$.jsx)(`span`,{className:U,children:F}),' },
       { replace: '(ie=(0,$.jsx)(`span`,{className:re,children:j}),', text: '(ie=(0,$.jsx)(`span`,{className:re,children:(0,$.jsx)(GrokAccountHost,{})}),' },
@@ -175,7 +191,7 @@ export function specForTarget(target = 'windows') {
       { replace: '(0,$.jsx)(Un,{children:(0,$.jsx)(Y,{id:`NFRGrQ`})})', text: 'null' },
       { replace: '(0,$.jsx)(it,{as:`span`,color:`tertiary`,level:`body2`,children:h})]}):null', text: 'null]}):null' },
       { replace: 'children:[l,f,p,m,b,x,h,g,_,v,y,S,C,w,T,E]',
-        text: 'children:[l,f,(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
+        text: 'children:[l,f,(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(RokUsageSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
       { append: extension('general-pane.js') },
     ]),
 
