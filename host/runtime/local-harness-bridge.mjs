@@ -199,11 +199,19 @@ export function createAttachmentIngest({ library, attachmentsExt, remoteBox, age
     if (!onBox) return (await attachmentsExt.ingest(agentDir, path)).absolutePath;
 
     const [ctx, cancel] = library.createContext().withCancel();
-    const timer = setTimeout(() => cancel(new Error('Attachment download from the box timed out')), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      cancel(new Error('Attachment download from the box timed out'));
+    }, timeoutMs);
     let bytes;
     try {
       bytes = await remoteBox.downloadFile(ctx, agentId, path);
     } catch (error) {
+      if (timedOut) {
+        throw new Error(`Copying ${path} from the box took longer than ${Math.round(timeoutMs / 1000)} seconds. ` +
+          'Send a smaller file (for example a compressed or shorter version).', { cause: error });
+      }
       throw new Error(`No readable file at ${path} on the box (${error?.message ?? error}).`, { cause: error });
     } finally {
       clearTimeout(timer);

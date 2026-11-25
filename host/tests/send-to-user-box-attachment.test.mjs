@@ -103,6 +103,22 @@ test('runner ingestAttachment names the missing box file instead of an empty pat
   assert.equal(createAttachmentIngest({ library: fakeLibrary(), attachmentsExt: {} }), undefined);
 });
 
+test('runner ingestAttachment says a slow box copy timed out instead of calling the file unreadable', async () => {
+  const attachmentsExt = fakeAttachments();
+  const library = fakeLibrary();
+  const remoteBox = {
+    downloadFile: () => new Promise((_resolve, reject) => setTimeout(() => reject(new Error('aborted')), 30)),
+  };
+  const ingest = createAttachmentIngest({ library, attachmentsExt, remoteBox, agentId: AGENT, agentDir: AGENT_DIR, timeoutMs: 5 });
+  await assert.rejects(ingest('/workspace/hist-atlas-promo-landscape.mp4'), (error) => {
+    assert.match(error.message, /Copying \/workspace\/hist-atlas-promo-landscape\.mp4 from the box took longer than 0 seconds/);
+    assert.doesNotMatch(error.message, /No readable file/);
+    return true;
+  });
+  assert.equal(library.contexts[0].cancelled, true);
+  assert.equal(attachmentsExt.calls.upload.length, 0);
+});
+
 const configuredSeed = process.env.ROKBOT_TEST_HOST_SEED || process.env.PROKBOT_TEST_HOST_SEED;
 
 if (configuredSeed) {

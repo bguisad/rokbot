@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
 const CHUNK_BYTES = 12 * 1024;
+const PARALLEL_READS = 8;
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const reader = `import os,sys,json,base64,stat
 p=sys.argv[1];offset=int(sys.argv[2])
@@ -29,12 +30,10 @@ export function installRemoteBoxAdapter(bindings, original, env = process.env) {
       await this.assertFileReadAllowed(resolved);
       const { remoteAccessor } = await this.ensureReady(ctx, agentId);
       const shell = remoteAccessor.get(shellExecutorResource);
-      const chunks = [];
-      let identity, size = 0;
-      do {
+      const readAt = async offset => {
         ctx?.signal?.throwIfAborted();
         const result = await shell.execute(ctx, buildHostShellArgs({
-          command: `python3 -c ${quote(reader)} ${quote(resolved)} ${size}`,
+          command: `python3 -c ${quote(reader)} ${quote(resolved)} ${offset}`,
           name: 'python3', workingDirectory: '/workspace', toolCallId: `remote-file-${randomUUID()}`,
         }));
         if (result.result?.case !== 'success' || result.result.value.exitCode !== 0) {
@@ -43,21 +42,35 @@ export function installRemoteBoxAdapter(bindings, original, env = process.env) {
         let part;
         try { part = JSON.parse(result.result.value.stdout); }
         catch { throw new Error('Remote file response was truncated or invalid'); }
-        const stamp = JSON.stringify(part.identity);
-        if (identity && identity !== stamp) throw new Error('Remote file changed during download');
-        identity = stamp;
         const length = part.identity?.[2];
         if (!Number.isSafeInteger(length) || length < 0 || length > MAX_FILE_BYTES || typeof part.data !== 'string') {
           throw new Error('Invalid remote file metadata');
         }
-        const chunk = Buffer.from(part.data, 'base64');
-        if (chunk.length > CHUNK_BYTES || size + chunk.length > length || (!chunk.length && size < length)) {
-          throw new Error('Invalid remote file chunk');
-        }
-        chunks.push(chunk); size += chunk.length;
-        if (size === length) return Buffer.concat(chunks, size);
-      } while (size <= MAX_FILE_BYTES);
-      throw new Error('Remote file exceeds download limit');
+        return { identity: JSON.stringify(part.identity), length, chunk: Buffer.from(part.data, 'base64') };
+      };
+      // Each exec returns one shell-output-sized chunk, so keep several in flight; one at a time a
+      // 12 MB video needed ~1000 sequential round trips and outlasted the attachment timeout.
+      const first = await readAt(0);
+      const { identity, length } = first;
+      const chunks = new Array(Math.ceil(length / CHUNK_BYTES));
+      const accept = (part, index) => {
+        if (part.identity !== identity) throw new Error('Remote file changed during download');
+        if (part.chunk.length !== Math.min(CHUNK_BYTES, length - index * CHUNK_BYTES)) throw new Error('Invalid remote file chunk');
+        chunks[index] = part.chunk;
+      };
+      if (length === 0) return Buffer.alloc(0);
+      accept(first, 0);
+      let next = 1, failed = false;
+      const worker = async () => {
+        try {
+          while (!failed && next < chunks.length) {
+            const index = next++;
+            accept(await readAt(index * CHUNK_BYTES), index);
+          }
+        } catch (error) { failed = true; throw error; }
+      };
+      await Promise.all(Array.from({ length: Math.min(PARALLEL_READS, chunks.length - 1) }, worker));
+      return Buffer.concat(chunks, length);
     }
   }
   bindings.createSandBox = options => new RemoteBox({ ...options, host, authToken: token, homeDir: '/home/box' });
