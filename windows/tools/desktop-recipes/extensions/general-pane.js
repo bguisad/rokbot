@@ -126,6 +126,25 @@ function GrokRealtimeVoiceSettings() {
   }) });
 }
 
+// Settings > General > Chat list: the session list arrangement of this client
+// (stored by the app module, extensions/list-arrangement.js).
+function rokListSettingsStore() {
+  return globalThis.__rokListArrangement ?? null;
+}
+const rokListNoStore = { subscribe: () => () => {}, getSnapshot: () => ({ mode: 'default', collapsed: [] }) };
+function RokListArrangementSettings() {
+  const store = rokListSettingsStore() ?? rokListNoStore;
+  const state = Q.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const label = grokText('按最后消息时间排列', 'Sort by last message');
+  const description = grokText('最新消息在前，分为「待处理」「未读」「已读」三组；关闭后恢复默认排列。',
+    'Newest message first, grouped into Needs attention, Unread and Read. Turn off for the default order.');
+  return $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('会话列表', 'Chat list'), children: $.jsx(X, {
+    anchorId: null, label, description, variant: 'card',
+    children: $.jsx(gn, { isChecked: state.mode === 'activity', isDisabled: store === rokListNoStore, label,
+      onToggle: () => store.setMode?.(state.mode === 'activity' ? 'default' : 'activity'), size: 'md' }),
+  }) });
+}
+
 const ROK_MODEL_FORMATS = [
   ['openai', 'OpenAI Chat Completions'],
   ['openai-responses', 'OpenAI Responses'],

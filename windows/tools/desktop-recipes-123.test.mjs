@@ -83,6 +83,8 @@ for (const target of ['windows', 'mac']) {
     const generalAdded = addedBytes(generalEntry.recipe).toString('utf8');
     assert.match(generalAdded, /export \{ RokModelConfigModal, RokUsageSettings \}/);
     assert.match(generalAdded, /RokModelSettings/);
+    assert.match(generalAdded, /\(0,\$\.jsx\)\(RokListArrangementSettings,\{\}\)/);
+    assert.match(generalAdded, /function RokListArrangementSettings\(/);
     // Settings > General lists the Host's usage per model right after the chat models.
     assert.ok(generalAdded.startsWith("import { grokText } from './grok-local-i18n.js';\n"
       + "import { formatCount as rokFormatCount, formatExactCount as rokFormatExactCount, withRequestUnit as rokWithRequestUnit } from './rok-usage-format.js';\n"
@@ -111,6 +113,18 @@ for (const target of ['windows', 'mac']) {
     assert.match(eagerAdded, /RokNeedsModelBanner/);
     assert.match(eagerAdded, /RokModelConfigHost/);
     assert.match(eagerAdded, /rokbot-local:model-config-request/);
+    // Session list arrangement: the sidebar hook, generated groups and the pending-card marker.
+    assert.match(eagerAdded, /RokUseArrangedSidebar\(\{visibleAgents:ie,sidebarSections:A,setSectionCollapsed:P,editSections:j\}\)/);
+    assert.match(eagerAdded, /rokListIsGroupId\(e\.id\)/);
+    assert.match(eagerAdded, /e\.pendingAction==null/);
+    assert.match(eagerAdded, /function rokArrangeAgents\(/);
+    // The wind chime toggle left of Search, and generated groups without menu or drag.
+    assert.match(eagerAdded, /\(0,Z\.jsx\)\(RokListModeButton,\{\}\),/);
+    assert.match(eagerAdded, /function RokListModeButton\(/);
+    assert.match(eagerAdded, /function RokWindChimeGlyph\(/);
+    assert.match(eagerAdded, /rokListIsGroupId\(n\.id\)\?null:/);
+    assert.match(eagerAdded, /disabled:rokListIsGroupId\(n\.id\)/);
+    assert.match(eagerAdded, /\|\|rokListIsGroupId\(n\.id\)/);
   });
 }
 

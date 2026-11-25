@@ -16,6 +16,7 @@ import { installLocalPromptPolicy } from './prompt-runtime.mjs';
 import { summarizeAgent } from './host-summarize.mjs';
 import { installModelRejectionGuard } from './model-rejection-guard.mjs';
 import { preserveGatewayReplyFields } from './local-harness-bridge.mjs';
+import { createListArrangement, withListArrangement, subscribeWithListArrangement, transcriptTailReader } from './list-arrangement.mjs';
 
 const stateDir = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
 const originalDir = process.env.ROKBOT_ORIGINAL_HOST ?? process.env.GROKBOT_ORIGINAL_HOST ?? '/research/original-host';
@@ -120,8 +121,11 @@ try {
     if (args?.action === 'rokbot.manual-summary') return summarizeAgent(host, library, args.agentId);
     return host.requireHostExtensions().api('mcp').applicationRpc(args);
   };
+  // Session list fields (last message time, pending cards) for every client.
+  const listArrangement = createListArrangement({ readTail: transcriptTailReader(host) });
   gateway = await library.startGatewayServer({
-    api: decorateLocalSharingApi({ api: { ...preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), localApplicationRpc }, host }), subscribe: listener => host.subscribe(listener),
+    api: decorateLocalSharingApi({ api: { ...withListArrangement(preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), listArrangement), localApplicationRpc }, host }),
+    subscribe: subscribeWithListArrangement(listener => host.subscribe(listener), listArrangement),
     getHealth: () => host.getHealth(), startedAt: host.startedAt,
     host: process.env.ROKBOT_HOST_BIND ?? process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.ROKBOT_HOST_PORT ?? process.env.GROKBOT_HOST_PORT ?? 1340),
     ...(internalToken ? { authToken: internalToken } : {}),

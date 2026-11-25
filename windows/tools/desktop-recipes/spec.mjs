@@ -191,7 +191,7 @@ export function specForTarget(target = 'windows') {
       { replace: '(0,$.jsx)(Un,{children:(0,$.jsx)(Y,{id:`NFRGrQ`})})', text: 'null' },
       { replace: '(0,$.jsx)(it,{as:`span`,color:`tertiary`,level:`body2`,children:h})]}):null', text: 'null]}):null' },
       { replace: 'children:[l,f,p,m,b,x,h,g,_,v,y,S,C,w,T,E]',
-        text: 'children:[l,f,(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(RokUsageSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
+        text: 'children:[l,f,(0,$.jsx)(RokListArrangementSettings,{}),(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(RokUsageSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
       { append: extension('general-pane.js') },
     ]),
 
@@ -278,7 +278,26 @@ export function specForTarget(target = 'windows') {
         text: 'openAfterUserFirstGrace(){this.cancelUserFirstOpen()}' },
       { replace: 'resumption:{enabled:!0}', text: 'resumption:{enabled:!1}' },
       { append: `\nconst ROK_LIBRARY_CHUNK = './${chunks.library}';\nconst ROK_GENERAL_PANE_CHUNK = './${chunks.generalPane}';\n` },
+      // Session list arrangement: "activity" ranks Bots on their last message in the groups
+      // waiting on you / unread / read (extensions/list-arrangement.js). The generated groups
+      // are sections the user cannot rename or delete, and open cards also mark a row.
+      { replace: 'let{visibleAgents:ie,hiddenAgents:ae}=re,oe;',
+        text: 'let{visibleAgents:ie,hiddenAgents:ae}=re,oe;({visibleAgents:ie,sidebarSections:A,setSectionCollapsed:P,editSections:j}=RokUseArrangedSidebar({visibleAgents:ie,sidebarSections:A,setSectionCollapsed:P,editSections:j}));' },
+      { replace: 'isSynthetic:e.id===ile,', text: 'isSynthetic:e.id===ile||rokListIsGroupId(e.id),' },
+      { replace: 'function V_t(e,t){let n=null;return e.awaitingUserResponse==null?',
+        text: 'function V_t(e,t){let n=null;return e.awaitingUserResponse==null&&e.pendingAction==null?' },
+      // The wind chime toggle sits left of Search in the list header (Web phones: left of the
+      // Search field, web/client/android.css).
+      { replace: ':null,p,f==null?(0,Z.jsx)(He,{content:g({id:`2hjDEV`})',
+        text: ':null,(0,Z.jsx)(RokListModeButton,{}),p,f==null?(0,Z.jsx)(He,{content:g({id:`2hjDEV`})' },
+      // A generated group has no section menu: it cannot be renamed, moved or deleted.
+      { replace: 'Oe=(0,Z.jsxs)(Bw,{children:[ue,De]})', text: 'Oe=(0,Z.jsxs)(Bw,{children:[ue,rokListIsGroupId(n.id)?null:De]})' },
+      // It is neither dragged (only the drag listeners are left off, so the header stays an
+      // enabled fold button) nor a drop target for Bots: the order comes from the messages.
+      { replace: 'let le=o?void 0:j,ue;', text: 'let le=o||rokListIsGroupId(n.id)?void 0:j,ue;' },
+      { replace: 'P={id:D.dndId,data:D.payload}', text: 'P={id:D.dndId,data:D.payload,disabled:rokListIsGroupId(n.id)}' },
       { append: extension('eager-app.js') },
+      { append: extension('list-arrangement.js') },
     ]),
 
     // The render-trace hook installs a React DevTools stub for the vendor's render sampling.
