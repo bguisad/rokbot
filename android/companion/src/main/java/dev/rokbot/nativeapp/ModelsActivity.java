@@ -213,6 +213,7 @@ public class ModelsActivity extends Activity {
                 try {
                     mDefaultRoute.put("profileId", chosenId);
                 } catch (Throwable ignored) {}
+                dropFallbacksMatchingPrimary();
                 refreshEffortSpinner(chosenId);
             }
 
@@ -735,6 +736,7 @@ public class ModelsActivity extends Activity {
                         mDefaultRoute.put("profileId", id);
                         mDefaultRoute.put("effort", "default");
                     } catch (Throwable ignored) {}
+                    dropFallbacksMatchingPrimary();
                     renderData();
                 });
                 useBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
@@ -1408,6 +1410,7 @@ public class ModelsActivity extends Activity {
         }
         payload.put("providers", outProviders);
         payload.put("profiles", outProfiles);
+        dropFallbacksMatchingPrimary();
         payload.put("defaultRoute", copyJsonObject(mDefaultRoute));
         payload.put("botRoutes", mBotRoutes != null ? copyJsonObject(mBotRoutes) : new JSONObject());
         return payload;
@@ -1502,6 +1505,22 @@ public class ModelsActivity extends Activity {
                 mDefaultRoute.put("fallbacks", new JSONArray());
             } catch (Throwable ignored) {}
         }
+    }
+
+    /** Keep the default route's fallback chain free of the primary profile and of repeats. */
+    private void dropFallbacksMatchingPrimary() {
+        if (mDefaultRoute == null) return;
+        JSONArray fbs = mDefaultRoute.optJSONArray("fallbacks");
+        if (fbs == null) return;
+        java.util.HashSet<String> seen = new java.util.HashSet<>();
+        seen.add(UiChrome.jsonStr(mDefaultRoute, "profileId"));
+        JSONArray kept = new JSONArray();
+        for (int i = 0; i < fbs.length(); i++) {
+            JSONObject fb = fbs.optJSONObject(i);
+            if (fb == null) continue;
+            if (seen.add(UiChrome.jsonStr(fb, "profileId"))) kept.put(fb);
+        }
+        try { mDefaultRoute.put("fallbacks", kept); } catch (Throwable ignored) {}
     }
 
     private boolean isProviderReferenced(String providerId) {

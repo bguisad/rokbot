@@ -130,16 +130,20 @@ function normalizeRoute(value, profiles, label) {
   const effort = routeEffort(value.effort, primary);
   const rawFallbacks = value.fallbacks ?? [];
   if (!Array.isArray(rawFallbacks) || rawFallbacks.length > MAX_FALLBACKS) fail(`Invalid ${label} fallbacks`);
+  // A fallback that repeats the primary or an earlier fallback adds nothing to the chain. Clients
+  // (notably the Android model screen) can leave one behind after switching the primary, so drop
+  // it instead of rejecting the whole save.
   const seen = new Set([profileId]);
-  const fallbacks = rawFallbacks.map((item, index) => {
+  const fallbacks = [];
+  for (const item of rawFallbacks) {
     if (!plainObject(item)) fail(`Invalid ${label} fallback`);
     const fallbackProfileId = identifier(item.profileId, `${label} fallback profile ID`);
-    if (seen.has(fallbackProfileId)) fail(`Duplicate ${label} fallback profile`);
+    if (seen.has(fallbackProfileId)) continue;
     seen.add(fallbackProfileId);
     const profile = profiles.get(fallbackProfileId);
     if (!profile) fail(`Unknown profile: ${fallbackProfileId}`);
-    return { profileId: fallbackProfileId, effort: routeEffort(item.effort, profile), order: index };
-  });
+    fallbacks.push({ profileId: fallbackProfileId, effort: routeEffort(item.effort, profile), order: fallbacks.length });
+  }
   return { profileId, effort, fallbacks };
 }
 

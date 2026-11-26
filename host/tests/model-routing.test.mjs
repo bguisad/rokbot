@@ -601,3 +601,11 @@ test('Host inference routes v1 adaptiveRouting across simple/medium/complex tier
   const simpleRoute = modelRouteForAdaptiveTier(routing, 'simple');
   assert.deepEqual(simpleRoute.fallbacks.map(item => item.profileId), ['careful']);
 });
+
+test('a fallback that repeats the primary or an earlier fallback is dropped, not rejected', () => {
+  const input = fixture();
+  input.defaultRoute = { profileId: 'careful', effort: 'high',
+    fallbacks: [{ profileId: 'careful', effort: 'high' }, { profileId: 'fast', effort: 'low' }, { profileId: 'fast', effort: 'none' }] };
+  const config = validateModelRouting(input);
+  assert.deepEqual(config.defaultRoute.fallbacks, [{ profileId: 'fast', effort: 'low', order: 0 }]);
+});
