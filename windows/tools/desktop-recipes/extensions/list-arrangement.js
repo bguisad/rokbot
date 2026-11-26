@@ -166,16 +166,13 @@ function RokUseArrangedSidebar(input) {
 // Settings reads the same store before the sidebar first renders.
 try { rokListStore(); } catch {}
 
-// Quick toggle in the list header, left of Search (as Rakazo's Activity button sits beside its
-// Search): the official round header button (ET) with its selected state, the official tooltip
-// (He) and the header button style (fA.newButton). It reads and writes the same store as
-// Settings > General > Chat list. Neither the official icon font nor Rakazo's Lucide icons have
-// a wind chime (both only have a bell), so the glyph is drawn here on the 16 px grid of the official
-// icons with their ~1.3 px stroke; the tubes fill in while the arrangement is on.
+// Quick toggle in the list header, left of Search: the official round header button (ET) with
+// its selected state, the official tooltip (He) and the header button style (fA.newButton).
+// It reads and writes the same store as Settings > General > Chat list.
+// Draws a bell glyph on the 16 px grid of the official icons with their ~1.3 px stroke;
+// the bell body fills in while the arrangement is on.
 const ROK_LIST_TOGGLE_CLASS = 'rokbot-list-mode-toggle';
 const ROK_LIST_ICON_CLASS = 'sand-kit-icon sand-3nfvp2 sand-6s0dn4 sand-l56j7k sand-2lah0s sand-1heor9g sand-w4jnvo sand-1qx5ct2';
-// [centre x, length] of the three tubes under the canopy, on the 16 px grid.
-const ROK_CHIME_TUBES = [[3.2, 6.4], [8, 9], [12.8, 5.2]];
 
 function rokListToggleText(isOn, text) {
   const say = typeof text === 'function' ? text : (zh, en) => en;
@@ -185,20 +182,16 @@ function rokListToggleText(isOn, text) {
   };
 }
 
-function RokWindChimeGlyph({ isOn }) {
+function RokBellGlyph({ isOn }) {
   const line = (width = 1.3, fill = 'none') => ({ fill, stroke: 'currentColor', strokeWidth: width, strokeLinecap: 'round', strokeLinejoin: 'round' });
   const parts = [
-    // Hook and canopy.
-    Z.jsx('path', { d: 'M8 1.1v1.6M1.8 4.5Q8 1.7 14.2 4.5', ...line() }, 'canopy'),
-    // Cords.
-    Z.jsx('path', { d: 'M3.2 3.7v1.8M8 2.7v2.8M12.8 3.7v1.8', ...line(0.9) }, 'cords'),
-    // Tubes: outlined while off, filled while on.
-    ...ROK_CHIME_TUBES.map(([x, height], index) => Z.jsx('rect', {
-      x: x - 1.1, y: 5.5, width: 2.2, height, rx: 1.1, ...line(1.2, isOn ? 'currentColor' : 'none'),
-    }, `tube-${index}`)),
+    // Bell body: outlined while off, filled while on.
+    Z.jsx('path', { d: 'M8 2.2a3.8 3.8 0 0 0-3.8 3.8v2.5c0 .9-.4 1.8-1.1 2.4l-.4.4h10.6l-.4-.4c-.7-.6-1.1-1.5-1.1-2.4V6A3.8 3.8 0 0 0 8 2.2Z', ...line(1.3, isOn ? 'currentColor' : 'none') }, 'body'),
+    // Bell clapper.
+    Z.jsx('path', { d: 'M6.4 13.1a1.7 1.7 0 0 0 3.2 0', ...line(1.3) }, 'clapper'),
   ];
   return Z.jsx('span', {
-    'aria-hidden': true, className: ROK_LIST_ICON_CLASS, 'data-size': 'lg', 'data-rokbot-icon': 'wind-chime',
+    'aria-hidden': true, className: ROK_LIST_ICON_CLASS, 'data-size': 'lg', 'data-rokbot-icon': 'bell',
     children: Z.jsx('svg', { width: 16, height: 16, viewBox: '0 0 16 16', focusable: 'false', 'aria-hidden': true, children: parts }),
   });
 }
@@ -210,7 +203,7 @@ function RokListModeButton() {
   const { label, tooltip } = rokListToggleText(isOn, grokText);
   return Z.jsx(He, { content: tooltip, children: Z.jsx(ET, {
     'aria-label': label, 'aria-pressed': isOn, isSelected: isOn, className: ROK_LIST_TOGGLE_CLASS,
-    'data-rokbot-list-mode': state.mode, glyph: Z.jsx(RokWindChimeGlyph, { isOn }), onClick: () => store.toggle(),
+    'data-rokbot-list-mode': state.mode, glyph: Z.jsx(RokBellGlyph, { isOn }), onClick: () => store.toggle(),
     style: fA.newButton,
   }) });
 }

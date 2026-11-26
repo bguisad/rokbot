@@ -132,9 +132,9 @@
       "source": "dist/renderer/assets/index.eager-app-C3AkkLux.js",
       "newFile": false,
       "recipe": "014.gbp.gz",
-      "sha256": "23ab2b4006302cf8885bee68b95aa5e9b73d42aa32763d9c30bc66abe2481d17",
-      "targetBytes": 5414785,
-      "addedBytes": 21633
+      "sha256": "3f479193f4ed6336105a55d45a05f3c0a70ebfb80f0bf4cdc7b1f88fa5ffbb52",
+      "targetBytes": 5414378,
+      "addedBytes": 21226
     },
     {
       "path": "dist/renderer/assets/index.eager-common-D2eZn7JB.js",

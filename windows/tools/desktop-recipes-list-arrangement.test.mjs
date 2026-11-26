@@ -192,7 +192,7 @@ const svgParts = glyph => {
   return { icon, svg: icon.props.children, parts: icon.props.children.props.children };
 };
 
-test('the wind chime toggle left of Search switches the order and shows its state', () => {
+test('the bell toggle left of Search switches the order and shows its state', () => {
   const { context, storage } = loadWithHeader();
   const store = context.rokListStore();
   const render = () => {
@@ -210,10 +210,11 @@ test('the wind chime toggle left of Search switches the order and shows its stat
   assert.deepEqual(button.props.style, { header: true }, 'the header button style of Search and New Bot');
   let { icon, svg, parts } = svgParts(button.props.glyph);
   assert.equal(svg.props.viewBox, '0 0 16 16');
-  // Web phones keep the class and the marked glyph: android.css draws it as a copper bell there.
-  assert.equal(icon.props['data-rokbot-icon'], 'wind-chime');
-  assert.equal(parts.filter(part => part.type === 'rect').length, 3, 'three chime tubes');
-  assert.ok(parts.filter(part => part.type === 'rect').every(part => part.props.fill === 'none'), 'outlined while off');
+  assert.equal(icon.props['data-rokbot-icon'], 'bell');
+  const bodyOff = parts.find(part => part.key === 'body');
+  const clapperOff = parts.find(part => part.key === 'clapper');
+  assert.ok(bodyOff && clapperOff, 'bell body and clapper paths');
+  assert.equal(bodyOff.props.fill, 'none', 'outlined while off');
 
   button.props.onClick();
   assert.equal(store.getMode(), 'activity');
@@ -224,7 +225,7 @@ test('the wind chime toggle left of Search switches the order and shows its stat
   assert.equal(button.props['aria-label'], '按最后消息时间排列', 'the name stays; the pressed state carries on/off');
   assert.equal(tooltip.props.content, '恢复默认排序');
   ({ parts } = svgParts(button.props.glyph));
-  assert.ok(parts.filter(part => part.type === 'rect').every(part => part.props.fill === 'currentColor'), 'filled while on');
+  assert.equal(parts.find(part => part.key === 'body')?.props.fill, 'currentColor', 'filled while on');
 
   // Settings switches back: the button follows the store.
   store.setMode('default');
