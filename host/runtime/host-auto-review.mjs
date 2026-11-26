@@ -4,12 +4,32 @@ import { anthropicEndpoint, anthropicHeaders, anthropicOptions, anthropicUsage }
 import { chatEndpoint, chatReasoning, maxTokensParameter } from './openai-chat.mjs';
 import { reasons, responsesEndpoint, responsesUsage } from './openai-responses.mjs';
 import { postWithFallback } from './model-common.mjs';
+import { modelRouteForScenario } from './model-routing.mjs';
 
 const OUTPUT_LIMIT = 16_000;
-// Classification needs little reasoning; use the lowest level the model offers.
+// Classification needs little reasoning; use an explicit scenario effort if set, otherwise the lowest offered level.
 function reviewEffort(config) {
-  const efforts = config.policy?.models?.find(entry => entry.id === config.model)?.efforts ?? [];
+  if (config.effort && config.effort !== 'default') return config.effort;
+  const efforts = config.efforts ?? config.policy?.models?.find(entry => entry.id === config.model)?.efforts ?? [];
   return ['low', 'minimal', 'medium'].find(level => efforts.includes(level));
+}
+
+export function resolveAutoReviewConfig(config) {
+  if (!config?.modelRouting) return config;
+  const route = modelRouteForScenario(config.modelRouting, 'autoReview', { direct: true });
+  return {
+    ...config,
+    ...route,
+    policy: {
+      ...(config.policy ?? {}),
+      models: [{
+        id: route.model,
+        efforts: route.efforts,
+        contextWindowTokens: route.contextWindowTokens,
+        summaryThresholdTokens: route.summaryThresholdTokens,
+      }],
+    },
+  };
 }
 /** The model answered, but not with one valid classification; worth one more attempt. */
 class ReviewOutputError extends Error {}
@@ -96,6 +116,7 @@ function validate(decision, schema) {
 
 /** Use the shipped classifier policy/schema and approval state machine with the configured model. */
 export function createLocalClassifier(config, library, { fetchImpl = globalThis.fetch, log = () => {} } = {}) {
+  const effective = resolveAutoReviewConfig(config);
   const tool = library.CLASSIFY_SAND_AUTO_REVIEW_ACTION_TOOL;
   const schema = tool.function.parameters;
   // Parameters a compatible service rejected stay dropped for later reviews.
@@ -115,22 +136,22 @@ export function createLocalClassifier(config, library, { fetchImpl = globalThis.
       const content = JSON.stringify(input);
       if (Buffer.byteLength(content) > 1024 * 1024) throw new Error('Auto-review context exceeds the supported size');
       const signal = ctx?.signal ? AbortSignal.any([ctx.signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000);
-      const classify = CLASSIFIERS[config.apiFormat] ?? classifyWithChat;
+      const classify = CLASSIFIERS[effective.apiFormat] ?? classifyWithChat;
       let replyId, decision;
       // A malformed answer is retried once; service errors and cancellation are not.
       for (let attempt = 1; ; attempt++) {
         try {
-          ({ id: replyId, decision } = await classify(config, library, tool, content, signal, fetchImpl, state));
+          ({ id: replyId, decision } = await classify(effective, library, tool, content, signal, fetchImpl, state));
           validate(decision, schema);
           break;
         } catch (error) {
           const retry = error instanceof ReviewOutputError && attempt < 2 && !signal.aborted;
-          log(`Local auto-review ${retry ? 'retrying after' : 'failed'}: ${error.message}; model=${config.model}`);
+          log(`Local auto-review ${retry ? 'retrying after' : 'failed'}: ${error.message}; model=${effective.model}`);
           if (!retry) throw error;
         }
       }
       const proposedRule = decision.proposed_allow_rule;
-      log(`Local auto-review ${decision.decision}; model=${config.model}; request=${String(replyId ?? 'unavailable').slice(0, 128)}`);
+      log(`Local auto-review ${decision.decision}; model=${effective.model}; request=${String(replyId ?? 'unavailable').slice(0, 128)}`);
       return new library.SmartModeClassifierResult({ result: { case: 'success', value: {
         decision: decision.decision === 'ALLOW' ? 1 : 2,
         ...(decision.decision === 'BLOCK' ? { blockReason: decision.reason.slice(0, 500) } : {}),

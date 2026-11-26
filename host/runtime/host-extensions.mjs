@@ -16,7 +16,8 @@ import { startLocalManagedSkills } from './host-skills.mjs';
 import { startLocalWebhooks } from './host-webhooks.mjs';
 import { startLocalFederation } from './host-federation.mjs';
 import { createLocalServiceRuntime } from './media-runtime.mjs';
-import { modelRouteForAgent } from './model-routing.mjs';
+import { modelRouteForAgent, modelRouteForScenario } from './model-routing.mjs';
+import { reasoningOptions } from './model-policy.mjs';
 import { contextCacheFilePath } from './model-context-cache.mjs';
 import { createLocalExecBridge } from './local-exec-bridge.mjs';
 import { decorateHostExtensionsFor2bb5e41 } from './local-harness-bridge.mjs';
@@ -88,33 +89,66 @@ function inferenceAgentId(options) {
   return typeof id === 'string' && id ? id : undefined;
 }
 
+export function scenarioForSessionOptions(options) {
+  if (options?.isSummarizationSession) return 'summarization';
+  if (options?.modelId === 'sand-memory-extraction') return 'memoryExtraction';
+  if (options?.isSubagent) return 'subagent';
+  if (options?.inAutomationRun) return 'automation';
+  return null;
+}
+
+const USAGE_KIND_BY_SCENARIO = {
+  summarization: 'summary',
+  memoryExtraction: 'memory',
+  subagent: 'subagent',
+  automation: 'automation',
+};
+
 export function createInference(config, library, services, { fetchImpl, sessionFactory = createModelSession } = {}) {
   const modelFetch = fetchImpl ?? globalThis.fetch;
+  const explicitScenarioRoute = (scenario, agentId) => (
+    scenario && config.modelRouting?.scenarioRoutes?.[scenario]
+      ? modelRouteForScenario(config.modelRouting, scenario, { agentId })
+      : undefined
+  );
   return {
     isReady: async () => true,
     port: {
       resolvePrivacyMode: async () => library.PrivacyMode.NO_STORAGE,
       getGeminiVideoAttachedMediaUrlProvider: () => undefined,
       videoAnalysisEnabled: services.videoAnalysisEnabled,
+      externalSummarizationModelId: () => explicitScenarioRoute('summarization')?.model,
       createSession: (onRequestId, options) => ['watchVideo', 'videoReview'].includes(options?.localMediaKind) && services.videoAnalysisEnabled(options.localMediaKind)
         ? services.createVideoSession(options.localMediaKind, onRequestId)
         : (() => {
           const agentId = inferenceAgentId(options);
-          const route = config.modelRouting ? modelRouteForAgent(config.modelRouting, agentId) : undefined;
+          const scenario = scenarioForSessionOptions(options);
+          const scenarioRoute = explicitScenarioRoute(scenario, agentId);
+          const route = scenarioRoute ?? (config.modelRouting ? modelRouteForAgent(config.modelRouting, agentId) : undefined);
           const sessionConfig = route ? { ...config, ...route } : { ...config, ...contextPolicyFor(config, config.model) };
-          const routerConfig = options?.isSummarizationSession
-            ? (config.modelRouting
-              ? (config.modelRouting.adaptiveRouting?.enabled
-                ? { ...config, modelRouting: { ...config.modelRouting, adaptiveRouting: { ...config.modelRouting.adaptiveRouting, enabled: false } } }
-                : config)
-              : (config.policy ? { ...config, policy: { ...config.policy, mode: 'manual' } } : config))
-            : config;
+          const usageKind = (scenario && USAGE_KIND_BY_SCENARIO[scenario]) || 'chat';
+          let selectRequest;
+          if (scenarioRoute) {
+            const select = candidate => ({ ...candidate, requestOptions: reasoningOptions(candidate.model, candidate.effort) });
+            const selected = { ...select(scenarioRoute), fallbacks: scenarioRoute.fallbacks.map(select) };
+            selectRequest = async ({ signal } = {}) => { signal?.throwIfAborted(); return selected; };
+          } else {
+            const disableAdaptive = scenario === 'summarization' || scenario === 'memoryExtraction';
+            const routerConfig = disableAdaptive
+              ? (config.modelRouting
+                ? (config.modelRouting.adaptiveRouting?.enabled
+                  ? { ...config, modelRouting: { ...config.modelRouting, adaptiveRouting: { ...config.modelRouting.adaptiveRouting, enabled: false } } }
+                  : config)
+                : (config.policy ? { ...config, policy: { ...config.policy, mode: 'manual' } } : config))
+              : config;
+            selectRequest = createModelRouter(routerConfig, { agentId, fetchImpl: modelFetch, onDecision: decision => console.info('[model-router]', JSON.stringify(decision)) });
+          }
           return sessionFactory({ ...sessionConfig, onRequestId,
             contextCachePath: contextCacheFilePath(config.dataDirectory),
-            selectRequest: createModelRouter(routerConfig, { agentId, fetchImpl: modelFetch, onDecision: decision => console.info('[model-router]', JSON.stringify(decision)) }),
+            selectRequest,
             onFallback: event => recordRouting(config.routingDirectory, { kind: 'model-fallback', status: 'fallback', agentId,
-              session: options?.isSummarizationSession ? 'summary' : 'chat', ...event }),
-            onUsage: usage => recordUsage(config.usageDirectory, { ...usage, kind: options?.isSummarizationSession ? 'summary' : 'chat' }),
+              session: usageKind, ...event }),
+            onUsage: usage => recordUsage(config.usageDirectory, { ...usage, kind: usageKind }),
             fetchImpl: observeModelFetch(modelFetch, options),
             mapError: createHarnessModelErrorMapper(library) });
         })(),
