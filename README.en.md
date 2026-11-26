@@ -158,10 +158,10 @@ The chat list, a conversation, Bot details and the approval card are shown at th
     <td align="center"><img src="docs/images/rokbot-android-about.png" width="190" alt="App version and update status at the bottom of Settings" /><br /><sub>About and updates</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/rokbot-android-suggestions.png" width="190" alt="Composer input suggestions above the group chat input box" /><br /><sub>Input suggestions</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-suggestions.png" width="190" alt="Input suggestions above the chat input box" /><br /><sub>Input suggestions</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-scenario-models.png" width="190" alt="Scenario models section in Model Settings" /><br /><sub>Scenario models</sub></td>
-    <td></td>
-    <td></td>
+    <td align="center"><img src="docs/images/rokbot-android-plus-menu.png" width="190" alt="The + menu with New Bot and New Group" /><br /><sub>New menu</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-create-group.png" width="190" alt="Create group: name the group and pick member Bots" /><br /><sub>Create group</sub></td>
   </tr>
 </table>
 

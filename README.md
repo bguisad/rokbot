@@ -156,10 +156,10 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
     <td align="center"><img src="docs/images/rokbot-android-about.png" width="190" alt="设置页底部的应用版本和更新状态" /><br /><sub>关于与更新</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/rokbot-android-suggestions.png" width="190" alt="群聊输入框上方的输入建议条" /><br /><sub>输入建议</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-suggestions.png" width="190" alt="聊天输入框上方的输入建议条" /><br /><sub>输入建议</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-scenario-models.png" width="190" alt="模型设置页中的场景模型配置" /><br /><sub>按场景配模型</sub></td>
-    <td></td>
-    <td></td>
+    <td align="center"><img src="docs/images/rokbot-android-plus-menu.png" width="190" alt="点加号弹出的新建菜单：新建 Bot 和新建群组" /><br /><sub>新建菜单</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-create-group.png" width="190" alt="新建群组页：填写群名并选择成员 Bot" /><br /><sub>新建群组</sub></td>
   </tr>
 </table>
 
