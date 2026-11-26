@@ -18,14 +18,31 @@
 <p align="center">
   <a href="README.md">简体中文</a> ·
   <strong>English</strong> ·
-  <a href="#3-minute-quick-start">Quick Start</a> ·
+  <a href="#video-introduction">Video Intro</a> ·
   <a href="#live-screenshots">Screenshots</a> ·
+  <a href="#3-minute-quick-start">Quick Start</a> ·
   <a href="docs/AGENT_DEPLOY.en.md">AI Agent Deploy Runbook</a> ·
-  <a href="docs/PATCHING_WORKFLOW.en.md">How It Works</a> ·
   <a href="docs/ARCHITECTURE.en.md">Architecture</a>
 </p>
 
 > RokBot is an independent open-source product for personal self-hosting (inspired by ProkBot, prokbot-plus, and rakazo), built so anyone can run a fast, private, action-capable AI assistant across every device they own.
+
+---
+
+## Video Introduction
+
+Watch a 30-second tour of RokBot across native clients, adaptive model routing, Linux sandbox execution, Tailcat tunneling, and 3-minute deployment:
+
+<p align="center">
+  <a href="docs/media/rokbot-intro.mp4">
+    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 30-second product walkthrough preview" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="docs/media/rokbot-intro.mp4"><strong>▶ Watch / Download 720p HD MP4 Video (rokbot-intro.mp4)</strong></a> ·
+  <a href="https://raw.githubusercontent.com/hongfaqiu/rokbot/main/docs/media/rokbot-intro.mp4">Direct Raw Stream</a>
+</p>
 
 ---
 
@@ -69,15 +86,31 @@ Most self-hosted AI tools are either sluggish web wrappers locked to a single ve
 
 ## Live Screenshots
 
-Real captures from Android and the self-hosted Admin Console (accounts, host addresses, and credentials are masked):
+Crisp, unredacted captures using privacy-safe demo data across clients and the self-hosted Admin Console:
 
-| Android Launcher | Pairing | In-App Model Config | Streaming Chat & Sandbox |
+### Cross-Platform Clients
+
+<p align="center">
+  <img src="docs/images/hero-en.jpg" width="880" alt="Windows client, Web browser PWA, and Android app working together" />
+</p>
+
+| Web Client (Desktop + Mobile PWA) | Tablet Split-Pane & Code Highlighting |
+| --- | --- |
+| <img src="docs/images/web-en.png" width="460" alt="Web client desktop and mobile layout" /> | <img src="docs/images/card-tablet-en.jpg" width="420" alt="Tablet split-pane conversation" /> |
+
+| Web Search & Image Generation | Mobile Multi-Bot Chat | Android Launcher | Android Live Sandbox Execution |
 | --- | --- | --- | --- |
-| <img src="docs/images/rokbot-android-launcher.png" width="210" alt="RokBot Android icon" /> | <img src="docs/images/rokbot-android-pairing.png" width="210" alt="RokBot pairing screen" /> | <img src="docs/images/rokbot-android-models.png" width="210" alt="RokBot in-app model config" /> | <img src="docs/images/rokbot-android-chat.png" width="210" alt="RokBot chat and sandbox execution" /> |
+| <img src="docs/images/card-search.jpg" width="240" alt="Web search and image generation" /> | <img src="docs/images/card-phone-en.jpg" width="240" alt="Mobile multi-Bot chat" /> | <img src="docs/images/rokbot-android-launcher.png" width="160" alt="RokBot Android icon" /> | <img src="docs/images/rokbot-android-chat.png" width="160" alt="RokBot Android live sandbox execution" /> |
 
-| Admin Overview | Models & Bot Routing | 4-Platform Update Publisher |
-| --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-overview.png" width="280" alt="RokBot Admin overview" /> | <img src="docs/images/rokbot-host-admin-model.png" width="280" alt="RokBot model routing" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="280" alt="RokBot 4-platform updates" /> |
+### Self-Hosted Admin Console (Crisp & Unredacted)
+
+| Overview · Live Crew & Hourly Usage | 7-Day Multi-Model Token Charts | Model Hub · Providers & Routing | Paired Devices & APNs / Bark Push |
+| --- | --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-overview.png" width="220" alt="Admin overview and hourly token chart" /> | <img src="docs/images/rokbot-host-admin-usage-7d.png" width="220" alt="7-day multi-model token usage charts" /> | <img src="docs/images/rokbot-host-admin-model.png" width="220" alt="Model hub and routing config" /> | <img src="docs/images/rokbot-host-admin-devices.png" width="220" alt="Paired devices and push notifications" /> |
+
+| Built-In Tailcat Encrypted Tunnel | Isolated `:18081` Web Client Manager | 4-Platform ECDSA Delta Updates | Modular Agent Skills |
+| --- | --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-network.png" width="220" alt="Tailcat encrypted remote access" /> | <img src="docs/images/rokbot-host-admin-web-client.png" width="220" alt="Web client bundle management" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="220" alt="4-platform update publisher" /> | <img src="docs/images/rokbot-host-admin-skills.png" width="220" alt="Modular agent skills management" /> |
 
 ---
 

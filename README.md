@@ -18,14 +18,31 @@
 <p align="center">
   <strong>简体中文</strong> ·
   <a href="README.en.md">English</a> ·
-  <a href="#3-分钟快速上手">快速上手</a> ·
+  <a href="#视频介绍">视频介绍</a> ·
   <a href="#真实界面预览">界面预览</a> ·
+  <a href="#3-分钟快速上手">快速上手</a> ·
   <a href="docs/AGENT_DEPLOY.md">AI Agent 部署引导</a> ·
-  <a href="docs/PATCHING_WORKFLOW.md">技术与改造原理</a> ·
   <a href="docs/ARCHITECTURE.md">架构文档</a>
 </p>
 
 > RokBot 是一款面向个人与自托管场景的独立开源产品（架构与自托管思路受到 ProkBot、prokbot-plus 与 rakazo 启发），致力于让每个人都能在自己的服务器上轻松拥有完整、隐私、真正能干活的全端私有 AI 助手。
+
+---
+
+## 视频介绍
+
+30 秒快速了解 RokBot 的全端体验、模型路由、Linux 沙盒执行、Tailcat 隧道与 3 分钟一键部署：
+
+<p align="center">
+  <a href="docs/media/rokbot-intro.mp4">
+    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 30 秒产品介绍预览" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="docs/media/rokbot-intro.mp4"><strong>▶ 查看 / 下载高清 720p MP4 视频介绍（rokbot-intro.mp4）</strong></a> ·
+  <a href="https://raw.githubusercontent.com/hongfaqiu/rokbot/main/docs/media/rokbot-intro.mp4">Raw 直链播放</a>
+</p>
 
 ---
 
@@ -69,15 +86,31 @@
 
 ## 真实界面预览
 
-以下为 Android 客户端与自托管管理后台的真实运行截图（账号、主机地址与密钥信息已做隐私打码）：
+以下截图均采用隐私安全演示数据高清直出（无打码遮挡），展示真实渲染效果：
 
-| Android 桌面图标 | 配对连接 | App 内模型配置 | 真实对话与沙盒执行 |
+### 全平台客户端体验
+
+<p align="center">
+  <img src="docs/images/hero-zh.jpg" width="880" alt="Windows 客户端、Web 网页版与 Android App 全端协同" />
+</p>
+
+| Web 网页版（桌面 + 手机 PWA 自适应） | 平板横屏分栏与代码高亮 |
+| --- | --- |
+| <img src="docs/images/web-zh.png" width="460" alt="Web 网页版桌面与手机排版" /> | <img src="docs/images/card-tablet-zh.jpg" width="420" alt="平板横屏分栏对话" /> |
+
+| 联网检索与文生图 | 手机端多 Bot 并发对话 | Android 桌面图标 | Android 真实沙盒 Bash 执行 |
 | --- | --- | --- | --- |
-| <img src="docs/images/rokbot-android-launcher.png" width="210" alt="RokBot Android 图标" /> | <img src="docs/images/rokbot-android-pairing.png" width="210" alt="RokBot 配对页" /> | <img src="docs/images/rokbot-android-models.png" width="210" alt="RokBot App 内模型配置" /> | <img src="docs/images/rokbot-android-chat.png" width="210" alt="RokBot 真实对话与沙盒执行" /> |
+| <img src="docs/images/card-search.jpg" width="240" alt="联网检索与图像生成" /> | <img src="docs/images/card-phone-zh.jpg" width="240" alt="手机端多 Bot 对话" /> | <img src="docs/images/rokbot-android-launcher.png" width="160" alt="RokBot Android 图标" /> | <img src="docs/images/rokbot-android-chat.png" width="160" alt="RokBot Android 真实对话与沙盒执行" /> |
 
-| 管理后台概览 | 模型路由与 Bot 分配 | 四端增量更新发布 |
-| --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-overview.png" width="280" alt="RokBot 管理后台概览" /> | <img src="docs/images/rokbot-host-admin-model.png" width="280" alt="RokBot 模型路由配置" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="280" alt="RokBot 客户端更新管理" /> |
+### 自托管管理后台全景（高清无打码）
+
+| 概览 · 并发 Bot 与今日每小时用量 | 近 7 天多模型 Token 与缓存命中率 | 对话模型 Hub · 多服务商与路由 | 设备配对与 APNs / Bark 推送 |
+| --- | --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-overview.png" width="220" alt="管理后台概览与每小时 Token 图表" /> | <img src="docs/images/rokbot-host-admin-usage-7d.png" width="220" alt="近 7 天多模型 Token 用量图表" /> | <img src="docs/images/rokbot-host-admin-model.png" width="220" alt="多服务商模型与路由配置" /> | <img src="docs/images/rokbot-host-admin-devices.png" width="220" alt="五端设备管理与推送通知" /> |
+
+| 内置 Tailcat 加密隧道远程访问 | 默认启用 `:18081` 网页版管理 | 四端 ECDSA 签名增量更新发布 | Agent 中文技能与模块化管理 |
+| --- | --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-network.png" width="220" alt="Tailcat 加密隧道远程访问" /> | <img src="docs/images/rokbot-host-admin-web-client.png" width="220" alt="网页版客户端管理" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="220" alt="四端客户端增量更新管理" /> | <img src="docs/images/rokbot-host-admin-skills.png" width="220" alt="Agent 中文技能管理" /> |
 
 ---
 
