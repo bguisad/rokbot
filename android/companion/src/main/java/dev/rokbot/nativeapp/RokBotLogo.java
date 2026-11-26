@@ -19,7 +19,16 @@ import android.graphics.Shader;
 final class RokBotLogo {
     private RokBotLogo() {}
 
+    /** Parsed once; drawing only reads it. */
+    private static final Path CHASSIS = buildChassis();
+    private static final Shader FILL = new LinearGradient(512f, 56f, 512f, 960f, 0xFF242936, 0xFF12141B, Shader.TileMode.CLAMP);
+
+    /** A copy of the chassis outline (1024 design box) the caller may transform. */
     static Path chassisPath() {
+        return new Path(CHASSIS);
+    }
+
+    private static Path buildChassis() {
         Path head = new Path();
         head.moveTo(340f, 148f);
         head.cubicTo(408f, 148f, 476f, 144f, 540f, 144f);
@@ -41,9 +50,9 @@ final class RokBotLogo {
         canvas.save();
         float s = size / 1024f;
         canvas.scale(s, s);
-        Path head = chassisPath();
+        Path head = CHASSIS;
         Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        fill.setShader(new LinearGradient(512f, 56f, 512f, 960f, 0xFF242936, 0xFF12141B, Shader.TileMode.CLAMP));
+        fill.setShader(FILL);
         canvas.drawPath(head, fill);
         Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
         rim.setStyle(Paint.Style.STROKE);

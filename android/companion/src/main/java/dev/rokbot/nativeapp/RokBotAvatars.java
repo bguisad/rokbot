@@ -107,7 +107,11 @@ final class RokBotAvatars {
                 == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    /** One still frame of the Bot in the chosen style (custom pictures stay pictures). */
+    /**
+     * One still frame of the Bot in the chosen style, drawn as vectors straight into a bitmap of the
+     * target pixel size (e.g. the notification large icon: its dimension already includes density),
+     * so nothing is scaled afterwards. Custom pictures stay pictures.
+     */
     static Bitmap render(Context context, Look look, int sizePx) {
         if (look != null && look.imageDataUrl != null) {
             return UiChrome.decodeCircleAvatar(look.name, look.imageDataUrl, sizePx);
@@ -115,11 +119,11 @@ final class RokBotAvatars {
         Bitmap out = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         String style = RokBotAvatarManager.getStyle(context);
-        Bitmap mask = RokBotAvatarShapes.mask(look != null ? look.shape : null);
         int color = RokBotAvatarShapes.color(look != null ? look.color : null);
-        float pad = sizePx * 0.04f;
+        int pad = Math.round(sizePx * 0.04f);
         c.translate(pad, pad);
-        RokBotAvatarRenderer.draw(c, style, mask, "blob", sizePx - 2 * pad, 0.0, 0f, false, color, isDark(context));
+        RokBotAvatarRenderer.draw(c, style, RokBotAvatarShapes.path(look != null ? look.shape : null),
+                sizePx - 2 * pad, 0.0, 0f, false, color, isDark(context));
         return out;
     }
 
@@ -131,7 +135,7 @@ final class RokBotAvatars {
         }
         RokBotAvatarView v = new RokBotAvatarView(context);
         v.setStyleId(RokBotAvatarManager.getStyle(context));
-        v.setShapeMask(RokBotAvatarShapes.mask(look != null ? look.shape : null));
+        v.setShape(look != null ? look.shape : null);
         v.setBaseColor(RokBotAvatarShapes.color(look != null ? look.color : null));
         v.setLayoutParams(new LinearLayout.LayoutParams(px, px));
         v.setContentDescription("bot_avatar");

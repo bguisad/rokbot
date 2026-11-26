@@ -1,38 +1,174 @@
 package dev.rokbot.nativeapp;
 
-import android.graphics.Bitmap;
-import android.util.Base64;
+import android.graphics.Path;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
 /**
- * The official Bot shapes and colors of Grok Bot 1.26.0 (ai.x.grok.bot 3212), for places that draw a
- * Bot without React Native on screen (notification large icons, the share sheet Bot list). The
- * 128 x 128 1-bit silhouettes were captured from the app's own shape picker with
- * {@code adb shell setprop log.tag.RokBotAvatarHarvest DEBUG} (RokBotAvatarManager.harvest);
- * React Native screens always sample the live SVG instead, so any newer shape works there too.
+ * The official Bot shapes and colors of Grok Bot 1.26.0 (ai.x.grok.bot 3212) as vector paths, for
+ * places that draw a Bot without React Native on screen (notification large icons, the share sheet
+ * Bot list). The path data is the app's own SVG
+ * geometry, read from the shape picker by {@link RokBotSvgVector} (react-native-svg's parsed path
+ * through its canvas matrix) with {@code adb shell setprop log.tag.RokBotAvatarHarvest DEBUG}, in
+ * a 0..100 box over the picker cell. React Native screens always use the live SVG path instead, so
+ * any newer shape works there too.
  */
 final class RokBotAvatarShapes {
-    static final int MASK_SIZE = 128;
     static final String DEFAULT_SHAPE = "blob";
     static final String DEFAULT_COLOR = "blue";
 
+    // BEGIN HARVESTED SHAPES (0..100 design box, official 1.26.0 picker geometry)
     private static final String[][] SHAPES = {
-        { "blob", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAH///+AAAAAAAAAAAAAAAAf////+AAAAAAAAAAAAAAAf/////4AAAAAAAAAAAAAA///////wAAAAAAAAAAAAA////////AAAAAAAAAAAAB////////8AAAAAAAAAAAB/////////wAAAAAAAAAAA//////////AAAAAAAAAAA//////////4AAAAAAAAAAf//////////gAAAAAAAAAf//////////+AAAAAAAAAP///////////wAAAAAAAAH///////////+AAAAAAAAD////////////wAAAAAAAD////////////+AAAAAAAB/////////////4AAAAAAA//////////////AAAAAAAf/////////////4AAAAAAP/////////////+AAAAAAD//////////////wAAAAAB//////////////+AAAAAA///////////////wAAAAAf//////////////+AAAAAP///////////////gAAAAD///////////////8AAAAB////////////////gAAAA////////////////4AAAAP////////////////AAAAH////////////////4AAAD////////////////+AAAA/////////////////wAAAf////////////////8AAAH/////////////////gAAB/////////////////4AAA//////////////////AAAP/////////////////wAAH/////////////////8AAB//////////////////gAAf/////////////////4AAP//////////////////AAD//////////////////wAB//////////////////8AAf//////////////////gAH//////////////////4AB//////////////////+AA///////////////////gAP//////////////////8AD///////////////////AA///////////////////wAP//////////////////8AD///////////////////AA///////////////////wAf//////////////////8AH///////////////////gB///////////////////4Af//////////////////+AH///////////////////gB///////////////////4Af//////////////////+AH///////////////////gB///////////////////4Af//////////////////+AH///////////////////gB///////////////////wAP//////////////////8AD///////////////////AA///////////////////wAP//////////////////8AD///////////////////AA///////////////////wAP//////////////////4AB//////////////////+AAf//////////////////gAH//////////////////4AB//////////////////8AAP//////////////////AAD//////////////////wAAf/////////////////4AAH/////////////////+AAB//////////////////AAAP/////////////////wAAD/////////////////8AAAf////////////////+AAAH/////////////////gAAA/////////////////wAAAP////////////////8AAAB////////////////+AAAAf////////////////gAAAD////////////////wAAAAf///////////////4AAAAH///////////////+AAAAA////////////////AAAAAP///////////////gAAAAB///////////////4AAAAAP//////////////8AAAAAB//////////////+AAAAAAP//////////////AAAAAAB//////////////gAAAAAAf/////////////wAAAAAAD/////////////4AAAAAAAf////////////8AAAAAAAB////////////+AAAAAAAAP////////////AAAAAAAAB////////////gAAAAAAAAP///////////wAAAAAAAAA///////////wAAAAAAAAAH//////////4AAAAAAAAAAf/////////4AAAAAAAAAAD/////////8AAAAAAAAAAAP////////8AAAAAAAAAAAA////////8AAAAAAAAAAAAD///////8AAAAAAAAAAAAAH//////4AAAAAAAAAAAAAAf/////4AAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAA////AAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "cloud", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf4AAAAAAAAAAAAAAAAAAH//4AAAAAAAAAAAAAH//wH///wAAAAAAAAAAAAP////////AAAAAAAAAAAAf////////4AAAAAAAAAAAf/////////gAAAAAAAAAAf/////////8AAAAAAAAAAf//////////gAAAAAAAAAf//////////8AAAAAAAAAP///////////gAAAAAAAAH///////////8AAAAAAAAD////////////gAAAAAAAD////////////8AAAAAAAB/////////////AAAAAAAA/////////////4AAAAAAAf/////////////AAAAAAAP/////////////wAAAAAAD/////////////+AAAAAAB//////////////gAAAAAA//////////////8AAAAAAP//////////////4AAAAAH///////////////AAAAAD///////////////8AAAAA////////////////gAAAAf///////////////+AAAAH////////////////wAAAD////////////////+AAAA/////////////////wAAAP////////////////+AAAH/////////////////wAAB/////////////////+AAAf/////////////////wAAP/////////////////8AAD//////////////////gAA//////////////////4AAP//////////////////AAD//////////////////wAB//////////////////+AAf//////////////////gAH//////////////////8AB///////////////////AAf//////////////////wAD//////////////////8AA///////////////////gAP//////////////////4AD//////////////////+AA///////////////////gAP//////////////////4AD///////////////////AA///////////////////wAP//////////////////8AD///////////////////AAf//////////////////wAH//////////////////8AB///////////////////AAP//////////////////gAD//////////////////4AB//////////////////+AAf//////////////////gAP//////////////////4AD//////////////////8AA///////////////////AAf//////////////////wAH//////////////////4AB//////////////////+AAf//////////////////AAP//////////////////wAD//////////////////4AA//////////////////8AAP//////////////////AAD//////////////////gAA//////////////////wAAP/////////////////8AAD/////////////////+AAA//////////////////AAAH/////////////////AAAB/////////////////gAAAf////////////////wAAAH////////////////4AAAA////////////////8AAAAP///////////////8AAAAD///////////////8AAAAAf//////////////8AAAAAH//////////////8AAAAAB//////////////8AAAAAAP/////////////4AAAAAAB/////////////4AAAAAAAf////////////8AAAAAAAD////////////+AAAAAAAAf////////////AAAAAAAAD////////////gAAAAAAAA////////////wAAAAAAAAD///////////4AAAAAAAAAf//////////4AAAAAAAAAD//////////8AAAAAAAAAAf/////////8AAAAAAAAAAD/////////8AAAAAAAAAAAP////////8AAAAAAAAAAAA////D///8AAAAAAAAAAAAB///AH//4AAAAAAAAAAAAAH//AAH8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "square", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/4AAAAAAAAAAAAAAAAAAH//gAAAAAAAAAAAAAAAAAP//8AAAAAAAAAAAAAAAAAf///gAAAAAAAAAAAAAAAB////8AAAAAAAAAAAAAAAH/////gAAAAAAAAAAAAAAf/////8AAAAAAAAAAAAAB///////AAAAAAAAAAAAAD///////4AAAAAAAAAAAAH///////+AAAAAAAAAAAAf////////gAAAAAAAAAAB/////////8AAAAAAAAAAH//////////AAAAAAAAAAP//////////4AAAAAAAAA///////////+AAAAAAAAB////////////wAAAAAAAH////////////8AAAAAAAf/////////////gAAAAAAf/////////////4AAAAAAf//////////////AAAAAAP//////////////wAAAAAP//////////////+AAAAAH///////////////gAAAAB///////////////8AAAAA////////////////AAAAAf///////////////4AAAAP///////////////+AAAAH////////////////wAAAD////////////////8AAAA/////////////////gAAAf////////////////4AAAH////////////////+AAAD/////////////////wAAA/////////////////8AAAP/////////////////gAAD/////////////////4AAA//////////////////AAAP/////////////////wAAB/////////////////+AAAf/////////////////gAAH/////////////////8AAA//////////////////AAAP/////////////////4AAB/////////////////+AAAf/////////////////wAAD/////////////////8AAA//////////////////gAAH/////////////////4AAB//////////////////AAAP/////////////////wAAD/////////////////+AAAf/////////////////gAAH/////////////////8AAB//////////////////AAAP/////////////////4AAB/////////////////+AAAf/////////////////gAAD/////////////////8AAA//////////////////AAAP/////////////////4AAB/////////////////+AAAf/////////////////wAAD/////////////////8AAA//////////////////gAAH/////////////////4AAB//////////////////AAAP/////////////////wAAD/////////////////+AAAf/////////////////gAAH/////////////////8AAA//////////////////AAAP/////////////////wAAB/////////////////+AAAf/////////////////wAAH/////////////////8AAA//////////////////gAAP/////////////////4AAB/////////////////+AAAP/////////////////gAAD/////////////////8AAA//////////////////AAAH/////////////////wAAB/////////////////4AAAP////////////////+AAAD/////////////////gAAAf////////////////4AAAH////////////////8AAAA/////////////////AAAAP////////////////gAAAB////////////////wAAAAf///////////////4AAAAD///////////////8AAAAA///////////////+AAAAAH///////////////AAAAAB///////////////gAAAAAP//////////////wAAAAAD//////////////wAAAAAAf/////////////4AAAAAAH/////////////wAAAAAAB/////////////gAAAAAAAP///////////+AAAAAAAAD///////////4AAAAAAAAAf//////////wAAAAAAAAAD//////////AAAAAAAAAAA/////////+AAAAAAAAAAAP////////wAAAAAAAAAAAB////////gAAAAAAAAAAAAf//////+AAAAAAAAAAAAAD//////8AAAAAAAAAAAAAA//////wAAAAAAAAAAAAAAH/////AAAAAAAAAAAAAAAA////8AAAAAAAAAAAAAAAAH///4AAAAAAAAAAAAAAAAA///gAAAAAAAAAAAAAAAAAH//AAAAAAAAAAAAAAAAAAAf8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "sparkle", "AAAAAAAAAfgAAAAAAAAAAAAAAAAAAAf/AAAAAAAAAAAAAAAAAAAf/8AAAAAAAAAAAAAAAAAAP//wAAAAAAAAAAAAAAAAAP//+AAAAAAAAAAAAAAAAAH///4AAAAAAAAAAAAAAAAD////AAAAAAAAAAAAAAAAB////4AAAAAAAAAAAAAAAAf////AAAAAAAAAAAAAAAAP////4AAAAAAAAAAAAAAAH/////AAAAAAAAAAAAAAAD/////wAAAAAAAAAAAAAAB/////+AAAAAAAAAAAAAAA//////wAAAAAAAAAAAAAAf/////8AAAAAAAAAAAAAAH//////gAAAAAAAAAAAAAD//////8AAAAAAAAAAAAAB///////AAAAAAAAAAAAAAf//////4AAAAAAAAAAAAAP///////AAAAAAAAAAAAAD///////wAAAAAAAAAAAAB///////+AAAAAAAAAAAAAf///////gAAAAAAAAAAAAP///////8AAAAAAAAAAAAD////////AAAAAAAAAAAAB////////4AAAAAAAAAAAAf///////+AAAAAAAAAAAAH////////wAAAAAAAAAAAB////////8AAAAAAAAAAAA/////////gAAAAAAAAAAAP////////4AAAAAAAAAAAD/////////AAAAAAAAAAAA/////////wAAAAAAAAAAAP////////8AAAAAAAAAAAD/////////4AAAAAAAAAAB//////////4AAAAAAAAAAf//////////4AAAAAAAAAP///////////wAAAAAAAAH////////////gAAAAAAAP/////////////AAAAAAAP/////////////8AAAAAAP//////////////wAAAAAH///////////////AAAAAH///////////////8AAAAD////////////////gAAAD////////////////+AAAB/////////////////wAAA/////////////////+AAAf/////////////////wAAP/////////////////+AAH//////////////////wAD//////////////////8AB///////////////////gA///////////////////8Af///////////////////AP///////////////////4H///////////////////+B////////////////////g////////////////////4P////////////////////H////////////////////j////////////////////4////////////////////+f////////////////////n////////////////////x////////////////////8////////////////////+P////////////////////j////////////////////w////////////////////8H///////////////////+B////////////////////Af///////////////////gD///////////////////wAf//////////////////4AH//////////////////+AA///////////////////AAP//////////////////gAB//////////////////wAAP/////////////////4AAB/////////////////8AAAP////////////////+AAAB////////////////+AAAAH////////////////AAAAAf///////////////AAAAAD///////////////gAAAAAP//////////////gAAAAAA//////////////wAAAAAAB/////////////gAAAAAAAH////////////gAAAAAAAAH///////////gAAAAAAAAAf//////////4AAAAAAAAAAf/////////8AAAAAAAAAAAP/////////AAAAAAAAAAAB/////////wAAAAAAAAAAAP////////8AAAAAAAAAAAD/////////AAAAAAAAAAAAf////////wAAAAAAAAAAAH////////4AAAAAAAAAAAA////////+AAAAAAAAAAAAP////////gAAAAAAAAAAAB////////4AAAAAAAAAAAAf///////8AAAAAAAAAAAAD////////AAAAAAAAAAAAA////////wAAAAAAAAAAAAP///////4AAAAAAAAAAAAB///////+AAAAAAAAAAAAAP///////AAAAAAAAAAAAAD///////wAAAAAAAAAAAAAf//////4AAAAAAAAAAAAAH//////8AAAAAAAAAAAAAA///////AAAAAAAAAAAAAAH//////gAAAAAAAAAAAAAB//////wAAAAAAAAAAAAAAP/////8AAAAAAAAAAAAAAB/////+AAAAAAAAAAAAAAAP/////AAAAAAAAAAAAAAAD/////gAAAAAAAAAAAAAAAf////wAAAAAAAAAAAAAAAD////4AAAAAAAAAAAAAAAAf///8AAAAAAAAAAAAAAAAD////AAAAAAAAAAAAAAAAAf///AAAAAAAAAAAAAAAAAB///gAAAAAAAAAAAAAAAAAP//wAAAAAAAAAAAAAAAAAA//wAAAAAAAAAAAAAAAAAAD/4AAAAAAAAAAAAAAAAAAADwAAAAAAAAA=" },
-        { "clover", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//wAAAAAAAAAAAAAAAAAB///gAAAAAAAAAAAAAAAAB////AAAAAAAAAAAAAAAAB////8AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAA//////AAAAAAAAAAAAAAAf/////4AAAAAAAAAAAAAAP//////AAAAAAAAAAAAAAH//////8AAAAAAAAAAD/wD///////gAAAAAAAAAf//9///////8AAAAAAAAAf///////////gAAAAAAAAf///////////8AAAAAAAAf////////////gAAAAAAAP////////////8AAAAAAAH/////////////AAAAAAAH/////////////4AAAAAAD//////////////AAAAAAB//////////////wAAAAAAf/////////////+AAAAAAP//////////////gAAAAAH//////////////8AAAAAD///////////////AAAAAB///////////////4AAAAA///////////////+AAAAAf///////////////gAAAAH///////////////8AAAAD////////////////AAAAB////////////////wAAAAf///////////////8AAAAP////////////////gAAAD////////////////4AAAB////////////////+AAAAf////////////////gAAAH////////////////4AAAB////////////////+AAAA/////////////////gAAAP////////////////4AAAD////////////////+AAAA/////////////////AAAAP////////////////4AAAD/////////////////AAAA/////////////////4AAAP/////////////////gAAD/////////////////8AAA//////////////////gAAP/////////////////8AAD//////////////////gAA//////////////////8AAP//////////////////AAB//////////////////4AAf//////////////////AAH//////////////////wAA//////////////////+AAP//////////////////gAD//////////////////8AAf//////////////////gAH//////////////////4AA///////////////////AAP//////////////////wAB//////////////////8AAP//////////////////gAD//////////////////4AAf/////////////////+AAD//////////////////wAA//////////////////8AAH//////////////////AAA//////////////////wAAH/////////////////8AAA//////////////////AAAD/////////////////wAAAf////////////////8AAAD/////////////////AAAAf////////////////wAAAH////////////////8AAAB/////////////////AAAAf////////////////wAAAH////////////////8AAAB////////////////+AAAAf////////////////gAAAH////////////////4AAAB////////////////8AAAAf////////////////AAAAH////////////////wAAAA////////////////4AAAAP///////////////+AAAAD////////////////AAAAA////////////////gAAAAP///////////////wAAAAB///////////////8AAAAAf//////////////+AAAAAD///////////////AAAAAA///////////////gAAAAAH//////////////wAAAAAB//////////////4AAAAAAP/////////////8AAAAAAD/////////////+AAAAAAAf/////////////AAAAAAAD/////////////gAAAAAAA/////////////wAAAAAAAH////////////wAAAAAAAA////////////wAAAAAAAAH///////////wAAAAAAAAA///////+f//wAAAAAAAAAH///////AH+AAAAAAAAAAA///////gAAAAAAAAAAAAAH//////wAAAAAAAAAAAAAAf/////4AAAAAAAAAAAAAAD/////8AAAAAAAAAAAAAAAP////8AAAAAAAAAAAAAAAA////8AAAAAAAAAAAAAAAAD///8AAAAAAAAAAAAAAAAAH//8AAAAAAAAAAAAAAAAAAP/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "heart", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//AAAAAAAAAAAAAAAAAAP///AAAAAAAAAAAAAAAAAf///+AAAAAAAAAAAAAAAAf////8AAAAAAAAAAAAAAAf/////wAAAAAAAAAAAAAAf/////+AAAAAAAAAAAAAAP//////4AAAAAAAAAAAAAH///////AAAAAAAAAAAAAH///////8AAAAAAAAAAAAD////////gAAAAAAAAB///////////8AAAAAAAAH////////////gAAAAAAAP////////////8AAAAAAAP/////////////gAAAAAAf/////////////8AAAAAAf//////////////gAAAAAP//////////////4AAAAAH///////////////AAAAAH///////////////4AAAAD///////////////+AAAAB////////////////wAAAA////////////////8AAAAf////////////////gAAAP////////////////4AAAH/////////////////AAAD/////////////////wAAB/////////////////8AAA//////////////////gAAP/////////////////4AAH/////////////////+AAB//////////////////wAA//////////////////8AAP//////////////////AAH//////////////////wAB//////////////////8AA///////////////////AAP//////////////////wAD//////////////////8AB///////////////////AAf//////////////////wAH//////////////////8AB///////////////////AAf//////////////////wAP//////////////////4AD//////////////////+AA///////////////////gAP//////////////////4AD//////////////////8AA///////////////////AAP//////////////////gAD//////////////////4AA//////////////////8AAP//////////////////AAD//////////////////wAAf/////////////////4AAH/////////////////+AAB//////////////////gAAf/////////////////wAAD/////////////////8AAA/////////////////+AAAP/////////////////gAAB/////////////////wAAAf////////////////8AAAD/////////////////AAAA/////////////////gAAAH////////////////4AAAB////////////////8AAAAf////////////////AAAAD////////////////wAAAAf///////////////4AAAAH///////////////+AAAAA////////////////AAAAAH///////////////wAAAAA///////////////8AAAAAH//////////////+AAAAAA///////////////gAAAAAH//////////////wAAAAAA//////////////8AAAAAAH/////////////+AAAAAAA//////////////gAAAAAAH/////////////4AAAAAAAf////////////8AAAAAAAB/////////////AAAAAAAAP////////////wAAAAAAAA////////////4AAAAAAAAB///////////+AAAAAAAAAH///////////AAAAAAAAAAf//////////wAAAAAAAAAD//////////4AAAAAAAAAAP/////////+AAAAAAAAAAA//////////AAAAAAAAAAAB/////////gAAAAAAAAAAAH////////4AAAAAAAAAAAAf///////8AAAAAAAAAAAAB///////+AAAAAAAAAAAAAH///////gAAAAAAAAAAAAAf//////wAAAAAAAAAAAAAB//////wAAAAAAAAAAAAAAH/////4AAAAAAAAAAAAAAAf////8AAAAAAAAAAAAAAAB////8AAAAAAAAAAAAAAAAH///+AAAAAAAAAAAAAAAAAf//8AAAAAAAAAAAAAAAAAA//4AAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "flower", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAP//AAAAAAAAAAAAAAAAAAf//+AAAAAAAAAAAAAAAAAf///4AAAAAAAAAAAAAAAAP////gAAAAAAAAAAAAAAAH////8AAAAAAAAAAAAAAAD/////gAAAAAAAAAAAAAAB/////8AAAAAAAAAAAAAAA//////wAAAAAAAAAAAAAAf/////+AH/AAAAAAAAAAAP//////gP/+AAAAAAAAAAH//////8H//4AAAAAAAAAB///////n///gAAAAAAAAA///////////+AAAAAAAAAf///////////wAAAAAAAAP////////////AAAAAAAAH////////////4AAAAAAAB/////////////AAAAAAAA/////////////4AAAAAAAf/////////////AAAAAAAH/////////////wAAAAAAB/////////////+AAAAAAA//////////////gAAAAAAP/////////////8AAAAAAD//////////////AAAAAAB//////////////4AAAAAAf/////////////+AAAAAAf//////////////wAAAAAP//////////////8AAAAAP///////////////AAAAAH///////////////wAAAAD///////////////8AAAAB////////////////gAAAA////////////////4AAAAf///////////////+AAAAP////////////////AAAAD////////////////wAAAB////////////////8AAAA/////////////////AAAAf////////////////wAAAP////////////////4AAAH////////////////+AAAD/////////////////AAAA/////////////////+AAAP/////////////////wAAH//////////////////AAB//////////////////4AA///////////////////gAP//////////////////8AH///////////////////gB///////////////////8Af///////////////////gH///////////////////4B////////////////////Af///////////////////4H///////////////////+B////////////////////wf///////////////////8H////////////////////g////////////////////4P////////////////////D////////////////////wf///////////////////8H////////////////////g////////////////////4P///////////////////+B////////////////////gf///////////////////4D///////////////////+A////////////////////gH///////////////////4A///////////////////+AH///////////////////AA///////////////////wAH//////////////////8AAf/////////////////+AAD//////////////////gAAP/////////////////wAAA/////////////////8AAAD////////////////+AAAB/////////////////gAAAf////////////////wAAAP////////////////4AAAD////////////////8AAAA////////////////+AAAAf////////////////AAAAH////////////////gAAAB////////////////wAAAAf///////////////8AAAAH///////////////+AAAAB////////////////AAAAAf///////////////gAAAAD///////////////gAAAAA///////////////wAAAAAP//////////////wAAAAAB//////////////4AAAAAAf/////////////8AAAAAAD//////////////AAAAAAA//////////////wAAAAAAH/////////////8AAAAAAB/////////////+AAAAAAAP/////////////gAAAAAAB/////////////wAAAAAAAf////////////8AAAAAAAD////////////+AAAAAAAAf////////////gAAAAAAAD////////////wAAAAAAAAP///////////4AAAAAAAAB///////////8AAAAAAAAAH///H//////+AAAAAAAAAAf//g///////AAAAAAAAAAB//gH//////gAAAAAAAAAAD/AB//////4AAAAAAAAAAAAAAH/////4AAAAAAAAAAAAAAA/////+AAAAAAAAAAAAAAAH/////AAAAAAAAAAAAAAAA/////gAAAAAAAAAAAAAAAH////wAAAAAAAAAAAAAAAAf///wAAAAAAAAAAAAAAAAB///wAAAAAAAAAAAAAAAAAD//wAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "teardrop", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH8AAAAAAAAAAAAAAAAAAAf/8AAAAAAAAAAAAAAAAAAP//4AAAAAAAAAAAAAAAAAP///gAAAAAAAAAAAAAAAAH////AAAAAAAAAAAAAAAAD////8AAAAAAAAAAAAAAAB/////4AAAAAAAAAAAAAAA//////gAAAAAAAAAAAAAAf/////+AAAAAAAAAAAAAAH//////4AAAAAAAAAAAAAD///////gAAAAAAAAAAAAA////////AAAAAAAAAAAAAf///////8AAAAAAAAAAAAH////////wAAAAAAAAAAAD/////////AAAAAAAAAAAA/////////+AAAAAAAAAAAP/////////4AAAAAAAAAAH//////////wAAAAAAAAAB///////////AAAAAAAAAAf//////////8AAAAAAAAAP///////////gAAAAAAAAD///////////+AAAAAAAAA////////////4AAAAAAAAP////////////AAAAAAAAH////////////8AAAAAAAB/////////////gAAAAAAAf////////////8AAAAAAAP/////////////gAAAAAAD/////////////8AAAAAAA//////////////gAAAAAAP/////////////8AAAAAAH//////////////gAAAAAB//////////////8AAAAAAf//////////////gAAAAAH//////////////8AAAAAD///////////////AAAAAA///////////////4AAAAAP///////////////AAAAAD///////////////wAAAAB///////////////+AAAAAf///////////////wAAAAH///////////////8AAAAD////////////////gAAAA////////////////4AAAAP////////////////AAAAD////////////////wAAAB////////////////8AAAAf////////////////gAAAH////////////////4AAAB/////////////////AAAA/////////////////wAAAP////////////////+AAAD/////////////////gAAA/////////////////4AAAf////////////////+AAAH/////////////////wAAB/////////////////8AAAf/////////////////AAAP/////////////////wAAD/////////////////8AAA//////////////////AAAP/////////////////4AAD/////////////////+AAA//////////////////gAAP/////////////////4AAH/////////////////+AAB//////////////////gAAf/////////////////4AAH/////////////////+AAB//////////////////gAAf/////////////////4AAH/////////////////+AAA//////////////////gAAP/////////////////4AAD/////////////////+AAA//////////////////AAAP/////////////////wAAD/////////////////8AAAf/////////////////AAAH/////////////////wAAB/////////////////8AAAf////////////////+AAAD/////////////////gAAA/////////////////4AAAP////////////////8AAAD/////////////////AAAAf////////////////wAAAH////////////////4AAAB////////////////+AAAAP////////////////AAAAD////////////////wAAAAf///////////////8AAAAH///////////////+AAAAA////////////////gAAAAP///////////////wAAAAB///////////////8AAAAAP//////////////+AAAAAD///////////////AAAAAAf//////////////wAAAAAH//////////////4AAAAAA//////////////8AAAAAAH/////////////+AAAAAAA//////////////gAAAAAAH/////////////wAAAAAAB/////////////4AAAAAAAP////////////8AAAAAAAB////////////+AAAAAAAAP////////////AAAAAAAAB////////////gAAAAAAAAH///////////wAAAAAAAAA///////////4AAAAAAAAAH//////////4AAAAAAAAAAf/////////8AAAAAAAAAAD/////////8AAAAAAAAAAAP////////+AAAAAAAAAAAB////////+AAAAAAAAAAAAH///////+AAAAAAAAAAAAAf///////AAAAAAAAAAAAAA//////+AAAAAAAAAAAAAAD/////8AAAAAAAAAAAAAAAH////4AAAAAAAAAAAAAAAAH///wAAAAAAAAAAAAAAAAAB/8AAAAAAAAA=" },
-        { "tablet", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAeAAAAAAAAAAAAAAAAAAAP//4AAAAAAAAAAAAAAAAA////4AAAAAAAAAAAAAAAD/////wAAAAAAAAAAAAAAP//////AAAAAAAAAAAAAAf//////8AAAAAAAAAAAAA////////wAAAAAAAAAAAD////////+AAAAAAAAAAAP/////////4AAAAAAAAAA///////////AAAAAAAAAD///////////8AAAAAAAAH////////////gAAAAAAAP////////////8AAAAAAA//////////////gAAAAAB//////////////8AAAAAB///////////////gAAAAB///////////////4AAAAA////////////////AAAAA////////////////4AAAA/////////////////AAAAf////////////////4AAAP////////////////+AAAH/////////////////wAAD/////////////////8AAB//////////////////gAA//////////////////4AAf//////////////////AAP//////////////////wAH//////////////////8AB///////////////////gA///////////////////4Af///////////////////AP///////////////////wD///////////////////8B////////////////////gf///////////////////4P///////////////////+D////////////////////g////////////////////4f///////////////////+H////////////////////z////////////////////8/////////////////////P////////////////////3////////////////////9/////////////////////f////////////////////3////////////////////9//////////////////////////////////////////v////////////////////7////////////////////+/////////////////////v////////////////////7////////////////////+/////////////////////P////////////////////z////////////////////8////////////////////+P////////////////////j////////////////////4////////////////////8H////////////////////B////////////////////gf///////////////////4H///////////////////8A////////////////////AP///////////////////gD///////////////////4Af//////////////////8AH//////////////////+AB///////////////////AAP//////////////////wAD//////////////////4AAf/////////////////8AAH/////////////////+AAA//////////////////AAAP/////////////////gAAB/////////////////wAAAf////////////////4AAAD////////////////4AAAAf///////////////8AAAAD///////////////8AAAAA///////////////+AAAAAH//////////////+AAAAAA//////////////8AAAAAAH/////////////4AAAAAAA/////////////gAAAAAAAH////////////AAAAAAAAA///////////+AAAAAAAAAD//////////4AAAAAAAAAAf/////////gAAAAAAAAAAB////////+AAAAAAAAAAAAP///////8AAAAAAAAAAAAA///////wAAAAAAAAAAAAAD//////gAAAAAAAAAAAAAAP////+AAAAAAAAAAAAAAAAP///4AAAAAAAAAAAAAAAAAP//gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "wedge", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//AAAAAAAAAAAAAAAAAAB//+AAAAAAAAAAAAAAAAAA///4AAAAAAAAAAAAAAAAAf///gAAAAAAAAAAAAAAAAP///+AAAAAAAAAAAAAAAAH////4AAAAAAAAAAAAAAAD/////gAAAAAAAAAAAAAAA/////8AAAAAAAAAAAAAAAf/////wAAAAAAAAAAAAAAP/////+AAAAAAAAAAAAAAD//////4AAAAAAAAAAAAAB///////AAAAAAAAAAAAAAf//////8AAAAAAAAAAAAAH///////gAAAAAAAAAAAAD///////+AAAAAAAAAAAAA////////wAAAAAAAAAAAAP////////AAAAAAAAAAAAD////////8AAAAAAAAAAAB/////////gAAAAAAAAAAAf////////+AAAAAAAAAAAH/////////wAAAAAAAAAAB/////////+AAAAAAAAAAAf/////////4AAAAAAAAAAP//////////gAAAAAAAAAD//////////8AAAAAAAAAA///////////wAAAAAAAAAP//////////+AAAAAAAAAD///////////4AAAAAAAAA////////////AAAAAAAAAP///////////8AAAAAAAAD////////////wAAAAAAAA////////////+AAAAAAAAf////////////wAAAAAAAH/////////////AAAAAAAB/////////////4AAAAAAAf/////////////gAAAAAAH/////////////8AAAAAAB//////////////gAAAAAAf/////////////+AAAAAAH//////////////wAAAAAB//////////////+AAAAAA///////////////wAAAAAP//////////////+AAAAAD///////////////gAAAAA///////////////8AAAAAP///////////////gAAAAD///////////////8AAAAA////////////////AAAAAP///////////////4AAAAH///////////////+AAAAB////////////////gAAAAf///////////////8AAAAH////////////////AAAAB////////////////wAAAAf///////////////8AAAAH////////////////AAAAB////////////////wAAAAf///////////////4AAAAH///////////////+AAAAD////////////////gAAAA////////////////4AAAAP///////////////8AAAAD////////////////AAAAA////////////////gAAAAP///////////////wAAAAD///////////////8AAAAA///////////////+AAAAAP///////////////AAAAAD///////////////gAAAAA///////////////4AAAAAf//////////////4AAAAAH//////////////8AAAAAB//////////////+AAAAAAf//////////////AAAAAAH//////////////gAAAAAB//////////////wAAAAAAf/////////////4AAAAAAH/////////////8AAAAAAB/////////////8AAAAAAAf////////////+AAAAAAAH/////////////AAAAAAAB/////////////AAAAAAAAf////////////gAAAAAAAH////////////gAAAAAAAB////////////gAAAAAAAAf///////////wAAAAAAAAH///////////wAAAAAAAAB///////////wAAAAAAAAAf//////////4AAAAAAAAAD//////////wAAAAAAAAAA//////////wAAAAAAAAAAP/////////wAAAAAAAAAAD/////////4AAAAAAAAAAAf////////4AAAAAAAAAAAH////////wAAAAAAAAAAAA////////gAAAAAAAAAAAAH///////gAAAAAAAAAAAAB///////AAAAAAAAAAAAAAP//////AAAAAAAAAAAAAAB/////+AAAAAAAAAAAAAAAH////4AAAAAAAAAAAAAAAAf///gAAAAAAAAAAAAAAAAAf/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "house", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAAAAAAAAAAAAAAAAAB/+AAAAAAAAAAAAAAAAAAB//8AAAAAAAAAAAAAAAAAB///wAAAAAAAAAAAAAAAAA////gAAAAAAAAAAAAAAAAf////AAAAAAAAAAAAAAAAP////8AAAAAAAAAAAAAAAH/////wAAAAAAAAAAAAAAD//////gAAAAAAAAAAAAAB//////+AAAAAAAAAAAAAA///////8AAAAAAAAAAAAAP///////4AAAAAAAAAAAAH////////gAAAAAAAAAAAD////////+AAAAAAAAAAAA/////////8AAAAAAAAAAAf/////////wAAAAAAAAAAP//////////AAAAAAAAAAD//////////8AAAAAAAAAB///////////gAAAAAAAAAf//////////+AAAAAAAAAP///////////wAAAAAAAAD///////////+AAAAAAAAB////////////wAAAAAAAAf///////////+AAAAAAAAP////////////wAAAAAAAH////////////8AAAAAAAB/////////////gAAAAAAA/////////////8AAAAAAAP/////////////AAAAAAAH/////////////4AAAAAAB/////////////+AAAAAAA//////////////wAAAAAAf/////////////8AAAAAAH//////////////gAAAAAD//////////////4AAAAAA///////////////AAAAAAf//////////////wAAAAAH//////////////+AAAAAD///////////////gAAAAA///////////////8AAAAAf///////////////AAAAAH///////////////4AAAAD///////////////+AAAAA////////////////wAAAAf///////////////8AAAAH////////////////gAAAB////////////////4AAAA/////////////////AAAAP////////////////wAAAD////////////////8AAAA/////////////////gAAAf////////////////4AAAH/////////////////AAAB/////////////////wAAAP////////////////+AAAD/////////////////gAAA/////////////////8AAAP/////////////////AAAD/////////////////4AAA/////////////////+AAAH/////////////////wAAB/////////////////8AAAP/////////////////gAAD/////////////////4AAA//////////////////AAAH/////////////////wAAB/////////////////8AAAP/////////////////gAAD/////////////////8AAAf/////////////////AAAH/////////////////wAAA/////////////////+AAAP/////////////////gAAB/////////////////4AAAf/////////////////AAAD/////////////////wAAA/////////////////8AAAP/////////////////AAAB/////////////////gAAAf////////////////4AAAD////////////////+AAAA/////////////////AAAAH////////////////wAAAB////////////////4AAAAP///////////////8AAAAD///////////////+AAAAAf///////////////gAAAAH///////////////wAAAAA///////////////4AAAAAP//////////////8AAAAAB//////////////+AAAAAAf//////////////AAAAAAH//////////////AAAAAAA//////////////AAAAAAAH/////////////AAAAAAAB////////////+AAAAAAAAP///////////4AAAAAAAAD///////////wAAAAAAAAA///////////AAAAAAAAAAH/////////8AAAAAAAAAAB/////////wAAAAAAAAAAAP////////gAAAAAAAAAAAD////////AAAAAAAAAAAAAf//////8AAAAAAAAAAAAAH//////wAAAAAAAAAAAAAA//////AAAAAAAAAAAAAAAH////8AAAAAAAAAAAAAAAA////4AAAAAAAAAAAAAAAAH///wAAAAAAAAAAAAAAAAA///AAAAAAAAAAAAAAAAAAD/8AAAAAAAAAAAAAAAAAAADgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "star", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/wAAAAAAAAAAAAAAAAAAB//AAAAAAAAAAAAAAAAAAB//8AAAAAAAAAAAAAAAAAA///wAAAAAAAAAAAAAAAAAf//8AAAAAAAAAAAAAAAAAP///gAAAAAAAAAAAAAAAAD///8AAAAAAAAAAAAAAAAB////gAAAAAAAAAAAAAAAA////8AAAAAAAAAAAAAAAAf////gAAAAAAAAAAAAAAAP////8AAAAAAAAAAAAAAAH/////gAAAAAAAAAAAAAAB/////4AAAAPAAAAAAAAAA//////AAAAf+AAAAAAAAAP/////4AAAf/wAAAAAAAAD//////AAAf/+AAAAAAAAB//////4AAf//wAAAAAAAAf//////AAf//+AAAAAAAAH//////8Af///wAAAAAAAB///////wf///+AAAAAAAAf////////////gAAAAAAAH////////////4AAAAAAAB/////////////AAAAAAAAf////////////wAAAAAAAH////////////8AAAAAAAB/////////////AAAAAAAAf////////////gAAAAAAAH////////////4AAAAAAAA////////////+AAAAAAAAP////////////gAAAAAAAD////////////wAAAAAAAB////////////8AAAAAAB//////////////AAAAAAH//////////////gAAAAAH//////////////4AAAAAH//////////////+AAAAAD///////////////AAAAAB///////////////wAAAAA///////////////8AAAAAf///////////////AAAAAP///////////////gAAAAH///////////////4AAAAD////////////////AAAAA////////////////wAAAAf///////////////8AAAAP////////////////gAAAD////////////////8AAAB/////////////////AAAAf////////////////8AAAP/////////////////gAAD/////////////////8AAA//////////////////wAAP//////////////////AAD//////////////////4AA///////////////////gAH//////////////////8AB///////////////////wAP///////////////////AD///////////////////4Af///////////////////gD///////////////////8A////////////////////AH///////////////////4Af///////////////////AD///////////////////wAP//////////////////+AA///////////////////gAH//////////////////4AAf//////////////////AAB//////////////////wAAP/////////////////8AAA//////////////////AAAH/////////////////gAAAf////////////////4AAAH////////////////+AAAA/////////////////AAAAH////////////////wAAAB////////////////4AAAAP///////////////8AAAAD///////////////+AAAAA////////////////AAAAAP///////////////gAAAAD///////////////4AAAAA///////////////8AAAAAP//////////////+AAAAAH///////////////AAAAAB///////////////AAAAAAf//////////////gAAAAAP//////////////gAAAAAD/////////////+AAAAAAA////////////8AAAAAAAAf////////////AAAAAAAAH////////////wAAAAAAAB////////////8AAAAAAAAf////////////AAAAAAAAP////////////4AAAAAAAD////////////+AAAAAAAA/////////////gAAAAAAAP////////////4AAAAAAAD////////////+AAAAAAAA/////////////gAAAAAAAH////////////4AAAAAAAB////wP//////+AAAAAAAAP///wA///////gAAAAAAAB///wAD//////4AAAAAAAAf//wAAf/////+AAAAAAAAD//4AAD//////AAAAAAAAAP/4AAAf/////wAAAAAAAAB/4AAAD/////4AAAAAAAAABgAAAAf////+AAAAAAAAAAAAAAAD/////AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAH////4AAAAAAAAAAAAAAAA////8AAAAAAAAAAAAAAAAH///+AAAAAAAAAAAAAAAAA////AAAAAAAAAAAAAAAAAH///gAAAAAAAAAAAAAAAAA///wAAAAAAAAAAAAAAAAAP//8AAAAAAAAAAAAAAAAAA//8AAAAAAAAAAAAAAAAAAD/+AAAAAAAAAAAAAAAAAAAH8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
-        { "hex", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB+AAAAAAAAAAAAAAAAAAAD//AAAAAAAAAAAAAAAAAAD///AAAAAAAAAAAAAAAAAD////AAAAAAAAAAAAAAAAB////+AAAAAAAAAAAAAAAA/////+AAAAAAAAAAAAAAAf/////+AAAAAAAAAAAAAAP//////+AAAAAAAAAAAAAH///////+AAAAAAAAAAAAD////////+AAAAAAAAAAAB/////////8AAAAAAAAAAA//////////4AAAAAAAAAAf//////////wAAAAAAAAAP///////////AAAAAAAAAD///////////4AAAAAAAAB////////////AAAAAAAAA////////////8AAAAAAAAf////////////gAAAAAAAP////////////8AAAAAAAH/////////////AAAAAAAB/////////////4AAAAAAA/////////////+AAAAAAAf/////////////wAAAAAAP/////////////8AAAAAAD//////////////gAAAAAB//////////////4AAAAAA///////////////AAAAAAf//////////////wAAAAAP//////////////+AAAAAD///////////////gAAAAB///////////////8AAAAA////////////////AAAAAf///////////////4AAAAP///////////////+AAAAD////////////////wAAAB////////////////8AAAA/////////////////gAAAf////////////////4AAAP/////////////////AAAD/////////////////wAAB/////////////////+AAA//////////////////gAAf/////////////////8AAH//////////////////AAD//////////////////wAA//////////////////+AAP//////////////////gAH//////////////////8AB///////////////////AAf//////////////////4AP//////////////////+AD///////////////////wA///////////////////8AP///////////////////gD///////////////////4Af///////////////////AH///////////////////wB///////////////////+AP///////////////////gD///////////////////8A////////////////////AH///////////////////wB///////////////////+AP///////////////////gD///////////////////4A////////////////////AH///////////////////wB///////////////////8AP///////////////////AB///////////////////wAf//////////////////4AD//////////////////+AA///////////////////gAP//////////////////wAB//////////////////8AAf/////////////////+AAD//////////////////gAA//////////////////wAAH/////////////////8AAB/////////////////+AAAP/////////////////AAAD/////////////////gAAAf////////////////4AAAH////////////////8AAAA////////////////+AAAAP////////////////AAAAB////////////////gAAAAf///////////////4AAAAD///////////////8AAAAA///////////////+AAAAAP///////////////AAAAAB///////////////gAAAAAP//////////////4AAAAAD//////////////8AAAAAAf/////////////+AAAAAAH//////////////AAAAAAA//////////////gAAAAAAP/////////////wAAAAAAB/////////////8AAAAAAAf////////////+AAAAAAAD/////////////AAAAAAAAf////////////wAAAAAAAH////////////4AAAAAAAA////////////8AAAAAAAAD///////////+AAAAAAAAAf///////////AAAAAAAAAD///////////gAAAAAAAAAP//////////wAAAAAAAAAAf/////////8AAAAAAAAAAA/////////+AAAAAAAAAAAA/////////AAAAAAAAAAAAB////////gAAAAAAAAAAAAA///////wAAAAAAAAAAAAAA//////4AAAAAAAAAAAAAAA/////8AAAAAAAAAAAAAAAB////+AAAAAAAAAAAAAAAAB////AAAAAAAAAAAAAAAAAD///AAAAAAAAAAAAAAAAAAD//AAAAAAAAAAAAAAAAAAAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
+        { "blob",
+            "M95.81 49.91L95.59 54.41L94.93 58.86L93.84 63.24L92.32 67.48L90.39 71.55L88.08 75.41"
+            + "L85.39 79.03L82.37 82.37L79.03 85.39L75.41 88.08L71.55 90.39L67.48 92.32L63.24 93.84"
+            + "L58.86 94.93L54.41 95.59L49.91 95.81L45.41 95.59L40.96 94.93L36.59 93.84L32.34 92.32"
+            + "L28.27 90.39L24.41 88.08L20.79 85.39L17.45 82.37L14.43 79.03L11.75 75.41L9.43 71.55L7.5 67.48"
+            + "L5.98 63.24L4.89 58.86L4.23 54.41L4.01 49.91L4.23 45.41L4.89 40.96L5.98 36.59L7.5 32.34"
+            + "L9.43 28.27L11.75 24.41L14.43 20.79L17.45 17.45L20.79 14.43L24.41 11.75L28.27 9.43L32.34 7.5"
+            + "L36.59 5.98L40.96 4.89L45.41 4.23L49.91 4.01L54.41 4.23L58.86 4.89L63.24 5.98L67.48 7.5"
+            + "L71.55 9.43L75.41 11.75L79.03 14.43L82.37 17.45L85.39 20.79L88.08 24.41L90.39 28.27L92.32 32.34"
+            + "L93.84 36.59L94.93 40.96L95.59 45.41L95.81 49.91Z" },
+        { "cloud",
+            "M99.81 49.91L99.64 53.17L98.75 57.64L98 60.13L96.84 62.49L94.39 66.32L93.22 67.85L92.32 68.8"
+            + "L87.93 72.53L85.85 73.92L79.83 76.85L76.45 77.88L74.78 79.81L73.64 80.84L70.52 83.54"
+            + "L68.39 85.03L63.23 87.51L61.77 88.1L59.76 88.7L57.7 89.07L53.55 89.47L50.43 89.51L48.88 89.35"
+            + "L46.33 88.86L41.94 87.41L40.75 88.08L38.32 89.05L36.47 89.51L33.3 90.01L30.74 90.11L28.84 89.97"
+            + "L26.97 89.64L24.54 88.97L21.65 87.76L18.93 86.19L16.42 84.29L14.17 82.1L12.2 79.64L10.56 76.96"
+            + "L9.29 74.08L8.74 72.27L8.25 69.78L7.92 66.66L7.88 64.8L8.06 62.91L8.63 60.39L10.21 56.2"
+            + "L10.75 55.07L10.86 54.53L9.8 51.49L9.24 48.85L8.86 42.31L8.92 40.64L9.33 37.89L11.25 31.47"
+            + "L11.93 29.93L12.77 28.47L14.93 25.19L15.9 23.81L17.78 21.73L22.04 18.13L24.35 16.59L29.84 14.07"
+            + "L32.4 13.2L33.99 12.86L39.27 12.2L41.88 12.11L44.97 12.41L50.39 13.57L53.37 12.24L54.93 11.77"
+            + "L58.69 11.1L61.47 10.9L64.22 11.11L66.39 11.57L69.01 12.43L71.5 13.62L72.93 14.46L74.74 15.74"
+            + "L76.82 17.56L77.98 18.74L80.02 21.34L81.42 23.71L82.11 25.21L82.77 26.04L85.68 27.34"
+            + "L88.34 29.05L92.2 32.39L94.37 34.82L96.19 37.51L97.84 41.03L99.39 46.67L99.81 49.91Z" },
+        { "square",
+            "M0.1 32.08L0.32 30.38L0.89 28.47L1.58 26.99L2.1 26.34L7.22 20.72L8.83 19.72L11.88 18.27"
+            + "L62.24 4.54L64.36 4.32L65.37 4.36L67.27 4.75L68.17 5.1L69.84 6.09L70.62 6.74L72.07 8.34"
+            + "L73.37 10.35L98.27 62.47L99.19 64.76L99.48 65.81L99.72 67.75L99.49 69.44L98.64 72.12"
+            + "L97.72 73.48L92.61 79.1L90.98 80.1L87.95 81.55L37.58 95.29L35.46 95.5L34.45 95.46L32.55 95.07"
+            + "L31.66 94.72L29.98 93.73L28.46 92.33L27.08 90.53L25.86 88.32L1.55 37.36L1.03 36.18L0.34 34.01"
+            + "L0.1 32.08Z" },
+        { "sparkle",
+            "M49.4 98.45L47.06 97.31L44.75 95.66L43.61 94.66L41.63 92.61L39.08 89.41L36.61 85.65L34.24 81.37"
+            + "L32.74 78.25L30.62 73.19L27.1 72.48L23.38 71.58L18.25 69.99L13.69 68.15L11 66.79L8.6 65.35"
+            + "L5.95 63.36L4.98 62.47L3.49 60.82L2.58 59.48L1.07 56.5L0.57 55.01L0.35 53.64L0.35 52.3"
+            + "L0.58 50.97L1.02 49.68L2.65 46.29L3.61 44.96L10.17 37.59L12.39 35.66L16.96 32.51L20.62 30.66"
+            + "L24.23 29.31L25.2 23.11L26.27 19.37L27.66 16.24L29.1 13.56L30.58 11.32L37.28 3.81L38.19 3.01"
+            + "L39.16 2.35L42.18 0.66L43.51 0.25L44.9 0.08L46.35 0.16L47.86 0.48L51.18 1.65L52.35 2.24"
+            + "L54.66 3.8L55.8 4.75L58.02 6.98L61.2 11.02L64.32 16.07L66.52 20.34L69.2 26.61L75.41 27.95"
+            + "L78.61 28.83L81.71 29.86L85.78 31.49L90.36 33.89L91.72 34.77L94.13 36.65L95.52 38.02"
+            + "L96.59 39.33L97.35 40.51L98.76 43.32L99.19 44.57L99.43 45.81L99.48 47.04L99.36 48.25"
+            + "L99.12 49.22L97.19 53.45L95.96 55.12L89.73 62.1L87.62 63.98L84.36 66.32L82.69 67.37L79.05 69.18"
+            + "L75.59 70.48L75 74.67L74.46 77.32L73.68 80.05L72.56 82.78L70.47 86.68L69.74 87.81L63.09 95.39"
+            + "L61.3 97.02L58.3 98.81L56.98 99.36L55.6 99.65L54.17 99.69L52.7 99.5L49.4 98.45Z" },
+        { "clover",
+            "M66.21 86.89L63.76 86.45L61.69 85.87L59.51 88.3L57.81 89.85L54.35 92.12L52.27 93.17L50.02 93.96"
+            + "L46.82 94.58L44.3 94.72L41.71 94.56L39.09 94.12L35.61 93.09L33.05 92L30.58 90.66L28.21 89.08"
+            + "L25.99 87.28L23.31 84.59L21.54 82.38L20 80.05L18.72 77.62L17.69 75.12L16.95 72.59L16.49 70.07"
+            + "L16.31 67.58L16.42 65.15L16.66 63.59L16.94 62.81L14.33 61.06L11.66 58.72L9.84 56.76L7.73 53.92"
+            + "L6.39 51.66L4.83 48.48L4.15 46.81L3.16 43.42L2.76 40.86L2.68 37.52L3.13 34.31L4.51 30.07"
+            + "L5.48 27.91L6.29 26.56L7.71 24.71L12.94 18.86L14.68 17.31L16.65 16.01L20.77 13.92L23.04 13.16"
+            + "L25.44 12.69L27.92 12.49L30.47 12.59L34.43 13.05L38.13 13.95L40.31 11.52L41.41 10.46L43.26 9.06"
+            + "L46.15 7.33L48.29 6.36L50.58 5.66L53 5.24L55.53 5.1L58.98 5.37L62.47 6.15L65.93 7.43L68.44 8.69"
+            + "L70.84 10.19L73.83 12.54L76.51 15.23L78.28 17.44L79.82 19.77L81.1 22.2L82.13 24.7L82.88 27.23"
+            + "L83.33 29.75L83.51 32.24L83.4 34.67L83.17 36.23L82.88 37.01L84.79 38.23L86.86 39.89L88.17 41.1"
+            + "L89.98 43.06L91.6 45.17L93.02 47.4L95.35 52.18L96.46 55.56L96.96 58.11L97.17 61.47L96.85 64.73"
+            + "L96.27 67.05L95.32 69.75L94.7 71.21L93.54 73.26L92.11 75.11L86.88 80.96L84.51 82.97L83.17 83.81"
+            + "L79.78 85.59L78.31 86.19L76 86.85L74.39 87.14L71.9 87.33L69.35 87.24L66.21 86.89Z" },
+        { "heart",
+            "M86.86 49.91L76.3 75.62L75.3 77.37L72.65 81.21L71.57 82.32L67.94 85.3L66.61 86.13L65.18 86.77"
+            + "L61.25 88.21L59.73 88.56L57.11 88.76L52.96 88.61L51.42 88.39L49.91 88L47.01 86.8L16.39 71.68"
+            + "L13.83 70.12L10.9 67.9L8.66 65.75L6.25 62.85L4.53 60.18L3.11 57.32L1.39 53.09L0.53 49.91"
+            + "L0.1 46.65L0.15 43.36L0.66 38.76L1.43 35.55L2.71 32.5L5.05 28.51L6.54 26.36L8.29 24.41"
+            + "L12.35 21.08L14.95 19.25L16.63 18.32L18.39 17.56L23.65 15.69L26.58 14.99L29.56 14.66"
+            + "L35.21 14.42L37.93 14.62L40.05 14.96L42.98 12.49L45.3 10.91L47.29 9.87L51 8.35L53.81 7.46"
+            + "L56.13 7.01L59.08 6.75L62.07 6.82L65.62 7.32L70.3 8.57L73.69 9.95L76.38 11.4L79.41 13.48"
+            + "L82.17 15.92L84.61 18.67L86.04 20.66L86.99 22.22L88.58 25.52L89.93 29.52L90.61 33.05"
+            + "L90.76 36.05L90.65 37.85L90.12 40.81L88.92 44.78L86.86 49.91Z" },
+        { "flower",
+            "M3.81 54.61L2.31 51.61L1.44 49.34L0.89 47.05L0.69 44.8L0.82 42.61L1.28 40.53L2.56 37.19"
+            + "L3.53 35.3L4.83 33.61L11.62 26.11L13.4 24.8L16.38 23.01L16.89 20.9L17.29 19.87L18.53 17.11"
+            + "L19.59 15.2L20.24 14.35L26.97 6.82L27.75 6.1L29.49 4.9L33.68 2.83L34.69 2.51L36.84 2.1"
+            + "L39.1 2.02L41.44 2.27L43.83 2.86L47.12 3.98L49.35 5.02L50.44 5.67L52.56 7.22L54.56 9.13"
+            + "L56.39 11.44L57.37 13.07L59.58 11.41L61.81 10.3L64.15 9.65L66.56 9.42L67.77 9.45L70.19 9.77"
+            + "L71.38 10.06L73.73 10.87L75.97 11.98L77.27 12.78L80.08 14.98L82.47 17.64L83.95 19.9L84.54 21"
+            + "L85.49 23.31L86.11 25.69L86.37 28.14L86.21 30.61L85.59 33.06L85.07 34.27L84.27 35.65"
+            + "L86.38 36.41L87.72 37.05L90.13 38.55L92.2 40.27L93.12 41.19L94.72 43.15L96.01 45.21L97.99 49.34"
+            + "L98.7 51.63L98.93 52.77L99.14 55.03L99 57.21L98.54 59.29L97.27 62.63L96.29 64.52L94.99 66.21"
+            + "L88.2 73.71L86.42 75.02L83.44 76.81L82.93 78.92L82.53 79.95L81.29 82.71L80.23 84.62L79.58 85.47"
+            + "L73.57 92.22L72.07 93.72L71.23 94.36L67.12 96.59L66.15 96.99L64.07 97.56L62.98 97.72L60.72 97.8"
+            + "L58.38 97.55L56 96.96L52.7 95.84L50.47 94.8L49.38 94.15L47.26 92.6L45.26 90.69L43.44 88.39"
+            + "L42.45 86.76L40.25 88.41L38.01 89.53L35.67 90.17L33.26 90.4L30.84 90.25L29.63 90.05L27.26 89.4"
+            + "L26.1 88.95L23.85 87.85L21.57 86.37L18.89 84L16.67 81.21L15.29 78.82L14.34 76.52L13.98 75.33"
+            + "L13.54 72.91L13.46 71.68L13.61 69.22L14.23 66.76L14.75 65.55L15.55 64.17L13.44 63.41L12.1 62.77"
+            + "L10.85 62.05L8.62 60.44L6.71 58.63L5.87 57.66L5.1 56.67L3.81 54.61Z" },
+        { "teardrop",
+            "M10.49 57.85L10.64 53.2L11.1 49.66L11.46 47.85L19.37 18.78L20.17 16.2L20.92 14.27L21.95 12.15"
+            + "L23.54 9.64L25 7.95L26.41 6.7L28.34 5.49L30.07 4.76L31.95 4.27L33.98 4.08L36.35 4.15L39.43 4.68"
+            + "L42.35 5.56L44.86 6.54L72.34 18.64L73.96 19.49L76.99 21.37L80.75 24.14L83.28 26.42L86.6 30.16"
+            + "L89.22 33.75L91.62 37.95L93.47 42.34L94.73 46.44L95.66 51L96.03 55.58L95.96 59.77L95.46 64.22"
+            + "L94.43 68.57L93.18 72.41L91.51 76.1L89.49 79.74L87.31 82.88L84.95 85.73L81.64 89L78.34 91.64"
+            + "L74.92 93.88L70.71 96.04L67.47 97.33L62.67 98.71L58.26 99.46L54.68 99.72L50.9 99.67L47.02 99.29"
+            + "L43.13 98.52L39 97.29L35.2 95.75L31.27 93.66L27.83 91.34L24.29 88.46L21.08 85.14L18.46 81.79"
+            + "L15.9 77.82L14.46 74.98L12.71 70.47L11.49 66.21L10.68 61.27L10.49 57.85Z" },
+        { "tablet",
+            "M99.47 49.91L98.78 53.76L97.67 57.47L96.16 61.02L94.29 64.33L92.1 67.39L89.62 70.14L86.91 72.58"
+            + "L84.01 74.69L82.51 75.61L79.42 77.19L77.86 77.86L74.69 78.93L42.39 87.71L40.76 88.05"
+            + "L37.37 88.49L33.89 88.59L30.33 88.34L26.76 87.69L23.21 86.66L19.75 85.23L16.41 83.41"
+            + "L14.81 82.36L11.78 79.97L9.02 77.24L6.56 74.19L4.45 70.87L3.54 69.12L2.03 65.47L1.43 63.58"
+            + "L0.56 59.73L0.14 55.8L0.17 51.86L0.64 47.98L1.54 44.19L2.15 42.35L3.66 38.81L5.53 35.49"
+            + "L7.73 32.44L8.93 31.02L11.53 28.42L14.34 26.15L15.81 25.14L18.85 23.38L21.97 21.97L25.13 20.9"
+            + "L57.43 12.11L59.07 11.77L62.45 11.33L65.93 11.23L69.49 11.49L73.07 12.13L76.61 13.16"
+            + "L80.08 14.59L83.41 16.41L86.56 18.61L89.46 21.18L92.08 24.07L94.36 27.26L96.28 30.71L97.8 34.35"
+            + "L98.88 38.15L99.53 42.05L99.73 45.99L99.47 49.91Z" },
+        { "wedge",
+            "M20.83 80.61L21.15 74.71L24.85 38.54L25.25 35.41L26 31.54L26.84 28.47L27.69 26.12L28.85 23.72"
+            + "L29.77 22.24L31.13 20.54L32.54 19.24L34.07 18.22L36.04 17.37L38.01 16.92L39.76 16.8L42.04 16.95"
+            + "L44.58 17.44L46.9 18.16L49.76 19.33L52.33 20.6L54.97 22.1L87.1 43.07L91.02 45.79L93.59 47.9"
+            + "L95.71 50.05L98.01 53.15L99.05 55.35L99.74 57.91L99.79 60.61L99.58 62.03L98.69 64.75"
+            + "L97.63 66.85L96.2 69L94.42 71.17L92.35 73.33L90.53 75.01L87.99 77.14L82.89 80.85L80.33 82.52"
+            + "L74.77 85.79L68.81 88.85L65.76 90.26L59.64 92.8L53.71 94.85L50.36 95.83L44.97 97.07L41.82 97.58"
+            + "L38.81 97.86L35.97 97.9L33.35 97.7L31 97.24L28.28 96.24L26 94.8L24.92 93.82L23.31 91.7"
+            + "L22.56 90.29L21.64 87.58L21.22 85.8L20.95 83.84L20.83 80.61Z" },
+        { "house",
+            "M10.49 50.91L10.61 48.7L11 46.55L11.69 44.45L12.92 41.66L24.19 21.17L25.41 19.32L30.75 13.31"
+            + "L32.25 12.03L33.07 11.53L35.66 10.2L37.49 9.7L39.51 9.58L41.7 9.83L44.61 10.6L46.95 11.38"
+            + "L71.14 21L73.41 22.14L75.5 23.44L77.43 24.92L79.2 26.57L81.55 29.36L82.91 31.44L83.89 33.23"
+            + "L98.1 62.95L99.05 65.29L99.57 67.41L99.66 68.39L99.53 70.16L98.71 72.99L97.9 74.45L92.68 80.32"
+            + "L91.2 81.43L88.14 82.95L86.03 83.69L40.49 96.12L38.24 96.56L37.17 96.63L35.13 96.49L33.24 95.97"
+            + "L31.49 95.05L30.67 94.45L29.14 92.96L27.75 91.08L27.1 89.99L12.35 59.08L11.46 56.68L10.86 54.33"
+            + "L10.49 50.91Z" },
+        { "star",
+            "M20.98 20.87L20.98 16.41L21.15 15.17L22.58 11.79L23.16 10.82L28.96 4.35L29.86 3.7L32.67 2.3"
+            + "L33.77 2L34.95 1.88L36.17 1.95L37.41 2.2L40.59 3.28L41.76 3.91L42.88 4.74L43.94 5.78"
+            + "L51.92 14.78L52.98 15.81L54.15 16.66L55.39 17.31L56.68 17.75L57.98 17.98L59.53 17.87"
+            + "L60.73 17.39L69.95 12.56L71.16 12.08L72.4 11.84L73.67 11.83L74.93 12.03L76.17 12.42L77.36 12.98"
+            + "L78.48 13.71L79.51 14.56L80.43 15.54L81.21 16.62L81.83 17.77L82.28 18.99L82.52 20.26"
+            + "L82.54 21.55L82.31 22.85L79.5 33.02L79.34 33.98L79.36 34.73L79.63 36.01L80.11 37.26L80.8 38.46"
+            + "L81.67 39.57L82.72 40.56L83.92 41.42L94.17 47.59L95.38 48.44L96.41 49.39L97.24 50.43L97.9 51.53"
+            + "L99.26 54.46L99.57 55.67L99.69 56.86L99.62 58.02L99.36 59.12L98.66 60.97L98.21 62L97.58 62.91"
+            + "L92.54 68.57L91.73 69.35L88.58 71.31L87.42 71.72L82.99 72.49L78.01 72.81L78.84 78.95"
+            + "L78.84 83.41L78.68 84.65L77.24 88.03L76.66 89L70.86 95.47L69.97 96.12L67.15 97.52L66.05 97.82"
+            + "L64.88 97.94L63.66 97.88L62.41 97.62L59.23 96.54L58.06 95.92L56.94 95.08L55.88 94.04"
+            + "L47.91 85.04L46.85 84.01L45.68 83.17L44.43 82.52L43.14 82.07L41.84 81.84L40.29 81.95"
+            + "L39.09 82.43L29.87 87.26L28.66 87.75L27.42 87.99L26.15 88L24.9 87.8L23.66 87.4L22.47 86.84"
+            + "L21.34 86.12L20.31 85.26L19.39 84.28L18.61 83.2L17.99 82.05L17.54 80.83L17.3 79.56L17.28 78.27"
+            + "L17.51 76.98L20.32 66.81L20.48 65.84L20.46 65.09L20.19 63.81L19.71 62.56L19.02 61.37"
+            + "L18.15 60.25L17.1 59.26L15.9 58.41L5.66 52.23L4.44 51.39L3.42 50.43L2.58 49.39L1.06 46.55"
+            + "L0.56 45.36L0.25 44.15L0.14 42.96L0.2 41.8L0.46 40.7L1.61 37.83L2.24 36.92L7.28 31.25L8.1 30.48"
+            + "L11.24 28.52L12.4 28.1L16.83 27.34L21.81 27.01L20.98 20.87Z" },
+        { "hex",
+            "M1.65 43.87L1.93 41.52L2.26 40.39L3.55 37.19L4.17 36.11L21.59 14.29L27.84 7.26L29.73 5.73"
+            + "L32.79 4.11L33.86 3.68L36.19 3.18L38.76 3.19L41.57 3.71L72.81 11.94L75.45 13.07L76.66 13.78"
+            + "L78.92 15.5L79.85 16.42L81.52 18.53L83.08 21.25L96.53 49.46L97.59 52.16L97.92 53.46L98.11 54.72"
+            + "L98.1 57.14L97.56 59.43L96.75 61.53L96.27 62.63L94.9 64.75L78.24 85.53L71.98 92.56L70.1 94.09"
+            + "L67.03 95.71L65.96 96.15L63.63 96.64L61.06 96.63L58.25 96.12L27.01 87.88L25.66 87.36"
+            + "L23.16 86.04L20.91 84.32L19.97 83.4L18.31 81.29L16.75 78.58L3.97 51.78L2.7 49L2.24 47.66"
+            + "L1.71 45.1L1.65 43.87Z" },
     };
+    // END HARVESTED SHAPES
 
     /** Swatch colors of the official picker (sampled on screen), keyed by Host avatarColor ids. */
     private static final Object[][] COLORS = {
@@ -42,12 +178,18 @@ final class RokBotAvatarShapes {
         { "pink", 0xFFFF309B }, { "gray", 0xFF777777 }, { "grey", 0xFF777777 },
     };
 
-    private static final Map<String, Bitmap> MASKS = new HashMap<>();
+    private static final Map<String, Path> PATHS = new HashMap<>();
 
     private RokBotAvatarShapes() {}
 
     static boolean hasShape(String shape) {
         return find(shape) != null;
+    }
+
+    static String[] names() {
+        String[] out = new String[SHAPES.length];
+        for (int i = 0; i < SHAPES.length; i++) out[i] = SHAPES[i][0];
+        return out;
     }
 
     private static String find(String shape) {
@@ -57,22 +199,60 @@ final class RokBotAvatarShapes {
         return null;
     }
 
-    /** White silhouette (alpha mask) of an official shape; unknown shapes fall back to the blob. */
-    static synchronized Bitmap mask(String shape) {
+    /**
+     * The official silhouette as a cached vector path in the 0..100 design box; unknown shapes fall
+     * back to the blob. Callers must not modify it (copy with {@code new Path(p)} first).
+     */
+    static synchronized Path path(String shape) {
         String key = shape == null ? DEFAULT_SHAPE : shape.trim().toLowerCase(Locale.ROOT);
         if (find(key) == null) key = DEFAULT_SHAPE;
-        Bitmap cached = MASKS.get(key);
-        if (cached != null && !cached.isRecycled()) return cached;
-        byte[] bits = Base64.decode(find(key), Base64.DEFAULT);
-        int n = MASK_SIZE;
-        int[] px = new int[n * n];
-        for (int i = 0; i < px.length; i++) {
-            px[i] = (bits[i >> 3] & (0x80 >>> (i & 7))) != 0 ? 0xFFFFFFFF : 0;
+        Path cached = PATHS.get(key);
+        if (cached != null) return cached;
+        String d = find(key);
+        Path p = d != null ? parse(d) : fallbackBlob();
+        PATHS.put(key, p);
+        return p;
+    }
+
+    private static Path fallbackBlob() {
+        Path p = new Path();
+        p.addCircle(50f, 50f, 46f, Path.Direction.CW);
+        return p;
+    }
+
+    /** Parser for the absolute M / L / Q / C / Z path data above (what RokBotSvgVector writes). */
+    static Path parse(String d) {
+        Path p = new Path();
+        int n = d.length();
+        int i = 0;
+        char cmd = 'M';
+        float[] a = new float[6];
+        while (i < n) {
+            char c = d.charAt(i);
+            if (c == ' ' || c == ',' || c == '\n') { i++; continue; }
+            if (Character.isLetter(c)) {
+                cmd = c;
+                i++;
+                if (cmd == 'Z' || cmd == 'z') { p.close(); }
+                continue;
+            }
+            int need = cmd == 'C' ? 6 : cmd == 'Q' ? 4 : 2;
+            for (int k = 0; k < need; k++) {
+                while (i < n && (d.charAt(i) == ' ' || d.charAt(i) == ',')) i++;
+                int start = i;
+                if (i < n && (d.charAt(i) == '-' || d.charAt(i) == '+')) i++;
+                while (i < n && (Character.isDigit(d.charAt(i)) || d.charAt(i) == '.')) i++;
+                a[k] = Float.parseFloat(d.substring(start, i));
+            }
+            switch (cmd) {
+                case 'M': p.moveTo(a[0], a[1]); cmd = 'L'; break;
+                case 'L': p.lineTo(a[0], a[1]); break;
+                case 'Q': p.quadTo(a[0], a[1], a[2], a[3]); break;
+                case 'C': p.cubicTo(a[0], a[1], a[2], a[3], a[4], a[5]); break;
+                default: break;
+            }
         }
-        Bitmap m = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888);
-        m.setPixels(px, 0, n, 0, 0, n, n);
-        MASKS.put(key, m);
-        return m;
+        return p;
     }
 
     static int color(String name) {

@@ -440,7 +440,7 @@ public class NotificationService extends Service {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
-                Icon icon = getOrCreateMonochromeIcon();
+                Icon icon = getOrCreateMonochromeIcon(context);
                 if (icon != null) {
                     builder.setSmallIcon(icon);
                     return;
@@ -456,12 +456,13 @@ public class NotificationService extends Service {
         } catch (Throwable ignored) {}
     }
 
-    private static Icon getOrCreateMonochromeIcon() {
+    /** Monochrome RokBot mark drawn as vectors at the status bar icon size (24 dp) of this screen. */
+    private static Icon getOrCreateMonochromeIcon(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null;
         Object cached = sCachedSmallIcon;
         if (cached instanceof Icon) return (Icon) cached;
 
-        final int size = 96;
+        final int size = Math.max(48, Math.round(24f * context.getResources().getDisplayMetrics().density));
         final float s = size / 1024f;
         Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bmp);

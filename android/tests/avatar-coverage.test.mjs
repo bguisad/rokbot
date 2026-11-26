@@ -1,7 +1,8 @@
 // RokBot avatar styles on every Android Bot icon, and the RokBot logo on every app-logo spot.
 // - RokBotAvatarManager finds the official marks by React Native's own test ids / labels (still marks,
 //   animated marks, shape picker cells, app marks) and draws into the host view's overlay.
-// - RokBotAvatarShapes carries the 13 official 1.26.0 silhouettes for native-only places
+// - RokBotSvgVector reads the official silhouette as a vector Path; RokBotAvatarShapes carries the
+//   13 official 1.26.0 silhouettes as path data for native-only places
 //   (notification large icon, share sheet), RokBotLogo the master logo geometry.
 // - BundleAssets copies React Native's packaged assets next to the file bundles; patch-android
 //   replaces React Native's in-app app icon SVG with the RokBot mark.
@@ -43,44 +44,103 @@ test('avatar manager: finds official marks by test id / label and never inserts 
   assert.match(boot, /RokBotAvatarManager\.onReactPaused\(activity\);/);
 });
 
-test('avatar renderer: anti-aliased silhouettes with filled holes and a shape-following selection ring', () => {
+test('avatar renderer: pure vector paths at the target pixel size, no bitmap masks', () => {
   const r = read('RokBotAvatarRenderer.java');
-  assert.match(r, /static SvgSample sampleSvg\(View svg, View box, float inset, int n, SvgSample previous\)/);
-  assert.match(r, /Fill holes: everything not reachable from the border/);
-  assert.match(r, /Only the outer silhouette keeps its anti-aliased edge/);
-  assert.match(r, /static void drawSelectionRing\(Canvas canvas, Bitmap mask, float size, int ringColor\)/);
-  assert.match(r, /static void drawOfficialStill\(Canvas canvas, Bitmap mask, float s, int color\)/);
-  assert.doesNotMatch(r, /MASK_DIM = 64/, 'no fixed 64 px masks (pixelated large avatars)');
   const d = read('RokBotAvatarDrawable.java');
+  const v = read('RokBotAvatarView.java');
+  for (const [name, src] of [['renderer', r], ['drawable', d], ['view', v]]) {
+    assert.doesNotMatch(src, /\bBitmap\b|BitmapShader|createScaledBitmap|setFilterBitmap|SvgSample|sampleSvg/,
+      `${name}: no bitmap masks, no scaled / filtered bitmaps`);
+  }
+  // Every style takes the Bot silhouette as a Path in the 0..100 design box.
+  assert.match(r, /static void draw\(Canvas canvas, String styleId, Path shape, float size, double t, float blink,/);
+  assert.match(r, /static void drawSelectionRing\(Canvas canvas, Path shape, float size, int ringColor\)/);
+  assert.match(r, /static void drawOfficialStill\(Canvas canvas, Path shape, float s, int color\)/);
+  assert.match(r, /p\.setFlags\(Paint\.ANTI_ALIAS_FLAG\);/, 'anti-aliased fills and strokes');
+  // The rim is clipped to the inside of the outline: no translucent band outside the body edge.
+  const body = r.slice(r.indexOf('private static void drawShapeBody('));
+  assert.ok(body.indexOf('canvas.clipPath(shape)') > 0 && body.indexOf('canvas.clipPath(shape)') < body.indexOf('2.4f'));
+  // Pixel style: LED grid on whole device pixels, filled without anti-aliasing (hard square edges).
+  const pixel = r.slice(r.indexOf('private static void drawPixel('), r.indexOf('private static void drawOrb('));
+  assert.match(pixel, /int cell = Math\.max\(2, Math\.round\(4\.55f \* sc\)\);/);
+  assert.match(pixel, /crisp\(/);
+  assert.match(r, /private static Paint crisp\(int color\) \{[^}]*p\.reset\(\);[^}]*\}/, 'crisp paint has no AA flag');
+  assert.match(d, /canvas\.translate\(b\.left \+ Math\.round\(/, 'overlay draws from a whole-pixel origin');
+  // Caches: palettes (with their gradient shader) per color, per-thread paints; no per-frame parsing.
+  assert.match(r, /private static final Map<Long, Palette> PALETTES/);
+  assert.match(r, /ThreadLocal<Paints> PAINTS/);
   assert.match(d, /final class RokBotAvatarDrawable extends Drawable/);
   assert.match(d, /FRAME_MS = 33L/);
 });
 
-function decodeShapes(src) {
-  const block = src.slice(src.indexOf('private static final String[][] SHAPES = {'), src.indexOf('};'));
-  return [...block.matchAll(/\{ "([a-z]+)", "([A-Za-z0-9+/=]+)" \}/g)].map(([, name, b64]) => ({ name, bits: Buffer.from(b64, 'base64') }));
+test('official SVG to vector: react-native-svg paths are read live and mapped to the design box', () => {
+  const sv = read('RokBotSvgVector.java');
+  assert.match(sv, /"com\.horcrux\.svg\.RenderableView"/);
+  assert.match(sv, /getDeclaredField\("mCTM"\)/, 'canvas matrix of each SVG node');
+  assert.match(sv, /p\.transform\(n\.ctm\);\s*p\.transform\(toDesign\);/, 'node path -> SvgView px -> 0..100 box');
+  assert.match(sv, /out\.op\(c, Path\.Op\.UNION\)/, 'eye cut-outs filled by a vector contour union');
+  assert.match(sv, /if \(previous != null && previous\.key == key\) return previous;/, 'unchanged marks reuse the cached Path');
+  assert.doesNotMatch(sv, /ReadableNativeArray\)|\.getArray\(|\.getDouble\(/, 'React Native brush arrays are never read off their thread');
+  const m = read('RokBotAvatarManager.java');
+  assert.doesNotMatch(m, /sampleSvg|SvgSample|sampleSize\(/);
+  assert.equal((m.match(/RokBotSvgVector\.extract\(/g) || []).length, 4, 'still, animated, live outline and picker cell');
+  assert.match(m, /e\.drawable\.setBeforeFrame\(e\.follow\)/, 'animated mark follows the live outline every frame');
+  // Native-only bitmaps (notification icons) are drawn as vectors at the final pixel size.
+  const notif = read('NotificationService.java');
+  assert.match(notif, /getDimensionPixelSize\(android\.R\.dimen\.notification_large_icon_width\)/);
+  assert.match(notif, /Math\.round\(24f \* context\.getResources\(\)\.getDisplayMetrics\(\)\.density\)/);
+  const av = read('RokBotAvatars.java');
+  assert.match(av, /Bitmap out = Bitmap\.createBitmap\(sizePx, sizePx, Bitmap\.Config\.ARGB_8888\);/);
+  assert.match(av, /RokBotAvatarRenderer\.draw\(c, style, RokBotAvatarShapes\.path\(/);
+});
+
+/** Contours of absolute M / L / Z path data (what RokBotSvgVector.toPathData writes for the official shapes). */
+function contours(d) {
+  const out = [];
+  let cur = null;
+  for (const [, cmd, args] of d.matchAll(/([MLZ])([^MLZ]*)/g)) {
+    if (cmd === 'Z') { cur = null; continue; }
+    const nums = args.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    if (cmd === 'M') { cur = []; out.push(cur); }
+    for (let i = 0; i + 1 < nums.length; i += 2) cur.push([nums[i], nums[i + 1]]);
+  }
+  return out;
 }
 
-test('official shapes: the 13 Grok Bot 1.26.0 silhouettes decode to plausible 128 px masks', () => {
-  const shapes = decodeShapes(read('RokBotAvatarShapes.java'));
+function decodeShapes(src) {
+  const block = src.slice(src.indexOf('private static final String[][] SHAPES = {'), src.indexOf('// END HARVESTED SHAPES'));
+  return [...block.matchAll(/\{ "([a-z]+)",\s*((?:"[^"]*"\s*\+?\s*)+)\}/g)]
+    .map(([, name, parts]) => ({ name, d: [...parts.matchAll(/"([^"]*)"/g)].map(m => m[1]).join('') }));
+}
+
+test('official shapes: the 13 Grok Bot 1.26.0 silhouettes are vector path data in the 0..100 box', () => {
+  const src = read('RokBotAvatarShapes.java');
+  const shapes = decodeShapes(src);
   assert.deepEqual(shapes.map(s => s.name),
     ['blob', 'cloud', 'square', 'sparkle', 'clover', 'heart', 'flower', 'teardrop', 'tablet', 'wedge', 'house', 'star', 'hex']);
-  const n = 128;
   const signatures = new Set();
-  for (const { name, bits } of shapes) {
-    assert.equal(bits.length, n * n / 8, `${name}: 128 x 128 bits`);
-    let area = 0, sx = 0, sy = 0;
-    for (let i = 0; i < n * n; i++) {
-      if (bits[i >> 3] & (0x80 >> (i & 7))) { area++; sx += i % n; sy += Math.floor(i / n); }
+  for (const { name, d } of shapes) {
+    assert.match(d, /^M[-\d. MLZ]+$/, `${name}: absolute M/L/Z data`);
+    let area = 0, cx = 0, cy = 0, pts = 0;
+    for (const c of contours(d)) {
+      let a = 0, x = 0, y = 0;
+      for (let i = 0; i < c.length; i++) {
+        const [x0, y0] = c[i], [x1, y1] = c[(i + 1) % c.length];
+        const k = x0 * y1 - x1 * y0;
+        a += k; x += (x0 + x1) * k; y += (y0 + y1) * k;
+        assert.ok(x0 >= -2 && x0 <= 102 && y0 >= -2 && y0 <= 102, `${name}: point in the design box`);
+        pts++;
+      }
+      if (Math.abs(a) < 1e-6) continue;
+      area += Math.abs(a / 2); cx += x / 6; cy += y / 6;
     }
-    const fill = area / (n * n);
-    assert.ok(fill > 0.3 && fill < 0.9, `${name}: filled ${fill.toFixed(2)}`);
-    assert.ok(Math.abs(sx / area - n / 2) < 16 && Math.abs(sy / area - n / 2) < 16, `${name}: centred`);
-    signatures.add(bits.toString('base64'));
+    const fill = area / 10000;
+    assert.ok(fill > 0.3 && fill < 0.95, `${name}: covers ${fill.toFixed(2)} of the box`);
+    assert.ok(pts >= 12, `${name}: ${pts} points`);
+    signatures.add(d);
   }
   assert.equal(signatures.size, shapes.length, 'every shape is different');
-
-  const src = read('RokBotAvatarShapes.java');
+  assert.match(src, /private static final Map<String, Path> PATHS/, 'parsed once, cached');
   for (const color of ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'violet', 'magenta', 'gray'])
     assert.match(src, new RegExp(`\\{ "${color}", 0xFF[0-9A-F]{6} \\}`), `swatch ${color}`);
 });

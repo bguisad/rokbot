@@ -3,10 +3,8 @@ package dev.rokbot.nativeapp;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.Configuration;
-import android.graphics.Bitmap;
 import android.os.SystemClock;
 import android.provider.Settings;
-import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -37,7 +35,8 @@ import java.util.WeakHashMap;
  *
  * The official views are made INVISIBLE (never removed) and a {@link RokBotAvatarDrawable} drawn in
  * the host view's {@link android.view.ViewGroupOverlay} takes their place, with the Bot's own color
- * and exact silhouette sampled from the official SVG. "official" restores everything.
+ * and exact silhouette read from the official SVG as a vector path ({@link RokBotSvgVector}), drawn
+ * at the overlay's pixel size. "official" restores everything.
  */
 final class RokBotAvatarManager {
     static final String PREF_KEY = "avatarStyle";
@@ -75,7 +74,9 @@ final class RokBotAvatarManager {
     private static final class Entry {
         final RokBotAvatarDrawable drawable = new RokBotAvatarDrawable();
         final List<WeakReference<View>> hidden = new ArrayList<>();
-        RokBotAvatarRenderer.SvgSample sample;
+        RokBotSvgVector.Shape shape;
+        /** Animated mark: per-frame outline refresh. */
+        LiveOutline follow;
         int generation;
     }
 
@@ -414,75 +415,106 @@ final class RokBotAvatarManager {
     }
 
     private static final float ANIMATED_MARGIN = 0.12f;
-
-    private static int sampleSize(View box, float inset) {
-        int px = Math.round(Math.max(box.getWidth(), box.getHeight()) * (1f - 2f * inset));
-        return Math.max(48, Math.min(224, px));
-    }
-
     private static void applyStill(ViewGroup container, View bodySvg, View eyes, String style, boolean dark, int gen) {
         Entry e = entryFor(container, gen);
-        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(bodySvg, container, 0f,
-                sampleSize(container, 0f), e.sample);
-        if (s != null) e.sample = s;
-        if (e.sample == null) return;
+        probe(bodySvg, "still");
+        RokBotSvgVector.Shape s = RokBotSvgVector.extract(bodySvg, container, 0f, e.shape);
+        if (s != null) e.shape = s;
+        if (e.shape == null) return;
         e.drawable.setBounds(0, 0, container.getWidth(), container.getHeight());
-        e.drawable.update(style, e.sample.mask, e.sample.color, false, false, 0, dark);
+        e.drawable.update(style, e.shape.path, e.shape.color, false, false, 0, dark);
         hide(e, bodySvg);
         hide(e, eyes);
     }
 
+    /**
+     * The animated mark morphs (path and scale) every frame. Its RokBot stand-in follows the same
+     * live vector outline: a scan sets it up (color sampled), then every animation tick re-reads the
+     * official path before the frame is drawn, so the morph stays as smooth as the original.
+     */
     private static void applyAnimated(ViewGroup parent, View svg, String style, boolean dark, int gen) {
         Entry e = entryFor(parent, gen);
+        probe(svg, "animated");
         // The animated mark wobbles, scales and rotates past its square container (React Native
-        // does not clip it there), so sample and draw a margin around the container too.
-        float inset = -ANIMATED_MARGIN;
-        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(svg, parent, inset,
-                sampleSize(parent, inset), e.sample);
-        if (s != null) e.sample = s;
-        if (e.sample == null) return;
+        // does not clip it there), so the RokBot mark gets a margin around the container too.
+        RokBotSvgVector.Shape s = RokBotSvgVector.extract(svg, parent, -ANIMATED_MARGIN, e.shape);
+        if (s != null) e.shape = s;
+        if (e.shape == null) return;
         int mx = Math.round(parent.getWidth() * ANIMATED_MARGIN);
         int my = Math.round(parent.getHeight() * ANIMATED_MARGIN);
         e.drawable.setBounds(-mx, -my, parent.getWidth() + mx, parent.getHeight() + my);
-        e.drawable.update(style, e.sample.mask, e.sample.color, true, false, 0, dark);
+        e.drawable.update(style, e.shape.path, e.shape.color, true, false, 0, dark);
+        if (e.follow == null || e.follow.svg.get() != svg) {
+            e.follow = new LiveOutline(svg, parent, e);
+            e.drawable.setBeforeFrame(e.follow);
+        }
         hide(e, svg);
+    }
+
+    /** Per-frame refresh of an animated mark's outline (runs on the main thread before invalidation). */
+    private static final class LiveOutline implements Runnable {
+        final WeakReference<View> svg;
+        final WeakReference<View> parent;
+        final Entry entry;
+
+        LiveOutline(View svg, View parent, Entry entry) {
+            this.svg = new WeakReference<>(svg);
+            this.parent = new WeakReference<>(parent);
+            this.entry = entry;
+        }
+
+        @Override
+        public void run() {
+            View s = svg.get();
+            View p = parent.get();
+            if (s == null || p == null || s.getParent() != p || entry.shape == null) return;
+            RokBotSvgVector.Shape next = RokBotSvgVector.extract(s, p, -ANIMATED_MARGIN, entry.shape, false);
+            if (next != null && next != entry.shape) {
+                entry.shape = next;
+                entry.drawable.setShape(next.path);
+            }
+        }
     }
 
     private static void applyShapeCell(ViewGroup cell, View svg, String desc, String style, boolean dark, int gen) {
         boolean selected = cell.isSelected();
         Entry e = entryFor(cell, gen);
-        // The selected cell's SvgView also holds the outline ring; sample only the shape inside it.
+        probe(svg, selected ? "cell-selected " + desc : "cell " + desc);
+        // The selected cell's SvgView is larger and also holds the outline ring (an unfilled stroke,
+        // skipped by RokBotSvgVector); the shape sits in its inner SELECTED_INNER_SCALE box.
         float inset = selected ? (1f - RokBotAvatarRenderer.SELECTED_INNER_SCALE) / 2f : 0f;
-        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(svg, svg, inset,
-                sampleSize(svg, inset), e.sample);
-        if (s != null) e.sample = s;
-        if (e.sample == null) return;
+        RokBotSvgVector.Shape s = RokBotSvgVector.extract(svg, svg, inset, e.shape);
+        if (s != null) e.shape = s;
+        if (e.shape == null) return;
         e.drawable.setBounds(svg.getLeft(), svg.getTop(), svg.getRight(), svg.getBottom());
         int ring = dark ? 0xFF5A5A5E : 0xFFC7C7CC;
-        e.drawable.update(style, e.sample.mask, e.sample.color, false, selected, ring, dark);
+        e.drawable.update(style, e.shape.path, e.shape.color, false, selected, ring, dark);
         hide(e, svg);
-        if (!selected && e.sample.mask != null && Log.isLoggable(HARVEST_TAG, Log.DEBUG)) {
-            harvest(svg, desc.substring(0, desc.length() - SHAPE_CELL_SUFFIX.length()).trim());
+        if (!selected && Log.isLoggable(HARVEST_TAG, Log.DEBUG)) {
+            harvest(e.shape, desc.substring(0, desc.length() - SHAPE_CELL_SUFFIX.length()).trim());
         }
     }
 
+    private static final java.util.Map<View, Long> PROBED = new WeakHashMap<>();
+
+    /** Debug (adb shell setprop log.tag.RokBotSvgVector DEBUG): the official SVG nodes of each mark. */
+    private static void probe(View svg, String label) {
+        if (!Log.isLoggable("RokBotSvgVector", Log.DEBUG)) return;
+        Long last = PROBED.get(svg);
+        long now = SystemClock.uptimeMillis();
+        if (last != null && now - last < 1500) return;
+        PROBED.put(svg, now);
+        RokBotSvgVector.dump(svg, label);
+    }
+
     /**
-     * Development aid (adb shell setprop log.tag.RokBotAvatarHarvest DEBUG): logs a 128 px 1-bit mask
-     * of each official shape, the source of RokBotAvatarShapes.
+     * Development aid (adb shell setprop log.tag.RokBotAvatarHarvest DEBUG, Android 14+): logs each
+     * official shape's vector path in the 0..100 picker-cell box, the source of RokBotAvatarShapes.
      */
-    private static void harvest(View svg, String shape) {
-        if (!HARVESTED.add(shape)) return;
-        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(svg, svg, 0f, 128, null);
-        if (s == null || s.mask == null) return;
-        Bitmap m = s.mask;
-        int n = m.getWidth();
-        int[] px = new int[n * n];
-        m.getPixels(px, 0, n, 0, 0, n, n);
-        byte[] bits = new byte[(n * n + 7) / 8];
-        for (int i = 0; i < px.length; i++) {
-            if ((px[i] >>> 24) >= 128) bits[i >> 3] |= (byte) (0x80 >>> (i & 7));
-        }
-        Log.d(HARVEST_TAG, "shape=" + shape + " n=" + n + " color=" + Integer.toHexString(s.color)
-                + " bits=" + Base64.encodeToString(bits, Base64.NO_WRAP));
+    private static void harvest(RokBotSvgVector.Shape shape, String name) {
+        if (!HARVESTED.add(name)) return;
+        String d = RokBotSvgVector.toPathData(shape.path);
+        if (d == null) { HARVESTED.remove(name); return; }
+        Log.d(HARVEST_TAG, "shape=" + name + " color=" + Integer.toHexString(shape.color) + " d=" + d);
     }
 }

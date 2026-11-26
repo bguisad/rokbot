@@ -1364,7 +1364,7 @@ public class PairingActivity extends Activity {
 
                 RokBotAvatarView preview = new RokBotAvatarView(this);
                 preview.setStyleId(info.id);
-                preview.setPreviewShape(info.previewShape);
+                preview.setShape(info.previewShape);
                 preview.setBaseColor(info.previewColor);
                 preview.setActive(selectedRef[0].equals(info.id));
                 LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(UiChrome.dp(this, 42), UiChrome.dp(this, 42));
