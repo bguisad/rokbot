@@ -14,7 +14,7 @@
   ],
   "hbcVersion": 98,
   "hbcSha256": "e72cff448260d3de44add52391ec6ea6ac81bc5f710806a54cf5af9261d1817b",
-  "companionDexSha256": "fcdd35773f8ecfc935b7517f8d1e26a6bcb29cfe506f29431f28050f482f7a60",
+  "companionDexSha256": "63fa475dc4f0222d25654b284d02b25f5a2f17112e10304caa1c900bc7cca4a8",
   "baseApkSha256": "89c23b58eb3c6d1e9167e00a68ee3c4d1945c463d2d780ac3e4996b0f5778854",
   "bundleSize": 38303104,
   "compatibility": {
