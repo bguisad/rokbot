@@ -8,6 +8,7 @@ const platforms = [
   ['ios', 'iOS'],
   ['macos', 'macOS'],
   ['windows', 'Windows'],
+  ['linux', 'Linux'],
 ];
 const tracks = [
   ['stable', '稳定版'],
@@ -17,6 +18,10 @@ const tracks = [
 const macTargets = [
   ['darwin-arm64', 'Apple Silicon (arm64)'],
   ['darwin-x64', 'Intel (x64)'],
+];
+const linuxTargets = [
+  ['linux-x64', 'Linux (x64 / amd64)'],
+  ['linux-arm64', 'Linux (arm64)'],
 ];
 
 function uploadBinary({ platform, file, onProgress }) {
@@ -54,10 +59,10 @@ export function createUpdatesPage({ api, toast, busy, act, copy }) {
         <div class="section-head"><h2 class="section-title">上传并发布新版本</h2></div>
         <div class="card">
           <label class="row"><span class="row-copy"><span class="row-title">目标平台</span></span><select id="updates-platform" name="platform">${platforms.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select></label>
-          <label class="row" id="updates-arch-row" hidden><span class="row-copy"><span class="row-title">macOS 架构</span></span><select id="updates-arch" name="targetPlatform">${macTargets.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select></label>
+          <label class="row" id="updates-arch-row" hidden><span class="row-copy"><span id="updates-arch-label" class="row-title">目标架构</span></span><select id="updates-arch" name="targetPlatform">${macTargets.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select></label>
           <label class="row"><span class="row-copy"><span class="row-title">发布通道</span></span><select id="updates-track" name="track">${tracks.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select></label>
-          <div class="row"><span class="row-copy"><span class="row-title">安装包文件</span><span id="updates-artifact-hint" class="row-hint">支持上传已签名的 .apk、.ipa、.dmg、.zip 或 .exe 文件</span></span>
-            <span class="row-control auto"><input id="updates-artifact-file" type="file" accept=".apk,.ipa,.dmg,.zip,.exe" hidden /><button id="updates-artifact-upload" class="btn" type="button">选择安装包</button></span></div>
+          <div class="row"><span class="row-copy"><span class="row-title">安装包文件</span><span id="updates-artifact-hint" class="row-hint">支持上传已签名的 .apk、.ipa、.dmg、.zip、.exe、.deb、.AppImage 或 .tar.gz 文件</span></span>
+            <span class="row-control auto"><input id="updates-artifact-file" type="file" accept=".apk,.ipa,.dmg,.zip,.exe,.deb,.AppImage,.tar.gz,.gz" hidden /><button id="updates-artifact-upload" class="btn" type="button">选择安装包</button></span></div>
           <div class="row" id="updates-asar-row" hidden><span class="row-copy"><span class="row-title">桌面端 app.asar（可选）</span><span id="updates-asar-hint" class="row-hint">上传后可为桌面客户端生成轻量级 ASAR 增量更新</span></span>
             <span class="row-control auto"><input id="updates-asar-file" type="file" accept=".asar" hidden /><button id="updates-asar-upload" class="btn" type="button">选择 ASAR</button></span></div>
           <label class="row"><span class="row-copy"><span class="row-title">版本号</span></span><input id="updates-version" name="version" type="text" placeholder="1.16.0" required /></label>
@@ -107,8 +112,18 @@ export function createUpdatesPage({ api, toast, busy, act, copy }) {
 
   function syncFormFields() {
     const p = platformSelect.value;
-    const isDesktop = p === 'macos' || p === 'windows';
-    $('#updates-arch-row').hidden = p !== 'macos';
+    const isDesktop = p === 'macos' || p === 'windows' || p === 'linux';
+    const hasArch = p === 'macos' || p === 'linux';
+    $('#updates-arch-row').hidden = !hasArch;
+    if (hasArch) {
+      const archSelect = $('#updates-arch');
+      const targets = p === 'linux' ? linuxTargets : macTargets;
+      if (archSelect.dataset.platform !== p) {
+        archSelect.dataset.platform = p;
+        archSelect.replaceChildren(...targets.map(([id, label]) => new Option(label, id)));
+      }
+      $('#updates-arch-label').textContent = p === 'linux' ? t('Linux 架构') : t('macOS 架构');
+    }
     $('#updates-asar-row').hidden = !isDesktop;
     $('#updates-code-row').hidden = isDesktop;
     $('#updates-pkg-row').hidden = isDesktop;
@@ -125,14 +140,15 @@ export function createUpdatesPage({ api, toast, busy, act, copy }) {
     const select = $('#updates-delta-from');
     const p = platformSelect.value;
     const arch = $('#updates-arch').value;
+    const hasArch = p === 'macos' || p === 'linux';
     const prior = (overview?.releases ?? []).filter(
-      r => r.platform === p && (p !== 'macos' || !r.targetPlatform || r.targetPlatform === arch),
+      r => r.platform === p && (!hasArch || !r.targetPlatform || r.targetPlatform === arch),
     );
     select.replaceChildren(new Option(t('不生成增量补丁'), ''));
     for (const rel of prior) {
       const label = rel.platform === 'android'
         ? `${rel.versionName} (${rel.versionCode}) · ${rel.filename}`
-        : rel.platform === 'macos' && rel.targetPlatform
+        : (rel.platform === 'macos' || rel.platform === 'linux') && rel.targetPlatform
           ? `${rel.version} (${rel.targetPlatform}) · ${rel.filename}`
           : `${rel.version} · ${rel.filename}`;
       select.add(new Option(label, rel.id));
@@ -170,7 +186,7 @@ export function createUpdatesPage({ api, toast, busy, act, copy }) {
         badge(t(tracks.find(([id]) => id === rel.track)?.[1] ?? rel.track), rel.track === 'stable' ? 'success' : 'accent'),
         badge(formatSize(rel.size)),
       ];
-      if (rel.targetPlatform && rel.platform === 'macos') badges.push(badge(rel.targetPlatform));
+      if (rel.targetPlatform && (rel.platform === 'macos' || rel.platform === 'linux')) badges.push(badge(rel.targetPlatform));
       if (deltasCount > 0) badges.push(badge(t('{0} 个增量补丁', deltasCount), 'accent'));
       const meta = [
         `${rel.filename} · SHA-256 ${rel.sha256.slice(0, 12)}`,
@@ -329,7 +345,7 @@ export function createUpdatesPage({ api, toast, busy, act, copy }) {
         version: $('#updates-version').value.trim(),
         releaseNotes: $('#updates-notes').value.trim(),
       };
-      if (p === 'macos') body.targetPlatform = $('#updates-arch').value;
+      if (p === 'macos' || p === 'linux') body.targetPlatform = $('#updates-arch').value;
       if (p === 'android') {
         if ($('#updates-version-code').value.trim()) body.versionCode = Number($('#updates-version-code').value.trim());
         if ($('#updates-package-name').value.trim()) body.packageName = $('#updates-package-name').value.trim();

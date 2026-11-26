@@ -20,6 +20,44 @@ const ACTIVITY_TIME = name => `${name}=${name}??globalThis.rokbotActivityTime?.(
 const anchorKeep = inset => inset.map(([name, value]) => `"--rokbot-anchor-${name}":${value}`).join(',');
 
 export const RENDERER_PATCHES = {
+  '1.3.0': [
+    {
+      file: 'assets/index.eager-app-B8R_eIgV.js',
+      input: 'windows-recipe',
+      sha256: '901995cbfae727c90035e1b331d1a61cfe69ae83cdc247b35b2d0cb0b817dc7a',
+      edits: [
+        ['function jE(e){return e.windowWidth>=zlt(e.sidebar,280)}', 'function jE(e){return!0}'],
+        ['function Blt(e){return Math.max(0,zlt(e.sidebar,280)-e.windowWidth)}', 'function Blt(e){return 0}'],
+        ['function Vlt(e){let t=e.expandedWidth+424+(e.openInfoPaneWidth??0);return Math.max(0,t-e.windowWidth)}', 'function Vlt(e){return 0}'],
+        ['(oe=N==null?{}:{onTeachClick:N},', '(oe={},'],
+        ['let Jt=o.isRosterTabStop?0:-1,Yt;n[123]===He?Yt=n[124]:(Yt=He?(0,Z.jsx)(sEt,{}):null,n[123]=He,n[124]=Yt);',
+          'let Jt=o.isRosterTabStop?0:-1,Yt;n[123]===He?Yt=n[124]:(Yt=He?(0,Z.jsx)(sEt,{}):null,n[123]=He,n[124]=Yt);' +
+          `${ACTIVITY_TIME('Yt')}r.lastActivityAt)??null;`],
+      ],
+    },
+    {
+      file: 'assets/chunk-computer-screen-preview-CROh3_te.js',
+      input: 'original',
+      sha256: '87613fe561c76f41db8b7b6b568f35c41717279dcc71133a88a8cc9a3f93c3c9',
+      edits: [
+        ['var xe={positionAnchor:u,top:`anchor(top)`,right:`anchor(right)`,bottom:`anchor(bottom)`,left:`anchor(left)`},' +
+          'Se={positionAnchor:E,top:`anchor(top)`,left:`anchor(left)`,width:`anchor-size(width)`,height:`anchor-size(height)`},',
+        'var xe={positionAnchor:u,top:`anchor(top)`,right:`anchor(right)`,bottom:`anchor(bottom)`,left:`anchor(left)`,' +
+          anchorKeep([['top', '`anchor(top)`'], ['right', '`anchor(right)`'], ['bottom', '`anchor(bottom)`'], ['left', '`anchor(left)`']]) + '},' +
+          'Se={positionAnchor:E,top:`anchor(top)`,left:`anchor(left)`,width:`anchor-size(width)`,height:`anchor-size(height)`,' +
+          anchorKeep([['top', '`anchor(top)`'], ['left', '`anchor(left)`'], ['width', '`anchor-size(width)`'], ['height', '`anchor-size(height)`']]) + '},'],
+      ],
+    },
+    {
+      file: 'assets/chunk-view-BwAtZhGc.js',
+      input: 'windows-recipe',
+      sha256: 'f3a607b673d964fcd3c92188bbcb04f2372ce420f01d1b99e25e9c235ea79715',
+      edits: [
+        ['function D(){D.d=3030;let e=(0,v.c)(1),t;return e[0]===Symbol.for(`react.memo_cache_sentinel`)?(t=(0,x.jsx)(_,{children:(0,x.jsx)(GrokLocalVersion,{})}),e[0]=t):t=e[0],t}',
+          'function D(){D.d=3030;let e=(0,v.c)(1),t;return e[0]===Symbol.for(`react.memo_cache_sentinel`)?(t=(0,x.jsx)(_,{children:globalThis.__rokbotAndroidBoot?.updateStatus?.delivery==="in-app"?(0,x.jsx)(T,{}):(0,x.jsx)(GrokLocalVersion,{})}),e[0]=t):t=e[0],t}'],
+      ],
+    },
+  ],
   '1.2.3': [
     {
       file: 'assets/index.eager-app-DodVIpEt.js',

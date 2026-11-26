@@ -164,6 +164,8 @@ public class RokBotBootstrap {
                 // every React screen, paired or not; Bot avatar styles apply once paired.
                 if (isReactActivity(activity)) RokBotAvatarManager.onReactResumed(activity);
                 if (isReactActivity(activity)) ImageViewerTakeover.onReactResumed(activity);
+                if (isReactActivity(activity)) ComposerSuggestionsOverlay.onReactResumed(activity);
+                if (isReactActivity(activity)) BotProfileModelOverlay.onReactResumed(activity);
                 if (isReactActivity(activity) && Storage.isPaired(activity)) {
                     // Returning from ProfileActivity or another app: repaint, then re-fetch.
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
@@ -180,6 +182,8 @@ public class RokBotBootstrap {
                     ListArrangement.onReactPaused(activity);
                     RokBotAvatarManager.onReactPaused(activity);
                     ImageViewerTakeover.onReactPaused(activity);
+                    ComposerSuggestionsOverlay.onReactPaused(activity);
+                    BotProfileModelOverlay.onReactPaused(activity);
                 }
             }
 
@@ -949,6 +953,8 @@ public class RokBotBootstrap {
     private static final int TAG_OVERRIDDEN_TARGET = 0x67626f75;
     private static final int TAG_IDENTITY_ROLE = 0x67626f76;
     private static final int TAG_VERSION_LINE = 0x67626f77;
+    private static final class NewChatChooserTarget {}
+    private static volatile long sBypassNewChatUntilMs = 0L;
 
     private static final class PendingTap {
         final Class<?> target;
@@ -1155,7 +1161,11 @@ public class RokBotBootstrap {
                                     cancelEv.recycle();
                                 }
                             }
-                            launchNativeTarget(mActivity, tap.target);
+                            if (tap.target == NewChatChooserTarget.class) {
+                                showNewChatChooser(mActivity, mOrig, tap.downX, tap.downY);
+                            } else {
+                                launchNativeTarget(mActivity, tap.target);
+                            }
                             return true;
                         }
                     }
@@ -1764,6 +1774,13 @@ public class RokBotBootstrap {
         return matchesLabelOrCommaPrefix(s, "Bot 图标样式", false) || matchesLabelOrCommaPrefix(s, "Bot Icon Style", true);
     }
 
+    static boolean matchesNewChatButtonLabel(String s) {
+        if (s == null) return false;
+        String t = s.trim();
+        return t.equals("新建对话") || t.equals("新增聊天") || t.equalsIgnoreCase("New chat")
+                || t.equals("新建 Bot") || t.equalsIgnoreCase("New Bot");
+    }
+
     private static boolean matchesComputersLabel(String s) {
         return matchesLabelOrCommaPrefix(s, "Bot 电脑", false)
                 || matchesLabelOrCommaPrefix(s, "Bot Computer", true)
@@ -1914,6 +1931,12 @@ public class RokBotBootstrap {
             // arrangement inside React Native; the tap is never taken over.
             return null;
         }
+        if (paired && isInteractiveTarget && matchesNewChatButtonLabel(s)
+                && dpW <= 76f && dpH <= 76f && effW <= 88f && effH <= 88f
+                && android.os.SystemClock.uptimeMillis() > sBypassNewChatUntilMs) {
+            // Header "+" button on the Bot list: offer both New Bot and New Group.
+            return NewChatChooserTarget.class;
+        }
         if (isConnectionEntryLabel(s)) {
             // rokbot.3 settings row (hermes-settings.mjs applyConnectionEntry): a full-width nav row.
             return (isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? PairingActivity.class : null;
@@ -1988,6 +2011,41 @@ public class RokBotBootstrap {
             return null;
         }
         return null;
+    }
+
+    private static void showNewChatChooser(Activity activity, Window.Callback origCallback, float rawX, float rawY) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+        try {
+            NewChatChooserSheet.show(activity, new NewChatChooserSheet.Listener() {
+                @Override
+                public void onNewBot() {
+                    sBypassNewChatUntilMs = android.os.SystemClock.uptimeMillis() + 1800L;
+                    getMainHandler().postDelayed(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed() || origCallback == null) return;
+                        try {
+                            long now = android.os.SystemClock.uptimeMillis();
+                            MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, rawX, rawY, 0);
+                            MotionEvent up = MotionEvent.obtain(now, now + 35L, MotionEvent.ACTION_UP, rawX, rawY, 0);
+                            origCallback.dispatchTouchEvent(down);
+                            origCallback.dispatchTouchEvent(up);
+                            down.recycle();
+                            up.recycle();
+                        } catch (Throwable ignored) {}
+                    }, 80L);
+                }
+
+                @Override
+                public void onNewGroup() {
+                    try {
+                        activity.startActivity(new Intent(activity, CreateGroupActivity.class));
+                    } catch (Throwable t) {
+                        android.util.Log.w("RokBotBootstrap", "Failed to open CreateGroupActivity", t);
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            android.util.Log.w("RokBotBootstrap", "showNewChatChooser failed", t);
+        }
     }
 
     private static void launchNativeTarget(Activity activity, Class<?> target) {

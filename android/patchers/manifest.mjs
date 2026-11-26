@@ -991,6 +991,12 @@ export function patchManifest(axmlBuffer, options = {}) {
     makeAttrHex('windowSoftInputMode', 0x00000010),
   ]);
 
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.CreateGroupActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.CreateGroupActivity'),
+    makeAttrBool('exported', false),
+    makeAttrHex('windowSoftInputMode', 0x00000010),
+  ]);
+
   upsertAppChild(
     'activity',
     'dev.rokbot.nativeapp.ShareTargetActivity',

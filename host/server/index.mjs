@@ -80,6 +80,7 @@ import {
 } from "./security.mjs";
 import { readJson } from "./storage.mjs";
 import { createSpeedTest } from "./speedtest.mjs";
+import { SuggestionsService } from "./suggestions.mjs";
 
 const publicDir = fileURLToPath(new URL("./public/", import.meta.url));
 const assetTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
@@ -243,6 +244,12 @@ export async function createSelfHostServer(options = {}) {
   let executionRevision = executionNode.active()?.revision;
   const limiter = options.rateLimit ?? new RateLimit();
   const speedTest = createSpeedTest({ limiter });
+  const suggestions = new SuggestionsService({
+    models,
+    hostCall: internalHostClient(hostUrl, internalToken),
+    dataDir,
+    fetchImpl: options.suggestionsFetch,
+  });
   // ?timeZone= (default: the Host's) and an optional ?period=today|7d|30d to return one period.
   const usage = url => {
     const timeZone = url.searchParams.get('timeZone') || process.env.TZ || 'UTC', period = url.searchParams.get('period') || undefined;
@@ -974,6 +981,24 @@ export async function createSelfHostServer(options = {}) {
       limiter.check(`local-model-test:${found.id}`, 10);
       return sendJson(response, 200, await models.test(await jsonBody(request)));
     }
+    if (request.method === "POST" && path === "/local/suggestions") {
+      const found = device(request, web);
+      limiter.check(`suggestions:${found.id}`, 60);
+      const body = await jsonBody(request, 32 * 1024, { allowEmpty: true });
+      const rawAgentId = typeof body?.agentId === "string" ? body.agentId.trim() : "";
+      if (rawAgentId) check(/^[A-Za-z0-9_-]{1,128}$/.test(rawAgentId), 400, "Bot ID 无效");
+      const agentId = rawAgentId;
+      const lastEntryId = typeof body?.lastEntryId === "string" ? body.lastEntryId.slice(0, 128) : "";
+      const locale = typeof body?.locale === "string" ? body.locale.slice(0, 32) : "";
+      const recentMessages = Array.isArray(body?.recentMessages) ? body.recentMessages.slice(-8) : undefined;
+      return sendJson(response, 200, await suggestions.generate({
+        agentId,
+        lastEntryId,
+        locale,
+        recentMessages,
+        force: body?.force === true,
+      }));
+    }
     if (["GET", "PUT"].includes(request.method) && path === "/local/device") {
       const found = device(request, web);
       return sendJson(
@@ -993,7 +1018,7 @@ export async function createSelfHostServer(options = {}) {
     }
     if (await handleUpdateProxy(request, response, path, url, { device, connections })) return;
     const localUpdateFeed = /^\/local\/updates\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
-    const legacyNestedUpdateFeed = /^\/local\/updates\/(?:macos|windows|darwin-arm64|darwin-x64|win32-x64)\.json\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
+    const legacyNestedUpdateFeed = /^\/local\/updates\/(?:macos|windows|linux|darwin-arm64|darwin-x64|win32-x64|linux-x64|linux-arm64)\.json\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
     const updateFeedMatch = localUpdateFeed ?? legacyNestedUpdateFeed;
     if (request.method === "GET" && updateFeedMatch) {
       device(request);
@@ -1246,6 +1271,7 @@ export async function createSelfHostServer(options = {}) {
     library,
     profile,
     webClient,
+    suggestions,
     dataDir,
     async start(
       port = Number(process.env.ROKBOT_PORT ?? process.env.GROKBOT_PORT ?? 8000),

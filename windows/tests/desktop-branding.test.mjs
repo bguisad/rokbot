@@ -370,7 +370,7 @@ test('ROKBOT_DESKTOP_DOWNLOAD_BASE overrides Windows official installer URLs and
 
   const supportedCurrent = JSON.parse(await readFile(path.join(windowsRoot, 'patchers/desktop/supported.json'), 'utf8'));
   const supported0712 = JSON.parse(await readFile(path.join(windowsRoot, 'patchers/desktop/0.71.2/supported.json'), 'utf8'));
-  assert.equal(supportedCurrent.version, '1.2.3');
+  assert.equal(supportedCurrent.version, '1.3.0');
 
   assert.equal(
     resolveDesktopDownloadUrl(supportedCurrent.archive.url, 'https://mirror.rokbot.example/desktop///'),

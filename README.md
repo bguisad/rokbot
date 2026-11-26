@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
-  <a href="#支持平台"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, iOS, Android, Web" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, Linux, iOS, Android, Web" /></a>
   <a href="#快速开始"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
 
@@ -49,7 +49,7 @@
 
 ## 简介
 
-RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）和 Bot 的执行桌面（`box`）都用 Docker 部署在你自己的机器上，模型调用走你配置的 OpenAI 或 Anthropic 兼容接口。macOS、Windows、Android、iOS 客户端和网页版只连接你自己的 Host。
+RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）和 Bot 的执行桌面（`box`）都用 Docker 部署在你自己的机器上，模型调用走你配置的 OpenAI 或 Anthropic 兼容接口。macOS、Windows、Linux、Android、iOS 客户端和网页版只连接你自己的 Host。
 
 对话、文件、配置和 API Key 都保存在 Host 的数据卷里。本仓库只包含本项目自己编写的部分：Host 源码、镜像构建脚本、各平台的补丁工具和构建脚本，以及文档；不包含、也不分发任何原版程序文件或客户端安装包。客户端可以用补丁工具自行构建，也可以从你自己部署的 Host 获取，见[获取客户端](#获取客户端)。
 
@@ -66,6 +66,8 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
 
 - 对话和设置都保存在 Host 上，所有客户端连接同一个 Host。在电脑上布置的任务，可以在手机或浏览器上接着看、接着回复。
 - 会话列表可以按最后一条消息的时间排列并分组：桌面端和网页版分为「待处理」「未读」「已读」三组，Android 另有「进行中」一组。
+- Android 会话列表右上角的加号弹出原生底部菜单，可以直接「新建 Bot」，也可以「新建群组」拉多个 Bot 在同一群聊中协作。
+- 网页版和 Android 对话输入框上方提供上下文相关的输入建议，点击即可填入；建议走独立的「输入框建议」场景模型，未配置模型或请求失败时自动回退为中英文预置建议。
 - 通知渠道：
   - iOS 可以用 APNs 或 Bark；
   - Android 客户端和 Host 保持连接，也可以改用 ntfy、UnifiedPush、FCM 或 Webhook；
@@ -76,14 +78,16 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
 
 - 支持三种接口格式：OpenAI Chat Completions、OpenAI Responses 和 Anthropic Messages，兼容这些格式的服务都能接入。
 - 用「模型服务」和「模型档案」管理多个服务商和模型。默认路由和单个 Bot 的路由可以分别指定模型、思考强度和备用顺序，每条路由最多 8 个备用。
+- 支持按场景分配模型：管理页「对话模型」和 Android 模型设置页可以为 6 个场景分别指定模型档案和思考强度——输入框建议、上下文压缩、记忆提取、自动审核、子 Agent 执行、定时任务；未指定时沿用默认路由。
+- 在管理页或客户端里都可以读取模型列表、测试连接；Android 端也可以在单个 Bot 的详情页直接为该 Bot 指定专属模型。在客户端修改模型配置，需要用管理员密码配对的设备。
 - 主模型还没输出内容时，如果遇到 402、408、429、5xx 或网络错误，会按顺序切换到下一个备用；一旦开始输出就不再切换，避免重复输出和重复执行工具。
-- 在管理页或客户端里都可以读取模型列表、测试连接。在客户端修改模型配置，需要用管理员密码配对的设备。
 - 可选的 JEV 智能路由会按任务难度自动选模型档案，需要 JEV 服务的 API Key，默认关闭。
 
 ### 图片与视频生成
 
 - 在管理页「图片与视频」接入服务商：OpenAI 兼容的图片和视频接口、WaveSpeed，或自定义的 HTTP JSON 接口。
 - 图片生成、视频生成、视频理解和视频审核可以分别设置默认模型。生成结果以附件形式发回对话。
+- 支持多选批量下载图片：桌面端（macOS、Windows、Linux）可将所选图片保存到指定文件夹或打包为 ZIP，网页版自动打包为 ZIP，Android 原生图片查看器支持多选批量保存到相册（`Pictures/RokBot`）。
 - 需要自己配置服务商的 API Key。
 
 ### 语音对话
@@ -151,11 +155,17 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
     <td align="center"><img src="docs/images/rokbot-android-share.png" width="190" alt="从系统分享面板把内容发给指定 Bot" /><br /><sub>系统分享</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-about.png" width="190" alt="设置页底部的应用版本和更新状态" /><br /><sub>关于与更新</sub></td>
   </tr>
+  <tr>
+    <td align="center"><img src="docs/images/rokbot-android-suggestions.png" width="190" alt="群聊输入框上方的输入建议条" /><br /><sub>输入建议</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-scenario-models.png" width="190" alt="模型设置页中的场景模型配置" /><br /><sub>按场景配模型</sub></td>
+    <td></td>
+    <td></td>
+  </tr>
 </table>
 
 ### 桌面端
 
-桌面客户端（macOS、Windows）与网页版使用同一套界面，以下两张为桌面布局。
+桌面客户端（macOS、Windows、Linux）与网页版使用同一套界面，以下两张为桌面布局。
 
 | 会话列表与对话 | Bot 的电脑：实时桌面画面 |
 | --- | --- |
@@ -177,16 +187,17 @@ Android 截图为英文界面，桌面端和管理页截图为中文界面。And
 
 | 平台 | 形式 | 对应的官方版本 | 获取方式 | 说明 |
 | --- | --- | --- | --- | --- |
-| macOS | Apple Silicon 客户端 | 1.2.3 | 自行构建 / Host 分发 | [`mac/README.md`](mac/README.md) |
-| Windows | x64 安装版和便携版 | 1.2.3（推荐），也接受 0.71.2 | 自行构建 / Host 分发 | [`windows/README.md`](windows/README.md) |
-| 网页版 | 浏览器，可添加到主屏幕 | 界面取自 Windows 1.2.3（推荐）或 0.71.2 | 自行构建界面包，上传到自己的 Host | [`web/README.md`](web/README.md) |
+| macOS | Apple Silicon 客户端 | 1.3.0（推荐），也接受 1.2.3 | 自行构建 / Host 分发 | [`mac/README.md`](mac/README.md) |
+| Windows | x64 安装版和便携版 | 1.3.0（推荐），也接受 1.2.3、0.71.2 | 自行构建 / Host 分发 | [`windows/README.md`](windows/README.md) |
+| Linux | x64 / arm64 `.deb`、`.tar.gz` 与便携目录 | 1.3.0 | 自行构建 / Host 分发 | [`linux/README.md`](linux/README.md) |
+| 网页版 | 浏览器，可添加到主屏幕 | 界面取自 Windows 1.3.0（推荐），也接受 1.2.3、0.71.2 | 自行构建界面包，上传到自己的 Host | [`web/README.md`](web/README.md) |
 | Android | 原生 APK（arm64-v8a） | 1.26.0（build 3212） | 自行构建 / Host 分发 | [`android/README.md`](android/README.md) |
 | iOS | IPA，需要自备解密的原版 IPA | 1.27.0（29519），也接受 1.26.0、1.16.0 | 自行构建并签名 / Host 分发 | [`ios/README.md`](ios/README.md) |
 | Linux 服务端 | Docker：`host`（amd64 / arm64）和 `box`（amd64） | Host 基线 `2bb5e41` | 从源码构建镜像 / 拉取预构建镜像（需要访问权限） | [`host/README.md`](host/README.md) |
 
 「自行构建」和「Host 分发」的具体做法见[获取客户端](#获取客户端)。
 
-锁定版本的来源：`mac/patchers/desktop/supported.json`、`windows/patchers/desktop/supported.json`、`web/patchers/supported.json`、`android/recipes/manifest.json`、`ios/recipes/ios/manifest.json`、`host/recipes/host/manifest.json`。
+锁定版本的来源：`mac/patchers/desktop/supported.json`、`windows/patchers/desktop/supported.json`、`linux/patchers/desktop/{x64,arm64}/supported.json`、`web/patchers/supported.json`、`android/recipes/manifest.json`、`ios/recipes/ios/manifest.json`、`host/recipes/host/manifest.json`。
 
 ## 快速开始
 
@@ -235,7 +246,7 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u <GitHub 用户名> --password-stdin
    ```
 2. 用浏览器打开管理页 `http://127.0.0.1:18080/admin`，输入初始化密钥，设置管理员密码（12–128 位）。
 3. 连接客户端：
-   - **原生客户端**：先按[获取客户端](#获取客户端)取得客户端。在管理页「设备与通知」创建 6 位配对码，在 macOS、Windows、Android 或 iOS 客户端中输入 Host 地址和配对码；也可以直接用管理员密码登录。
+   - **原生客户端**：先按[获取客户端](#获取客户端)取得客户端。在管理页「设备与通知」创建 6 位配对码，在 macOS、Windows、Linux、Android 或 iOS 客户端中输入 Host 地址和配对码；也可以直接用管理员密码登录。
    - **网页版**：默认启用，地址是 `http://127.0.0.1:18081/web/`。预构建镜像不包含网页版界面包，第一次使用前需要按 [`web/README.md`](web/README.md) 生成界面包，并在管理页「网页版」上传。
 
 ### 3. 配置模型
@@ -260,16 +271,17 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u <GitHub 用户名> --password-stdin
 
 | 平台 | 运行环境 | 输入 | 输出 |
 | --- | --- | --- | --- |
-| macOS | macOS，Node.js 22.12+ | 官方 1.2.3 Apple Silicon 的 `.dmg` 或 `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
-| Windows | Windows 10/11 x64，Node.js 22.12+ | 官方 1.2.3（或 0.71.2）x64 安装包、`app-64.7z` 或已安装的原版目录 | `windows/output/` |
-| 网页版 | Windows、macOS 或 Linux，Node.js 22.12+ | 与 Windows 相同的官方安装包 | `web/output/RokBotLocal-web-1.2.3.zip` |
+| macOS | macOS，Node.js 22.12+ | 官方 1.3.0（或 1.2.3）Apple Silicon 的 `.dmg` 或 `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
+| Windows | Windows 10/11 x64，Node.js 22.12+ | 官方 1.3.0（或 1.2.3、0.71.2）x64 安装包、`app-64.7z` 或已安装的原版目录 | `windows/output/` |
+| Linux | Linux 或 macOS，Node.js 22.12+ | 官方 1.3.0 Linux x64 / arm64 `.deb` 或解压目录 | `linux/output/`（便携目录、`.tar.gz`、`.deb`） |
+| 网页版 | Windows、macOS 或 Linux，Node.js 22.12+ | 与 Windows 相同的官方安装包 | `web/output/RokBotLocal-web-1.3.0.zip` |
 | Android | Node.js 20+ | 官方 1.26.0（build 3212）的 `.xapk`、`.apks` 或 `.apk` | `--output-apk` 指定的 APK |
 | iOS | Python 3.9+ | 自己解密的官方 IPA：1.27.0（29519）、1.26.0（29388）或 1.16.0（23152） | `--output` 指定的新目录 |
 
 #### macOS
 
 ```bash
-node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
+node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.3.0.dmg"
 ```
 
 - 生成 `mac/output.noindex/RokBot.app`，原版的副本备份在 `mac/backup.noindex/RokBot.app`。输出已存在时工具不会覆盖。
@@ -279,21 +291,37 @@ node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
 #### Windows
 
 ```powershell
-node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe
+node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.3.0_Setup.exe
 ```
 
-- 在 `windows/output/` 生成便携目录 `RokBot Local/`、`RokBotLocal-1.2.3-x64-portable.zip`、按用户安装的 `RokBotLocal-1.2.3-x64-Setup.exe`，以及补丁记录 `RokBotLocal-1.2.3-x64.patch.json`。加 `--no-installer` 只生成便携版本。
-- 1.2.3 用不了时，用 `--version 0.71.2 --output windows/output/0.71.2` 改用 0.71.2，输出文件名中的版本号随之改变。
+- 在 `windows/output/` 生成便携目录 `RokBot Local/`、`RokBotLocal-1.3.0-x64-portable.zip`、按用户安装的 `RokBotLocal-1.3.0-x64-Setup.exe`，以及补丁记录 `RokBotLocal-1.3.0-x64.patch.json`。加 `--no-installer` 只生成便携版本。
+- 1.3.0 用不了时，可用 `--version 1.2.3` 或 `--version 0.71.2` 回退，输出文件名中的版本号随之改变。
 - 补丁会移除因修改而失效的原签名，生成的程序和安装包都未签名。详见 [`windows/README.md`](windows/README.md)。
+
+#### Linux
+
+```bash
+# 首次构建前安装共享依赖
+npm install --prefix mac/patchers/desktop
+
+# 自动下载锁定版本的官方 1.3.0 .deb 并构建（支持在 Linux 或 macOS 跨平台生成 .deb 与 .tar.gz）
+node linux/patchers/desktop/patch.mjs --arch x64   # 或 --arch arm64
+
+# 也可使用本地官方 .deb（自动按 SHA-256 识别架构），或加 --verify-only 仅校验
+node linux/patchers/desktop/patch.mjs --source /path/to/grok-bot_1.3.0_amd64.deb
+```
+
+- 在 `linux/output/` 生成便携目录 `RokBotLocal-1.3.0-linux-<arch>/`、通用便携包 `RokBotLocal-1.3.0-linux-<arch>.tar.gz`、Debian/Ubuntu 安装包 `RokBotLocal-1.3.0-linux-<arch>.deb`（已移除上游 apt 源注册，安装到 `/opt/RokBot/rokbot`）以及补丁记录 `RokBotLocal-1.3.0-linux-<arch>.patch.json`。
+- 支持在 Linux 或 macOS 上跨平台生成 `.deb` 与 `.tar.gz`，无需安装 `dpkg-deb`。详见 [`linux/README.md`](linux/README.md)。
 
 #### 网页版
 
 ```bash
-node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe
+node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.3.0_Setup.exe
 ```
 
-- 生成 `web/output/RokBotLocal-web-1.2.3.zip`，在管理页「网页版」上传。也可以加 `--upload <Host 地址>` 生成后直接安装到 Host，管理员密码从 `ROKBOT_ADMIN_PASSWORD`、`--password-file` 或终端输入读取。
-- 1.2.3 的界面用不了时加 `--version 0.71.2`。详见 [`web/README.md`](web/README.md)。
+- 生成 `web/output/RokBotLocal-web-1.3.0.zip`，在管理页「网页版」上传。也可以加 `--upload <Host 地址>` 生成后直接安装到 Host，管理员密码从 `ROKBOT_ADMIN_PASSWORD`、`--password-file` 或终端输入读取。
+- 1.3.0 的界面用不了时加 `--version 1.2.3` 或 `--version 0.71.2`。详见 [`web/README.md`](web/README.md)。
 
 #### Android
 
@@ -324,10 +352,10 @@ python3 ios/release/patch-ios.py \
 Host 的管理员可以把构建好的安装包发布给自己 Host 上的设备：
 
 1. 管理员按方式一构建并签名安装包。
-2. 在管理页「客户端更新」选择平台（Android、iOS、macOS 或 Windows），上传安装包并发布；需要时选择一个旧版本，生成增量补丁。
+2. 在管理页「客户端更新」选择平台（Android、iOS、macOS、Windows 或 Linux），上传安装包并发布；需要时选择一个旧版本，生成增量补丁。
 3. 已经配对的客户端从这台 Host 检查和下载更新：
    - Android 下载后核对大小、SHA-256、包名和签名证书，证书必须与已安装的版本一致；
-   - macOS 和 Windows 支持增量补丁，更新清单用 ECDSA P-256 签名。客户端默认从已配对的 Host 检查更新；构建时加 `--update-url <Host 的 HTTPS 地址>/local/updates` 和 `--update-public-key-file <公钥文件>`，可以把「客户端更新」页显示的清单签名公钥固定在客户端里；
+   - macOS、Windows 和 Linux 支持增量补丁，更新清单用 ECDSA P-256 签名。客户端默认从已配对的 Host 检查更新；构建时加 `--update-url <Host 的 HTTPS 地址>/local/updates` 和 `--update-public-key-file <公钥文件>`，可以把「客户端更新」页显示的清单签名公钥固定在客户端里；
    - iOS 不能在应用内自我替换，通过 `itms-services`（需要 HTTPS）、AltStore / SideStore 源，或下载 IPA 后交给签名工具安装。
 
 第一次安装时，客户端还没有和 Host 配对，安装包怎样交给用户由各 Host 的管理员自行决定，并由管理员负责。发布和接口的细节见 [`docs/AGENT_DEPLOY.md`](docs/AGENT_DEPLOY.md#5-发布四端签名安装包与增量自动更新)。
@@ -337,7 +365,7 @@ Host 的管理员可以把构建好的安装包发布给自己 Host 上的设备
 ```mermaid
 flowchart LR
   subgraph Clients["客户端"]
-    Desktop["macOS / Windows 客户端"]
+    Desktop["macOS / Windows / Linux 客户端"]
     Mobile["iOS / Android 客户端"]
     Web["网页版 (:18081)"]
   end

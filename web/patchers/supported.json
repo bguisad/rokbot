@@ -1,10 +1,16 @@
 {
   "schema": "rokbot-web-build/v1",
-  "desktopVersion": "1.2.3",
-  "rendererIndexSha256": "c89a91707b4f52a8a0caeca184efcfa1dc01141ec7867f554765e3cae97ea91e",
-  "preloadSha256": "69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2",
-  "vncPreloadSha256": "a2d9c610b7b11ae5cc99551f1e139c7b1e8632990793a7687fee40e88a6be24b",
+  "desktopVersion": "1.3.0",
+  "rendererIndexSha256": "5ea1a0aa729a3a416b63c6f0aad62cabd0ab0986b5dba2750c8af72bd015961d",
+  "preloadSha256": "e85046e06d5dc2834bd478af3f0b2e54d983c0ca847bd6e1636491a6252647d9",
+  "vncPreloadSha256": "4875cd8f20c2398f818b43674490bb23c223c9e06031159a57a0ce2f3e2a1487",
   "fallback": [
+    {
+      "desktopVersion": "1.2.3",
+      "rendererIndexSha256": "c89a91707b4f52a8a0caeca184efcfa1dc01141ec7867f554765e3cae97ea91e",
+      "preloadSha256": "69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2",
+      "vncPreloadSha256": "a2d9c610b7b11ae5cc99551f1e139c7b1e8632990793a7687fee40e88a6be24b"
+    },
     {
       "desktopVersion": "0.71.2",
       "rendererIndexSha256": "df9cfae598a2e155700557036ab4a3da636b043a0b947df1c1dcf33ec4c193d7",

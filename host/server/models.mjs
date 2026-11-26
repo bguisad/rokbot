@@ -398,7 +398,8 @@ export class Models {
     try {
       routing = validateModelRouting({ version: 1, providers, profiles,
         defaultRoute: { profileId, effort: policy.effort, fallbacks: previous.routing.defaultRoute?.fallbacks ?? [] },
-        botRoutes: previous.routing.botRoutes ?? {} }, { previous: previous.routing });
+        botRoutes: previous.routing.botRoutes ?? {},
+        ...(previous.routing.scenarioRoutes ? { scenarioRoutes: previous.routing.scenarioRoutes } : {}) }, { previous: previous.routing });
     } catch (error) { check(false, 400, publicError(error)); }
     return { routing, jevApiKey: hasJevKey ? clean(input.jevApiKey, 'Jev API Key', 8192) : previous.jevApiKey,
       ...(previous.routingMigrated ? { legacy: { apiFormat, baseUrl, apiKey, model, contextWindowTokens, policy } } : {}) };

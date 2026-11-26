@@ -1,0 +1,15 @@
+{
+  "version": "1.3.0",
+  "architecture": "x64",
+  "debianArchitecture": "amd64",
+  "archive": {
+    "url": "https://downloads.cursor.com/grokbot/stable/bfb372966cec77c6ec2750957965f2a2268da17d/linux/x64/grok-bot_1.3.0_amd64.deb",
+    "bytes": 117982212,
+    "sha256": "87b046b6e4126c3eb466df59135b59c8efbb5f9f10e0de548f0d65ec8ac55528"
+  },
+  "binSha256": "08782d101254290d6388be597015c9943e5cf316a17df11a062b797444cd416c",
+  "asarSha256": "9402c33f360945ecf12df664c5a035add0d0c5f7e386843d7c5866b2cf139485",
+  "asarHeaderSha256": "ec66ffb734359856d82ab0bb3138819565b28b34c9e74b66c81545145a892f58",
+  "preloadSha256": "e85046e06d5dc2834bd478af3f0b2e54d983c0ca847bd6e1636491a6252647d9",
+  "vncPreloadSha256": "4875cd8f20c2398f818b43674490bb23c223c9e06031159a57a0ce2f3e2a1487"
+}

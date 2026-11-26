@@ -262,6 +262,21 @@ export async function canApplyAsarUpdate(opts = {}) {
     }
   }
 
+  if (platform === 'linux') {
+    try {
+      const realResourcesDir = await realpath(trimmedResourcesDir);
+      const realExecPath = await realpath(trimmedExecPath);
+      if (!(await stat(realExecPath)).isFile()) return false;
+      const appAsar = path.join(realResourcesDir, 'app.asar');
+      if (!(await stat(appAsar)).isFile()) return false;
+      await access(realResourcesDir, constants.W_OK);
+      await access(appAsar, constants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   return false;
 }
 
@@ -279,7 +294,7 @@ export async function applyAsarUpdateAndRestart(opts = {}) {
     quitApp,
     platform = process.platform,
   } = opts;
-  if (platform !== 'win32' && platform !== 'darwin') {
+  if (platform !== 'win32' && platform !== 'darwin' && platform !== 'linux') {
     throw new Error(`ASAR incremental swap is unsupported on ${platform}`);
   }
   if (typeof asarFile !== 'string' || !asarFile.trim()) {
@@ -434,6 +449,54 @@ export async function applyAsarUpdateAndRestart(opts = {}) {
       throw err;
     }
 
+    const child = spawn('/bin/sh', [swapScript], { detached: true, stdio: 'ignore' });
+    child.unref();
+    quitApp();
+    return;
+  }
+
+  if (platform === 'linux') {
+    if (typeof execPath !== 'string' || !execPath.trim()) {
+      await rm(stageRoot, { recursive: true, force: true }).catch(() => {});
+      throw new Error('Missing execPath for Linux ASAR update');
+    }
+    const swapScript = path.join(stageRoot, 'apply-update.sh');
+    try {
+      const realResourcesDir = await realpath(trimmedResourcesDir);
+      const realExecPath = await realpath(execPath.trim());
+      const targetAsar = path.join(realResourcesDir, 'app.asar');
+      const stagedAsar = path.join(stageRoot, 'app.asar');
+      const backupAsar = path.join(realResourcesDir, `app.asar.backup-${process.pid}`);
+      await copyFile(trimmedAsarFile, stagedAsar);
+      const q = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
+      const sh = [
+        '#!/bin/sh',
+        `PID=${process.pid}`,
+        'while kill -0 "$PID" 2>/dev/null; do sleep 0.1; done',
+        `TARGET=${q(targetAsar)}`,
+        `STAGED=${q(stagedAsar)}`,
+        `BACKUP=${q(backupAsar)}`,
+        `EXEC=${q(realExecPath)}`,
+        `ROOT=${q(stageRoot)}`,
+        'rm -f "$BACKUP"',
+        'if mv "$TARGET" "$BACKUP"; then',
+        '  if mv "$STAGED" "$TARGET"; then',
+        '    rm -f "$BACKUP"',
+        '    rm -rf "$ROOT"',
+        '    "$EXEC" >/dev/null 2>&1 &',
+        '  else',
+        '    mv "$BACKUP" "$TARGET" 2>/dev/null || true',
+        '    rm -rf "$ROOT"',
+        '  fi',
+        'else',
+        '  rm -rf "$ROOT"',
+        'fi',
+      ].join('\n');
+      await writeFile(swapScript, sh, { mode: 0o755 });
+    } catch (err) {
+      await rm(stageRoot, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
     const child = spawn('/bin/sh', [swapScript], { detached: true, stdio: 'ignore' });
     child.unref();
     quitApp();
