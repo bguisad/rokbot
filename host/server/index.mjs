@@ -87,6 +87,11 @@ const pages = new Map([["/", "index.html"], ["/admin", "index.html"], ["/admin/"
 // Admin assets are served from a fixed listing taken at startup.
 const publicAssets = new Set(readdirSync(publicDir).filter((name) => [".js", ".css", ".svg"].includes(extname(name))));
 const adminCookie = "rokbot_admin";
+// Preference reads of the mobile Auto-review switch (PrReviewPreferencesService.fetchPreferences).
+const localPreferenceRpcPaths = new Set([
+  "/aiserver.v1.DashboardService/GetTeamAdminSettingsOrEmptyIfNotInTeam",
+  "/aiserver.v1.BackgroundComposerService/GetBackgroundComposerUserSettings",
+]);
 const bootAt = new Date().toISOString();
 function endpoint(value) {
   const url = new URL(value);
@@ -839,6 +844,14 @@ export async function createSelfHostServer(options = {}) {
       limiter.check(`app-intents:${found.id}`, 120);
       return sendJson(response, 200, await mobileAppIntentRpc(internalHostClient(hostUrl, internalToken), intentMethod,
         await jsonBody(request, 512 * 1024, { allowEmpty: true })));
+    }
+    if (localPreferenceRpcPaths.has(path)) {
+      // The 1.26 mobile app checks team and cloud-agent review preferences before it shows the
+      // Auto-review switch. A self-hosted Host has neither, which `{}` says (as desktop and iOS do).
+      device(request, web);
+      check(request.method === "POST", 405, "不支持的请求方法");
+      await jsonBody(request, 64 * 1024, { allowEmpty: true });
+      return sendJson(response, 200, {});
     }
     if (path.startsWith("/local/mobile-rpc/")) {
       const found = device(request, web), method = path.slice("/local/mobile-rpc/".length);

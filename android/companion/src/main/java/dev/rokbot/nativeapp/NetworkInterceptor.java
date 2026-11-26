@@ -93,6 +93,11 @@ public class NetworkInterceptor implements Interceptor {
             if ((isVoiceMint || isTranscribe || isAppIntent || isDashboard) && (token == null || token.isEmpty())) {
                 return jsonErrorResponse(request, 401, Localize.t(mContext, "未连接 Host。", "Not connected"));
             }
+            // Auto-review switch preference reads: a paired Host has no team or cloud-agent settings.
+            if ("POST".equals(httpMethod) && GatewayEndpointRouter.isLocalPreferenceRpc(path)
+                    && token != null && !token.isEmpty()) {
+                return jsonOkResponse(request, "{}");
+            }
 
             String gatewayUrl;
             try {
