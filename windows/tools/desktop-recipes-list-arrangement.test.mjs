@@ -156,7 +156,7 @@ test('Settings > General switches the arrangement through the shared store', () 
   const context = vm.createContext({
     __rokListArrangement: store, grokText: zh, window: {},
     $: { jsx, jsxs: jsx }, Q: { useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot() },
-    Vn: 'Section', X: 'Row', gn: 'Toggle', q: 'Button', Ft: {}, gr: {},
+    Wn: 'Section', X: 'Row', He: 'Toggle', K: 'Button', L: {}, vr: {},
   });
   context.globalThis = context;
   vm.runInContext(generalPane, context);
@@ -180,11 +180,11 @@ test('Settings > General switches the arrangement through the shared store', () 
   assert.equal(render().toggle.props.isDisabled, true, 'no app store: the toggle is shown disabled');
 });
 
-/** The extension with the app module's header parts: tooltip He, round button ET, Z (JSX). */
+/** The extension with the app module's header parts: tooltip le, round button OT, Z (JSX). */
 function loadWithHeader(options) {
   const page = load(options);
   const jsx = (type, props, key) => ({ type, props, key });
-  Object.assign(page.context, { Z: { jsx, jsxs: jsx }, He: 'Tooltip', ET: 'HeaderButton', fA: { newButton: { header: true } } });
+  Object.assign(page.context, { Z: { jsx, jsxs: jsx }, le: 'Tooltip', OT: 'HeaderButton', qA: { newButton: { header: true } } });
   return page;
 }
 const svgParts = glyph => {
@@ -241,7 +241,7 @@ test('the toggle and the Settings switch stay in sync both ways', () => {
   const settings = vm.createContext({
     __rokListArrangement: store, grokText: zh, window: {},
     $: { jsx, jsxs: jsx }, Q: { useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot() },
-    Vn: 'Section', X: 'Row', gn: 'Toggle', q: 'Button', Ft: {}, gr: {},
+    Wn: 'Section', X: 'Row', He: 'Toggle', K: 'Button', L: {}, vr: {},
   });
   settings.globalThis = settings;
   vm.runInContext(generalPane, settings);

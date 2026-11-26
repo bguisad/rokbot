@@ -305,6 +305,7 @@ window.localBot = Object.freeze({
   updateModelConfig: payload => modelBridge.updateModelConfig(payload),
   fetchModelCatalog: payload => modelBridge.fetchModelCatalog(payload),
   testModelConfig: payload => modelBridge.testModelConfig(payload),
+  downloadAttachmentsZip: payload => services.call('downloadAttachmentsZip', payload),
 });
 
 officialPreload(name => {

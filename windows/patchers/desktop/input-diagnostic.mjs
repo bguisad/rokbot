@@ -10,8 +10,12 @@ export async function withInstallerDiagnostic(verification, explicitSource, supp
     // The shared Windows/Android wrapper verifier reports this exact, untyped pin error.
     if (cause?.message !== '官方安装包摘要不匹配。' || !explicitSource || path.extname(explicitSource).toLowerCase() !== '.exe') throw cause;
     const [recommended, ...older] = accepted;
-    const zhList = `${recommended}（推荐）${older.map(version => `或 ${version}`).join('')}`;
-    const enList = `${recommended} (recommended)${older.map(version => ` or ${version}`).join('')}`;
+    const zhList = older.length === 0 ? `${recommended}（推荐）`
+      : older.length === 1 ? `${recommended}（推荐）或 ${older[0]}`
+        : `${recommended}（推荐）、${older.slice(0, -1).join('、')} 或 ${older[older.length - 1]}`;
+    const enList = older.length === 0 ? `${recommended} (recommended)`
+      : older.length === 1 ? `${recommended} (recommended) or ${older[0]}`
+        : `${recommended} (recommended), ${older.slice(0, -1).join(', ')} or ${older[older.length - 1]}`;
     const target = `Grok Bot ${supported.version} Windows ${supported.architecture}`;
     throw new Error('安装包摘要不匹配，无法确认此文件的版本或来源。未进入配对。\n' +
       `补丁接受未经修改的官方 Grok Bot ${zhList} Windows ${supported.architecture} 安装包。省略 --source 重新运行即可下载并校验 ${target} 安装包，无需卸载现有客户端。\n` +

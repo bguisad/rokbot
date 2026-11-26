@@ -235,6 +235,14 @@ async function showWorkspace() {
         const result = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('downloads'), name) });
         return result.canceled ? null : result.filePath;
       },
+      chooseDirectory: async () => {
+        const result = await dialog.showOpenDialog(win, {
+          defaultPath: app.getPath('downloads'),
+          buttonLabel: localText('保存到此处', 'Save here'),
+          properties: ['openDirectory', 'createDirectory'],
+        });
+        return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+      },
       showDownloadError: () => dialog.showMessageBox(win, { type: 'error',
         message: localText('无法下载文件，请重试。', 'Could not download this file. Try again.') }),
     }) },
@@ -323,6 +331,10 @@ ipcMain.handle('rokbot-local:model-catalog', (event, payload) => {
 ipcMain.handle('rokbot-local:model-test', (event, payload) => {
   if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
   return modelBridge.testModelConfig(payload);
+});
+ipcMain.handle('rokbot-local:download-attachments-zip', async (event, payload) => {
+  if (!trusted(event, mainWindow) || !methodCall) throw new Error('Unexpected renderer');
+  return methodCall('downloadAttachmentsZip', payload);
 });
 ipcMain.handle('rokbot-local:voice-credential', async (event, agentId) => {
   if (!trusted(event, mainWindow) || !config || !gateway) throw new Error('Unexpected renderer');

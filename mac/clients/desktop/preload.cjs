@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('localBot', {
   updateModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-put', payload),
   fetchModelCatalog: payload => ipcRenderer.invoke('rokbot-local:model-catalog', payload),
   testModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-test', payload),
+  downloadAttachmentsZip: payload => ipcRenderer.invoke('rokbot-local:download-attachments-zip', payload),
   onConnectionChanged: callback => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on('rokbot-local:connection-changed', listener);

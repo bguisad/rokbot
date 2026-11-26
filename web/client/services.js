@@ -6,6 +6,7 @@ import { externalHttpUrl } from './desktop/external-url.mjs';
 import { createConnectorHandlers } from './desktop/connectors.mjs';
 import { createDictation } from './desktop/dictation.mjs';
 import { fetchSandMachines } from './desktop/sand-machines.mjs';
+import { buildZipStore } from './desktop/zip-store.mjs';
 import { boot as androidBoot, native, log, toBase64, fromBase64, toBytes, timeout, combineSignals } from './native.js';
 
 export const auth = {
@@ -267,6 +268,59 @@ export function createAttachments({ command, staging, onProgress }) {
         if (id) await native('save-end', { id, ok: false }).catch(() => {});
         log('[attachment-download]', error);
         alert(rokText('无法下载文件，请重试。', 'Could not download this file. Try again.'));
+        return false;
+      }
+    },
+    async downloadAttachments(input) {
+      const downloads = Array.isArray(input?.downloads) ? input.downloads : [];
+      if (downloads.length === 0) return false;
+      if (downloads.length === 1) return await this.downloadAttachment(downloads[0]);
+      return await this.downloadAttachmentsZip(input);
+    },
+    async downloadAttachmentsZip(input) {
+      const downloads = Array.isArray(input?.downloads) ? input.downloads : [];
+      if (downloads.length === 0) return false;
+      let id = null;
+      try {
+        const entries = [];
+        for (const item of downloads) {
+          const args = scope(item);
+          if (args === null) throw new Error('Invalid attachment path');
+          const staged = staging.read(args.path);
+          if (staged) {
+            entries.push({ name: baseName(item.suggestedName || staged.filename || args.path), data: staged.bytes });
+            continue;
+          }
+          if (args.path.startsWith(STAGING_PREFIX)) throw new Error('Attachment not found');
+          const info = await request('readAttachmentChunk', { ...args, offset: 0, length: DOWNLOAD_HEAD_BYTES });
+          if (info === null) throw new Error('Attachment not found');
+          const size = totalSize(info);
+          const first = chunkBytes(info, Math.min(size, DOWNLOAD_HEAD_BYTES), size);
+          const out = new Uint8Array(size);
+          out.set(first, 0);
+          for (let offset = first.length; offset < size;) {
+            const chunk = await readChunk(args, offset, Math.min(CHUNK_BYTES, size - offset), size);
+            if (chunk === null) throw new Error('Attachment not found');
+            out.set(chunk, offset);
+            offset += chunk.length;
+          }
+          entries.push({ name: baseName(item.suggestedName || info.resolvedName || args.path), data: out });
+        }
+        const zipBytes = buildZipStore(entries);
+        const zipName = baseName(input?.suggestedName || `rokbot-images-${new Date().toISOString().slice(0, 10)}.zip`);
+        const started = await native('save-begin', { name: zipName, mime: 'application/zip' });
+        if (!started.id) return false;
+        id = started.id;
+        for (let offset = 0; offset < zipBytes.length; offset += CHUNK_BYTES) {
+          await native(`save-chunk?id=${encodeURIComponent(id)}`, null, { binary: zipBytes.subarray(offset, Math.min(zipBytes.length, offset + CHUNK_BYTES)) });
+        }
+        await native('save-end', { id, ok: true });
+        id = null;
+        return true;
+      } catch (error) {
+        if (id) await native('save-end', { id, ok: false }).catch(() => {});
+        log('[attachment-download-batch]', error);
+        alert(rokText('无法打包下载文件，请重试。', 'Could not download these files. Try again.'));
         return false;
       }
     },

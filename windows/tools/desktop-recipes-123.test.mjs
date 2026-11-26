@@ -11,26 +11,34 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const extensionsUrl = new URL('./desktop-recipes/extensions/', import.meta.url);
 const addedBytes = recipe => Buffer.concat(recipe.ops.filter(op => op[0] === 'add').map(op => Buffer.from(op[1], 'base64')));
 
-test('specForTarget and resolveTargets support both Windows and macOS 1.2.3 targets with SPEC backward compat', () => {
+test('specForTarget and resolveTargets support Windows, macOS, and Linux 1.3.0 targets with SPEC backward compat', () => {
   assert.deepEqual(SPEC, specForTarget('windows'));
-  assert.equal(targetMeta('windows').version, '1.2.3');
-  assert.equal(targetMeta('mac').version, '1.2.3');
-  assert.ok(TARGETS.windows.archive.url.includes('1.2.3'));
-  assert.ok(TARGETS.mac.archive.url.includes('1.2.3'));
-  assert.throws(() => targetMeta('linux'), /Unsupported recipe target/);
+  assert.equal(targetMeta('windows').version, '1.3.0');
+  assert.equal(targetMeta('mac').version, '1.3.0');
+  assert.equal(targetMeta('linux-x64').version, '1.3.0');
+  assert.equal(targetMeta('linux-arm64').version, '1.3.0');
+  assert.ok(TARGETS.windows.archive.url.includes('1.3.0'));
+  assert.ok(TARGETS.mac.archive.url.includes('1.3.0'));
+  assert.ok(TARGETS['linux-x64'].archive.url.includes('1.3.0'));
+  assert.ok(TARGETS['linux-arm64'].archive.url.includes('1.3.0'));
+  assert.throws(() => targetMeta('freebsd'), /Unsupported recipe target/);
 
   assert.deepEqual(resolveTargets({}), ['windows']);
   assert.deepEqual(resolveTargets({ target: 'windows' }), ['windows']);
   assert.deepEqual(resolveTargets({ target: 'mac' }), ['mac']);
-  assert.deepEqual(resolveTargets({ target: 'all' }), ['windows', 'mac']);
-  assert.deepEqual(resolveTargets({ source: '/tmp/Grok_Bot_1.2.3.dmg' }), ['mac']);
+  assert.deepEqual(resolveTargets({ target: 'linux-x64' }), ['linux-x64']);
+  assert.deepEqual(resolveTargets({ target: 'linux-arm64' }), ['linux-arm64']);
+  assert.deepEqual(resolveTargets({ target: 'all' }), ['windows', 'mac', 'linux-x64', 'linux-arm64']);
+  assert.deepEqual(resolveTargets({ source: '/tmp/Grok_Bot_1.3.0.dmg' }), ['mac']);
   assert.deepEqual(resolveTargets({ source: '/Applications/Grok Bot.app/' }), ['mac']);
-  assert.deepEqual(resolveTargets({ source: '/tmp/Grok_Bot_1.2.3_Setup.exe' }), ['windows']);
+  assert.deepEqual(resolveTargets({ source: '/tmp/Grok_Bot_1.3.0_Setup.exe' }), ['windows']);
+  assert.deepEqual(resolveTargets({ source: '/tmp/grok-bot_1.3.0_amd64.deb' }), ['linux-x64']);
+  assert.deepEqual(resolveTargets({ source: '/tmp/grok-bot_1.3.0_arm64.deb' }), ['linux-arm64']);
   assert.throws(() => resolveTargets({ target: 'all', source: '/tmp/foo.dmg' }), /cannot be combined/);
 });
 
-for (const target of ['windows', 'mac']) {
-  test(`committed ${target} 1.2.3 recipes match specForTarget, normalize gzip OS byte, and carry all extensions verbatim`, async () => {
+for (const target of ['windows', 'mac', 'linux-x64', 'linux-arm64']) {
+  test(`committed ${target} 1.3.0 recipes match specForTarget, normalize gzip OS byte, and carry all extensions verbatim`, async () => {
     const meta = targetMeta(target);
     const recipesDir = new URL(`../../${meta.recipesRelativeDir}/`, import.meta.url);
     const manifest = JSON.parse(await readFile(new URL('manifest.json', recipesDir), 'utf8'));
@@ -69,13 +77,13 @@ for (const target of ['windows', 'mac']) {
     assert.ok(updateEntry);
     const updateAdded = addedBytes(updateEntry.recipe).toString('utf8');
     assert.match(updateAdded, /RokBot/);
-    assert.match(updateAdded, /1\.2\.3/);
+    assert.match(updateAdded, /1\.3\.0/);
     assert.doesNotMatch(updateAdded, /'1\.1\.0'|'0\.71\.2'|alert\(|confirm\(/);
 
     const libraryEntry = committed.find(({ entry }) => entry.path.endsWith(meta.chunks.library));
     assert.ok(libraryEntry);
     const libraryAdded = addedBytes(libraryEntry.recipe).toString('utf8');
-    assert.match(libraryAdded, /k\.useRef/);
+    assert.match(libraryAdded, /D\.useRef/);
     assert.match(libraryAdded, /export \{ de as GrokLibraryFiles \}/);
 
     const generalEntry = committed.find(({ entry }) => entry.path.endsWith(meta.chunks.generalPane));
@@ -127,12 +135,12 @@ for (const target of ['windows', 'mac']) {
     assert.match(eagerAdded, /rokListIsGroupId\(n\.id\)\?null:/);
     assert.match(eagerAdded, /disabled:rokListIsGroupId\(n\.id\)/);
     assert.match(eagerAdded, /\|\|rokListIsGroupId\(n\.id\)/);
-    // RokBot avatar styles: chassis default, all 6 styles, yT/bT wrappers preserving original fallback.
+    // RokBot avatar styles: chassis default, all 6 styles, bT/xT wrappers preserving original fallback.
     assert.match(eagerAdded, /RokUseAvatarStyle\(\)/);
     assert.match(eagerAdded, /RokGrokBotMark/);
     assert.match(eagerAdded, /RokGrokBotMarkMirror/);
-    assert.match(eagerAdded, /function yT_orig\(/);
     assert.match(eagerAdded, /function bT_orig\(/);
+    assert.match(eagerAdded, /function xT_orig\(/);
     for (const styleId of ['chassis', 'antenna', 'visor', 'pixel', 'orb', 'official']) {
       assert.match(eagerAdded, new RegExp(`'${styleId}'`));
     }

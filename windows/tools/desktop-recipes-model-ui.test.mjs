@@ -429,8 +429,8 @@ async function loadExtensionsInVm(harness, localBot) {
   const gpCtx = vm.createContext({
     ...sharedGlobals,
     grokText: i18nCtx.grokText,
-    $: harness.JSX, Q: harness.React, q: Button, gn: Toggle, Ft: Dialog,
-    gr: { actionWeakBorder: {} }, Vn: Section, X: Row,
+    $: harness.JSX, Q: harness.React, K: Button, He: Toggle, L: Dialog,
+    vr: { actionWeakBorder: {} }, Wn: Section, X: Row,
     __out: gpExports,
   });
   gpCtx.globalThis = gpCtx;
@@ -449,8 +449,8 @@ async function loadExtensionsInVm(harness, localBot) {
   const eaCtx = vm.createContext({
     ...sharedGlobals,
     grokText: i18nCtx.grokText,
-    X: eaReact, Z: harness.JSX, TS: harness.ReactDOM, Ft: () => doc.body,
-    lD, uD, uDr: { passThrough: {} }, yEt: () => null, WM: () => null, Fw: Dialog,
+    X: eaReact, Z: harness.JSX, BS: harness.ReactDOM, Yt: () => doc.body,
+    DD: lD, OD: uD, yXr: { passThrough: {} }, MPt: () => null, IN: () => null, Pw: Dialog,
     __out: eaExports,
   });
   eaCtx.globalThis = eaCtx;
@@ -460,7 +460,7 @@ async function loadExtensionsInVm(harness, localBot) {
   const uvCtx = vm.createContext({
     ...sharedGlobals,
     grokText: i18nCtx.grokText,
-    x: harness.JSX, h: Section, oe: Row, re: Button, l: Text, d: { body2: {} },
+    x: harness.JSX, h: Section, oe: Row, te: Button, t: Text, re: { body2: {}, sm: {} },
     __out: uvExports,
   });
   uvCtx.globalThis = uvCtx;
@@ -470,7 +470,7 @@ async function loadExtensionsInVm(harness, localBot) {
   const libCtx = vm.createContext({
     ...sharedGlobals,
     grokText: i18nCtx.grokText,
-    k: harness.React, V: harness.JSX, GrokButton: Button, de: () => null,
+    D: harness.React, V: harness.JSX, GrokButton: Button, de: () => null,
     __out: libExports,
   });
   libCtx.globalThis = libCtx;
@@ -480,7 +480,7 @@ async function loadExtensionsInVm(harness, localBot) {
   const compCtx = vm.createContext({
     ...sharedGlobals,
     grokText: i18nCtx.grokText,
-    Q: harness.JSX, $e: Section, Y: Row, Ue: Button, K: { body2: {} },
+    Q: harness.JSX, $e: Section, Y: Row, W: Button, Ie: { body2: {}, sm: {} },
     __out: compExports,
   });
   compCtx.globalThis = compCtx;
@@ -673,7 +673,7 @@ test('handles reload error polling, timer cleanup on close, canConfigureModel=fa
   assert.equal(Boolean(win.__rokModelModalHostMounted), false);
 });
 
-test('update-view.js renders RokBot 1.2.3 and non-blocking inline update states without alert/confirm', async () => {
+test('update-view.js renders RokBot 1.3.0 and non-blocking inline update states without alert/confirm', async () => {
   const harness = createReactTestHarness();
   let alertCalled = false;
   const origAlert = globalThis.alert;
@@ -685,12 +685,12 @@ test('update-view.js renders RokBot 1.2.3 and non-blocking inline update states 
     let checked = 0, installed = '';
     const states = [
       { state: { type: 'checking' } },
-      { state: { type: 'downloading', version: '1.2.4', progress: 0.5 } },
-      { state: { type: 'downloading', version: '1.2.4', progress: 1 } },
-      { state: { type: 'downloading', version: '1.2.4', progress: 75 } },
-      { state: { type: 'downloading', version: '1.2.4', progress: Number.NaN } },
-      { state: { type: 'downloading', version: '1.2.4', progress: Number.POSITIVE_INFINITY } },
-      { state: { type: 'ready', version: '1.2.4' } },
+      { state: { type: 'downloading', version: '1.3.1', progress: 0.5 } },
+      { state: { type: 'downloading', version: '1.3.1', progress: 1 } },
+      { state: { type: 'downloading', version: '1.3.1', progress: 75 } },
+      { state: { type: 'downloading', version: '1.3.1', progress: Number.NaN } },
+      { state: { type: 'downloading', version: '1.3.1', progress: Number.POSITIVE_INFINITY } },
+      { state: { type: 'ready', version: '1.3.1' } },
       { state: { type: 'idle', lastCheck: { result: 'error', errorMessage: 'Signature mismatch', message: 'Fallback error' } } },
       { state: { type: 'idle', lastCheck: { result: 'error', message: 'Network timeout' } } },
     ];
@@ -702,7 +702,7 @@ test('update-view.js renders RokBot 1.2.3 and non-blocking inline update states 
       }));
       const txt = collectText(harness.getTree());
       assert.match(txt, /RokBot/);
-      assert.match(txt, /1\.2\.3/);
+      assert.match(txt, /1\.3\.0/);
       if (status.state.type === 'downloading') {
         assert.doesNotMatch(txt, /NaN%|Infinity%/);
         if (status.state.progress === 0.5) assert.match(txt, /50%/);
@@ -713,7 +713,7 @@ test('update-view.js renders RokBot 1.2.3 and non-blocking inline update states 
       if (status.state.type === 'ready') {
         const restartBtn = findNodes(harness.getTree(), n => n.tag === 'button' && n.props.children === 'Restart to update')[0];
         restartBtn.props.onClick();
-        assert.equal(installed, '1.2.4');
+        assert.equal(installed, '1.3.1');
       }
       if (status.state.lastCheck?.result === 'error') {
         assert.match(txt, new RegExp(status.state.lastCheck.errorMessage ?? status.state.lastCheck.message));

@@ -170,30 +170,30 @@ test('Windows 0.71.2 recipe 009 preserves Android pinned target hash while patch
   await assert.rejects(patchDesktopUpdateSettingsUi(dir123), /更新设置模块锚点不唯一/);
 });
 
-test('Windows 1.2.3 pins, notification-policy.json, and desktop local-client bundle contracts are aligned', async () => {
+test('Windows 1.3.0 pins, notification-policy.json, and desktop local-client bundle contracts are aligned', async () => {
   const supported = JSON.parse(await readFile(path.join(winDesktopDir, 'supported.json'), 'utf8'));
-  assert.equal(supported.version, '1.2.3');
+  assert.equal(supported.version, '1.3.0');
   assert.equal(supported.architecture, 'x64');
-  assert.equal(supported.archive.url, 'https://downloads.cursor.com/grokbot/stable/win32-x64/1.2.3/Grok_Bot_1.2.3_Setup.exe');
-  assert.equal(supported.archive.bytes, 127618944);
-  assert.equal(supported.archive.sha256, '85b9e8d10b9ede921b315bb5a1b52db7e0f3438d162aacedfc388c778217765b');
+  assert.equal(supported.archive.url, 'https://downloads.cursor.com/grokbot/stable/win32-x64/1.3.0/Grok_Bot_1.3.0_Setup.exe');
+  assert.equal(supported.archive.bytes, 128235976);
+  assert.equal(supported.archive.sha256, '0a141fff67a43684e3a70469eb6d5b0455c40241eae34858d065061e7011f1b7');
   assert.equal(supported.payload.name, 'app-64.7z');
-  assert.equal(supported.payload.bytes, 126693944);
-  assert.equal(supported.payload.sha256, '84d20f0f2b5a1eacc523015ed723f315c76395646d9d6c28295c8704b809c5df');
-  assert.equal(supported.exeSha256, '5138d36bb1b6f9f716422aef42b62d33daba566cfea1ecdad87ca22464a9ae0a');
-  assert.equal(supported.asarSha256, 'b1354ec5ae877e94115a643edd4b2e7487929f0a1dfb398411ab314b488ee0d2');
-  assert.equal(supported.asarHeaderSha256, 'cfd92fb7d75ddc50c5214fcca3a561cd9b2d0a26dee763e5585182ee6ac63e80');
-  assert.equal(supported.preloadSha256, '69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2');
-  assert.equal(supported.vncPreloadSha256, 'a2d9c610b7b11ae5cc99551f1e139c7b1e8632990793a7687fee40e88a6be24b');
+  assert.equal(supported.payload.bytes, 127310975);
+  assert.equal(supported.payload.sha256, 'f56d738f0b5cd119827fdde706568f64a0bf3f021d2c81cf625960a96327cc72');
+  assert.equal(supported.exeSha256, '65ea9f0a12526de97b3c111fbfb9778433c1b260d438872dc78315370f30cd54');
+  assert.equal(supported.asarSha256, '21f191ffb4858d9f4d8a57d56a3ce424b03a19b7d7b901530a50a92628ddd315');
+  assert.equal(supported.asarHeaderSha256, '6db588436982502a5ac83ac5c291b5fbca850f28a0117a2d28db9cda06b61bb0');
+  assert.equal(supported.preloadSha256, 'e85046e06d5dc2834bd478af3f0b2e54d983c0ca847bd6e1636491a6252647d9');
+  assert.equal(supported.vncPreloadSha256, '4875cd8f20c2398f818b43674490bb23c223c9e06031159a57a0ce2f3e2a1487');
 
   const policy = JSON.parse(await readFile(path.join(winDesktopDir, 'notification-policy.json'), 'utf8'));
   assert.deepEqual(policy, {
     source: 'dist/electron-main/main-app.cjs',
-    sourceSha256: '1340e0a07215d225e530d0ec94322b4253f80e3c8c4550b2f8a1322be2768b38',
-    sha256: 'a6ab52f9a87cff580df62736a6ed6b8fbdfe22cedebd7aa25a3966cca3081852',
-    byteOffset: 2967236,
-    byteLength: 4522,
-    exportName: 'kP',
+    sourceSha256: 'bd525f37f0b9f711115ac906c0e776ba37a7210809d1ffb92229fa855cbc92c0',
+    sha256: '31dfb1354cacd135e4092a80c96e4a903373db6b99cc4b932dbeff2f249620d4',
+    byteOffset: 3191546,
+    byteLength: 4485,
+    exportName: 'SO',
   });
 
   for (const rel of [

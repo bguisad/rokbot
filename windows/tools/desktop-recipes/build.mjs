@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Maintainer tool: regenerate the Windows and macOS desktop recipes from the official
-// 1.2.3 installers and the anchored edits in spec.mjs. Every anchor must occur exactly
+// Maintainer tool: regenerate the Windows, macOS, and Linux desktop recipes from the official
+// 1.3.0 packages and the anchored edits in spec.mjs. Every anchor must occur exactly
 // once in its source; unchanged original bytes become copy ranges, so a recipe adds
 // only this project's code.
 //
-//   node windows/tools/desktop-recipes/build.mjs [--target windows|mac|all] [--source <Setup.exe|app-64.7z|.dmg|.app|dir>] [--check]
+//   node windows/tools/desktop-recipes/build.mjs [--target windows|mac|linux-x64|linux-arm64|all] [--source <Setup.exe|app-64.7z|.dmg|.app|.deb|dir>] [--check]
 //
-// Without --source the pinned official 1.2.3 installer/DMG is downloaded and verified.
+// Without --source the pinned official 1.3.0 installer/DMG/.deb is downloaded and verified.
 // --check rebuilds in memory and fails unless the committed recipes are byte-identical.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -113,7 +113,7 @@ export async function buildRecipes(unpacked, target = 'windows') {
 export function resolveTargets({ target, source }) {
   if (target === 'all') {
     if (source) throw new Error('--source cannot be combined with --target all');
-    return ['windows', 'mac'];
+    return Object.keys(TARGETS);
   }
   if (target) {
     targetMeta(target);
@@ -122,6 +122,8 @@ export function resolveTargets({ target, source }) {
   if (source) {
     const clean = source.replace(/[/\\]+$/, '').toLowerCase();
     if (clean.endsWith('.dmg') || clean.endsWith('.app')) return ['mac'];
+    if (clean.endsWith('_arm64.deb') || clean.endsWith('arm64.deb')) return ['linux-arm64'];
+    if (clean.endsWith('.deb')) return ['linux-x64'];
   }
   return ['windows'];
 }
@@ -146,6 +148,31 @@ async function unpackMacSource(source, temporary, supported) {
     return { app: source, isExtractedAsarDir: true, unmount: () => {} };
   }
   throw new Error(`Unsupported macOS source: ${source} (expected .dmg, .app, or extracted directory)`);
+}
+
+async function unpackLinuxDebSource(source, temporary) {
+  if ((await stat(source)).isDirectory()) {
+    return { dir: source, isExtractedAsarDir: true };
+  }
+  const debDir = path.join(temporary, 'deb');
+  const dataDir = path.join(temporary, 'data');
+  await mkdir(debDir, { recursive: true });
+  await mkdir(dataDir, { recursive: true });
+  const tarCmd = process.platform === 'darwin' ? '/usr/bin/bsdtar' : 'bsdtar';
+  try {
+    execFileSync(tarCmd, ['-xf', source, '-C', debDir], { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    execFileSync('ar', ['x', source], { cwd: debDir, stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+  const members = await readdir(debDir);
+  const dataTar = members.find(name => name.startsWith('data.tar'));
+  if (!dataTar) throw new Error(`Invalid .deb package (missing data.tar*): ${source}`);
+  try {
+    execFileSync(tarCmd, ['-xf', path.join(debDir, dataTar), '-C', dataDir], { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    execFileSync('tar', ['-xf', path.join(debDir, dataTar), '-C', dataDir], { stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+  return { dir: path.join(dataDir, 'opt/Grok Bot'), isExtractedAsarDir: false };
 }
 
 async function buildForTarget(target, { sourceArg, check }) {
@@ -173,6 +200,18 @@ async function buildForTarget(target, { sourceArg, check }) {
         const frameworkFile = path.join(macUnpack.app, 'Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework');
         if (sha(await readFile(asarFile)) !== supported.asarSha256 ||
             sha(await readFile(frameworkFile)) !== supported.frameworkSha256) {
+          throw new Error(`Not the pinned Grok Bot ${supported.version} (${supported.label}) app.asar`);
+        }
+        unpacked = path.join(temporary, 'app');
+        asar.extractAll(asarFile, unpacked);
+      }
+    } else if (target.startsWith('linux-')) {
+      const linuxUnpack = await unpackLinuxDebSource(source, temporary);
+      if (linuxUnpack.isExtractedAsarDir) {
+        unpacked = linuxUnpack.dir;
+      } else {
+        const asarFile = path.join(linuxUnpack.dir, 'resources/app.asar');
+        if (sha(await readFile(asarFile)) !== supported.asarSha256) {
           throw new Error(`Not the pinned Grok Bot ${supported.version} (${supported.label}) app.asar`);
         }
         unpacked = path.join(temporary, 'app');
@@ -213,7 +252,7 @@ async function buildForTarget(target, { sourceArg, check }) {
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help')) {
-    console.log('node windows/tools/desktop-recipes/build.mjs [--target windows|mac|all] [--source <Setup.exe|app-64.7z|.dmg|.app|dir>] [--check]');
+    console.log('node windows/tools/desktop-recipes/build.mjs [--target windows|mac|linux-x64|linux-arm64|all] [--source <Setup.exe|app-64.7z|.dmg|.app|.deb|dir>] [--check]');
     return;
   }
   const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };

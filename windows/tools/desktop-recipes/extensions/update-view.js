@@ -1,5 +1,5 @@
 
-// Appended to the original 1.2.3 Updates module; x, h, oe, re, l, d and u are its
+// Appended to the original 1.3.0 Updates module; x, h, oe, te, t, re and c are its
 // JSX runtime, section, row, button, text, type styles and update hook.
 function rokUpdateSummary(status) {
   const state = status?.state ?? {};
@@ -33,16 +33,16 @@ function GrokLocalUpdateStatus({ status, onCheck, onInstall }) {
   const info = rokUpdateSummary(status);
   if (!info.text && !info.action) return null;
   const button = info.action === 'install'
-    ? (0, x.jsx)(re, { onClick: () => onInstall?.(info.version), size: 'md', style: d.body2, type: 'button', variant: 'primary',
+    ? (0, x.jsx)(te, { onClick: () => onInstall?.(info.version), size: 'md', style: re.sm, type: 'button', variant: 'primary',
       children: grokText('立即安装并重启', 'Restart to update') })
     : info.action === 'check'
-      ? (0, x.jsx)(re, { onClick: () => onCheck?.(), size: 'md', style: d.body2, type: 'button', variant: 'secondary',
+      ? (0, x.jsx)(te, { onClick: () => onCheck?.(), size: 'md', style: re.sm, type: 'button', variant: 'secondary',
         children: grokText('检查更新', 'Check for updates') })
       : null;
   return (0, x.jsxs)(oe, {
     anchorId: 'update-status',
     label: grokText('版本更新', 'Software updates'),
-    description: info.text ? (0, x.jsx)(l, { as: 'span', color: info.error ? 'danger' : 'secondary', level: 'body2', role: 'status', children: info.text }) : null,
+    description: info.text ? (0, x.jsx)(t, { as: 'span', color: info.error ? 'danger' : 'secondary', level: 'sm', role: 'status', children: info.text }) : null,
     variant: 'card',
     children: button,
   });
@@ -61,7 +61,7 @@ function GrokLocalVersion(props) {
       }),
       (0, x.jsxs)('div', { style: { display: 'grid', gap: 5, flex: 1, minWidth: 0 }, children: [
         (0, x.jsx)('strong', { style: { fontWeight: 550, fontSize: 16 }, children: 'RokBot' }),
-        (0, x.jsx)('span', { style: { opacity: .55, fontSize: 13 }, children: '1.2.3' }),
+        (0, x.jsx)('span', { style: { opacity: .55, fontSize: 13 }, children: '1.3.0' }),
       ] }),
       (0, x.jsx)('span', { style: { fontSize: 12, opacity: .55, whiteSpace: 'nowrap' }, children: grokText('本地版', 'Local') }),
     ] }),

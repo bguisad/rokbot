@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { join, relative } from 'node:path';
 import { inspectRecipe } from './recipe-pin.mjs';
 import { windowsReleases } from '../windows/patchers/desktop/inputs.mjs';
+import { macReleases } from '../mac/patchers/desktop/inputs.mjs';
 import { readZip, entryBytes } from '../android/patchers/signing.mjs';
 import { extractManifestInfo } from '../android/patchers/manifest.mjs';
 
@@ -66,7 +67,7 @@ for (const name of ['mac', 'windows']) {
   desktopPins[`${name}/patchers/desktop`] = { original, pins };
   versions[name] = original.version;
 }
-// Older Windows releases the patch still builds (the fallback), each in a directory named after its version.
+// Older Windows and macOS releases the patchers still build (fallbacks), each in a directory named after its version.
 const windowsFallback = [];
 for (const { directory, supported } of (await windowsReleases()).slice(1)) {
   const dir = relative(root, directory).replaceAll('\\', '/');
@@ -74,6 +75,13 @@ for (const { directory, supported } of (await windowsReleases()).slice(1)) {
   windowsFallback.push(supported.version);
 }
 versions.windowsFallback = windowsFallback;
+const macFallback = [];
+for (const { directory, supported } of (await macReleases()).slice(1)) {
+  const dir = relative(root, directory).replaceAll('\\', '/');
+  desktopPins[dir] = await checkDesktop(dir);
+  macFallback.push(supported.version);
+}
+versions.macFallback = macFallback;
 const android = await json('android/recipes/manifest.json');
 await checkRecipes('android/recipes', android.resources, 'patch', android.hbcSha256);
 assert.equal(await sha('android/bin/classes2.dex'), android.companionDexSha256, 'Android companion DEX digest mismatch');
