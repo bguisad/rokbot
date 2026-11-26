@@ -49,7 +49,7 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
 ### 多端接力与通知
 
 - 对话和设置都保存在 Host 上，所有客户端连接同一个 Host。在电脑上布置的任务，可以在手机或浏览器上接着看、接着回复。
-- 会话列表可以按最后一条消息的时间排列，分成「待处理」「未读」「已读」三组。
+- 会话列表可以按最后一条消息的时间排列并分组：桌面端和网页版分为「待处理」「未读」「已读」三组，Android 另有「进行中」一组。
 - 通知渠道：
   - iOS 可以用 APNs 或 Bark；
   - Android 客户端和 Host 保持连接，也可以改用 ntfy、UnifiedPush、FCM 或 Webhook；
@@ -116,28 +116,48 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
 
 ## 界面截图
 
-截图来自加载演示数据的 RokBot Host 和客户端，不含真实账号。
+截图来自加载演示数据的 RokBot Host 和原生客户端，不含真实账号。
 
-<p align="center">
-  <img src="docs/images/rokbot-web-desktop.png" width="860" alt="网页版：会话按待处理、未读、已读分组，右侧是运维助手的巡检结果" />
-  <br /><sub>网页版（桌面布局）：会话按最后消息时间分组</sub>
-</p>
+### Android 客户端
 
-| 生成图片并发回对话 | Bot 的电脑：实时桌面画面 |
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/rokbot-android-bot-list.png" width="190" alt="Android 会话列表：待处理、进行中、未读、已读四组" /><br /><sub>会话列表分组</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-question-card.png" width="190" alt="Android 对话中的选项问题卡片" /><br /><sub>问题卡片</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-approval-card.png" width="190" alt="Android 对话中等待确认的操作审批卡片" /><br /><sub>审批卡片</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-image-generation.png" width="190" alt="设计助手把生成的 16:9 图片发回对话" /><br /><sub>生成图片</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/rokbot-android-bot-details.png" width="190" alt="Bot 详情：例行任务、资料库、电脑和说明" /><br /><sub>Bot 详情</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-usage.png" width="190" alt="用量页：今日 Token、请求数、缓存命中率和按小时用量" /><br /><sub>用量</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-models.png" width="190" alt="模型设置：模型服务和模型档案" /><br /><sub>模型设置</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-settings.png" width="190" alt="设置页：用量、时区、Bot 电脑和通知" /><br /><sub>设置</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/rokbot-android-pairing.png" width="190" alt="连接页：Host 地址、局域网扫描和六位配对码" /><br /><sub>连接 Host</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-connection.png" width="190" alt="连接与诊断：当前连接、连接记录和头像风格" /><br /><sub>连接与诊断</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-share.png" width="190" alt="从系统分享面板把内容发给指定 Bot" /><br /><sub>系统分享</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-about.png" width="190" alt="设置页底部的应用版本和更新状态" /><br /><sub>关于与更新</sub></td>
+  </tr>
+</table>
+
+### 桌面端
+
+桌面客户端（macOS、Windows）与网页版使用同一套界面，以下两张为桌面布局。
+
+| 会话列表与对话 | Bot 的电脑：实时桌面画面 |
 | --- | --- |
-| <img src="docs/images/rokbot-web-image-generation.png" width="420" alt="设计助手生成的 16:9 图片以附件形式发回对话" /> | <img src="docs/images/rokbot-client-live-vnc.png" width="420" alt="对话旁边显示 Bot 电脑的实时画面" /> |
+| <img src="docs/images/rokbot-web-desktop.png" width="420" alt="桌面布局：会话按待处理、未读、已读分组，右侧是运维助手的巡检结果" /> | <img src="docs/images/rokbot-client-live-vnc.png" width="420" alt="对话旁边显示 Bot 电脑的实时画面" /> |
 
-| 管理页：概览与用量 | 管理页：对话模型与路由 |
+### 管理页
+
+| 概览与用量 | 对话模型与路由 |
 | --- | --- |
 | <img src="docs/images/rokbot-admin-overview.png" width="420" alt="管理页概览：今日按小时、按模型的 Token 用量" /> | <img src="docs/images/rokbot-admin-models.png" width="420" alt="管理页对话模型：模型服务、模型档案、默认路由和备用模型" /> |
-
-| 管理页：图片与视频 | 管理页：语音 |
-| --- | --- |
+| **图片与视频** | **语音** |
 | <img src="docs/images/rokbot-admin-media.png" width="420" alt="管理页图片与视频：默认模型、服务商和模型列表" /> | <img src="docs/images/rokbot-admin-voice.png" width="420" alt="管理页语音：语音识别和语音通话设置" /> |
 
-| Android：Bot 列表 | Android：对话与问题卡片 | Android：审批卡片 | Android：Bot 详情 |
-| --- | --- | --- | --- |
-| <img src="docs/images/rokbot-android-bot-list.png" width="190" alt="Android Bot 列表" /> | <img src="docs/images/rokbot-android-conversation.png" width="190" alt="Android 对话中的选项问题卡片" /> | <img src="docs/images/rokbot-android-approval.png" width="190" alt="Android 对话中等待确认的操作审批卡片" /> | <img src="docs/images/rokbot-android-bot-details.png" width="190" alt="Android Bot 详情：例行任务、资料库和 Bot 的电脑" /> |
+Android 截图为英文界面，桌面端和管理页截图为中文界面。Android、桌面端、网页版和管理页都提供中英文界面。
 
 ## 支持平台
 
