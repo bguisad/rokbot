@@ -31,11 +31,11 @@
 
 ## 视频介绍
 
-30 秒快速了解 RokBot 的全端体验、模型路由、Linux 沙盒执行、Tailcat 隧道与 3 分钟一键部署：
+36 秒实机交互演示：铃铛一键按消息排序、Linux 沙盒与实时 VNC 接管、App 内模型延迟实测与多维 Token 图表、移动端 Tailcat 与 1.9 MB 增量更新，以及 3 分钟一键部署：
 
 <p align="center">
   <a href="docs/media/rokbot-intro.mp4">
-    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 30 秒产品介绍预览" />
+    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 36 秒交互功能与产品介绍预览" />
   </a>
 </p>
 
@@ -86,21 +86,25 @@
 
 ## 真实界面预览
 
-以下截图均采用隐私安全演示数据高清直出（无打码遮挡），展示真实渲染效果：
+以下截图均基于 RokBot 自研界面与隐私安全演示数据高清直出（零打码遮挡），涵盖五端客户端与自托管后台真实使用场景：
 
-### 全平台客户端体验
+### 全平台客户端体验与特色功能
 
 <p align="center">
-  <img src="docs/images/hero-zh.jpg" width="880" alt="Windows 客户端、Web 网页版与 Android App 全端协同" />
+  <img src="docs/images/rokbot-client-desktop-overview.png" width="880" alt="RokBot 桌面端：铃铛按最后消息排序、Linux 沙盒执行、本机工具审批与实时 VNC" />
 </p>
 
-| Web 网页版（桌面 + 手机 PWA 自适应） | 平板横屏分栏与代码高亮 |
+| 跟随系统深色模式 · 多 Bot 协同与原生音视频 | 独立端口 `:18081` Web PWA（桌面 + 手机铜铃排序） |
 | --- | --- |
-| <img src="docs/images/web-zh.png" width="460" alt="Web 网页版桌面与手机排版" /> | <img src="docs/images/card-tablet-zh.jpg" width="420" alt="平板横屏分栏对话" /> |
+| <img src="docs/images/rokbot-client-desktop-dark.png" width="440" alt="RokBot 桌面端深色模式、引用回复、队友交接与原生音视频播放" /> | <img src="docs/images/rokbot-client-web-pwa.png" width="440" alt="RokBot Web PWA 独立端口与移动端铜铃排序" /> |
 
-| 联网检索与文生图 | 手机端多 Bot 并发对话 | Android 桌面图标 | Android 真实沙盒 Bash 执行 |
-| --- | --- | --- | --- |
-| <img src="docs/images/card-search.jpg" width="240" alt="联网检索与图像生成" /> | <img src="docs/images/card-phone-zh.jpg" width="240" alt="手机端多 Bot 对话" /> | <img src="docs/images/rokbot-android-launcher.png" width="160" alt="RokBot Android 图标" /> | <img src="docs/images/rokbot-android-chat.png" width="160" alt="RokBot Android 真实对话与沙盒执行" /> |
+| 设置通用与实时 Token 用量图表 | App 内模型配置、目录同步与延迟实测 |
+| --- | --- |
+| <img src="docs/images/rokbot-client-settings-usage.png" width="440" alt="RokBot 客户端设置与多维 Token 用量图表" /> | <img src="docs/images/rokbot-client-settings-models.png" width="440" alt="RokBot App 内模型配置、JEV 自适应路由与延迟测试" /> |
+
+<p align="center">
+  <img src="docs/images/rokbot-client-mobile-native.png" width="880" alt="RokBot 原生移动端：Tailcat 与局域网 mDNS 配对、连接诊断与小时级图表、1.9 MB 签名增量更新" />
+</p>
 
 ### 自托管管理后台全景（高清无打码）
 

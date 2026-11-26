@@ -31,11 +31,11 @@
 
 ## Video Introduction
 
-Watch a 30-second tour of RokBot across native clients, adaptive model routing, Linux sandbox execution, Tailcat tunneling, and 3-minute deployment:
+A 36-second interactive walkthrough covering one-click bell chat sorting, Linux sandbox + Live VNC takeover, in-app model latency testing & Token charts, mobile Tailcat / 1.9 MB delta updates, and 3-minute deployment:
 
 <p align="center">
   <a href="docs/media/rokbot-intro.mp4">
-    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 30-second product walkthrough preview" />
+    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 36-second interactive product walkthrough preview" />
   </a>
 </p>
 
@@ -86,21 +86,25 @@ Most self-hosted AI tools are either sluggish web wrappers locked to a single ve
 
 ## Live Screenshots
 
-Crisp, unredacted captures using privacy-safe demo data across clients and the self-hosted Admin Console:
+Original, crisp, unredacted captures using privacy-safe demo data across RokBot's native clients and self-hosted Admin Console:
 
-### Cross-Platform Clients
+### Cross-Platform Clients & Signature Features
 
 <p align="center">
-  <img src="docs/images/hero-en.jpg" width="880" alt="Windows client, Web browser PWA, and Android app working together" />
+  <img src="docs/images/rokbot-client-desktop-overview.png" width="880" alt="RokBot Desktop: bell chat sorting, Linux sandbox execution, local machine approval, and Live VNC" />
 </p>
 
-| Web Client (Desktop + Mobile PWA) | Tablet Split-Pane & Code Highlighting |
+| Follow-System Dark Mode · Multi-Bot Handoff & Media | Isolated `:18081` Web PWA (Desktop + Mobile Copper Bell) |
 | --- | --- |
-| <img src="docs/images/web-en.png" width="460" alt="Web client desktop and mobile layout" /> | <img src="docs/images/card-tablet-en.jpg" width="420" alt="Tablet split-pane conversation" /> |
+| <img src="docs/images/rokbot-client-desktop-dark.png" width="440" alt="RokBot Desktop dark mode, reply threading, teammate handoff, and native media playback" /> | <img src="docs/images/rokbot-client-web-pwa.png" width="440" alt="RokBot Web PWA on isolated port 18081 and mobile copper bell" /> |
 
-| Web Search & Image Generation | Mobile Multi-Bot Chat | Android Launcher | Android Live Sandbox Execution |
-| --- | --- | --- | --- |
-| <img src="docs/images/card-search.jpg" width="240" alt="Web search and image generation" /> | <img src="docs/images/card-phone-en.jpg" width="240" alt="Mobile multi-Bot chat" /> | <img src="docs/images/rokbot-android-launcher.png" width="160" alt="RokBot Android icon" /> | <img src="docs/images/rokbot-android-chat.png" width="160" alt="RokBot Android live sandbox execution" /> |
+| Client Settings & Live Token Usage Charts | In-App Model Config, Catalog Sync & Latency Test |
+| --- | --- |
+| <img src="docs/images/rokbot-client-settings-usage.png" width="440" alt="RokBot client settings with live multi-model Token usage charts" /> | <img src="docs/images/rokbot-client-settings-models.png" width="440" alt="RokBot in-app model config, JEV adaptive routing, and latency probe" /> |
+
+<p align="center">
+  <img src="docs/images/rokbot-client-mobile-native.png" width="880" alt="RokBot Native Mobile: Tailcat & mDNS pairing, connection diagnostics & hourly usage, 1.9 MB delta updates" />
+</p>
 
 ### Self-Hosted Admin Console (Crisp & Unredacted)
 
