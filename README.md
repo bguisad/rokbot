@@ -31,11 +31,11 @@
 
 ## 视频介绍
 
-36 秒实机交互演示：铃铛一键按消息排序、Linux 沙盒与实时 VNC 接管、App 内模型延迟实测与多维 Token 图表、移动端 Tailcat 与 1.9 MB 增量更新，以及 3 分钟一键部署：
+36 秒实机录屏演示（全程采集自真实运行的 `rokbot-host` + `rokbot-box` Linux 沙盒与 `1.2.3` Web 客户端）：铃铛一键分组排序、沙盒 Shell 实机执行、Live VNC 实时桌面、6 套动态 Bot 图标切换、多模型 Token 图表与模型实测、原生深色模式，以及自托管管理后台全景：
 
 <p align="center">
   <a href="docs/media/rokbot-intro.mp4">
-    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 36 秒交互功能与产品介绍预览" />
+    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 36 秒实机录屏：铃铛分组排序、Linux 沙盒与 Live VNC、6 套动态图标、模型实测与自托管后台" />
   </a>
 </p>
 
@@ -64,7 +64,7 @@
 
 - **全端原生客户端与开箱即用 Web PWA**
   - 覆盖 **macOS（`1.2.3`）、Windows（`1.2.3`）、Android（`1.26.0`）、iOS（`1.27.0` / `1.26.0`）与 Web（`1.2.3`）** 五大平台；Web 端默认随 Host 在独立端口 `18081` 启动（与 `18080` 管理后台同源隔离），也可直接预打包进 Host 镜像。
-  - 保留流畅的动态多色 Bot 标识；桌面端、Web 端与 Android 首页支持**铃铛一键切换「按最后消息排序」**，自动将对话聚拢为 **待处理 / 未读 / 已读** 三个可折叠分组，多 Bot 并发不遗漏。
+  - 内置 6 套可切换的动态 Bot 图标风格（机甲灵偶、双天线波波、赛博护目镜、像素精灵、流体光球等）；桌面端、Web 端与 Android 首页支持**铃铛一键切换「按最后消息排序」**，自动将对话聚拢为 **待处理 / 未读 / 已读** 三个可折叠分组，多 Bot 并发不遗漏。
 - **App 内模型中心、自适应路由与用量洞察**
   - 原生支持 **OpenAI Chat、OpenAI Responses 与 Anthropic** 等兼容协议；连接后直接在手机或电脑 App 内添加服务商、拉取模型列表、实测连通与延迟并一键热切换。
   - 支持按不同 Bot 独立指定模型与推理强度、配置多节点备用顺序、**JEV 自适应模型路由**及上游上下文窗口自动同步；客户端与后台提供**按小时、按天、按模型**的 Token 用量可视化图表。
@@ -86,35 +86,39 @@
 
 ## 真实界面预览
 
-以下截图均基于 RokBot 自研界面与隐私安全演示数据高清直出（零打码遮挡），涵盖五端客户端与自托管后台真实使用场景：
+以下 14 张截图均直接采集自真实运行的 RokBot 堆栈（`rokbot-host` + `rokbot-box` Linux 沙盒 + `1.2.3` 客户端实机截图，无合成渲染、无打码遮挡），全面呈现真实工作场景与自托管后台：
 
-### 全平台客户端体验与特色功能
-
-<p align="center">
-  <img src="docs/images/rokbot-client-desktop-overview.png" width="880" alt="RokBot 桌面端：铃铛按最后消息排序、Linux 沙盒执行、本机工具审批与实时 VNC" />
-</p>
-
-| 跟随系统深色模式 · 多 Bot 协同与原生音视频 | 独立端口 `:18081` Web PWA（桌面 + 手机铜铃排序） |
-| --- | --- |
-| <img src="docs/images/rokbot-client-desktop-dark.png" width="440" alt="RokBot 桌面端深色模式、引用回复、队友交接与原生音视频播放" /> | <img src="docs/images/rokbot-client-web-pwa.png" width="440" alt="RokBot Web PWA 独立端口与移动端铜铃排序" /> |
-
-| 设置通用与实时 Token 用量图表 | App 内模型配置、目录同步与延迟实测 |
-| --- | --- |
-| <img src="docs/images/rokbot-client-settings-usage.png" width="440" alt="RokBot 客户端设置与多维 Token 用量图表" /> | <img src="docs/images/rokbot-client-settings-models.png" width="440" alt="RokBot App 内模型配置、JEV 自适应路由与延迟测试" /> |
+### 客户端真实工作场景与特色功能
 
 <p align="center">
-  <img src="docs/images/rokbot-client-mobile-native.png" width="880" alt="RokBot 原生移动端：Tailcat 与局域网 mDNS 配对、连接诊断与小时级图表、1.9 MB 签名增量更新" />
+  <img src="docs/images/rokbot-client-desktop-overview.png" width="880" alt="RokBot 桌面端：铃铛一键按最后消息分组排序 + Linux 沙盒实机 Shell 执行与 Markdown 汇总" />
 </p>
 
-### 自托管管理后台全景（高清无打码）
+| Bot 的电脑（Live VNC 实时桌面接管） | 6 套动态 Bot 图标风格一键切换 |
+| --- | --- |
+| <img src="docs/images/rokbot-client-live-vnc.png" width="440" alt="RokBot Bot 的电脑：Live VNC 实时桌面接管" /> | <img src="docs/images/rokbot-client-avatar-styles.png" width="440" alt="RokBot 客户端 6 套动态 Bot 图标风格一键切换" /> |
 
-| 概览 · 并发 Bot 与今日每小时用量 | 近 7 天多模型 Token 与缓存命中率 | 对话模型 Hub · 多服务商与路由 | 设备配对与 APNs / Bark 推送 |
-| --- | --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-overview.png" width="220" alt="管理后台概览与每小时 Token 图表" /> | <img src="docs/images/rokbot-host-admin-usage-7d.png" width="220" alt="近 7 天多模型 Token 用量图表" /> | <img src="docs/images/rokbot-host-admin-model.png" width="220" alt="多服务商模型与路由配置" /> | <img src="docs/images/rokbot-host-admin-devices.png" width="220" alt="五端设备管理与推送通知" /> |
+| 跟随系统原生深色模式与沙盒输出 | 移动端 Web PWA：铃铛分组与实时沙盒对话 |
+| --- | --- |
+| <img src="docs/images/rokbot-client-desktop-dark.png" width="440" alt="RokBot 桌面端跟随系统原生深色模式与沙盒输出" /> | <img src="docs/images/rokbot-client-mobile-pwa.png" width="440" alt="RokBot 移动端 Web PWA：铃铛分组与实时沙盒对话" /> |
 
-| 内置 Tailcat 加密隧道远程访问 | 默认启用 `:18081` 网页版管理 | 四端 ECDSA 签名增量更新发布 | Agent 中文技能与模块化管理 |
-| --- | --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-network.png" width="220" alt="Tailcat 加密隧道远程访问" /> | <img src="docs/images/rokbot-host-admin-web-client.png" width="220" alt="网页版客户端管理" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="220" alt="四端客户端增量更新管理" /> | <img src="docs/images/rokbot-host-admin-skills.png" width="220" alt="Agent 中文技能管理" /> |
+| 客户端实时多模型 Token 用量与缓存命中图表 | App 内多模型配置、独立路由与接口实测 |
+| --- | --- |
+| <img src="docs/images/rokbot-client-settings-usage.png" width="440" alt="RokBot 客户端实时多模型 Token 用量与缓存命中图表" /> | <img src="docs/images/rokbot-client-settings-models.png" width="440" alt="RokBot App 内多模型配置、独立路由与接口实测" /> |
+
+### 自托管管理后台实机全景（高清无打码）
+
+<p align="center">
+  <img src="docs/images/rokbot-host-admin-overview.png" width="880" alt="RokBot 管理后台概览：Host 就绪状态、并发 Bot 列表与真实多模型每小时 Token 堆叠图" />
+</p>
+
+| 对话模型 Hub · 多服务商与路由 | 设备配对与推送通知管理 | 默认启用网页版客户端与界面包管理 |
+| --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-model.png" width="290" alt="多服务商模型与路由配置" /> | <img src="docs/images/rokbot-host-admin-devices.png" width="290" alt="五端设备管理与推送通知" /> | <img src="docs/images/rokbot-host-admin-web-client.png" width="290" alt="网页版客户端与界面包管理" /> |
+
+| 内置 Tailcat 加密隧道远程访问 | 四端 ECDSA 签名增量更新发布 | Agent 中文技能与模块化管理 |
+| --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-network.png" width="290" alt="Tailcat 加密隧道远程访问" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="290" alt="四端客户端增量更新管理" /> | <img src="docs/images/rokbot-host-admin-skills.png" width="290" alt="Agent 中文技能管理" /> |
 
 ---
 

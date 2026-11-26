@@ -31,11 +31,11 @@
 
 ## Video Introduction
 
-A 36-second interactive walkthrough covering one-click bell chat sorting, Linux sandbox + Live VNC takeover, in-app model latency testing & Token charts, mobile Tailcat / 1.9 MB delta updates, and 3-minute deployment:
+A 36-second real screen recording captured directly from a live `rokbot-host` + `rokbot-box` Linux sandbox + `1.2.3` Web Client stack: one-click bell chat sorting, Linux sandbox shell execution, Live VNC desktop takeover, 6 switchable dynamic Bot avatar styles, multi-model Token charts & latency probes, native dark mode, and the self-hosted Admin Console:
 
 <p align="center">
   <a href="docs/media/rokbot-intro.mp4">
-    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 36-second interactive product walkthrough preview" />
+    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 36-second real screen recording: bell sorting, Linux sandbox, Live VNC, 6 avatar styles, model testing & Admin Console" />
   </a>
 </p>
 
@@ -64,7 +64,7 @@ Most self-hosted AI tools are either sluggish web wrappers locked to a single ve
 
 - **5-Platform Native Clients & Ready-to-Use Web PWA**
   - Covers **macOS (`1.2.3`), Windows (`1.2.3`), Android (`1.26.0`), iOS (`1.27.0` / `1.26.0`), and Web (`1.2.3`)**; the Web client runs by default on isolated port `18081` (separate from the Admin Console on `18080`) and can be bundled right inside your Host image.
-  - Features animated multi-color Bot marks and a **one-click bell toggle** across desktop, web, and Android to sort conversations by last message into foldable **Needs Attention**, **Unread**, and **Read** sections.
+  - Includes **6 switchable animated Bot avatar styles** (Mecha Doll, Antenna Pop, Cyber Visor, Pixel Sprite, Liquid Orb, Official Default) and a **one-click bell toggle** across desktop, web, and Android to sort conversations by last message into foldable **Needs Attention**, **Unread**, and **Read** sections.
 - **In-App Model Hub, Adaptive Routing & Usage Analytics**
   - Supports **OpenAI Chat, OpenAI Responses, and Anthropic** compatible APIs; add providers, fetch model catalogs, test live latency, and hot-reload directly inside any mobile or desktop app.
   - Configure per-Bot models and reasoning effort, multi-provider fallback chains, **JEV adaptive model routing**, and upstream context window auto-sync — plus **hourly, daily, and per-model token usage charts** across clients and Admin.
@@ -86,35 +86,39 @@ Most self-hosted AI tools are either sluggish web wrappers locked to a single ve
 
 ## Live Screenshots
 
-Original, crisp, unredacted captures using privacy-safe demo data across RokBot's native clients and self-hosted Admin Console:
+All 14 screenshots below are real, crisp, unredacted captures taken directly from a running RokBot stack (`rokbot-host` + `rokbot-box` Linux sandbox + `1.2.3` client — zero mockups, zero synthetic renders):
 
-### Cross-Platform Clients & Signature Features
-
-<p align="center">
-  <img src="docs/images/rokbot-client-desktop-overview.png" width="880" alt="RokBot Desktop: bell chat sorting, Linux sandbox execution, local machine approval, and Live VNC" />
-</p>
-
-| Follow-System Dark Mode · Multi-Bot Handoff & Media | Isolated `:18081` Web PWA (Desktop + Mobile Copper Bell) |
-| --- | --- |
-| <img src="docs/images/rokbot-client-desktop-dark.png" width="440" alt="RokBot Desktop dark mode, reply threading, teammate handoff, and native media playback" /> | <img src="docs/images/rokbot-client-web-pwa.png" width="440" alt="RokBot Web PWA on isolated port 18081 and mobile copper bell" /> |
-
-| Client Settings & Live Token Usage Charts | In-App Model Config, Catalog Sync & Latency Test |
-| --- | --- |
-| <img src="docs/images/rokbot-client-settings-usage.png" width="440" alt="RokBot client settings with live multi-model Token usage charts" /> | <img src="docs/images/rokbot-client-settings-models.png" width="440" alt="RokBot in-app model config, JEV adaptive routing, and latency probe" /> |
+### Real Client Workflows & Signature Features
 
 <p align="center">
-  <img src="docs/images/rokbot-client-mobile-native.png" width="880" alt="RokBot Native Mobile: Tailcat & mDNS pairing, connection diagnostics & hourly usage, 1.9 MB delta updates" />
+  <img src="docs/images/rokbot-client-desktop-overview.png" width="880" alt="RokBot Desktop: one-click bell chat sorting + live Linux sandbox execution and Markdown summary" />
 </p>
+
+| Bot Computer (Live VNC Desktop Takeover) | 6 Switchable Dynamic Bot Avatar Styles |
+| --- | --- |
+| <img src="docs/images/rokbot-client-live-vnc.png" width="440" alt="RokBot Bot Computer with Live VNC desktop takeover" /> | <img src="docs/images/rokbot-client-avatar-styles.png" width="440" alt="RokBot 6 switchable dynamic Bot avatar styles" /> |
+
+| Follow-System Native Dark Mode & Sandbox Output | Mobile Web PWA: Bell Grouping & Live Sandbox Chat |
+| --- | --- |
+| <img src="docs/images/rokbot-client-desktop-dark.png" width="440" alt="RokBot Desktop follow-system native dark mode with live sandbox output" /> | <img src="docs/images/rokbot-client-mobile-pwa.png" width="440" alt="RokBot Mobile Web PWA with bell grouping and live sandbox conversation" /> |
+
+| Live Multi-Model Token Usage & Cache Hit Charts | In-App Model Config, Routing & Live Endpoint Probe |
+| --- | --- |
+| <img src="docs/images/rokbot-client-settings-usage.png" width="440" alt="RokBot client settings with live multi-model Token usage and cache hit charts" /> | <img src="docs/images/rokbot-client-settings-models.png" width="440" alt="RokBot in-app multi-model config, routing, and live endpoint probe" /> |
 
 ### Self-Hosted Admin Console (Crisp & Unredacted)
 
-| Overview · Live Crew & Hourly Usage | 7-Day Multi-Model Token Charts | Model Hub · Providers & Routing | Paired Devices & APNs / Bark Push |
-| --- | --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-overview.png" width="220" alt="Admin overview and hourly token chart" /> | <img src="docs/images/rokbot-host-admin-usage-7d.png" width="220" alt="7-day multi-model token usage charts" /> | <img src="docs/images/rokbot-host-admin-model.png" width="220" alt="Model hub and routing config" /> | <img src="docs/images/rokbot-host-admin-devices.png" width="220" alt="Paired devices and push notifications" /> |
+<p align="center">
+  <img src="docs/images/rokbot-host-admin-overview.png" width="880" alt="RokBot Admin Overview: Host ready state, concurrent Bot crew, and stacked hourly multi-model Token usage chart" />
+</p>
 
-| Built-In Tailcat Encrypted Tunnel | Isolated `:18081` Web Client Manager | 4-Platform ECDSA Delta Updates | Modular Agent Skills |
-| --- | --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-network.png" width="220" alt="Tailcat encrypted remote access" /> | <img src="docs/images/rokbot-host-admin-web-client.png" width="220" alt="Web client bundle management" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="220" alt="4-platform update publisher" /> | <img src="docs/images/rokbot-host-admin-skills.png" width="220" alt="Modular agent skills management" /> |
+| Model Hub · Providers & Routing | Paired Devices & Push Notifications | Isolated `:18081` Web Client Bundle |
+| --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-model.png" width="290" alt="Model hub and routing config" /> | <img src="docs/images/rokbot-host-admin-devices.png" width="290" alt="Paired devices and push notifications" /> | <img src="docs/images/rokbot-host-admin-web-client.png" width="290" alt="Web client bundle management" /> |
+
+| Built-In Tailcat Encrypted Tunnel | 4-Platform ECDSA Delta Updates | Modular Agent Skills |
+| --- | --- | --- |
+| <img src="docs/images/rokbot-host-admin-network.png" width="290" alt="Tailcat encrypted remote access" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="290" alt="4-platform update publisher" /> | <img src="docs/images/rokbot-host-admin-skills.png" width="290" alt="Modular agent skills management" /> |
 
 ---
 
