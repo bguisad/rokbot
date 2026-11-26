@@ -163,7 +163,8 @@ final class RokBotAvatarManager {
         boolean official = RokBotAvatarRenderer.STYLE_OFFICIAL.equals(style);
         int gen = ++sGeneration;
         int found = scanAppMarks(activity, root, gen, 0);
-        if (!official) {
+        // App marks become the RokBot logo everywhere; Bot avatar styles only on the paired bundle.
+        if (!official && Storage.isPaired(activity)) {
             boolean dark = (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                     == Configuration.UI_MODE_NIGHT_YES;
             found = scanTree(activity, root, style, dark, gen, 0);

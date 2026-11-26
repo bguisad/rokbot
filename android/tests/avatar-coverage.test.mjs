@@ -166,12 +166,14 @@ test('RokBot logo: native logo views draw assets/logo/rokbot-logo.svg geometry',
   const javaPath = logo.slice(logo.indexOf('static Path chassisPath()'), logo.indexOf('return head;'));
   const javaNums = [...javaPath.matchAll(/\(([^)]*)\)/g)].flatMap(m => m[1].split(',').map(v => parseFloat(v)).filter(v => !Number.isNaN(v)));
   assert.deepEqual(javaNums, svgNums, 'chassis path is the master path');
-  for (const token of ['#242936', '#12141b', '#4a556b', '#f5f5f4', '#38bdf8'])
+  for (const token of ['#242936', '#12141b', '#303747', '#f5f5f4', '#38bdf8']) {
     assert.ok(logo.toLowerCase().includes('0xff' + token.slice(1)), `colour ${token}`);
+    assert.ok(svg.toLowerCase().includes(token), `master SVG colour ${token}`);
+  }
   assert.match(logo, /rotate\(-26f, 376f, 564f\)/);
   assert.match(logo, /drawCircle\(768f, 144f, 42f, accent\)/);
   const ui = read('UiChrome.java');
-  assert.match(ui, /RokBotLogo\.draw\(canvas, Math\.min\(w, h\)\);/, 'makeRokLogoView draws the real logo');
+  assert.match(ui, /new RokBotLogo\.LogoDrawable\(size\)/, 'makeRokLogoView draws the real logo');
 });
 
 test('bundle assets: React Native images / SVGs / sounds are copied next to the file bundles', () => {

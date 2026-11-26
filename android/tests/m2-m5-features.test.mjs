@@ -11,11 +11,11 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 
 import { ANDROID_NS, KNOWN_RES_IDS, extractManifestInfo, parseAxml, patchManifest, serializeAxml } from '../patchers/manifest.mjs';
-import { findMipmapResourceId } from '../patchers/arsc.mjs';
+import { findMipmapResourceId, setColorResourceValue } from '../patchers/arsc.mjs';
 import { loadBytepatchRecipe, loadGatewayTemplateMetadata, patchHermesBundleSafely } from '../patchers/hermes.mjs';
 import { createEntry, entryBytes, readZip, verifyApk, writeZip } from '../patchers/signing.mjs';
 import { registerHooks } from 'node:module';
-import { runPatchPipeline } from '../release/patch-android.mjs';
+import { ANDROID_ICON_BACKGROUND_ARGB, runPatchPipeline } from '../release/patch-android.mjs';
 import { findNotificationsHostSwitchCandidates, findTopLeftCornerButton, isBotsListReady, parseTopActivityOutput } from './emulator-e2e.mjs';
 import { MockHostServer } from './mock-host.mjs';
 
@@ -3452,6 +3452,7 @@ test(
       assert.equal(report.launcherIconsReplaced, 15);
       assert.equal(report.launcherIconsInserted, 0);
       assert.equal(report.adaptiveIconsPatched, 2);
+      assert.equal(report.iconBackgroundPatched, 1, '@color/iconBackground recolored for the white-tile logo');
 
       const outBytes = fs.readFileSync(outApk);
       const v = verifyApk(outBytes);
@@ -3464,6 +3465,11 @@ test(
       const arscBytes = entryBytes(byName.get('resources.arsc'));
       const fgId = findMipmapResourceId(arscBytes, 'ic_launcher_foreground');
       assert.equal(fgId, 0x7f100001, 'resources.arsc mipmap/ic_launcher_foreground must resolve to 0x7f100001');
+      // Re-applying the background color is a byte-for-byte no-op: the shipped value already is it.
+      const again = setColorResourceValue(arscBytes, 'iconBackground', ANDROID_ICON_BACKGROUND_ARGB);
+      assert.equal(again.patched, 1);
+      assert.equal(Buffer.compare(again.buffer, arscBytes), 0, 'patched resources.arsc must carry the light iconBackground');
+      assert.equal(byName.get('resources.arsc').method, 0, 'resources.arsc stays stored');
 
       // Verify manifest contains ModelsActivity, ApkUpdateProvider, BootReceiver, and label="RokBot"
       const manifestAst = parseAxml(entryBytes(byName.get('AndroidManifest.xml')));

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { parseAxml, serializeAxml, patchManifest, extractManifestInfo, resolveRokbotVersion, ANDROID_NS, KNOWN_RES_IDS } from '../patchers/manifest.mjs';
-import { findMipmapResourceId, findResourceId } from '../patchers/arsc.mjs';
+import { findMipmapResourceId, findResourceId, setColorResourceValue } from '../patchers/arsc.mjs';
 import {
   dexEntriesContainClass,
   injectCompanionDex,
@@ -36,6 +36,10 @@ const REPO_ANDROID_DIR = path.resolve(ROOT_DIR, 'android');
 const RECIPES_DIR = path.resolve(__dirname, '../recipes');
 const LOGO_ANDROID_DIR = path.resolve(ROOT_DIR, 'assets/logo/android');
 const ICON_DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+// Adaptive icon background layer (@color/iconBackground, official #ff000000): the light mid-point of
+// the RokBot tile gradient, so the launcher mask shows the white-tile logo around the head foreground.
+// Must match androidIconBackground in assets/logo/manifest.json (assets/logo/generate_icons.py).
+export const ANDROID_ICON_BACKGROUND_ARGB = 0xffdff4fa;
 const ICON_KINDS = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'];
 const MIPMAP_ICON_RE = /^res\/mipmap-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi)(?:-v\d+)?\/(ic_launcher(?:_round|_foreground)?)\.(?:png|webp)$/i;
 const ADAPTIVE_ICON_XML_RE = /^res\/mipmap-anydpi(?:-v\d+)?\/ic_launcher(?:_round)?\.xml$/i;
@@ -77,7 +81,7 @@ function setAdaptiveDrawableAttr(node, type, data) {
 
 export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
   if (!logoDir || !fs.existsSync(logoDir)) {
-    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0, brandDrawablesReplaced: 0 };
+    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0, brandDrawablesReplaced: 0, iconBackgroundPatched: 0 };
   }
   const iconMap = new Map();
   for (const density of ICON_DENSITIES) {
@@ -89,7 +93,7 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     }
   }
   if (iconMap.size === 0) {
-    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0, brandDrawablesReplaced: 0 };
+    return { entries, replaced: 0, inserted: 0, adaptiveIconsPatched: 0, brandDrawablesReplaced: 0, iconBackgroundPatched: 0 };
   }
 
   const pickDensityAsset = (rawDensity, preferredKind = 'ic_launcher_foreground') => {
@@ -118,7 +122,8 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
         const root = (ast.rootNodes || []).find(n => n.name === 'adaptive-icon');
         if (root) {
           root.children = (root.children || []).filter(c => c.name !== 'monochrome');
-          // Keep the original <background> resource reference (official @color/iconBackground, #ff252525).
+          // Keep the original <background> resource reference (official @color/iconBackground); its value is
+          // recolored to ANDROID_ICON_BACKGROUND_ARGB in resources.arsc below.
           // Live emulator verification (Android 17 / Pixel Launcher) showed that rewriting it to an inline
           // TYPE_INT_COLOR_ARGB8 literal makes the launcher reject the adaptive icon and fall back to the
           // generic system icon, even though Settings > App info still renders it.
@@ -184,7 +189,18 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     inserted++;
   }
 
-  return { entries: updated, replaced, inserted, adaptiveIconsPatched, brandDrawablesReplaced };
+  // Recolor the adaptive background layer in place (same table size; resources.arsc stays stored).
+  let iconBackgroundPatched = 0;
+  const arscIndex = updated.findIndex(e => e.name === 'resources.arsc');
+  if (arscIndex >= 0 && adaptiveIconsPatched > 0) {
+    const recolored = setColorResourceValue(entryBytes(updated[arscIndex]), 'iconBackground', ANDROID_ICON_BACKGROUND_ARGB);
+    if (recolored.patched > 0) {
+      iconBackgroundPatched = recolored.patched;
+      updated[arscIndex] = createEntry('resources.arsc', recolored.buffer, { store: true });
+    }
+  }
+
+  return { entries: updated, replaced, inserted, adaptiveIconsPatched, brandDrawablesReplaced, iconBackgroundPatched };
 }
 
 const PAIRING_CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/i;
@@ -694,6 +710,7 @@ export async function runPatchPipeline(options) {
     launcherIconsInserted: iconResult.inserted,
     adaptiveIconsPatched: iconResult.adaptiveIconsPatched,
     brandDrawablesReplaced: iconResult.brandDrawablesReplaced,
+    iconBackgroundPatched: iconResult.iconBackgroundPatched,
   };
 
   const reportPath = path.join(path.dirname(outPath), 'patch-report.json');

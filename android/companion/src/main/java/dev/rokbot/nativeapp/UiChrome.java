@@ -325,26 +325,13 @@ public final class UiChrome {
         return btn;
     }
 
+    /** The white-tile RokBot logo (assets/logo/rokbot-logo.svg), drawn as vectors at any size. */
     public static ImageView makeRokLogoView(Context context, int sizeDp, final Palette p) {
         final int size = dp(context, sizeDp);
         ImageView view = new ImageView(context);
         view.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        view.setImageDrawable(new Drawable() {
-            @Override
-            public void draw(Canvas canvas) {
-                float w = getBounds().width();
-                float h = getBounds().height();
-                if (w <= 0 || h <= 0) return;
-                // The same mark as assets/logo/rokbot-logo.svg (launcher, desktop and Web icons).
-                RokBotLogo.draw(canvas, Math.min(w, h));
-            }
-
-            @Override public void setAlpha(int alpha) {}
-            @Override public void setColorFilter(ColorFilter colorFilter) {}
-            @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
-            @Override public int getIntrinsicWidth() { return size; }
-            @Override public int getIntrinsicHeight() { return size; }
-        });
+        view.setImageDrawable(new RokBotLogo.LogoDrawable(size));
+        view.setContentDescription("RokBot");
         return view;
     }
 

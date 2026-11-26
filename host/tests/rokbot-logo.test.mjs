@@ -248,15 +248,95 @@ test('Host UI brand marks, favicon, animated face exports, and /rokbot-icon.png 
   const indexMjs = readText('host/server/index.mjs');
 
   for (const svg of [masterSvg, faviconSvg, indexHtml, webLoginHtml]) {
+    assert.match(svg, /brand-tile/);
     assert.match(svg, /brand-face/);
     assert.match(svg, /brand-eye/);
     assert.match(svg, /brand-accent/);
   }
-  assert.match(faviconSvg, /prefers-color-scheme:\s*dark/);
+  // The favicon is the master logo itself: fixed white tile in both color schemes.
+  assert.equal(faviconSvg, masterSvg);
+  assert.doesNotMatch(faviconSvg, /prefers-color-scheme/);
+  // Inline brand marks: one gradient id per mark so a hidden copy never breaks a visible one.
+  for (const html of [indexHtml, webLoginHtml]) {
+    const marks = html.match(/<svg class="brand-mark"[\s\S]*?<\/svg>/g) || [];
+    assert.ok(marks.length >= 1);
+    const ids = [...html.matchAll(/\bid="(rokbot-[a-z-]+)"/g)].map(m => m[1]);
+    assert.equal(new Set(ids).size, ids.length, 'brand-mark gradient ids must be unique per page');
+    for (const mark of marks) {
+      assert.match(mark, /rx="308"/);
+      assert.match(mark, /stop-color="#f4fbfe"/);
+      assert.match(mark, /stop-color="#c9eef7"/);
+      assert.match(mark, /translate\(512 512\) scale\(0\.84\) translate\(-512 -506\)/);
+    }
+  }
   assert.match(shellCss, /\.brand-mark\s+\.brand-accent/);
+  assert.match(shellCss, /\.brand-mark\s+\.brand-tile-edge\s*\{[^}]*vector-effect:\s*non-scaling-stroke/);
+  assert.doesNotMatch(shellCss, /\.brand-mark\s+\.brand-face\s*\{[^}]*var\(--sand/, 'brand colors no longer follow the theme');
   assert.match(stageCss, /rotate\(-26deg\)/);
   assert.doesNotMatch(indexMjs, /grok-bot-icon\.png|mzstatic\.com|DEFAULT_BARK_ICON_URL/);
   assert.match(indexMjs, /path\s*===\s*["']\/rokbot-icon\.png["']/);
   assert.doesNotMatch(pushJs, /grok-bot-icon\.png|mzstatic\.com/);
   assert.match(pushJs, /https:\/\/example\.com\/rokbot-icon\.png/);
+});
+
+function pixelAt(png, x, y) {
+  const i = (y * png.width + x) * png.bpp;
+  return [...png.pixels.subarray(i, i + png.bpp)];
+}
+
+test('White-tile master SVG, generator constants and rendered icons agree', () => {
+  const svg = readText('assets/logo/rokbot-logo.svg');
+  const gen = readText('assets/logo/generate_icons.py');
+  const manifest = JSON.parse(readText('assets/logo/manifest.json'));
+
+  // Tile: rx 308 (~30%), 160deg #F4FBFE -> #C9EEF7, white rim, faint hairline edge.
+  assert.match(svg, /<rect class="brand-tile" width="1024" height="1024" rx="308" fill="url\(#rokbot-tile\)"\/>/);
+  assert.match(svg, /class="brand-tile-rim" x="12" y="12" width="1000" height="1000" rx="296"[^>]*stroke="#ffffff"/);
+  assert.match(svg, /class="brand-tile-edge" x="2" y="2" width="1020" height="1020" rx="306"/);
+  const grad = /<linearGradient id="rokbot-tile" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/.exec(svg);
+  assert.ok(grad);
+  const [x1, y1, x2, y2] = grad.slice(1).map(Number);
+  const angle = (Math.atan2(x2 - x1, -(y2 - y1)) * 180) / Math.PI;
+  assert.ok(Math.abs(((angle + 360) % 360) - 160) < 0.05, `tile gradient angle ${angle}`);
+  const halfLen = 1024 * (Math.abs(Math.sin((160 * Math.PI) / 180)) + Math.abs(Math.cos((160 * Math.PI) / 180))) / 2;
+  assert.ok(Math.abs(Math.hypot(x2 - x1, y2 - y1) / 2 - halfLen) < 0.05, 'CSS gradient line length');
+  assert.match(svg, /stop-color="#f4fbfe"[\s\S]*stop-color="#c9eef7"/);
+  assert.match(svg, /<g class="brand-glyph" transform="translate\(512 512\) scale\(0\.84\) translate\(-512 -506\)">/);
+  assert.doesNotMatch(svg, /<image|data:image/, 'master stays pure vector');
+
+  assert.match(gen, /^TILE_RADIUS = 308\.0/m);
+  assert.match(gen, /^TILE_ANGLE_DEG = 160\.0/m);
+  assert.match(gen, /^TILE_TOP = \(0xF4, 0xFB, 0xFE, 255\)/m);
+  assert.match(gen, /^TILE_BOTTOM = \(0xC9, 0xEE, 0xF7, 255\)/m);
+  assert.match(gen, /^GLYPH_SCALE = 0\.84$/m);
+  assert.match(gen, /^GLYPH_CENTER_Y = 506\.0/m);
+  assert.deepEqual(manifest.tile, { radius: 308, gradientAngle: 160, gradientStops: ['#F4FBFE', '#C9EEF7'], glyphScale: 0.84 });
+
+  const near = (actual, expected, tol, label) =>
+    expected.forEach((v, i) => assert.ok(Math.abs(actual[i] - v) <= tol, `${label}: ${actual} vs ${expected}`));
+
+  // Transparent-corner tile PNGs: clear corner, light tile near the edge, dark head in the middle.
+  const icon = decodePng(readBytes('assets/logo/rokbot-icon-1024.png'));
+  assert.equal(pixelAt(icon, 4, 4)[3], 0, 'tile corner is transparent');
+  near(pixelAt(icon, 512, 40), [0xe6, 0xf7, 0xfb, 255], 14, 'top of the tile is near-white');
+  near(pixelAt(icon, 512, 990), [0xd2, 0xf0, 0xf8, 255], 14, 'bottom of the tile is light cyan');
+  const head = pixelAt(icon, 512, 800);
+  assert.ok(head[0] < 0x30 && head[1] < 0x30 && head[2] < 0x40 && head[3] === 255, `head is dark: ${head}`);
+
+  // Opaque full-bleed variants for platforms that mask icons themselves.
+  for (const rel of ['assets/logo/ios/AppIcon-1024.png', 'host/server/public/rokbot-icon.png']) {
+    const png = decodePng(readBytes(rel));
+    const last = png.width - 1;
+    for (const [x, y] of [[0, 0], [last, 0], [0, last], [last, last]]) {
+      const px = pixelAt(png, x, y);
+      if (png.bpp === 4) assert.equal(px[3], 255, `${rel} corner opaque`);
+      assert.ok(px[0] > 0xc0 && px[1] > 0xe0 && px[2] > 0xe8, `${rel} corner is the light tile: ${px}`);
+    }
+  }
+
+  // Android adaptive foreground: the head alone, transparent around it.
+  const fg = decodePng(readBytes('assets/logo/android/mipmap-xxxhdpi/ic_launcher_foreground.png'));
+  assert.equal(pixelAt(fg, 2, 2)[3], 0);
+  assert.equal(pixelAt(fg, fg.width / 2, fg.height / 2 + 40)[3], 255);
+  assert.match(manifest.androidIconBackground, /^#FF[0-9A-F]{6}$/);
 });

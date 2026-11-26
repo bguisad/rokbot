@@ -2,28 +2,35 @@ package dev.rokbot.nativeapp;
 
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
-import android.graphics.PixelFormat;
-import android.graphics.Rect;
-import android.graphics.drawable.Drawable;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.drawable.Drawable;
 
 /**
- * The RokBot logo exactly as assets/logo/rokbot-logo.svg draws it (the desktop, Web and launcher
- * icon): the chassis silhouette with its dark gradient and #4a556b rim, the two slanted eyes and the
- * cyan status node, in a 1024 x 1024 design box.
+ * The RokBot logo exactly as assets/logo/rokbot-logo.svg draws it, as vectors in a 1024 x 1024
+ * design box: a 30%-radius tile with a 160 deg #F4FBFE -> #C9EEF7 gradient, a soft white inner rim
+ * and a faint teal hairline edge, carrying the dark RokBot head (chassis, slanted eyes and the cyan
+ * status node) at {@link #GLYPH_SCALE} of the tile.
  */
 final class RokBotLogo {
     private RokBotLogo() {}
 
+    static final float TILE_RADIUS = 308f;
+    static final int TILE_TOP = 0xFFF4FBFE;
+    static final int TILE_BOTTOM = 0xFFC9EEF7;
+    static final float GLYPH_SCALE = 0.84f;
+    static final float GLYPH_CENTER_Y = 506f;
+
     /** Parsed once; drawing only reads it. */
     private static final Path CHASSIS = buildChassis();
-    private static final Shader FILL = new LinearGradient(512f, 56f, 512f, 960f, 0xFF242936, 0xFF12141B, Shader.TileMode.CLAMP);
+    private static final Shader HEAD_FILL = new LinearGradient(512f, 56f, 512f, 960f, 0xFF242936, 0xFF12141B, Shader.TileMode.CLAMP);
 
-    /** A copy of the chassis outline (1024 design box) the caller may transform. */
+    /** A copy of the chassis outline (1024 design box) the caller may transform (notification icon). */
     static Path chassisPath() {
         return new Path(CHASSIS);
     }
@@ -47,19 +54,52 @@ final class RokBotLogo {
 
     /** Draws the logo into a size x size box at the canvas origin. */
     static void draw(Canvas canvas, float size) {
+        if (size <= 0f) return;
         canvas.save();
         float s = size / 1024f;
         canvas.scale(s, s);
-        Path head = CHASSIS;
-        Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        fill.setShader(FILL);
-        canvas.drawPath(head, fill);
+
+        // Tile: CSS linear-gradient(160deg) runs from (287.55, -104.66) to (736.45, 1128.66).
+        Paint tile = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tile.setShader(new LinearGradient(287.55f, -104.66f, 736.45f, 1128.66f,
+                TILE_TOP, TILE_BOTTOM, Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(new RectF(0f, 0f, 1024f, 1024f), TILE_RADIUS, TILE_RADIUS, tile);
+
         Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
         rim.setStyle(Paint.Style.STROKE);
-        rim.setStrokeWidth(20f);
-        rim.setStrokeJoin(Paint.Join.ROUND);
-        rim.setColor(0xFF4A556B);
-        canvas.drawPath(head, rim);
+        rim.setStrokeWidth(8f);
+        rim.setColor(0xE6FFFFFF);
+        canvas.drawRoundRect(new RectF(12f, 12f, 1012f, 1012f), 296f, 296f, rim);
+
+        // Hairline edge: at least one device pixel so the near-white tile reads on light pages.
+        float edgeWidth = Math.max(4f, 1f / s);
+        Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        edge.setStyle(Paint.Style.STROKE);
+        edge.setStrokeWidth(edgeWidth);
+        edge.setColor(0x290E4A5C);
+        float e = edgeWidth / 2f;
+        canvas.drawRoundRect(new RectF(e, e, 1024f - e, 1024f - e), TILE_RADIUS - e, TILE_RADIUS - e, edge);
+
+        // Head: translate(512 512) scale(0.84) translate(-512 -506), as in the master SVG.
+        canvas.translate(512f, 512f);
+        canvas.scale(GLYPH_SCALE, GLYPH_SCALE);
+        canvas.translate(-512f, -GLYPH_CENTER_Y);
+        drawHead(canvas);
+        canvas.restore();
+    }
+
+    /** The dark head alone, in master coordinates. */
+    static void drawHead(Canvas canvas) {
+        Path head = CHASSIS;
+        Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fill.setShader(HEAD_FILL);
+        canvas.drawPath(head, fill);
+        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(20f);
+        stroke.setStrokeJoin(Paint.Join.ROUND);
+        stroke.setColor(0xFF303747);
+        canvas.drawPath(head, stroke);
         Paint eye = new Paint(Paint.ANTI_ALIAS_FLAG);
         eye.setColor(0xFFF5F5F4);
         canvas.save();
@@ -73,11 +113,16 @@ final class RokBotLogo {
         Paint accent = new Paint(Paint.ANTI_ALIAS_FLAG);
         accent.setColor(0xFF38BDF8);
         canvas.drawCircle(768f, 144f, 42f, accent);
-        canvas.restore();
     }
 
-    /** The logo as a Drawable, centered in its bounds (React Native app-mark overlays, native pages). */
+    /** The logo as a Drawable, centered in its bounds (native pages, React Native app-mark overlays). */
     static final class LogoDrawable extends Drawable {
+        private final int intrinsic;
+
+        LogoDrawable() { this(-1); }
+
+        LogoDrawable(int intrinsicSizePx) { this.intrinsic = intrinsicSizePx; }
+
         @Override
         public void draw(Canvas canvas) {
             Rect b = getBounds();
@@ -92,5 +137,7 @@ final class RokBotLogo {
         @Override public void setAlpha(int alpha) {}
         @Override public void setColorFilter(ColorFilter colorFilter) {}
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+        @Override public int getIntrinsicWidth() { return intrinsic; }
+        @Override public int getIntrinsicHeight() { return intrinsic; }
     }
 }

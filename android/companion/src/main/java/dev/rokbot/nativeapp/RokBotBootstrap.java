@@ -157,13 +157,15 @@ public class RokBotBootstrap {
                 }
                 hookExpoClientsFromActivity(app, activity);
                 maybeAttachRnViewInterceptor(activity);
+                // Official app marks (Settings footer, launch / signed-out screens) -> RokBot logo on
+                // every React screen, paired or not; Bot avatar styles apply once paired.
+                if (isReactActivity(activity)) RokBotAvatarManager.onReactResumed(activity);
                 if (isReactActivity(activity) && Storage.isPaired(activity)) {
                     // Returning from ProfileActivity or another app: repaint, then re-fetch.
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
                     HostProfile.refresh(activity, false);
                     AppUpdater.onReactActivityResumed(activity);
                     ListArrangement.onReactResumed(activity);
-                    RokBotAvatarManager.onReactResumed(activity);
                 }
             }
 
