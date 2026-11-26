@@ -1886,9 +1886,9 @@ public class RokBotBootstrap {
             return (!paired && isInteractiveTarget && effW > 100f && effH >= 32f && effH <= 140f) ? PairingActivity.class : null;
         }
         if (ListArrangement.isHeaderBellLabel(activity, s)) {
-            // rokbot.3b Bot list header bell (hermes-settings.mjs applyHomeBarBell): an RN bar button.
-            return (paired && isInteractiveTarget && ListArrangement.isHeaderBellGeometry(activity, view, effW, effH)
-                    && ListArrangement.isAvailable(activity)) ? ListArrangement.class : null;
+            // rokbot.5b: the Bot list header bell (hermes-settings.mjs applyHomeBarBell) switches the
+            // arrangement inside React Native; the tap is never taken over.
+            return null;
         }
         if (isConnectionEntryLabel(s)) {
             // rokbot.3 settings row (hermes-settings.mjs applyConnectionEntry): a full-width nav row.
@@ -1965,11 +1965,6 @@ public class RokBotBootstrap {
 
     private static void launchNativeTarget(Activity activity, Class<?> target) {
         if (activity == null || target == null) return;
-        if (target == ListArrangement.class) {
-            // Not a page: the list-sort bell switches the order in place (bundle regenerated + RN reload).
-            ListArrangement.onHeaderBellTapped(activity);
-            return;
-        }
         Class<?> dest = Storage.isPaired(activity) ? target : PairingActivity.class;
         Intent i = new Intent(activity, dest);
         if (dest == LibraryActivity.class) {

@@ -731,12 +731,483 @@ export function applySettingsMenu(hbcBuffer) {
   return { buffer: buf, applied: true, reason: 'rokbot section in the first settings level', edits, size: block.length };
 }
 
+// ---------------------------------------------------------------------------
+// rokbot.5b: the list arrangement switches in place, and its groups fold.
+//
+// rokbot.3/4 baked the mode into the paired bundle: the bell regenerated the bundle and reloaded
+// React Native. Now the paired bundle always carries both arrangements and the mode lives in the
+// official collapsed-sections state (AgentsService: query cache + device mirror), as the id
+// 'sorted': the bell toggles it like a section fold, React re-renders the list in place and the
+// choice survives cold starts. global.sorted mirrors it for recencyOf (the sort runs before the
+// sections are resolved). Edits (size preserving, every original byte checked first):
+//
+//   recencyOf (whole body)       global.sorted ? lastMessageAt ?? lastActivityAt ?? 0 (never before
+//                                createdAt) : the official 'activity' / 'row-updated' recency.
+//   SidebarSectionsView.resolve  +18..+47  sections <- FeedbackSheet.call(params).
+//   toggleSectionCollapsed +43   folds any id, not only the user's own sections (the generated
+//                                groups and the 'sorted' mode flag); the choice is remembered by the
+//                                official device mirror.
+//   SearchButton (whole body)    returns FeedbackSheet(props, 1).
+//   FeedbackSheet (whole body)   unreachable since applyConnectionEntry; three entry points:
+//     (A) this = resolve params, no argument: the mode is collapsedSectionIds.includes('sorted');
+//         off -> params.sections; on -> [{id, name, agentIds}] for the non-empty groups
+//         Needs attention (pendingAction / awaitingUserResponse) -> In progress (isRunning /
+//         isComposingMessage) -> Unread (hasUnread / unreadThreadCount) -> Read, rows kept in
+//         the sorted order. The official section filter and fold logic do the rest.
+//     (B) (props, 1) from SearchButton: the bell (label 'sort' / 'sorted', copper when on) and
+//         the original Search button; hooks: useLingui, useCollapsedSectionIdsQuery (the bell
+//         re-renders with the mode) and useSessionService(AgentsService.token), reached through
+//         metro's __r with the module ids checked at build time.
+//     (C) (pressEvent) the bell's onPress (closure over the AgentsService instance): flips
+//         global.sorted and toggles 'sorted'. Nothing throws if the service is missing.
+//   Titles are String.fromCharCode(...) of the Web wording; zh and en bodies are published, the
+//   companion applies one (HermesPatcher). Property caches are disabled (255) in every body;
+//   registers follow each frame's number / non-pointer / pointer split.
+
+const PROPERTY_CACHE_OFF = 255;
+export const LIST_MODE_ID = 'sorted';
+export const LIST_GROUP_IDS = ['pending', 'running', 'unread', 'read'];
+export const LIST_GROUP_TITLES = {
+  zh: ['待处理', '进行中', '未读', '已读'],
+  en: ['Needs attention', 'In progress', 'Unread', 'Read'],
+};
+const OPG = {
+  NewObjectWithBufferLong: 2, NewObjectWithBuffer: 1, NewArray: 8, Mov: 16, Not: 19, StrictEq: 23, Add: 30,
+  GetParentEnvironment: 52, StoreToEnvironment: 55, LoadFromEnvironment: 59, GetGlobalObject: 61,
+  CreateFunctionEnvironment: 64, GetByIdShort: 68, GetById: 69, GetByIdLong: 70, TryGetById: 72, PutByIdLoose: 74,
+  PutOwnBySlotIdx: 82, DefineOwnInDenseArray: 90, GetByVal: 93, Call1: 108, Call2: 110, Call3: 111, Call4: 112,
+  Ret: 118, AsyncBreakCheck: 126, CreateClosure: 132, LoadParam: 137, LoadConstUInt8: 139, LoadConstInt: 140,
+  LoadConstString: 144, LoadConstStringLongIndex: 145, LoadConstUndefined: 147, LoadConstNull: 148,
+  LoadConstTrue: 149, LoadConstFalse: 150, LoadConstZero: 151,
+  Jmp: 174, JmpTrue: 176, JmpFalse: 178, JmpUndefined: 180, JNotLess: 185, JGreater: 199, JNotEqual: 209,
+  JStrictEqual: 211,
+};
+const JUMP_OPS = new Set([OPG.Jmp, OPG.JmpTrue, OPG.JmpFalse, OPG.JmpUndefined, OPG.JNotLess, OPG.JGreater, OPG.JNotEqual, OPG.JStrictEqual]);
+
 /**
- * Byte edits that switch the sidebar ordering to "last message first". They
- * are not applied at build time: the companion applies them while generating
- * the paired bundle when the user turns the list bell on. Input must already
- * carry applyConnectionEntry() (the donor string). Returns null if anything
- * differs.
+ * Tiny assembler. Jumps are relative to the jump instruction's first byte; `jump` emits the
+ * Addr8 form, `far` the Addr32 form (opcode + 1).
+ */
+function assembler() {
+  const parts = [];
+  const labels = {};
+  const fixups = [];
+  let pos = 0;
+  const a = {
+    emit(b) { parts.push(b); pos += b.length; return a; },
+    jump(op, label, ...regs) {
+      if (!JUMP_OPS.has(op)) throw new Error(`not a jump: ${op}`);
+      fixups.push({ at: pos, label, long: false });
+      return a.emit(Buffer.from([op, 0, ...regs]));
+    },
+    far(op, label, ...regs) {
+      if (!JUMP_OPS.has(op)) throw new Error(`not a jump: ${op}`);
+      fixups.push({ at: pos, label, long: true });
+      return a.emit(Buffer.from([op + 1, 0, 0, 0, 0, ...regs]));
+    },
+    label(name) { if (name in labels) throw new Error(`label ${name} twice`); labels[name] = pos; return a; },
+    get pos() { return pos; },
+    build() {
+      const body = Buffer.concat(parts);
+      for (const f of fixups) {
+        if (!(f.label in labels)) throw new Error(`label ${f.label} missing`);
+        const d = labels[f.label] - f.at;
+        if (f.long) body.writeInt32LE(d, f.at + 1);
+        else {
+          if (d < -128 || d > 127) throw new Error(`jump to ${f.label} out of range`);
+          body.writeInt8(d, f.at + 1);
+        }
+      }
+      return body;
+    },
+  };
+  return a;
+}
+
+function loadString(a, reg, id) {
+  return id < 65536 ? a.emit(ins(OPG.LoadConstString, reg, u16le(id))) : a.emit(ins(OPG.LoadConstStringLongIndex, reg, u32le(id)));
+}
+
+function getById(a, dst, obj, id) {
+  if (id < 256) return a.emit(ins(OPG.GetByIdShort, dst, obj, PROPERTY_CACHE_OFF, id));
+  if (id < 65536) return a.emit(ins(OPG.GetById, dst, obj, PROPERTY_CACHE_OFF, u16le(id)));
+  return a.emit(ins(OPG.GetByIdLong, dst, obj, PROPERTY_CACHE_OFF, u32le(id)));
+}
+
+// Strings the new bodies use. Property names (GetById / PutById / TryGetById) must be identifiers;
+// 'pending' + 'Action' is read with GetByVal: "pendingAction" is not a string of this bundle.
+const LIVE_PROPS = ['awaitingUserResponse', 'isRunning', 'isComposingMessage', 'hasUnread', 'unreadThreadCount',
+  'lastActivityAt', 'updatedAt', 'createdAt', 'localActivityAt', 'isTeammateSharedBot', 'Math', 'max', 'id', 'push', 'length',
+  'String', 'fromCharCode', 'Array', 'isArray', 'includes', 'agents', 'sections', 'collapsedSectionIds', '__r',
+  'useCollapsedSectionIdsQuery', 'data', 'useSessionService', 'AgentsService', 'token', 'currentCollapsedSections',
+  'toggleSectionCollapsed', 'isSelected', 'onPress', 'useLingui', '_', 'jsx', 'CursorIcon', 'SandButton', LIST_MODE_ID,
+  LIST_SORT_FIELD];
+const LIVE_TEXTS = ['pending', 'Action', 'running', 'unread', 'read', 'activity', 'row-updated', 'bell', 'sort', 'primary',
+  '#C27400'];
+
+function liveStrings(buf, L) {
+  const names = new Set([...LIVE_PROPS, ...LIVE_TEXTS]);
+  const ids = findStringIds(buf, L, names);
+  const g = {};
+  for (const name of names) {
+    if (ids.get(name).length !== 1) return null;
+    g[name] = ids.get(name)[0];
+  }
+  for (const name of LIVE_PROPS) if (stringIsPlain(buf, L, g[name])) return null;
+  return g;
+}
+
+// Metro module ids (fn0 __d(factory, id, deps)) of the modules the bell reaches with __r, and
+// the export each one must define.
+const LIVE_MODULES = [
+  { key: 'queries', factorySize: 2591, export: 'useCollapsedSectionIdsQuery' },
+  { key: 'session', factorySize: null, export: 'useSessionService' },
+  { key: 'agents', factorySize: 3471, export: 'AgentsService' },
+];
+
+/** factory function index -> metro module id, from the global function's __d(...) calls. */
+function metroModuleIds(buf, L, g) {
+  const fn0 = functionInfo(buf, L, 0);
+  const sidD = findStringIds(buf, L, new Set(['__d'])).get('__d');
+  if (sidD.length !== 1) return null;
+  const out = new Map();
+  const end = fn0.offset + fn0.size;
+  // TryGetById rA, rG, c, '__d' ; LoadConstUInt8|LoadConstInt|LoadConstZero rId ; NewArray* ; CreateClosure rF, rE, fn
+  const tryD = Buffer.concat([Buffer.from([OPG.TryGetById]), Buffer.alloc(3), u16le(sidD[0])]);
+  for (let p = fn0.offset; p < end - 8; p++) {
+    if (buf[p] !== OPG.TryGetById || buf.readUInt16LE(p + 4) !== sidD[0]) continue;
+    let q = p + tryD.length, id;
+    if (buf[q] === OPG.LoadConstUInt8) { id = buf[q + 2]; q += 3; }
+    else if (buf[q] === OPG.LoadConstInt) { id = buf.readInt32LE(q + 2); q += 6; }
+    else if (buf[q] === OPG.LoadConstZero) { id = 0; q += 2; }
+    else continue;
+    // NewArrayWithBuffer (8 bytes) / NewArrayWithBufferLong (10) / NewArray (4)
+    if (buf[q] === 6) q += 8; else if (buf[q] === 7) q += 10; else if (buf[q] === OPG.NewArray) q += 4; else continue;
+    if (buf[q] === OPG.CreateClosure) out.set(buf.readUInt16LE(q + 3), id);
+    else if (buf[q] === 133) out.set(buf.readUInt32LE(q + 3), id);
+  }
+  return out;
+}
+
+/** The metro module id whose factory exports `name` (PutById exports.name or defineProperty(exports, 'name')). */
+function moduleExporting(buf, L, modules, name, nameId) {
+  const hits = [];
+  for (const [index, id] of modules) {
+    const f = functionInfo(buf, L, index);
+    const body = buf.subarray(f.offset, f.offset + f.size);
+    for (let p = 0; p + 6 <= body.length; p++) {
+      const op = body[p];
+      if ((op === 75 || op === 74) && body.readUInt16LE(p + 4) === nameId) { hits.push(id); break; }   // PutByIdStrict/Loose exports.name
+      if (op === OPG.LoadConstString && body.readUInt16LE(p + 2) === nameId && body[p + 4] === OPG.Call4) { hits.push(id); break; }
+    }
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** recencyOf: global.sorted ? last message : the official recency. r0 number, r1 non-pointer. */
+function recencyLiveBody(g) {
+  const a = assembler();
+  a.emit(ins(OPG.LoadParam, 2, 1));                        // row
+  a.emit(ins(OPG.LoadParam, 4, 2));                        // mode
+  a.emit(ins(OPG.GetGlobalObject, 3));
+  a.emit(ins(OPG.TryGetById, 7, 3, PROPERTY_CACHE_OFF, u16le(g.Math)));
+  getById(a, 6, 7, g.max);
+  a.emit(ins(OPG.LoadConstNull, 1));
+  getById(a, 5, 3, g[LIST_MODE_ID]);                      // global.sorted (undefined when never set)
+  a.jump(OPG.JmpTrue, 'ours', 5);
+  loadString(a, 5, g.activity);
+  a.jump(OPG.JStrictEqual, 'act', 5, 4);
+  loadString(a, 5, g['row-updated']);
+  a.jump(OPG.JStrictEqual, 'row', 5, 4);
+  a.emit(ins(OPG.LoadConstUndefined, 5));
+  a.emit(ins(OPG.Ret, 5));
+  a.label('row');                                          // official 'row-updated'
+  a.emit(ins(OPG.GetParentEnvironment, 5, 0));
+  a.emit(ins(OPG.LoadFromEnvironment, 8, 5, 1));
+  getById(a, 5, 8, g.isTeammateSharedBot);
+  a.emit(ins(OPG.Call2, 5, 5, 8, 2));
+  a.jump(OPG.JmpTrue, 'shared', 5);
+  getById(a, 4, 2, g.lastActivityAt);
+  a.jump(OPG.JNotEqual, 'upd', 4, 1);
+  a.emit(ins(OPG.LoadConstZero, 4));
+  a.label('upd');
+  getById(a, 3, 2, g.updatedAt);
+  a.jump(OPG.Jmp, 'max2');                                 // max(lastActivityAt ?? 0, updatedAt)
+  a.label('ours');
+  getById(a, 4, 2, g[LIST_SORT_FIELD]);
+  a.jump(OPG.JNotEqual, 'created', 4, 1);                  // lastMessageAt ?? ...
+  a.label('shared');
+  getById(a, 4, 2, g.lastActivityAt);
+  a.jump(OPG.JNotEqual, 'created', 4, 1);
+  a.emit(ins(OPG.LoadConstZero, 4));
+  a.label('created');
+  getById(a, 3, 2, g.createdAt);
+  a.label('max2');
+  a.emit(ins(OPG.Call3, 3, 6, 7, 4, 3));
+  a.emit(ins(OPG.Ret, 3));
+  a.label('act');                                          // official 'activity'
+  getById(a, 4, 2, g.localActivityAt);
+  a.jump(OPG.JNotEqual, 'la', 4, 1);
+  a.emit(ins(OPG.LoadConstZero, 4));
+  a.label('la');
+  getById(a, 5, 2, g.lastActivityAt);
+  a.jump(OPG.JNotEqual, 'ca', 5, 1);
+  a.emit(ins(OPG.LoadConstZero, 5));
+  a.label('ca');
+  getById(a, 3, 2, g.createdAt);
+  a.emit(ins(OPG.Call4, 3, 6, 7, 4, 5, 3));
+  a.emit(ins(OPG.Ret, 3));
+  return a.build();
+}
+
+/** r2 (non-pointer) = Array.isArray(list) && list.includes('sorted'); scratch r10..r13 (pointers). */
+function emitModeOf(a, g, list, tag) {
+  a.emit(ins(OPG.LoadConstFalse, 2));
+  a.emit(ins(OPG.GetGlobalObject, 10));
+  a.emit(ins(OPG.TryGetById, 11, 10, PROPERTY_CACHE_OFF, u16le(g.Array)));
+  getById(a, 12, 11, g.isArray);
+  a.emit(ins(OPG.Call2, 12, 12, 11, list));
+  a.far(OPG.JmpFalse, `${tag}:off`, 12);
+  getById(a, 12, list, g.includes);
+  loadString(a, 13, g[LIST_MODE_ID]);
+  a.emit(ins(OPG.Call2, 12, 12, list, 13));
+  a.far(OPG.JmpFalse, `${tag}:off`, 12);
+  a.emit(ins(OPG.LoadConstTrue, 2));
+  a.label(`${tag}:off`);
+}
+
+function emitTitle(a, dst, title, { str, fcc, tmp, codesBase }) {
+  const codes = [...title].map(ch => ch.codePointAt(0));
+  if (codes.some(c => c > 0xffff)) throw new Error('title outside the BMP');
+  for (let k = 0; k < codes.length; k += 3) {
+    const chunk = codes.slice(k, k + 3);
+    chunk.forEach((c, j) => a.emit(ins(OPG.LoadConstInt, codesBase + j, i32le(c))));
+    const out = k === 0 ? dst : tmp;
+    a.emit(ins([OPG.Call2, OPG.Call3, OPG.Call4][chunk.length - 1], out, fcc, str, ...chunk.map((_, j) => codesBase + j)));
+    if (k > 0) a.emit(ins(OPG.Add, dst, dst, tmp));
+  }
+}
+
+/**
+ * FeedbackSheet's new body (see above): (props, 1) -> B, no receiver -> C, else A. Frame: r0-r1 number, r2-r5 non-pointer, r6.. pointer.
+ * `ctx`: { g, selfIndex, modules: {queries, session, agents}, titles }.
+ */
+function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
+  const a = assembler();
+  const PROP = (dst, obj, name) => getById(a, dst, obj, g[name]);
+  // (props, 1) -> B; this == null -> C (an event handler is called without a receiver); else A.
+  a.emit(ins(OPG.LoadParam, 6, 1));
+  a.emit(ins(OPG.LoadParam, 7, 2));
+  a.far(OPG.JmpUndefined, 'notB', 7);
+  a.far(OPG.Jmp, 'B');
+  a.label('notB');
+  a.emit(ins(OPG.LoadParam, 8, 0));
+  a.emit(ins(OPG.LoadConstNull, 3));
+  a.far(OPG.JNotEqual, 'A', 8, 3);
+  a.far(OPG.Jmp, 'C');
+
+  a.label('B');
+
+  // (B) the bell + Search, rendered for SearchButton (props in r6).
+  a.emit(ins(OPG.GetParentEnvironment, 8, 0));             // SearchButton's module scope
+  a.emit(ins(OPG.LoadConstUndefined, 4));
+  a.emit(ins(OPG.LoadFromEnvironment, 9, 8, 1));
+  PROP(9, 9, 'useLingui');
+  a.emit(ins(OPG.Call1, 9, 9, 4));                         // useLingui() (as SearchButton did)
+  PROP(14, 9, '_');                                        // i18n._
+  a.emit(ins(OPG.LoadFromEnvironment, 15, 8, 4));
+  PROP(15, 15, 'jsx');
+  a.emit(ins(OPG.LoadFromEnvironment, 16, 8, 3));
+  PROP(16, 16, 'CursorIcon');
+  a.emit(ins(OPG.LoadFromEnvironment, 17, 8, 2));
+  PROP(17, 17, 'SandButton');
+  a.emit(ins(OPG.GetGlobalObject, 18));
+  a.emit(ins(OPG.TryGetById, 19, 18, PROPERTY_CACHE_OFF, u16le(g.__r)));
+  a.emit(ins(OPG.LoadConstInt, 20, i32le(modules.queries)));
+  a.emit(ins(OPG.Call2, 20, 19, 4, 20));
+  PROP(20, 20, 'useCollapsedSectionIdsQuery');
+  a.emit(ins(OPG.Call1, 20, 20, 4));                       // hook: re-renders the bell with the mode
+  PROP(21, 20, 'data');
+  emitModeOf(a, g, 21, 'B');                               // r2 = mode
+  a.emit(ins(OPG.PutByIdLoose, 18, 2, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));
+  a.emit(ins(OPG.LoadConstInt, 22, i32le(modules.session)));
+  a.emit(ins(OPG.Call2, 22, 19, 4, 22));
+  PROP(22, 22, 'useSessionService');
+  a.emit(ins(OPG.LoadConstInt, 23, i32le(modules.agents)));
+  a.emit(ins(OPG.Call2, 23, 19, 4, 23));
+  PROP(23, 23, 'AgentsService');
+  PROP(23, 23, 'token');
+  a.emit(ins(OPG.Call2, 22, 22, 4, 23));                   // hook: the AgentsService instance
+  a.emit(ins(OPG.CreateFunctionEnvironment, 24, 1));
+  a.emit(ins(OPG.StoreToEnvironment, 24, 0, 22));
+  a.emit(ins(OPG.CreateClosure, 25, 24, u16le(selfIndex)));    // onPress -> (C)
+  // bell icon {name:'bell', variant, size:20, tone, color, weight:'medium'}
+  a.emit(ins(OPG.NewObjectWithBufferLong, 26, u32le(9325), u32le(ICON_COLOR_LITERAL)));
+  loadString(a, 27, g.bell);
+  a.emit(ins(OPG.PutOwnBySlotIdx, 26, 27, 0));
+  a.emit(ins(OPG.PutOwnBySlotIdx, 26, 4, 1));               // variant: undefined (the literal has null)
+  a.emit(ins(OPG.LoadConstUInt8, 27, 20));
+  a.emit(ins(OPG.PutOwnBySlotIdx, 26, 27, 2));
+  a.jump(OPG.JmpTrue, 'Bon', 2);
+  loadString(a, 27, g.primary);
+  a.emit(ins(OPG.PutOwnBySlotIdx, 26, 27, 3));              // tone 'primary'
+  a.emit(ins(OPG.PutOwnBySlotIdx, 26, 4, 4));               // color undefined
+  loadString(a, 28, g.sort);
+  a.jump(OPG.Jmp, 'Bicon');
+  a.label('Bon');
+  a.emit(ins(OPG.PutOwnBySlotIdx, 26, 4, 3));               // no tone (a tone wins over color)
+  loadString(a, 27, g['#C27400']);
+  a.emit(ins(OPG.PutOwnBySlotIdx, 26, 27, 4));              // copper
+  loadString(a, 28, g[LIST_MODE_ID]);                      // label 'sorted'
+  a.label('Bicon');
+  a.emit(ins(OPG.Call3, 26, 15, 4, 16, 26));               // <CursorIcon/>
+  a.emit(ins(OPG.NewObjectWithBuffer, 27, u16le(9332), u16le(TOOLBAR_BUTTON_LITERAL)));
+  a.emit(ins(OPG.PutOwnBySlotIdx, 27, 28, 1));              // accessibilityLabel
+  a.emit(ins(OPG.PutOwnBySlotIdx, 27, 25, 2));              // onPress
+  a.emit(ins(OPG.PutOwnBySlotIdx, 27, 26, 3));              // icon
+  a.emit(ins(OPG.Call3, 29, 15, 4, 17, 27));               // r29 = bell <SandButton/>
+  PROP(30, 6, 'isSelected');
+  a.jump(OPG.JmpFalse, 'Bonly', 30);
+  PROP(31, 6, 'onPress');
+  a.emit(ins(OPG.NewObjectWithBufferLong, 32, u32le(347), u32le(SEARCH_LABEL_LITERAL)));
+  a.emit(ins(OPG.Call2, 32, 14, 4, 32));                   // i18n._({id:'A1taO8'}) "Search"
+  a.emit(ins(OPG.NewObjectWithBuffer, 33, u16le(9332), u16le(TOOLBAR_BUTTON_LITERAL)));
+  a.emit(ins(OPG.PutOwnBySlotIdx, 33, 32, 1));
+  a.emit(ins(OPG.PutOwnBySlotIdx, 33, 31, 2));
+  a.emit(ins(OPG.NewObjectWithBufferLong, 34, u32le(8894), u32le(SEARCH_ICON_LITERAL)));
+  a.emit(ins(OPG.Call3, 34, 15, 4, 16, 34));
+  a.emit(ins(OPG.PutOwnBySlotIdx, 33, 34, 3));
+  a.emit(ins(OPG.Call3, 34, 15, 4, 17, 33));               // the original Search button
+  a.emit(ins(OPG.NewArray, 35, u16le(2)));
+  a.emit(ins(OPG.DefineOwnInDenseArray, 35, 29, 0));
+  a.emit(ins(OPG.DefineOwnInDenseArray, 35, 34, 1));
+  a.emit(ins(OPG.Ret, 35));
+  a.label('Bonly');
+  a.emit(ins(OPG.Ret, 29));
+
+  // (C) bell onPress: flip the mode (closure env slot 0 = AgentsService instance).
+  a.label('C');
+  a.emit(ins(OPG.LoadConstUndefined, 4));
+  a.emit(ins(OPG.GetParentEnvironment, 8, 0));
+  a.emit(ins(OPG.LoadFromEnvironment, 9, 8, 0));
+  a.emit(ins(OPG.LoadConstNull, 3));
+  a.far(OPG.JNotEqual, 'Csvc', 9, 3);
+  a.emit(ins(OPG.Ret, 4));
+  a.label('Csvc');
+  PROP(14, 9, 'toggleSectionCollapsed');
+  a.far(OPG.JmpUndefined, 'Cdone', 14);
+  PROP(15, 9, 'currentCollapsedSections');
+  a.far(OPG.JmpUndefined, 'Cdone', 15);
+  a.emit(ins(OPG.Call1, 15, 15, 9));
+  emitModeOf(a, g, 15, 'C');
+  a.emit(ins(OPG.Not, 3, 2));
+  a.emit(ins(OPG.GetGlobalObject, 16));
+  a.emit(ins(OPG.PutByIdLoose, 16, 3, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));   // before the re-render sorts
+  loadString(a, 17, g[LIST_MODE_ID]);
+  a.emit(ins(OPG.Call2, 14, 14, 9, 17));                   // toggleSectionCollapsed('sorted')
+  a.label('Cdone');
+  a.emit(ins(OPG.Ret, 4));
+
+  // (A) sections for SidebarSectionsView.resolve (this = its params).
+  a.label('A');
+  PROP(9, 8, 'collapsedSectionIds');                       // r8 = this
+  emitModeOf(a, g, 9, 'A');
+  a.emit(ins(OPG.PutByIdLoose, 10, 2, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));   // r10 = global (emitModeOf)
+  a.far(OPG.JmpTrue, 'Agroups', 2);
+  PROP(6, 8, 'sections');
+  a.emit(ins(OPG.Ret, 6));                                 // official: the user's sections
+  a.label('Agroups');
+  PROP(9, 8, 'agents');
+  const arrays = [14, 15, 16, 17];                         // pending, running, unread, read
+  for (const r of arrays) a.emit(ins(OPG.NewArray, r, u16le(0)));
+  PROP(18, 9, 'length');
+  a.emit(ins(OPG.LoadConstZero, 19));                      // i (a number in a pointer register)
+  a.emit(ins(OPG.LoadConstUInt8, 26, 1));
+  a.label('Aloop');
+  a.far(OPG.JNotLess, 'Adone', 19, 18);
+  a.emit(ins(OPG.GetByVal, 20, 9, 19));                    // row
+  a.emit(ins(OPG.LoadConstNull, 3));
+  loadString(a, 22, g.pending);
+  loadString(a, 23, g.Action);
+  a.emit(ins(OPG.Add, 23, 22, 23));
+  a.emit(ins(OPG.GetByVal, 23, 20, 23));
+  a.far(OPG.JNotEqual, 'AP', 23, 3);                       // row.pendingAction != null
+  PROP(23, 20, 'awaitingUserResponse');
+  a.far(OPG.JNotEqual, 'AP', 23, 3);
+  a.emit(ins(OPG.LoadConstTrue, 5));
+  PROP(23, 20, 'isRunning');
+  a.far(OPG.JStrictEqual, 'AR', 23, 5);
+  PROP(23, 20, 'isComposingMessage');
+  a.far(OPG.JStrictEqual, 'AR', 23, 5);
+  PROP(23, 20, 'hasUnread');
+  a.far(OPG.JmpTrue, 'AU', 23);
+  PROP(23, 20, 'unreadThreadCount');
+  a.emit(ins(OPG.LoadConstZero, 3));
+  a.far(OPG.JGreater, 'AU', 23, 3);
+  a.emit(ins(OPG.Mov, 21, 17));
+  a.far(OPG.Jmp, 'Apush');
+  a.label('AP');
+  a.emit(ins(OPG.Mov, 21, 14));
+  a.far(OPG.Jmp, 'Apush');
+  a.label('AR');
+  a.emit(ins(OPG.Mov, 21, 15));
+  a.far(OPG.Jmp, 'Apush');
+  a.label('AU');
+  a.emit(ins(OPG.Mov, 21, 16));
+  a.label('Apush');
+  PROP(24, 21, 'push');
+  PROP(25, 20, 'id');
+  a.emit(ins(OPG.Call2, 24, 24, 21, 25));
+  a.emit(ins(OPG.Add, 19, 19, 26));
+  a.far(OPG.Jmp, 'Aloop');
+  a.label('Adone');
+  a.emit(ins(OPG.TryGetById, 10, 10, PROPERTY_CACHE_OFF, u16le(g.String)));
+  PROP(11, 10, 'fromCharCode');
+  a.emit(ins(OPG.NewArray, 7, u16le(0)));
+  LIST_GROUP_IDS.forEach((id, i) => {
+    PROP(24, arrays[i], 'length');
+    a.emit(ins(OPG.LoadConstZero, 3));
+    a.far(OPG.JStrictEqual, `Askip${i}`, 24, 3);            // empty groups are left out
+    a.emit(ins(OPG.NewObjectWithBufferLong, 8, u32le(SECTION_SHAPE), u32le(SECTION_VALUES)));
+    loadString(a, 9, g[id]);
+    a.emit(ins(OPG.PutOwnBySlotIdx, 8, 9, 0));              // id
+    emitTitle(a, 9, titles[i], { str: 10, fcc: 11, tmp: 28, codesBase: 29 });
+    a.emit(ins(OPG.PutOwnBySlotIdx, 8, 9, 1));              // name
+    a.emit(ins(OPG.PutOwnBySlotIdx, 8, arrays[i], 2));      // agentIds
+    PROP(24, 7, 'push');
+    a.emit(ins(OPG.Call2, 24, 24, 7, 8));
+    a.label(`Askip${i}`);
+  });
+  a.emit(ins(OPG.Ret, 7));
+  return a.build();
+}
+
+/** SearchButton: return FeedbackSheet(props, 1) in SearchButton's scope. r0 number, r1 non-pointer. */
+function searchButtonLiveBody(selfIndex) {
+  return Buffer.concat([
+    ins(OPG.GetParentEnvironment, 3, 0),
+    ins(OPG.CreateClosure, 2, 3, u16le(selfIndex)),
+    ins(OPG.LoadConstUndefined, 1),
+    ins(OPG.LoadParam, 4, 1),
+    ins(OPG.LoadConstUInt8, 5, 1),
+    ins(OPG.Call3, 2, 2, 1, 4, 5),
+    ins(OPG.Ret, 2),
+  ]);
+}
+
+const SECTION_SHAPE = 378;      // {id, name, agentIds}
+const SECTION_VALUES = 114815;  // as SidebarSectionsView.normalize builds sections
+// SidebarSectionsView.resolve as shipped, +18..+47 (sections param, collapsedSectionIds, env inits).
+// GetById r4, r3, 2, 'sections' ; GetById r8, r3, 3, 'collapsedSectionIds' ; LoadConstUndefined r1 ;
+// StoreNPToEnvironment r2, 0..3, r1
+const RESOLVE_PROLOGUE_ORIGINAL = hex('45 04 03 02 fa de 45 08 03 03 ee 66 93 01 39 02 00 01 39 02 01 01 39 02 02 01 39 02 03 01');
+// toggleSectionCollapsed +43: JmpTrue @50, r2 (the id is one of sections.current()).
+const TOGGLE_CHECK_ORIGINAL = hex('b0 07 02');
+
+/**
+ * The live list arrangement for the paired bundle: { edits, titles: { zh, en } } (all applied
+ * together, one titles set), or null when any anchor differs. Input is the paired template after
+ * applyConnectionEntry (FeedbackSheet unreachable, donor 'lastMessageAt') and applyHomeBarBell.
  */
 export function listSortEdits(hbcBuffer) {
   const L = parseLayout(hbcBuffer);
@@ -751,302 +1222,108 @@ export function listSortEdits(hbcBuffer) {
   if (stringIsPlain(buf, L, donor)) return null;
   const hashOff = identifierHashOffset(buf, L, donor);
   if (hashOff === null || buf.readUInt32LE(hashOff) !== hermesIdentifierHash(LIST_SORT_FIELD)) return null;
-  const edits = [
-    { label: 'recencyOf: always use the activity branch', offset: R(10),
-      original: Buffer.from([OP.JStrictEqual, 108, 3, 4]), patched: Buffer.from([OP.JStrictEqual, 108, 3, 3]) },
-    { label: 'recencyOf: localActivityAt -> lastMessageAt', offset: R(131),
-      original: ins(OPX.GetByIdLong, 4, 2, 6, u32le(sid.localActivityAt)), patched: ins(OPX.GetByIdLong, 4, 2, 6, u32le(donor)) },
-    { label: 'recencyOf: drop lastActivityAt', offset: R(147),
-      original: ins(OPX.GetById, 3, 2, 4, u16le(sid.lastActivityAt)), patched: hex('97 03 97 03 97 03') },
-  ];
-  // Sanity: +6 loads the 'activity' mode string compared at +10.
-  if (!buf.subarray(R(6), R(10)).equals(ins(OPX.LoadConstString, 3, u16le(sid.activity)))) return null;
-  for (const e of edits) {
-    if (!buf.subarray(e.offset, e.offset + e.original.length).equals(e.original)) return null;
-  }
-  // rokbot.4: recencyOf is rewritten whole (see listGroupEdits); the three edits above stay as
-  // the anchor check of the shipped body.
-  const recencyBody = recencyGroupBody(buf, L, sid);
-  if (!recencyBody) return null;
-  const whole = { label: 'recencyOf: last message, else last activity', offset: recency.offset,
-    original: Buffer.from(buf.subarray(recency.offset, recency.offset + recency.size)),
-    patched: Buffer.concat([recencyBody, Buffer.alloc(recency.size - recencyBody.length, OP.AsyncBreakCheck)]) };
-  // rokbot.3b: the header bell shows the mode (label + copper tint) when applyHomeBarBell ran.
-  const bell = homeBellSortEdits(buf, L);
-  return bell ? [whole, ...bell] : [whole];
-}
-
-// ---------------------------------------------------------------------------
-// rokbot.4: "sort by last message" groups the Bot list like the Web/desktop list arrangement:
-// Needs attention (pendingAction / awaitingUserResponse) -> Unread (hasUnread /
-// unreadThreadCount, the official countsAsUnread) -> Read, newest last message first in each.
-//
-// rokbot.3 only swapped recencyOf's activity fields for lastMessageAt. The Host stamps
-// updatedAt / lastActivityAt on every chat message, so for a real roster lastMessageAt equals
-// them to the millisecond and the order never changed. The edits below are applied (like
-// the rest of listSort) only to the paired bundle generated while the mode is on:
-//
-//   recencyOf (whole body)  recency = max(lastMessageAt ?? lastActivityAt ?? 0, createdAt).
-//                           rokbot.3 fell back to createdAt alone, so Bots without a message
-//                           in the transcript tail sank below older ones. AgentRow shows this
-//                           value as the row time, so it stays a plain timestamp.
-//   SidebarSectionsView.resolve +18..+47  sections <- FeedbackSheet() (the builder below);
-//                           the four StoreNPToEnvironment inits it drops are all written
-//                           before any closure reads them.
-//   FeedbackSheet (whole body)  unreachable since applyConnectionEntry made the
-//                           /settings/feedback push a no-op; becomes the builder of
-//                           [{id:'pending',name},{id:'unread',name},{id:'read',name}] in the
-//                           normalized section shape (literal 378/114815, as normalize builds
-//                           it). Called with props (as a component) it renders null. Titles
-//                           are String.fromCharCode(...) of the Web wording; zh and en
-//                           variants are published, the companion picks one.
-//   section filter (fn in resolve's map, 86 bytes)  agent belongs to the section whose id is
-//                           its group, computed from the live row on every render.
-//   non-empty filter (34 bytes)  empty groups are hidden (only `agents.length > 0`).
-// Property caches are disabled (index 255) in every rewritten body; registers follow each
-// function's number / non-pointer / pointer register split.
-
-const PROPERTY_CACHE_OFF = 255;
-const GROUP_IDS = ['pending', 'unread', 'read'];
-export const LIST_GROUP_TITLES = {
-  zh: ['待处理', '未读', '已读'],
-  en: ['Needs attention', 'Unread', 'Read'],
-};
-const OPG = {
-  StrictEq: 23, Add: 30, GetByVal: 93, Call2: 110, Call3: 111, Call4: 112, Ret: 118,
-  CreateClosure: 132, LoadParam: 137, LoadConstInt: 140, LoadConstString: 144,
-  LoadConstStringLongIndex: 145, LoadConstUndefined: 147, LoadConstNull: 148, LoadConstZero: 151,
-  Jmp: 174, JmpTrue: 176, JmpUndefined: 180, JGreater: 199, JNotEqual: 209, GetGlobalObject: 61,
-  GetByIdShort: 68, GetById: 69, TryGetById: 72, GetParentEnvironment: 52, LoadFromEnvironment: 59,
-  PutOwnBySlotIdx: 82, DefineOwnInDenseArray: 90, NewArray: 8, Call1: 108,
-};
-
-/** Tiny assembler: Addr8 jumps are relative to the jump instruction's first byte. */
-function assembler() {
-  const parts = [];
-  const labels = {};
-  const fixups = [];
-  let pos = 0;
-  const a = {
-    emit(b) { parts.push(b); pos += b.length; return a; },
-    jump(op, label, ...regs) { fixups.push({ at: pos, label }); return a.emit(Buffer.from([op, 0, ...regs])); },
-    label(name) { labels[name] = pos; return a; },
-    build() {
-      const body = Buffer.concat(parts);
-      for (const f of fixups) {
-        const d = labels[f.label] - f.at;
-        if (!Number.isInteger(d) || d < -128 || d > 127) throw new Error(`jump to ${f.label} out of range`);
-        body.writeInt8(d, f.at + 1);
-      }
-      return body;
-    },
-  };
-  return a;
-}
-
-function loadString(a, reg, id) {
-  return id < 65536 ? a.emit(ins(OPG.LoadConstString, reg, u16le(id))) : a.emit(ins(OPG.LoadConstStringLongIndex, reg, u32le(id)));
-}
-
-function getById(a, dst, obj, id) {
-  return id < 256 ? a.emit(ins(OPG.GetByIdShort, dst, obj, PROPERTY_CACHE_OFF, id)) : a.emit(ins(OPG.GetById, dst, obj, PROPERTY_CACHE_OFF, u16le(id)));
-}
-
-/**
- * Emits the group test on row `row`: jumps to `pending` / `unread` or falls through for read.
- * `nonPtr` must be a non-pointer register (it only ever holds null / 0); t1, t2 are scratch.
- */
-function emitGroupTest(a, g, { row, nonPtr, t1, t2, pending, unread }) {
-  loadString(a, t1, g.pending);
-  loadString(a, t2, g.Action);
-  a.emit(ins(OPG.Add, t2, t1, t2));                         // "pendingAction" (not an identifier here)
-  a.emit(ins(OPG.GetByVal, t2, row, t2));
-  a.emit(ins(OPG.LoadConstNull, nonPtr));
-  a.jump(OPG.JNotEqual, pending, t2, nonPtr);               // row.pendingAction != null
-  getById(a, t2, row, g.awaitingUserResponse);
-  a.jump(OPG.JNotEqual, pending, t2, nonPtr);               // row.awaitingUserResponse != null
-  getById(a, t2, row, g.hasUnread);
-  a.jump(OPG.JmpTrue, unread, t2);                          // row.hasUnread
-  getById(a, t2, row, g.unreadThreadCount);
-  a.emit(ins(OPG.LoadConstZero, nonPtr));
-  a.jump(OPG.JGreater, unread, t2, nonPtr);                 // row.unreadThreadCount > 0
-}
-
-const GROUP_STRINGS = ['pending', 'Action', 'awaitingUserResponse', 'hasUnread', 'unreadThreadCount', 'unread', 'read',
-  'lastActivityAt', 'createdAt', 'Math', 'max', 'id', 'String', 'fromCharCode', LIST_SORT_FIELD];
-// 'pending' + 'Action' is read with GetByVal: "pendingAction" is not a string of this bundle.
-
-function groupStrings(buf, L) {
-  const ids = findStringIds(buf, L, new Set(GROUP_STRINGS));
-  const g = {};
-  for (const name of GROUP_STRINGS) {
-    if (ids.get(name).length !== 1) return null;
-    g[name] = ids.get(name)[0];
-  }
-  // Property names read with GetById must be identifiers ('pendingAction' is read by value).
-  for (const name of ['awaitingUserResponse', 'hasUnread', 'unreadThreadCount', 'lastActivityAt', 'createdAt', 'Math', 'max', 'id',
-    'String', 'fromCharCode', LIST_SORT_FIELD]) {
-    if (stringIsPlain(buf, L, g[name])) return null;
-  }
-  if (g.id >= 256) return null;
-  return g;
-}
-
-/**
- * recencyOf(row): the last message time, else the last activity, never before creation. It is
- * also the time AgentRow shows, so the group rank lives in the sections, not in this number.
- * r0 number, r1 non-pointer.
- */
-function recencyGroupBody(buf, L) {
-  const g = groupStrings(buf, L);
+  // recencyOf as shipped: +6 'activity', +10 the activity branch, +131 localActivityAt, +147 lastActivityAt.
+  const at = (abs, bytes) => buf.subarray(abs, abs + bytes.length).equals(bytes);
+  if (!at(R(6), ins(OPX.LoadConstString, 3, u16le(sid.activity)))) return null;
+  if (!at(R(10), Buffer.from([OP.JStrictEqual, 108, 3, 4]))) return null;
+  if (!at(R(131), ins(OPX.GetByIdLong, 4, 2, 6, u32le(sid.localActivityAt)))) return null;
+  if (!at(R(147), ins(OPX.GetById, 3, 2, 4, u16le(sid.lastActivityAt)))) return null;
+  const g = liveStrings(buf, L);
   if (!g) return null;
-  const a = assembler();
-  a.emit(ins(OPG.LoadParam, 2, 1));
-  getById(a, 4, 2, g[LIST_SORT_FIELD]);
-  a.emit(ins(OPG.LoadConstNull, 1));
-  a.jump(OPG.JNotEqual, 'at', 4, 1);
-  getById(a, 4, 2, g.lastActivityAt);
-  a.jump(OPG.JNotEqual, 'at', 4, 1);
-  a.emit(ins(OPG.LoadConstZero, 4));
-  a.label('at');
-  getById(a, 3, 2, g.createdAt);
-  a.emit(ins(OPG.GetGlobalObject, 5));
-  a.emit(ins(OPG.TryGetById, 6, 5, PROPERTY_CACHE_OFF, u16le(g.Math)));
-  getById(a, 5, 6, g.max);
-  a.emit(ins(OPG.Call3, 3, 5, 6, 4, 3));                    // r3 = Math.max(at, createdAt)
-  a.emit(ins(OPG.Ret, 3));
-  const body = a.build();
-  return body.length <= 174 ? body : null;
-}
 
-/** Section filter: agent's group id === section.id. r0, r1 non-pointer. */
-function sectionFilterBody(g) {
-  const a = assembler();
-  a.emit(ins(OPG.LoadParam, 2, 1));
-  a.emit(ins(OPG.GetParentEnvironment, 3, 0));
-  a.emit(ins(OPG.LoadFromEnvironment, 3, 3, 0));          // section
-  getById(a, 5, 3, g.id);
-  emitGroupTest(a, g, { row: 2, nonPtr: 1, t1: 4, t2: 6, pending: 'eq', unread: 'unread' });
-  loadString(a, 4, g.read);
-  a.jump(OPG.Jmp, 'eq');
-  a.label('unread');
-  loadString(a, 4, g.unread);
-  a.label('eq');                                            // r4 = 'pending' when jumped from the pending tests
-  a.emit(ins(OPG.StrictEq, 0, 4, 5));
-  a.emit(ins(OPG.Ret, 0));
-  return a.build();
-}
-
-/** Builder for the three sections (FeedbackSheet's body). r0-r1 number, r2-r5 non-pointer. */
-function sectionsBuilderBody(g, titles) {
-  const a = assembler();
-  a.emit(ins(OPG.LoadParam, 6, 1));
-  a.jump(OPG.JmpUndefined, 'build', 6);
-  a.emit(ins(OPG.LoadConstNull, 6));                        // rendered as a component: nothing
-  a.emit(ins(OPG.Ret, 6));
-  a.label('build');
-  a.emit(ins(OPG.GetGlobalObject, 10));
-  a.emit(ins(OPG.TryGetById, 10, 10, PROPERTY_CACHE_OFF, u16le(g.String)));
-  getById(a, 11, 10, g.fromCharCode);
-  a.emit(ins(OPG.NewArray, 7, u16le(3)));
-  GROUP_IDS.forEach((id, i) => {
-    a.emit(ins(OP.NewObjectWithBufferLong, 8, u32le(SECTION_SHAPE), u32le(SECTION_VALUES)));
-    loadString(a, 9, g[id]);
-    a.emit(ins(OPG.PutOwnBySlotIdx, 8, 9, 0));              // id
-    const codes = [...titles[i]].map(ch => ch.codePointAt(0));
-    if (codes.some(c => c > 0xffff)) throw new Error('title outside the BMP');
-    for (let k = 0; k < codes.length; k += 3) {
-      const chunk = codes.slice(k, k + 3);
-      chunk.forEach((c, j) => a.emit(ins(OPG.LoadConstInt, 12 + j, i32le(c))));
-      const dst = k === 0 ? 9 : 15;
-      a.emit(ins([OPG.Call2, OPG.Call3, OPG.Call4][chunk.length - 1], dst, 11, 10, ...chunk.map((_, j) => 12 + j)));
-      if (k > 0) a.emit(ins(OPG.Add, 9, 9, 15));
-    }
-    a.emit(ins(OPG.PutOwnBySlotIdx, 8, 9, 1));              // name
-    a.emit(ins(OPG.NewArray, 9, u16le(0)));
-    a.emit(ins(OPG.PutOwnBySlotIdx, 8, 9, 2));              // agentIds (membership is computed per row)
-    a.emit(ins(OPG.DefineOwnInDenseArray, 7, 8, i));
-  });
-  a.emit(ins(OPG.Ret, 7));
-  return a.build();
-}
-
-const SECTION_SHAPE = 378;      // {id, name, agentIds}
-const SECTION_VALUES = 114815;  // as SidebarSectionsView.normalize builds sections
-// SidebarSectionsView.resolve as shipped, +18..+47 (sections param, collapsedSectionIds, env inits).
-// GetById r4, r3, 2, 'sections' ; GetById r8, r3, 3, 'collapsedSectionIds' ; LoadConstUndefined r1 ;
-// StoreNPToEnvironment r2, 0..3, r1
-const RESOLVE_PROLOGUE_ORIGINAL = hex('45 04 03 02 fa de 45 08 03 03 ee 66 93 01 39 02 00 01 39 02 01 01 39 02 02 01 39 02 03 01');
-
-/**
- * The grouping edits ({ edits, titles: { zh, en } }); null when any anchor differs. Input is
- * the paired template (after applyConnectionEntry, so FeedbackSheet is unreachable).
- */
-export function listGroupEdits(hbcBuffer) {
-  const L = parseLayout(hbcBuffer);
-  if (!L) return null;
-  const buf = hbcBuffer;
-  const g = groupStrings(buf, L);
-  if (!g) return null;
-  const names = new Set(['SidebarSectionsView', 'normalize', 'resolve', 'FeedbackSheet', 'agents', 'isSynthetic', 'sections']);
-  const sid = findStringIds(buf, L, names);
-  for (const name of names) if (sid.get(name).length !== 1) return null;
-  const one = name => sid.get(name)[0];
+  const names = new Set(['SidebarSectionsView', 'normalize', 'resolve', 'FeedbackSheet', 'toggleSectionCollapsed']);
+  const fsid = findStringIds(buf, L, names);
+  for (const name of names) if (fsid.get(name).length !== 1) return null;
+  const one = name => fsid.get(name)[0];
   const byName = (name, size) => findFunctions(buf, L, new Map([[one(name), name]])).get(name)?.filter(f => f.size === size) || [];
   const normalizeFns = byName('normalize', 451);
   const resolveFns = byName('resolve', 199);
   const feedback = byName('FeedbackSheet', 2698);
-  if (normalizeFns.length !== 1 || resolveFns.length !== 1 || feedback.length !== 1) return null;
-  const normalize = normalizeFns[0], resolve = resolveFns[0], builder = feedback[0];
-  if (builder.index >= 65536) return null;
-  const at = (abs, bytes) => buf.subarray(abs, abs + bytes.length).equals(bytes);
+  const toggleFns = byName('toggleSectionCollapsed', 126);
+  if (normalizeFns.length !== 1 || resolveFns.length !== 1 || feedback.length !== 1 || toggleFns.length !== 1) return null;
+  const normalize = normalizeFns[0], resolve = resolveFns[0], fs = feedback[0], toggle = toggleFns[0];
+  if (fs.index >= 65536) return null;
+  // FeedbackSheet's frame: 49 registers, r0-r1 number, r2-r5 non-pointer (the body relies on it).
+  const fsHeader = functionHeader(buf, L, fs.index);
+  if (!fsHeader || fsHeader.frame < 40 || fsHeader.numRegs !== 2 || fsHeader.nonPtrRegs !== 4) return null;
+  const searchHeader = homeBellAnchors(buf, L);
+  if (searchHeader.error) return null;
+  const search = searchHeader.search;
+  const sHeader = functionHeader(buf, L, search.index);
+  if (!sHeader || sHeader.frame < 6 || sHeader.numRegs !== 1 || sHeader.nonPtrRegs !== 1) return null;
+  const rHeader = functionHeader(buf, L, recency.index);
+  if (!rHeader || rHeader.frame < 9 || rHeader.numRegs !== 1 || rHeader.nonPtrRegs !== 1) return null;
+
   // normalize +268 builds {id, name, agentIds} from the same literal.
   if (!at(normalize.offset + 268, Buffer.concat([Buffer.from([OP.NewObjectWithBufferLong, 14]), u32le(SECTION_SHAPE), u32le(SECTION_VALUES)]))) return null;
-  // resolve: +3 LoadParam r3,1; +6 agents; +12 pinnedIds; +18.. as above; +48 GetByIdShort r3, r4, 4, 'length'.
+  // resolve: +3 LoadParam r3,1; +18.. as above; +48 GetByIdShort r3, r4, 4, 'length'.
   if (!at(resolve.offset + 3, hex('89 03 01')) || !at(resolve.offset + 18, RESOLVE_PROLOGUE_ORIGINAL) || !at(resolve.offset + 48, hex('44 03 04 04'))) return null;
-  if (buf.readUInt16LE(resolve.offset + 22) !== one('sections')) return null;
-  // resolve +166 CreateClosure r2, r2, <section view> ; +176 filter ; +181 CreateClosure r2, r1, <non-empty>
-  if (buf[resolve.offset + 166] !== OPG.CreateClosure || buf[resolve.offset + 181] !== OPG.CreateClosure) return null;
-  const sectionView = functionInfo(buf, L, buf.readUInt16LE(resolve.offset + 169));
-  const nonEmpty = functionInfo(buf, L, buf.readUInt16LE(resolve.offset + 184));
-  if (sectionView.size !== 111 || nonEmpty.size !== 34) return null;
-  // section view +93 CreateClosureLongIndex r2, r2, <section filter>
-  if (buf[sectionView.offset + 93] !== 133) return null;
-  const filter = functionInfo(buf, L, buf.readUInt32LE(sectionView.offset + 96));
-  if (filter.size !== 86) return null;
-  // non-empty: +20 JmpTrue @32, r1; +23 GetById r3, r3, 2, 'isSynthetic'; +29 Not r1, r3; +32 Ret r1
-  const nonEmptyTail = Buffer.concat([hex('b0 0c 01 45 03 03 02'), u16le(one('isSynthetic')), hex('13 01 03 76 01')]);
-  if (!at(nonEmpty.offset + 20, nonEmptyTail)) return null;
-  // section filter as shipped: starts with LoadParam r2,1; GetParentEnvironment r3,0; ... Ret r0.
-  if (!at(filter.offset, hex('89 02 01 34 03 00 3b 03 03 00')) || !at(filter.offset + 84, hex('76 00'))) return null;
+  if (buf.readUInt16LE(resolve.offset + 22) !== g.sections) return null;
+  // toggleSectionCollapsed: +13 GetById r3, r4, 0, 'sections'; +43 JmpTrue @50; +50 currentCollapsedSections.
+  if (!at(toggle.offset + 43, TOGGLE_CHECK_ORIGINAL) || buf.readUInt16LE(toggle.offset + 17) !== g.sections
+    || buf.readUInt16LE(toggle.offset + 54) !== g.currentCollapsedSections) return null;
+  // The bell (applyHomeBarBell) is in place.
+  const settings = findUniqueFunction(buf, L, 'SettingsSheet', 4376);
+  if (!settings) return null;
+  const noopIndex = buf.readUInt32LE(settings.offset + 3795);
+  const bell = searchButtonBody(searchHeader.sid, noopIndex);
+  if (!at(search.offset, bell.body)) return null;
+  // The literals (B) reuses, as the bell uses them.
+  const medium = findStringIds(buf, L, new Set(['medium'])).get('medium');
+  if (medium.length !== 1 || medium[0] >= 65536 || !at(L.lvOff + ICON_COLOR_LITERAL, Buffer.concat([hex('05 51'), u16le(medium[0])]))) return null;
 
-  const filterBody = sectionFilterBody(g);
-  if (filterBody.length > filter.size) return null;
-  // CreateClosure r4, r2, <FeedbackSheet> ; Call1 r4, r4, r3 (r4 = sections) ; then the original
-  // collapsedSectionIds read and LoadConstUndefined r1 (r1 must stay undefined: closure env at +181).
-  const prologue = Buffer.concat([
-    ins(OPG.CreateClosure, 4, 2, u16le(builder.index)),
-    ins(OPG.Call1, 4, 4, 3),
-    RESOLVE_PROLOGUE_ORIGINAL.subarray(6, 14),
-  ]);
-  const prologueFull = Buffer.concat([prologue, Buffer.alloc(RESOLVE_PROLOGUE_ORIGINAL.length - prologue.length, OP.AsyncBreakCheck)]);
-
-  const whole = (label, fn, body) => ({ label, offset: fn.offset, original: Buffer.from(buf.subarray(fn.offset, fn.offset + fn.size)),
-    patched: Buffer.concat([body, Buffer.alloc(fn.size - body.length, OP.AsyncBreakCheck)]) });
-  const edits = [
-    { label: 'SidebarSectionsView.resolve: sections <- the group builder', offset: resolve.offset + 18,
-      original: Buffer.from(RESOLVE_PROLOGUE_ORIGINAL), patched: prologueFull },
-    whole('section filter: row group === section id', filter, filterBody),
-    { label: 'sections: hide empty groups', offset: nonEmpty.offset + 23,
-      original: Buffer.from(nonEmptyTail.subarray(3, 12)), patched: Buffer.alloc(9, OP.AsyncBreakCheck) },
-  ];
-  const titles = {};
-  for (const [lang, list] of Object.entries(LIST_GROUP_TITLES)) {
-    const body = sectionsBuilderBody(g, list);
-    if (body.length > builder.size) return null;
-    titles[lang] = [whole(`FeedbackSheet -> ${lang} group builder`, builder, body)];
+  // Metro modules reached through __r.
+  const factories = metroModuleIds(buf, L, g);
+  if (!factories || factories.size < 1000) return null;
+  const modules = {};
+  for (const m of LIVE_MODULES) {
+    const id = moduleExporting(buf, L, factories, m.export, g[m.export]);
+    if (id === null) return null;
+    modules[m.key] = id;
   }
-  return { edits, titles };
+
+  const whole = (label, fn, body) => {
+    if (body.length > fn.size) throw new Error(`${label}: ${body.length} > ${fn.size}`);
+    return { label, offset: fn.offset, original: Buffer.from(buf.subarray(fn.offset, fn.offset + fn.size)),
+      patched: Buffer.concat([body, Buffer.alloc(fn.size - body.length, OP.AsyncBreakCheck)]) };
+  };
+  const prologue = Buffer.concat([
+    ins(OPG.CreateClosure, 4, 2, u16le(fs.index)),
+    ins(OPG.Call1, 4, 4, 3),                               // FeedbackSheet.call(params)
+    RESOLVE_PROLOGUE_ORIGINAL.subarray(6, 14),              // collapsedSectionIds; r1 = undefined
+  ]);
+  let edits, titles;
+  try {
+    edits = [
+      whole('recencyOf: global.sorted ? last message : official recency', recency, recencyLiveBody(g)),
+      { label: 'SidebarSectionsView.resolve: sections <- FeedbackSheet.call(params)', offset: resolve.offset + 18,
+        original: Buffer.from(RESOLVE_PROLOGUE_ORIGINAL),
+        patched: Buffer.concat([prologue, Buffer.alloc(RESOLVE_PROLOGUE_ORIGINAL.length - prologue.length, OP.AsyncBreakCheck)]) },
+      { label: 'toggleSectionCollapsed: fold any id', offset: toggle.offset + 43,
+        original: Buffer.from(TOGGLE_CHECK_ORIGINAL), patched: hex('ae 07 7e') },
+      whole('SearchButton: FeedbackSheet(props, 1)', search, searchButtonLiveBody(fs.index)),
+    ];
+    titles = {};
+    for (const [lang, list] of Object.entries(LIST_GROUP_TITLES)) {
+      titles[lang] = [whole(`FeedbackSheet -> ${lang} list arrangement`, fs,
+        feedbackSheetLiveBody({ g, selfIndex: fs.index, modules, titles: list }))];
+    }
+  } catch {
+    return null;
+  }
+  return { edits, titles, modules };
+}
+
+/** Function header fields (large headers only, as every function used here has one). */
+function functionHeader(buf, L, index) {
+  const a = L.fhOff + 12 * index;
+  const w1 = buf.readUInt32LE(a), w2 = buf.readUInt32LE(a + 4), flags = buf[a + 11];
+  if (flags & 0x20) {
+    const large = ((w1 & 0xffffff) | (((w2 >>> 14) & 0xff) << 24)) >>> 0;
+    const u = o => buf.readUInt32LE(large + o);
+    return { params: u(4), size: u(12), numRegs: u(20), nonPtrRegs: u(24), frame: u(28) };
+  }
+  return { params: (w1 >>> 25) & 31, size: w2 & 0x3fff, numRegs: (w2 >>> 22) & 31, nonPtrRegs: (w2 >>> 27) & 31, frame: buf[a + 8] };
 }
 
 /** Applies (or verifies) list sort edits in place; mirrors HermesPatcher.applyListSortEdits. */
@@ -1270,23 +1547,6 @@ export function applyHomeBarBell(hbcBuffer) {
   return { buffer: buf, applied: true, reason: 'list sort bell in the Bot list header', edits };
 }
 
-/** On-state edits for the header bell (label + amber tone); null when the bell is not in this bundle. */
-function homeBellSortEdits(buf, L) {
-  const a = homeBellAnchors(buf, L);
-  if (a.error) return null;
-  const { sid, search } = a;
-  const settings = findUniqueFunction(buf, L, 'SettingsSheet', 4376);
-  if (!settings) return null;
-  const noopIndex = buf.readUInt32LE(settings.offset + 3795);
-  const off = searchButtonBody(sid, noopIndex);
-  if (!buf.subarray(search.offset, search.offset + off.body.length).equals(off.body)) return null;
-  const on = searchButtonBody(sid, noopIndex, { label: HOME_BELL_LABEL_ON, color: HOME_BELL_COLOR_ON });
-  const edit = (label, rel) => ({ label, offset: search.offset + rel,
-    original: off.body.subarray(rel, rel + 4), patched: on.body.subarray(rel, rel + 4) });
-  return [edit('home bell: label sort -> sorted', off.rel.label), edit('home bell: no theme tone', off.rel.tone),
-    edit('home bell: icon colour -> copper', off.rel.color)];
-}
-
 export const HOME_BELL = { labelOff: HOME_BELL_LABEL_OFF, labelOn: HOME_BELL_LABEL_ON, colorOn: HOME_BELL_COLOR_ON };
 
 export const CONNECTION_ENTRY_LABELS = { zh: CONNECTION_LABEL_ZH, enSuffix: CONNECTION_LABEL_EN_SUFFIX };
@@ -1322,8 +1582,7 @@ export function rebrandPinnedHermesResources(pinned) {
   // The header bell only matters in the paired bundle (generated from the template).
   const templateBell = connApplied ? applyHomeBarBell(templateBase) : { applied: false, reason: 'connection entry not applied', edits: [] };
   const templateOut = connApplied ? (templateBell.applied ? templateBell.buffer : templateBase) : template.buffer;
-  const sortEdits = connApplied ? listSortEdits(templateOut) : null;
-  const groupEdits = sortEdits ? listGroupEdits(templateOut) : null;
+  const live = connApplied && templateBell.applied ? listSortEdits(templateOut) : null;
 
   const oldSha = pinned.gatewayMeta.templateSha256;
   const newSha = crypto.createHash('sha256').update(templateOut).digest('hex');
@@ -1332,14 +1591,18 @@ export function rebrandPinnedHermesResources(pinned) {
     return { ...pinned, settingsRebrand: { applied: false, reason: 'templateSha256 not found in gateway-template.json', edits: [] } };
   }
   let gatewayTemplateJson = Buffer.from(jsonText.replace(oldSha, newSha), 'utf8');
-  if (sortEdits) {
+  if (live) {
     const meta = JSON.parse(gatewayTemplateJson.toString('utf8'));
     const wire = list => list.map(e => ({ offset: e.offset, original: e.original.toString('hex'), patched: e.patched.toString('hex') }));
+    // rokbot.5b: always applied to the paired bundle (`edits` plus one titles set); the mode is
+    // switched at run time by the bell (see listSortEdits).
     meta.listSort = {
       field: LIST_SORT_FIELD,
-      edits: wire(sortEdits),
-      // rokbot.4: section headers for the three groups; applied with `edits` plus one titles set.
-      ...(groupEdits ? { groups: { edits: wire(groupEdits.edits), titles: Object.fromEntries(Object.entries(groupEdits.titles).map(([k, v]) => [k, wire(v)])) } } : {}),
+      live: 1,
+      mode: LIST_MODE_ID,
+      groups: LIST_GROUP_IDS,
+      edits: wire(live.edits),
+      titles: Object.fromEntries(Object.entries(live.titles).map(([k, v]) => [k, wire(v)])),
     };
     gatewayTemplateJson = Buffer.from(`${JSON.stringify(meta, null, 2)}\n`, 'utf8');
   }
@@ -1363,7 +1626,7 @@ export function rebrandPinnedHermesResources(pinned) {
         edits: menuApplied ? unpairedMenu.edits : [],
       },
       homeBell: { applied: templateBell.applied, reason: templateBell.reason, edits: templateBell.edits },
-      listSort: { available: Boolean(sortEdits), edits: sortEdits ? sortEdits.length : 0, groups: Boolean(groupEdits) },
+      listSort: { available: Boolean(live), live: Boolean(live), edits: live ? live.edits.length : 0, modules: live ? live.modules : null },
     },
   };
 }

@@ -25,25 +25,20 @@ test('List sort bell: no floating overlay; the RN header button is recognised an
   assert.equal(HOME_BELL.labelOff, 'sort');
   assert.equal(HOME_BELL.labelOn, 'sorted');
   assert.equal(HOME_BELL.colorOn, '#C27400');
-  // Header-sized, top of the screen only: never a list row or a banner.
-  assert.match(la, /effWdp > 72f \|\| effHdp > 72f/);
-  assert.match(la, /return loc\[1\] < screenH \/ 4;/);
-  assert.match(la, /setLastMessage\(activity, next, null\);/);
-  assert.match(la, /RokBotBootstrap\.ensurePairedBundleFile\(app, true\);\s*RokBotBootstrap\.reloadReactHost\(app\);/);
+  // rokbot.5b: the tap stays in React Native (in-place switch); the companion only labels the
+  // bell for TalkBack and confirms a flip it sees with a toast.
+  assert.doesNotMatch(la, /setLastMessage|reloadReactHost|ensurePairedBundleFile|onHeaderBellTapped/);
+  assert.match(la, /boolean changed = sSeenOn != null && sSeenOn != on;[\s\S]{0,240}if \(changed\) Toast\.makeText\(activity, switchedMessage\(activity, on\), Toast\.LENGTH_SHORT\)\.show\(\);/);
+  assert.match(la, /待处理 → 进行中 → 未读 → 已读/);
   // TalkBack gets a readable label instead of the raw bundle string.
   assert.match(la, /bell\.setContentDescription\(spokenLabel\(activity, on\)\);/);
   assert.match(la, /private static synchronized Handler main\(\)/, 'no Looper use in static init (JVM-safe)');
-
   const boot = read('RokBotBootstrap.java');
-  assert.match(boot, /if \(ListArrangement\.isHeaderBellLabel\(activity, s\)\) \{[\s\S]{0,400}ListArrangement\.isHeaderBellGeometry\(activity, view, effW, effH\)[\s\S]{0,120}\? ListArrangement\.class : null;/);
-  const launch = boot.slice(boot.indexOf('private static void launchNativeTarget(Activity activity, Class<?> target)'));
-  assert.match(launch.slice(0, 600), /if \(target == ListArrangement\.class\) \{\s*\/\/[^\n]*\n\s*ListArrangement\.onHeaderBellTapped\(activity\);\s*return;\s*\}/, 'the bell never starts an Activity');
-
+  assert.match(boot, /if \(ListArrangement\.isHeaderBellLabel\(activity, s\)\) \{[^}]*return null;\s*\}/, 'never intercepted');
+  assert.doesNotMatch(boot, /ListArrangement\.onHeaderBellTapped|target == ListArrangement\.class/, 'the bell never starts an Activity');
   const hp = read('HermesPatcher.java');
-  // rokbot.4: ordering + titled groups in the language the companion picks, ordering alone as fallback.
-  assert.match(hp, /if \(ListArrangement\.isLastMessage\(context\)\) \{\s*int applied = applyListArrangement\(bundle, meta\.optJSONObject\("listSort"\), ListArrangement\.titleLanguage\(context\)\);/);
-  assert.match(hp, /if \(applyEditLists\(bundle, order, parseEdits\(groups\.optJSONArray\("edits"\)\), named\)\) return LIST_SORT_GROUPED;\s*\}\s*return applyEditLists\(bundle, order\) \? LIST_SORT_ORDER_ONLY : LIST_SORT_NONE;/);
-  assert.match(hp, /"\\nlistSort=" \+ ListArrangement\.MODE_LAST_MESSAGE \+ ":" \+ ListArrangement\.titleLanguage\(context\)/,
+  assert.match(hp, /static int applyListArrangement\(byte\[\] bundle, JSONObject listSort, String titleLanguage\) \{[\s\S]{0,500}applyEditLists\(bundle, parseEdits\(listSort\.optJSONArray\("edits"\)\), named\) \? LIST_SORT_LIVE : LIST_SORT_NONE;/);
+  assert.match(hp, /"\\nlistSort=live:" \+ ListArrangement\.titleLanguage\(context\)/,
     'the title language is part of .bundle-meta, so a language change regenerates the bundle');
   // Title language: explicit companion language, else the RN UI language (remembered), else the system's.
   const tl = la.slice(la.indexOf('static String titleLanguage(Context context) {'));

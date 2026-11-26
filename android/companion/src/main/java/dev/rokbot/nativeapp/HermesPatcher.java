@@ -236,16 +236,11 @@ public class HermesPatcher {
 
         ByteBuffer.wrap(bundle, bodyLengthOffset, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(bodyLen);
 
-        // Session list bell: "sort by last message" is a set of verified in-place edits published
-        // by the build in gateway-template.json (hermes-settings.mjs listSortEdits / listGroupEdits):
-        // the three titled groups when available, else the last-message order alone.
-        if (ListArrangement.isLastMessage(context)) {
-            int applied = applyListArrangement(bundle, meta.optJSONObject("listSort"), ListArrangement.titleLanguage(context));
-            if (applied == LIST_SORT_NONE) {
-                android.util.Log.w("RokBotHermes", "list sort edits unavailable; keeping the official order");
-            } else if (applied == LIST_SORT_ORDER_ONLY) {
-                android.util.Log.w("RokBotHermes", "list group headers unavailable; last-message order only");
-            }
+        // Session list arrangement (hermes-settings.mjs listSortEdits): verified in-place edits that
+        // are always part of the paired bundle; the RN bell switches between the official list and
+        // the grouped one in place (no bundle change, no React Native reload).
+        if (applyListArrangement(bundle, meta.optJSONObject("listSort"), ListArrangement.titleLanguage(context)) == LIST_SORT_NONE) {
+            android.util.Log.w("RokBotHermes", "list arrangement edits unavailable; official list only");
         }
 
         MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
@@ -260,45 +255,35 @@ public class HermesPatcher {
         return outFile;
     }
 
-    /** True when gateway-template.json carries the list sort edits (rokbot.3+ builds). */
+    /** True when gateway-template.json carries the live list arrangement (rokbot.5b+ builds). */
     static boolean hasListSort(Context context) {
         try (InputStream is = context.getAssets().open("recipes/gateway-template.json")) {
             JSONObject meta = new JSONObject(new String(readAllBytes(is), StandardCharsets.UTF_8));
-            JSONObject sort = meta.optJSONObject("listSort");
-            return sort != null && sort.optJSONArray("edits") != null && sort.optJSONArray("edits").length() > 0;
+            return isLiveListSort(meta.optJSONObject("listSort"));
         } catch (Throwable t) {
             return false;
         }
     }
 
-    static final int LIST_SORT_NONE = 0;
-    static final int LIST_SORT_ORDER_ONLY = 1;
-    static final int LIST_SORT_GROUPED = 2;
-
-    /**
-     * Applies the list arrangement published in gateway-template.json "listSort":
-     * {"edits":[...], "groups":{"edits":[...], "titles":{"zh":[...], "en":[...]}}}. The ordering
-     * edits, the group edits and one titles set go in together (all anchors checked first); when
-     * that is not possible, the ordering edits alone (last message order, no groups).
-     * Returns LIST_SORT_GROUPED, LIST_SORT_ORDER_ONLY or LIST_SORT_NONE; nothing is written for
-     * NONE. The caller recomputes the footer SHA-1.
-     */
-    static int applyListArrangement(byte[] bundle, JSONObject listSort, String titleLanguage) {
-        if (bundle == null || listSort == null) return LIST_SORT_NONE;
-        Edit[] order = parseEdits(listSort.optJSONArray("edits"));
-        JSONObject groups = listSort.optJSONObject("groups");
-        if (groups != null) {
-            JSONObject titles = groups.optJSONObject("titles");
-            Edit[] named = titles == null ? null
-                    : parseEdits(titles.optJSONArray(titles.has(titleLanguage) ? titleLanguage : "en"));
-            if (applyEditLists(bundle, order, parseEdits(groups.optJSONArray("edits")), named)) return LIST_SORT_GROUPED;
-        }
-        return applyEditLists(bundle, order) ? LIST_SORT_ORDER_ONLY : LIST_SORT_NONE;
+    static boolean isLiveListSort(JSONObject sort) {
+        return sort != null && sort.optInt("live", 0) == 1 && sort.optJSONArray("edits") != null
+                && sort.optJSONArray("edits").length() > 0 && sort.optJSONObject("titles") != null;
     }
 
-    /** The ordering edits only ({"edits":[...]}); see applyListArrangement. */
-    static boolean applyListSortEdits(byte[] bundle, JSONObject listSort) {
-        return bundle != null && listSort != null && applyEditLists(bundle, parseEdits(listSort.optJSONArray("edits")));
+    static final int LIST_SORT_NONE = 0;
+    static final int LIST_SORT_LIVE = 3;
+
+    /**
+     * Applies the live list arrangement published in gateway-template.json "listSort":
+     * {"live":1, "edits":[...], "titles":{"zh":[...], "en":[...]}}. The edits and one titles set
+     * go in together (all anchors checked first, nothing written otherwise). Returns
+     * LIST_SORT_LIVE or LIST_SORT_NONE. The caller recomputes the footer SHA-1.
+     */
+    static int applyListArrangement(byte[] bundle, JSONObject listSort, String titleLanguage) {
+        if (bundle == null || !isLiveListSort(listSort)) return LIST_SORT_NONE;
+        JSONObject titles = listSort.optJSONObject("titles");
+        Edit[] named = parseEdits(titles.optJSONArray(titles.has(titleLanguage) ? titleLanguage : "en"));
+        return applyEditLists(bundle, parseEdits(listSort.optJSONArray("edits")), named) ? LIST_SORT_LIVE : LIST_SORT_NONE;
     }
 
     /** One verified in-place edit: `original` must be at `offset`, `patched` (same length) replaces it. */
@@ -357,11 +342,12 @@ public class HermesPatcher {
         return true;
     }
 
-    /** Extra .bundle-meta line so toggling the list bell (or its title language) regenerates the paired bundle. */
+    /**
+     * Extra .bundle-meta line: the live list arrangement and its title language are part of the
+     * paired bundle (a language change regenerates it; the bell itself never does).
+     */
     static String listSortMeta(Context context) {
-        return ListArrangement.isLastMessage(context)
-                ? "\nlistSort=" + ListArrangement.MODE_LAST_MESSAGE + ":" + ListArrangement.titleLanguage(context)
-                : "";
+        return "\nlistSort=live:" + ListArrangement.titleLanguage(context);
     }
 
     static byte[] hexToBytes(String hex) {
