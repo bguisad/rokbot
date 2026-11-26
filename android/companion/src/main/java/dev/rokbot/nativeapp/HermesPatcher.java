@@ -236,11 +236,15 @@ public class HermesPatcher {
 
         ByteBuffer.wrap(bundle, bodyLengthOffset, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(bodyLen);
 
-        // Session list bell: "sort by last message" is a handful of verified in-place edits
-        // published by the build in gateway-template.json (hermes-settings.mjs listSortEdits).
+        // Session list bell: "sort by last message" is a set of verified in-place edits published
+        // by the build in gateway-template.json (hermes-settings.mjs listSortEdits / listGroupEdits):
+        // the three titled groups when available, else the last-message order alone.
         if (ListArrangement.isLastMessage(context)) {
-            if (!applyListSortEdits(bundle, meta.optJSONObject("listSort"))) {
+            int applied = applyListArrangement(bundle, meta.optJSONObject("listSort"), ListArrangement.titleLanguage(context));
+            if (applied == LIST_SORT_NONE) {
                 android.util.Log.w("RokBotHermes", "list sort edits unavailable; keeping the official order");
+            } else if (applied == LIST_SORT_ORDER_ONLY) {
+                android.util.Log.w("RokBotHermes", "list group headers unavailable; last-message order only");
             }
         }
 
@@ -267,41 +271,97 @@ public class HermesPatcher {
         }
     }
 
+    static final int LIST_SORT_NONE = 0;
+    static final int LIST_SORT_ORDER_ONLY = 1;
+    static final int LIST_SORT_GROUPED = 2;
+
     /**
-     * Applies {"edits":[{offset, original, patched}]} in place after checking every original
-     * byte first; nothing is written unless all anchors match. Mirrors applyListSortEdits in
-     * android/patchers/hermes-settings.mjs. The caller recomputes the footer SHA-1.
+     * Applies the list arrangement published in gateway-template.json "listSort":
+     * {"edits":[...], "groups":{"edits":[...], "titles":{"zh":[...], "en":[...]}}}. The ordering
+     * edits, the group edits and one titles set go in together (all anchors checked first); when
+     * that is not possible, the ordering edits alone (last message order, no groups).
+     * Returns LIST_SORT_GROUPED, LIST_SORT_ORDER_ONLY or LIST_SORT_NONE; nothing is written for
+     * NONE. The caller recomputes the footer SHA-1.
      */
+    static int applyListArrangement(byte[] bundle, JSONObject listSort, String titleLanguage) {
+        if (bundle == null || listSort == null) return LIST_SORT_NONE;
+        Edit[] order = parseEdits(listSort.optJSONArray("edits"));
+        JSONObject groups = listSort.optJSONObject("groups");
+        if (groups != null) {
+            JSONObject titles = groups.optJSONObject("titles");
+            Edit[] named = titles == null ? null
+                    : parseEdits(titles.optJSONArray(titles.has(titleLanguage) ? titleLanguage : "en"));
+            if (applyEditLists(bundle, order, parseEdits(groups.optJSONArray("edits")), named)) return LIST_SORT_GROUPED;
+        }
+        return applyEditLists(bundle, order) ? LIST_SORT_ORDER_ONLY : LIST_SORT_NONE;
+    }
+
+    /** The ordering edits only ({"edits":[...]}); see applyListArrangement. */
     static boolean applyListSortEdits(byte[] bundle, JSONObject listSort) {
-        if (bundle == null || listSort == null) return false;
-        org.json.JSONArray edits = listSort.optJSONArray("edits");
-        if (edits == null || edits.length() == 0) return false;
-        int n = edits.length();
-        int[] offsets = new int[n];
-        byte[][] patched = new byte[n][];
-        for (int i = 0; i < n; i++) {
+        return bundle != null && listSort != null && applyEditLists(bundle, parseEdits(listSort.optJSONArray("edits")));
+    }
+
+    /** One verified in-place edit: `original` must be at `offset`, `patched` (same length) replaces it. */
+    static final class Edit {
+        final int offset;
+        final byte[] original;
+        final byte[] patched;
+
+        Edit(int offset, byte[] original, byte[] patched) {
+            this.offset = offset;
+            this.original = original;
+            this.patched = patched;
+        }
+    }
+
+    /** [{offset, original, patched}] (hex) -> edits; null when missing, empty or malformed. */
+    static Edit[] parseEdits(org.json.JSONArray edits) {
+        if (edits == null || edits.length() == 0) return null;
+        Edit[] out = new Edit[edits.length()];
+        for (int i = 0; i < out.length; i++) {
             JSONObject e = edits.optJSONObject(i);
-            if (e == null) return false;
-            int off = e.optInt("offset", -1);
+            if (e == null) return null;
             byte[] orig = hexToBytes(e.optString("original", ""));
             byte[] next = hexToBytes(e.optString("patched", ""));
-            if (off < 0 || orig == null || next == null || orig.length == 0 || orig.length != next.length
-                    || off + orig.length > bundle.length - 20) {
-                return false;
-            }
-            for (int j = 0; j < orig.length; j++) {
-                if (bundle[off + j] != orig[j]) return false;
-            }
-            offsets[i] = off;
-            patched[i] = next;
+            if (orig == null || next == null) return null;
+            out[i] = new Edit(e.optInt("offset", -1), orig, next);
         }
-        for (int i = 0; i < n; i++) System.arraycopy(patched[i], 0, bundle, offsets[i], patched[i].length);
+        return out;
+    }
+
+    /**
+     * Applies edit lists in place after checking every original byte first; nothing is written
+     * unless every list is present, all anchors match, no two edits overlap and none touches the
+     * footer. Mirrors applyListSortEdits in android/patchers/hermes-settings.mjs.
+     */
+    static boolean applyEditLists(byte[] bundle, Edit[]... lists) {
+        if (bundle == null || lists == null || lists.length == 0) return false;
+        java.util.List<Edit> all = new java.util.ArrayList<>();
+        for (Edit[] list : lists) {
+            if (list == null || list.length == 0) return false;
+            for (Edit e : list) {
+                if (e == null || e.offset < 0 || e.original == null || e.patched == null || e.original.length == 0
+                        || e.original.length != e.patched.length || (long) e.offset + e.original.length > bundle.length - 20) {
+                    return false;
+                }
+                for (int j = 0; j < e.original.length; j++) {
+                    if (bundle[e.offset + j] != e.original[j]) return false;
+                }
+                for (Edit o : all) {
+                    if (e.offset < o.offset + o.original.length && o.offset < e.offset + e.original.length) return false;
+                }
+                all.add(e);
+            }
+        }
+        for (Edit e : all) System.arraycopy(e.patched, 0, bundle, e.offset, e.patched.length);
         return true;
     }
 
-    /** Extra .bundle-meta line so toggling the list bell regenerates the paired bundle. */
+    /** Extra .bundle-meta line so toggling the list bell (or its title language) regenerates the paired bundle. */
     static String listSortMeta(Context context) {
-        return ListArrangement.isLastMessage(context) ? "\nlistSort=" + ListArrangement.MODE_LAST_MESSAGE : "";
+        return ListArrangement.isLastMessage(context)
+                ? "\nlistSort=" + ListArrangement.MODE_LAST_MESSAGE + ":" + ListArrangement.titleLanguage(context)
+                : "";
     }
 
     static byte[] hexToBytes(String hex) {

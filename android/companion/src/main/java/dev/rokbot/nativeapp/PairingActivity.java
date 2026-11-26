@@ -86,6 +86,10 @@ public class PairingActivity extends Activity {
     // Connection & Diagnostics (rokbot.3)
     public static final String EXTRA_ADD_CONNECTION = "addConnection";
     private ConnectionProbe mProbe;
+    private SpeedTest mSpeedTest;
+    private LinearLayout mSpeedRows;
+    private TextView mSpeedButton;
+    private final java.util.Map<String, TextView> mSpeedResults = new java.util.HashMap<>();
     private ConnectionProbe.Status mLastStatus;
     private TextView mStatusLine;
     private TextView mStatusBadge;
@@ -145,6 +149,7 @@ public class PairingActivity extends Activity {
     @Override
     protected void onPause() {
         stopProbe();
+        cancelSpeedTest();
         super.onPause();
     }
 
@@ -152,6 +157,7 @@ public class PairingActivity extends Activity {
     protected void onDestroy() {
         mDestroyed = true;
         stopProbe();
+        cancelSpeedTest();
         if (mBusyDialog != null) {
             try { mBusyDialog.dismiss(); } catch (Throwable ignored) {}
             mBusyDialog = null;
@@ -470,6 +476,9 @@ public class PairingActivity extends Activity {
 
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "诊断", "Diagnostics"), p));
         root.addView(buildDiagnosticsCard(p));
+
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "测速", "Speed test"), p));
+        root.addView(buildSpeedTestCard(p));
 
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "更多", "More"), p));
         LinearLayout quickGrid1 = new LinearLayout(this);
@@ -1702,8 +1711,8 @@ public class PairingActivity extends Activity {
         texts.addView(t);
         TextView d = new TextView(this);
         d.setText(Localize.t(this,
-                "与会话列表右上角的铜铃相同。开启后 Bot 按最后一条消息的时间排列，切换时会重新加载界面。",
-                "Same as the bell on the chat list. Bots are ordered by their last message; switching reloads the app UI."));
+                "与会话列表右上角的铃铛相同。开启后 Bot 分为待处理、未读、已读三组，组内按最后一条消息的时间排列；切换时会重新加载界面。",
+                "Same as the bell on the chat list. Bots are grouped into needs attention, unread and read, each ordered by its last message; switching reloads the app UI."));
         d.setTextColor(p.textSecondary);
         d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         d.setPadding(0, UiChrome.dp(this, 3), UiChrome.dp(this, 10), 0);
@@ -1815,6 +1824,111 @@ public class PairingActivity extends Activity {
         bg.setColor(selected ? ((p.accent & 0x00FFFFFF) | 0x1E000000) : p.bgSurface2);
         bg.setStroke(UiChrome.dp(this, selected ? 2 : 1), selected ? p.accent : p.border);
         cell.setBackground(bg);
+    }
+
+    // ---- speed test (SpeedTest.java; Host routes /local/speedtest/*) ----
+
+    private LinearLayout buildSpeedTestCard(UiChrome.Palette p) {
+        LinearLayout card = UiChrome.makeCard(this, p);
+        card.setContentDescription("speedtest_card");
+        TextView d = new TextView(this);
+        d.setText(Localize.t(this,
+                "对公网、Tailscale、Tailcat 连接分别测延迟（" + SpeedTest.PING_SAMPLES + " 次往返取中位数）和下载/上传速度。每个方向最多约 10.5 MB、10 秒，可随时取消；建议在 Wi-Fi 下测试。",
+                "Measures latency (median of " + SpeedTest.PING_SAMPLES + " round trips) and download/upload speed for the public, Tailscale and Tailcat connections. At most ~10.5 MB and 10 s per direction; cancel any time. Wi-Fi recommended."));
+        d.setTextColor(p.textSecondary);
+        d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        card.addView(d);
+        mSpeedRows = new LinearLayout(this);
+        mSpeedRows.setOrientation(LinearLayout.VERTICAL);
+        card.addView(mSpeedRows);
+        renderSpeedTargets(p, SpeedTest.targets(this));
+        mSpeedButton = UiChrome.makePillButton(this, Localize.t(this, "开始测速", "Start speed test"), true, p, v -> toggleSpeedTest(p));
+        mSpeedButton.setContentDescription("speedtest_button");
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = UiChrome.dp(this, 10);
+        mSpeedButton.setLayoutParams(lp);
+        card.addView(mSpeedButton);
+        return card;
+    }
+
+    private void renderSpeedTargets(UiChrome.Palette p, java.util.List<SpeedTest.Target> targets) {
+        if (mSpeedRows == null) return;
+        mSpeedRows.removeAllViews();
+        mSpeedResults.clear();
+        if (targets.isEmpty()) {
+            TextView none = new TextView(this);
+            none.setText(Localize.t(this, "尚未配对任何连接。", "No connection paired yet."));
+            none.setTextColor(p.textSecondary);
+            none.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            none.setPadding(0, UiChrome.dp(this, 8), 0, 0);
+            mSpeedRows.addView(none);
+            return;
+        }
+        for (SpeedTest.Target t : targets) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(0, UiChrome.dp(this, 9), 0, 0);
+            TextView title = new TextView(this);
+            String name = SpeedTest.kindLabel(this, t.kind) + " · " + t.label
+                    + (t.current ? Localize.t(this, "（当前）", " (current)") : "");
+            title.setText(name);
+            title.setTextColor(p.textPrimary);
+            title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            title.setSingleLine(true);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            row.addView(title);
+            TextView result = new TextView(this);
+            result.setText(Localize.t(this, "未测试", "Not tested"));
+            result.setTextColor(p.textSecondary);
+            result.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            result.setContentDescription("speedtest_result_" + t.kind);
+            row.addView(result);
+            mSpeedRows.addView(row);
+            mSpeedResults.put(t.key, result);
+        }
+    }
+
+    private void toggleSpeedTest(UiChrome.Palette p) {
+        if (mSpeedTest != null && mSpeedTest.isRunning()) {
+            mSpeedTest.cancel();
+            if (mSpeedButton != null) mSpeedButton.setEnabled(false);
+            return;
+        }
+        java.util.List<SpeedTest.Target> targets = SpeedTest.targets(this);
+        renderSpeedTargets(p, targets);
+        if (targets.isEmpty()) return;
+        for (TextView v : mSpeedResults.values()) v.setText(Localize.t(this, "等待中…", "Waiting…"));
+        mSpeedTest = new SpeedTest(this, new SpeedTest.Listener() {
+            @Override
+            public void onUpdate(SpeedTest.Result r) {
+                TextView v = mSpeedResults.get(r.target.key);
+                if (v != null && !mDestroyed) v.setText(SpeedTest.summary(PairingActivity.this, r));
+            }
+
+            @Override
+            public void onFinished(boolean cancelled) {
+                if (mDestroyed) return;
+                if (cancelled) {
+                    for (TextView v : mSpeedResults.values()) {
+                        CharSequence t = v.getText();
+                        if (t != null && t.toString().startsWith(Localize.t(PairingActivity.this, "等待中", "Waiting"))) {
+                            v.setText(Localize.t(PairingActivity.this, "已取消", "Cancelled"));
+                        }
+                    }
+                }
+                if (mSpeedButton != null) {
+                    mSpeedButton.setEnabled(true);
+                    mSpeedButton.setText(Localize.t(PairingActivity.this, "重新测速", "Run again"));
+                }
+            }
+        });
+        mSpeedTest.start(targets);
+        if (mSpeedButton != null) mSpeedButton.setText(Localize.t(this, "取消测速", "Cancel"));
+    }
+
+    private void cancelSpeedTest() {
+        if (mSpeedTest != null && mSpeedTest.isRunning()) mSpeedTest.cancel();
     }
 
     private LinearLayout buildDiagnosticsCard(UiChrome.Palette p) {

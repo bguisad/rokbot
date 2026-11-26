@@ -11,14 +11,18 @@ import android.widget.Toast;
 import java.lang.ref.WeakReference;
 
 /**
- * Session list order for Android: the official order, or "sort by last message" (the Web/desktop
- * list arrangement; Host >= a33d5dc stamps lastMessageAt on every Bot).
+ * Session list order for Android: the official order, or "sort by last message", the Web/desktop
+ * list arrangement: three groups, Needs attention (pendingAction / awaitingUserResponse) -> Unread
+ * -> Read, each newest last message first (Host >= a33d5dc stamps lastMessageAt and pendingAction
+ * on every Bot).
  *
  * The RN sidebar sorts Bots itself with recencyOf() (it does not keep the API order), so the switch
  * is made in the bundle: when the mode is on, HermesPatcher applies the verified listSort edits from
  * gateway-template.json while generating the paired bundle, then React Native is reloaded. The
- * Web's three groups (waiting / unread / read) would need new RN list sections, which in-place
- * bytecode edits cannot add, so Android only offers the ordering.
+ * group headers reuse RN's own sidebar sections (hermes-settings.mjs listGroupEdits): resolve()
+ * gets three generated sections whose membership follows each row's live state, so a Bot moves
+ * between groups as soon as its row changes. The user's own sections are hidden (not changed)
+ * while the mode is on; the titles are baked in the language of {@link #titleLanguage}.
  *
  * The toggle is a real RN header button: hermes-settings.mjs applyHomeBarBell adds a bell item to
  * useHomeBarButtons, so RN lays it out in the Bot list header row next to "+" (and Search where the
@@ -55,6 +59,29 @@ final class ListArrangement {
         return context != null && MODE_LAST_MESSAGE.equals(Storage.getStringPref(context, PREF_KEY, MODE_OFFICIAL));
     }
 
+    static final String PREF_TITLE_LANGUAGE = "listTitleLanguage";
+
+    /**
+     * "zh" or "en": the language the group titles are generated in (part of .bundle-meta, see
+     * HermesPatcher.listSortMeta). The companion's explicit language wins; else the language seen
+     * in the RN UI, which is remembered because it is only known once RN has drawn its settings
+     * (so a cold start does not flip back to the system language and regenerate the bundle);
+     * else the system language.
+     */
+    static String titleLanguage(Context context) {
+        if (context == null) return Localize.LANG_EN;
+        String pref = Localize.getPreferredLanguage(context);
+        if (Localize.LANG_ZH.equals(pref) || Localize.LANG_EN.equals(pref)) return pref;
+        String saved = Storage.getStringPref(context, PREF_TITLE_LANGUAGE, "");
+        String observed = Localize.getObservedLanguage();
+        if (Localize.LANG_ZH.equals(observed) || Localize.LANG_EN.equals(observed)) {
+            if (!observed.equals(saved)) Storage.setStringPref(context, PREF_TITLE_LANGUAGE, observed);
+            return observed;
+        }
+        if (Localize.LANG_ZH.equals(saved) || Localize.LANG_EN.equals(saved)) return saved;
+        return Localize.isChinese(context) ? Localize.LANG_ZH : Localize.LANG_EN;
+    }
+
     static boolean isAvailable(Context context) {
         return context != null && Storage.isPaired(context) && HermesPatcher.hasListSort(context);
     }
@@ -89,8 +116,8 @@ final class ListArrangement {
     /** Localized label the companion puts on the bell for TalkBack. */
     static String spokenLabel(Context context, boolean on) {
         return on
-                ? Localize.t(context, "会话排序：按最后消息（点按恢复默认）", "Chat order: last message (tap for default)")
-                : Localize.t(context, "会话排序：默认（点按改为按最后消息）", "Chat order: default (tap for last message)");
+                ? Localize.t(context, "会话排序：按最后消息分组（点按恢复默认）", "Chat order: grouped by last message (tap for default)")
+                : Localize.t(context, "会话排序：默认（点按改为按最后消息分组）", "Chat order: default (tap to group by last message)");
     }
 
     /** True for the RN header bell's label: the raw bundle strings or the localized ones set by refreshNow. */
@@ -115,7 +142,7 @@ final class ListArrangement {
         if (activity == null || sSwitching || !isAvailable(activity)) return;
         boolean next = !isLastMessage(activity);
         Toast.makeText(activity, next
-                ? Localize.t(activity, "会话列表：按最后消息排序", "Chats: sorted by last message")
+                ? Localize.t(activity, "会话列表：待处理 → 未读 → 已读，按最后消息排序", "Chats: needs attention → unread → read, by last message")
                 : Localize.t(activity, "会话列表：默认排序", "Chats: default order"), Toast.LENGTH_SHORT).show();
         setLastMessage(activity, next, null);
     }

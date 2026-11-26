@@ -131,20 +131,25 @@ test(
     assert.ok(applyHomeBarBell(templateConn).buffer.equals(paired.gatewayTemplateHbc));
     assert.equal(applyHomeBarBell(paired.gatewayTemplateHbc).applied, false, 'not applied twice');
     assert.equal(applyHomeBarBell(rebrandOnly.buffer).applied, false, 'needs the connection entry no-op first');
-    // listSort in the JSON: 3 recencyOf edits + bell label + tone + copper colour, all verified on device.
-    assert.deepEqual(meta.listSort.edits.length, 6);
-    assert.deepEqual(listSortEdits(paired.gatewayTemplateHbc).map(e => e.label).slice(3), [
-      'home bell: label sort -> sorted', 'home bell: no theme tone', 'home bell: icon colour -> copper',
+    // listSort in the JSON (rokbot.4): recencyOf rewrite + bell label + tone + copper colour, all
+    // verified on device; the titled groups ride along in listSort.groups (list-groups.test.mjs).
+    assert.deepEqual(meta.listSort.edits.length, 4);
+    assert.deepEqual(listSortEdits(paired.gatewayTemplateHbc).map(e => e.label), [
+      'recencyOf: last message, else last activity', 'home bell: label sort -> sorted', 'home bell: no theme tone', 'home bell: icon colour -> copper',
     ]);
+    assert.ok(meta.listSort.groups && meta.listSort.groups.edits.length === 3);
     const sorted = applyListSortEdits(paired.gatewayTemplateHbc, meta.listSort.edits);
     assert.ok(footerOk(sorted));
-    assert.equal(diffRanges(paired.gatewayTemplateHbc, sorted).length, 7);
+    const inEdit = i => i >= sorted.length - 20 || meta.listSort.edits.some(e => i >= e.offset && i < e.offset + e.original.length / 2);
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i] !== paired.gatewayTemplateHbc[i]) assert.ok(inEdit(i), `stray change at ${i}`);
+    }
     const strAt = (buf, off) => buf.readUInt16LE(off + 2);
-    for (const e of meta.listSort.edits.slice(3)) {
+    for (const e of meta.listSort.edits.slice(1)) {
       assert.equal(sorted.subarray(e.offset, e.offset + 4).toString('hex'), e.patched);
       assert.equal(paired.gatewayTemplateHbc.subarray(e.offset, e.offset + 4).toString('hex'), e.original);
     }
-    assert.ok(strAt(sorted, meta.listSort.edits[3].offset) !== strAt(paired.gatewayTemplateHbc, meta.listSort.edits[3].offset));
+    assert.ok(strAt(sorted, meta.listSort.edits[1].offset) !== strAt(paired.gatewayTemplateHbc, meta.listSort.edits[1].offset));
 
     // Runtime pairing (HermesPatcher.java equivalent) still synthesizes from the rebranded template.
     const runtime = synthesizeHermesBytecode(paired.gatewayTemplateHbc, meta, 'http://10.0.2.2:18080', 'tok');
