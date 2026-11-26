@@ -24,9 +24,10 @@ public final class Localize {
     public static void observeAppLanguage(String label) {
         if (label == null) return;
         String s = label.trim();
-        if ("账户".equals(s) || "调试".equals(s) || "用量".equals(s) || "语言".equals(s) || "连接服务端".equals(s)) {
+        if ("账户".equals(s) || "调试".equals(s) || "用量".equals(s) || "语言".equals(s) || "外观".equals(s) || "连接服务端".equals(s)) {
             sObservedLanguage = LANG_ZH;
-        } else if ("Account".equals(s) || "Debug".equals(s) || "Usage".equals(s) || "Language".equals(s) || "Connect to Host".equals(s)) {
+        } else if ("Account".equals(s) || "Debug".equals(s) || "Usage".equals(s) || "Language".equals(s) || "Appearance".equals(s)
+                || "Connect to Host".equals(s)) {
             sObservedLanguage = LANG_EN;
         }
     }
@@ -49,11 +50,18 @@ public final class Localize {
     }
 
     public static boolean isChinese(Context context) {
+        // Once paired, the official settings "Language" row (the language React Native shows) wins;
+        // the explicit preference is the pairing page's switch for before that.
+        String observed = sObservedLanguage;
+        boolean paired = false;
+        try { paired = context != null && Storage.isPaired(context); } catch (Throwable ignored) {}
+        if (paired && LANG_ZH.equals(observed)) return true;
+        if (paired && LANG_EN.equals(observed)) return false;
+
         String pref = getPreferredLanguage(context);
         if (LANG_ZH.equals(pref)) return true;
         if (LANG_EN.equals(pref)) return false;
 
-        String observed = sObservedLanguage;
         if (LANG_ZH.equals(observed)) return true;
         if (LANG_EN.equals(observed)) return false;
 

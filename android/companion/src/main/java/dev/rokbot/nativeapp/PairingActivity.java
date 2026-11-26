@@ -293,6 +293,11 @@ public class PairingActivity extends Activity {
         spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1f));
         top.addView(spacer);
 
+        if (Storage.isPaired(this)) {
+            // Paired: appearance and language are the official settings rows (rokbot section).
+            return top;
+        }
+
         String langPref = Localize.getPreferredLanguage(this);
         String langLabel = Localize.LANG_ZH.equals(langPref) ? "中文"
                 : (Localize.LANG_EN.equals(langPref) ? "EN" : Localize.t(this, "中/EN", "EN/中"));
@@ -379,18 +384,16 @@ public class PairingActivity extends Activity {
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "连接历史", "Connection history"), p));
         root.addView(buildHistoryCard(p, true));
 
-        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "Bot 动态图标", "Bot avatar style"), p));
-        root.addView(buildAvatarStyleCard(p));
-
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "诊断", "Diagnostics"), p));
         root.addView(buildDiagnosticsCard(p));
 
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "测速", "Speed test"), p));
         root.addView(buildSpeedTestCard(p));
 
-        // Only what belongs to this connection. Model settings, software update, notifications,
-        // profile, usage, Bot computers and the library are first-level settings rows (or official
-        // RN rows) and are not repeated here; list arrangement is the bell on the Bot list.
+        // Only what belongs to this connection. Bot icon style, model settings, app updates,
+        // appearance & language, notifications, profile, usage, Bot computers and the library are
+        // first-level settings rows (or official RN rows) and are not repeated here; list
+        // arrangement is the bell on the Bot list.
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "当前连接", "This connection"), p));
         LinearLayout actions = UiChrome.makeRowGroup(this, p);
         actions.setContentDescription("connection_actions");
@@ -1324,102 +1327,6 @@ public class PairingActivity extends Activity {
             try { mBusyDialog.dismiss(); } catch (Throwable ignored) {}
             mBusyDialog = null;
         }
-    }
-
-    private LinearLayout buildAvatarStyleCard(UiChrome.Palette p) {
-        LinearLayout card = UiChrome.makeCard(this, p);
-        TextView hint = new TextView(this);
-        hint.setText(Localize.t(this,
-                "全局替换 Bot 的动态流体球图标，也可随时切回官方原版，选择后立即生效。",
-                "Applies to every Bot avatar across the app, or switch back to the official fluid orb anytime."));
-        hint.setTextColor(p.textSecondary);
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        hint.setPadding(0, 0, 0, UiChrome.dp(this, 10));
-        card.addView(hint);
-
-        final int count = RokBotAvatarRenderer.STYLES.length;
-        final View[] cellViews = new View[count];
-        final String[] selectedRef = new String[] { RokBotAvatarManager.getStyle(this) };
-
-        for (int rowStart = 0; rowStart < count; rowStart += 3) {
-            LinearLayout gridRow = new LinearLayout(this);
-            gridRow.setOrientation(LinearLayout.HORIZONTAL);
-            if (rowStart > 0) {
-                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                rlp.topMargin = UiChrome.dp(this, 8);
-                gridRow.setLayoutParams(rlp);
-            }
-            for (int col = 0; col < 3; col++) {
-                final int idx = rowStart + col;
-                final RokBotAvatarRenderer.StyleInfo info = RokBotAvatarRenderer.STYLES[idx];
-                LinearLayout cell = new LinearLayout(this);
-                cell.setOrientation(LinearLayout.VERTICAL);
-                cell.setGravity(Gravity.CENTER_HORIZONTAL);
-                cell.setPadding(UiChrome.dp(this, 8), UiChrome.dp(this, 10), UiChrome.dp(this, 8), UiChrome.dp(this, 10));
-                cell.setContentDescription("avatar_style_" + info.id);
-                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-                if (col > 0) clp.leftMargin = UiChrome.dp(this, 8);
-                cell.setLayoutParams(clp);
-
-                RokBotAvatarView preview = new RokBotAvatarView(this);
-                preview.setStyleId(info.id);
-                preview.setShape(info.previewShape);
-                preview.setBaseColor(info.previewColor);
-                preview.setActive(selectedRef[0].equals(info.id));
-                LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(UiChrome.dp(this, 42), UiChrome.dp(this, 42));
-                plp.bottomMargin = UiChrome.dp(this, 6);
-                cell.addView(preview, plp);
-
-                TextView title = new TextView(this);
-                String nameText = Localize.t(this, info.zh, info.en);
-                if (RokBotAvatarRenderer.STYLE_CHASSIS.equals(info.id)) {
-                    nameText += Localize.t(this, " · 默认", " · Default");
-                }
-                title.setText(nameText);
-                title.setTextColor(p.textPrimary);
-                title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                title.setTypeface(Typeface.DEFAULT_BOLD);
-                title.setGravity(Gravity.CENTER);
-                cell.addView(title);
-
-                TextView desc = new TextView(this);
-                desc.setText(Localize.t(this, info.descZh, info.descEn));
-                desc.setTextColor(p.textSecondary);
-                desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-                desc.setGravity(Gravity.CENTER);
-                desc.setPadding(0, UiChrome.dp(this, 2), 0, 0);
-                cell.addView(desc);
-
-                cell.setTag(preview);
-                cellViews[idx] = cell;
-                styleAvatarCell(cell, p, selectedRef[0].equals(info.id));
-                cell.setOnClickListener(v -> {
-                    selectedRef[0] = info.id;
-                    RokBotAvatarManager.setStyle(this, info.id);
-                    for (int i = 0; i < count; i++) {
-                        boolean on = RokBotAvatarRenderer.STYLES[i].id.equals(info.id);
-                        styleAvatarCell(cellViews[i], p, on);
-                        if (cellViews[i].getTag() instanceof RokBotAvatarView) {
-                            ((RokBotAvatarView) cellViews[i].getTag()).setActive(on);
-                        }
-                    }
-                    Toast.makeText(this, Localize.t(this, "已切换图标：", "Avatar style: ")
-                            + Localize.t(this, info.zh, info.en), Toast.LENGTH_SHORT).show();
-                });
-                gridRow.addView(cell);
-            }
-            card.addView(gridRow);
-        }
-        return card;
-    }
-
-    private void styleAvatarCell(View cell, UiChrome.Palette p, boolean selected) {
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(UiChrome.dp(this, 12));
-        bg.setColor(selected ? ((p.accent & 0x00FFFFFF) | 0x1E000000) : p.bgSurface2);
-        bg.setStroke(UiChrome.dp(this, selected ? 2 : 1), selected ? p.accent : p.border);
-        cell.setBackground(bg);
     }
 
     // ---- speed test (SpeedTest.java; Host routes /local/speedtest/*) ----

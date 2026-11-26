@@ -19,6 +19,7 @@ import android.view.SearchEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
@@ -1750,7 +1751,13 @@ public class RokBotBootstrap {
     }
 
     static boolean matchesSoftwareUpdateLabel(String s) {
-        return matchesLabelOrCommaPrefix(s, "检查更新", false) || matchesLabelOrCommaPrefix(s, "Software Update", true);
+        return matchesLabelOrCommaPrefix(s, "应用更新", false) || matchesLabelOrCommaPrefix(s, "App Updates", true)
+                // rokbot.5 wording, kept for bundles built before rokbot.6.
+                || matchesLabelOrCommaPrefix(s, "检查更新", false) || matchesLabelOrCommaPrefix(s, "Software Update", true);
+    }
+
+    static boolean matchesAvatarStyleLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "Bot 图标样式", false) || matchesLabelOrCommaPrefix(s, "Bot Icon Style", true);
     }
 
     private static boolean matchesComputersLabel(String s) {
@@ -1857,6 +1864,7 @@ public class RokBotBootstrap {
                     || matchesUsageLabel(s)
                     || matchesModelSettingsLabel(s)
                     || matchesSoftwareUpdateLabel(s)
+                    || matchesAvatarStyleLabel(s)
                     || matchesComputersLabel(s))) {
                 return null;
             }
@@ -1960,6 +1968,9 @@ public class RokBotBootstrap {
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? UpdateActivity.class : null;
+        }
+        if (matchesAvatarStyleLabel(s)) {
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? AvatarStyleActivity.class : null;
         }
         if (matchesNotificationsLabel(s)) {
             if (!paired) return null;
@@ -2286,12 +2297,48 @@ public class RokBotBootstrap {
         @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
     }
 
+    /**
+     * The official settings "Appearance" row (now in the rokbot section) shows the RN theme choice as
+     * its value; native pages follow it once paired (UiChrome.isDark). Value texts of zh-Hans,
+     * zh-Hant and en ("浅色/淺色/Light", "深色/Dark", "系统/系統/System").
+     */
+    static void observeAppearanceRow(Context context, View labelView, String label) {
+        if (!"外观".equals(label) && !"外觀".equals(label) && !"Appearance".equals(label)) return;
+        View cur = labelView;
+        for (int up = 0; up < 3 && cur != null; up++) {
+            ViewParent parent = cur.getParent();
+            if (!(parent instanceof ViewGroup)) return;
+            String mode = findAppearanceValue((ViewGroup) parent, labelView, 0);
+            if (mode != null) {
+                UiChrome.setObservedAppearance(context, mode);
+                return;
+            }
+            cur = (View) parent;
+        }
+    }
+
+    private static String findAppearanceValue(ViewGroup group, View skip, int depth) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child == skip) continue;
+            if (child instanceof TextView) {
+                String mode = UiChrome.appearanceModeForLabel(String.valueOf(((TextView) child).getText()));
+                if (mode != null) return mode;
+            } else if (child instanceof ViewGroup && depth < 3) {
+                String mode = findAppearanceValue((ViewGroup) child, skip, depth + 1);
+                if (mode != null) return mode;
+            }
+        }
+        return null;
+    }
+
     private static void scanAndWireRnViews(Activity activity, View view) {
         if (view == null) return;
         String label = extractViewText(view);
         if (label != null && !label.isEmpty()) {
             Localize.observeAppLanguage(label);
             boolean paired = Storage.isPaired(activity);
+            if (paired && view instanceof TextView) observeAppearanceRow(activity, view, label.trim());
             Object tag = view.getTag(TAG_OVERRIDDEN_TARGET);
             if (tag instanceof String && (!paired || !label.trim().equals(tag))) {
                 view.setTag(TAG_OVERRIDDEN_TARGET, null);
@@ -2429,6 +2476,9 @@ public class RokBotBootstrap {
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return UpdateActivity.class;
+        }
+        if (matchesAvatarStyleLabel(s)) {
+            return AvatarStyleActivity.class;
         }
         if (matchesComputersLabel(s)) {
             return ComputersActivity.class;

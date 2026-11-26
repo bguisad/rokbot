@@ -92,6 +92,7 @@ test('M2-Manifest: injects RokBotInitProvider, all 9 Activities, 2 foreground se
     'dev.rokbot.nativeapp.ComputersActivity',
     'dev.rokbot.nativeapp.ComputerViewerActivity',
     'dev.rokbot.nativeapp.ModelsActivity',
+    'dev.rokbot.nativeapp.AvatarStyleActivity',
     'dev.rokbot.nativeapp.ShareTargetActivity',
   ];
   for (const actName of expectedActivities) {
@@ -1457,6 +1458,12 @@ public class VerifyHarness {
         check(RokBotBootstrap.resolveNativeTargetForLabel("Model Settings") == ModelsActivity.class, "Model Settings");
         check(RokBotBootstrap.resolveNativeTargetForLabel("检查更新") == UpdateActivity.class, "检查更新");
         check(RokBotBootstrap.resolveNativeTargetForLabel("Software Update") == UpdateActivity.class, "Software Update");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("应用更新") == UpdateActivity.class, "应用更新");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("App Updates") == UpdateActivity.class, "App Updates");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Bot 图标样式") == AvatarStyleActivity.class, "Bot 图标样式");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Bot Icon Style") == AvatarStyleActivity.class, "Bot Icon Style");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("外观") == null, "official Appearance row stays in RN");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("语言") == null, "official Language row stays in RN");
         check(RokBotBootstrap.resolveNativeTargetForLabel("消息") == null, "Bots list stays in RN");
         check(RokBotBootstrap.resolveNativeTargetForLabel("Bots") == null, "Bots stays in RN");
         check(RokBotBootstrap.resolveNativeTargetForLabel("连接器") == null, "Connectors stay in RN");

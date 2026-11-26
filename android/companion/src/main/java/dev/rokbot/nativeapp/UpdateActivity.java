@@ -8,6 +8,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -17,12 +18,15 @@ import android.widget.Toast;
 import java.io.File;
 
 /**
- * "检查更新" screen: current version, whether it is the latest build on the paired Host's android
- * channel, release notes, download progress and the hand-off to the system installer, including
- * the "Install unknown apps" permission detour.
+ * "应用更新 / App Updates" screen: current version, whether it is the latest build on the paired
+ * Host's android channel, release notes, download progress and the hand-off to the system
+ * installer, including the "Install unknown apps" permission detour. Below it, the manual
+ * incremental update (RBDELTA1 feed URL, UpdateManager) that used to sit on the profile page.
  */
 public class UpdateActivity extends Activity {
     public static final String EXTRA_START_DOWNLOAD = "rokbot_update_start_download";
+    static final String TITLE_ZH = "应用更新";
+    static final String TITLE_EN = "App Updates";
 
     private TextView mStatus;
     private TextView mNewVersion;
@@ -35,6 +39,14 @@ public class UpdateActivity extends Activity {
     private boolean mInstallAfterPermission;
     private boolean mAutoInstallWhenReady;
     private final Runnable mListener = this::render;
+    private final android.os.Handler mMain = new android.os.Handler(android.os.Looper.getMainLooper());
+    // Incremental update (UpdateManager feed URL).
+    private EditText mDeltaUrl;
+    private TextView mDeltaStatus;
+    private TextView mDeltaCheck;
+    private TextView mDeltaInstall;
+    private File mDeltaStaged;
+    private boolean mDeltaInstallAfterPermission;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +73,11 @@ public class UpdateActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (mDeltaInstallAfterPermission && mDeltaStaged != null && mDeltaStaged.isFile()
+                && UpdateManager.canInstallPackages(this)) {
+            mDeltaInstallAfterPermission = false;
+            installDelta();
+        }
         if (mInstallAfterPermission) {
             mInstallAfterPermission = false;
             if (UpdateManager.canInstallPackages(this)) {
@@ -91,7 +108,7 @@ public class UpdateActivity extends Activity {
         root.setPadding(UiChrome.dp(this, 18), UiChrome.dp(this, 12), UiChrome.dp(this, 18), UiChrome.dp(this, 24));
         scroll.addView(root);
 
-        root.addView(UiChrome.makeHeaderBar(this, Localize.t(this, "检查更新", "Software Update"), p, v -> finish()));
+        root.addView(UiChrome.makeHeaderBar(this, Localize.t(this, TITLE_ZH, TITLE_EN), p, v -> finish()));
 
         LinearLayout card = UiChrome.makeCard(this, p);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -165,6 +182,8 @@ public class UpdateActivity extends Activity {
                 "Updates come from the paired Host's Android channel. Downloads are checked against their SHA-256 and the app signing certificate; "
                         + "packages signed by anyone else are refused. RokBot checks automatically every 6 hours while connected."));
         root.addView(foot);
+
+        root.addView(buildDeltaCard(p));
 
         setContentView(scroll);
         UiChrome.applyRootInsets(this, scroll);
@@ -333,6 +352,133 @@ public class UpdateActivity extends Activity {
         } catch (Throwable t) {
             Toast.makeText(this, Localize.t(this, "无法打开系统安装器：", "Cannot open the installer: ") + t.getMessage(),
                     Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // ---- incremental update (moved from the profile page) ----
+
+    private View buildDeltaCard(UiChrome.Palette p) {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "增量更新", "Incremental update"), p));
+        LinearLayout card = UiChrome.makeCard(this, p);
+        card.setContentDescription("delta_update_card");
+
+        TextView ver = text(p.textSecondary, 12, false);
+        ver.setText(Localize.t(this, "当前版本：", "Current version: ")
+                + UpdateManager.getCurrentVersionLabel(this) + " (" + getPackageName() + ")");
+        ver.setPadding(0, 0, 0, UiChrome.dp(this, 8));
+        card.addView(ver);
+
+        mDeltaUrl = new EditText(this);
+        UiChrome.styleEditText(mDeltaUrl, p, this);
+        mDeltaUrl.setHint(Localize.t(this, "更新清单地址 (https://.../update.json)", "Update manifest URL (https://.../update.json)"));
+        mDeltaUrl.setContentDescription("update_feed_url_input");
+        mDeltaUrl.setSingleLine(true);
+        mDeltaUrl.setText(UpdateManager.resolveDefaultFeedUrl(this));
+        mDeltaUrl.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(mDeltaUrl);
+
+        mDeltaStatus = text(p.textSecondary, 12, false);
+        mDeltaStatus.setText(Localize.t(this, "支持 RBDELTA1 增量补丁（仅下载差异部分并校验签名）",
+                "Supports RBDELTA1 incremental patches with SHA-256 & signature verification"));
+        mDeltaStatus.setPadding(0, UiChrome.dp(this, 8), 0, UiChrome.dp(this, 10));
+        card.addView(mDeltaStatus);
+
+        mDeltaCheck = UiChrome.makePillButton(this, Localize.t(this, "检查增量更新", "Check for Incremental Update"), false, p,
+                v -> checkDelta());
+        mDeltaCheck.setContentDescription("check_incremental_update_button");
+        card.addView(mDeltaCheck);
+
+        mDeltaInstall = UiChrome.makePillButton(this, Localize.t(this, "立即安装更新", "Install Staged Update"), true, p,
+                v -> installDelta());
+        mDeltaInstall.setContentDescription("install_staged_update_button");
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ilp.topMargin = UiChrome.dp(this, 8);
+        mDeltaInstall.setLayoutParams(ilp);
+        mDeltaInstall.setVisibility(View.GONE);
+        card.addView(mDeltaInstall);
+        wrap.addView(card);
+        return wrap;
+    }
+
+    private void checkDelta() {
+        String url = mDeltaUrl.getText() != null ? mDeltaUrl.getText().toString().trim() : "";
+        if (!url.isEmpty()) Storage.setUpdateFeedUrl(this, url);
+        mDeltaCheck.setEnabled(false);
+        mDeltaInstall.setVisibility(View.GONE);
+        mDeltaStatus.setText(Localize.t(this, "正在检查更新…", "Checking for updates…"));
+        UpdateManager.checkAndStageAsync(this, url, new UpdateManager.Callback() {
+            @Override
+            public void onStage(String message, int progressPercent) {
+                mMain.post(() -> mDeltaStatus.setText(message + " (" + progressPercent + "%)"));
+            }
+
+            @Override
+            public void onUpToDate(String currentVersion, String shortSha) {
+                mMain.post(() -> {
+                    mDeltaCheck.setEnabled(true);
+                    mDeltaStatus.setText(Localize.t(UpdateActivity.this,
+                            "已是最新版本：" + currentVersion + " [" + shortSha + "]",
+                            "Already up to date: " + currentVersion + " [" + shortSha + "]"));
+                });
+            }
+
+            @Override
+            public void onReady(File stagedApk, String versionLabel, boolean usedDelta, long downloadBytes, long fullBytes, String notes) {
+                mMain.post(() -> {
+                    mDeltaStaged = stagedApk;
+                    mDeltaCheck.setEnabled(true);
+                    mDeltaInstall.setVisibility(View.VISIBLE);
+                    String detail;
+                    if (usedDelta && downloadBytes > 0 && fullBytes > 0) {
+                        int savedPct = (int) Math.max(0, Math.round((1.0 - (double) downloadBytes / (double) fullBytes) * 100.0));
+                        detail = Localize.t(UpdateActivity.this,
+                                "增量更新已就绪：" + versionLabel + "（下载 " + UpdateManager.formatBytes(downloadBytes)
+                                        + " / 原包 " + UpdateManager.formatBytes(fullBytes) + "，节省 " + savedPct + "%）",
+                                "Incremental update ready: " + versionLabel + " (downloaded " + UpdateManager.formatBytes(downloadBytes)
+                                        + " / " + UpdateManager.formatBytes(fullBytes) + ", saved " + savedPct + "%)");
+                    } else if (usedDelta && downloadBytes == 0) {
+                        detail = Localize.t(UpdateActivity.this,
+                                "已缓存校验通过的更新包：" + versionLabel + "，点击下方按钮安装",
+                                "Verified update already staged: " + versionLabel);
+                    } else {
+                        detail = Localize.t(UpdateActivity.this,
+                                "完整更新包已就绪：" + versionLabel + "（" + UpdateManager.formatBytes(fullBytes) + "）",
+                                "Full update ready: " + versionLabel + " (" + UpdateManager.formatBytes(fullBytes) + ")");
+                    }
+                    if (notes != null && !notes.isEmpty()) detail = detail + "\n" + notes;
+                    mDeltaStatus.setText(detail);
+                });
+            }
+
+            @Override
+            public void onError(String message) {
+                mMain.post(() -> {
+                    mDeltaCheck.setEnabled(true);
+                    mDeltaStatus.setText(Localize.t(UpdateActivity.this, "更新失败：", "Update failed: ") + message);
+                });
+            }
+        });
+    }
+
+    private void installDelta() {
+        if (mDeltaStaged == null || !mDeltaStaged.isFile()) {
+            Toast.makeText(this, Localize.t(this, "请先检查并准备更新包", "Check for updates first"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            boolean launched = UpdateManager.launchInstaller(this, mDeltaStaged);
+            mDeltaInstallAfterPermission = !launched;
+            if (!launched) {
+                Toast.makeText(this, Localize.t(this,
+                        "请先授予“安装未知应用”权限，返回后将自动继续安装",
+                        "Allow installing unknown apps; installer will resume automatically on return"), Toast.LENGTH_LONG).show();
+            }
+        } catch (Throwable t) {
+            Toast.makeText(this, Localize.t(this, "拉起安装器失败：", "Installer error: ") + t.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 }

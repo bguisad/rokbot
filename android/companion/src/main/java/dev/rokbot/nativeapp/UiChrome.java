@@ -129,13 +129,40 @@ public final class UiChrome {
 
     private UiChrome() {}
 
+    static final String PREF_RN_APPEARANCE = "rn_appearance";
+
+    /**
+     * Native pages follow the official settings "Appearance" row once paired (the RN choice, seen
+     * by RokBotBootstrap.observeAppearanceRow); before pairing, the pairing page's own switch.
+     */
     public static boolean isDark(Context context) {
         if (context == null) return false;
-        String pref = Storage.getThemePreference(context);
+        String pref = Storage.isPaired(context) ? observedAppearance(context) : null;
+        if (pref == null) pref = Storage.getThemePreference(context);
         if ("dark".equals(pref)) return true;
         if ("light".equals(pref)) return false;
         int mode = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         return mode == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** "light" / "dark" / "auto" for the official Appearance values, else null. */
+    static String appearanceModeForLabel(String text) {
+        if (text == null) return null;
+        String s = text.trim();
+        if (s.equals("浅色") || s.equals("淺色") || s.equalsIgnoreCase("Light")) return "light";
+        if (s.equals("深色") || s.equalsIgnoreCase("Dark")) return "dark";
+        if (s.equals("系统") || s.equals("系統") || s.equalsIgnoreCase("System")) return "auto";
+        return null;
+    }
+
+    static String observedAppearance(Context context) {
+        String v = Storage.getStringPref(context, PREF_RN_APPEARANCE, "");
+        return "light".equals(v) || "dark".equals(v) || "auto".equals(v) ? v : null;
+    }
+
+    static void setObservedAppearance(Context context, String mode) {
+        if (context == null || mode == null || mode.equals(observedAppearance(context))) return;
+        Storage.setStringPref(context, PREF_RN_APPEARANCE, mode);
     }
 
     public static Palette palette(Context context) {

@@ -964,6 +964,11 @@ export function patchManifest(axmlBuffer, options = {}) {
     makeAttrBool('exported', false),
   ]);
 
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.AvatarStyleActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.AvatarStyleActivity'),
+    makeAttrBool('exported', false),
+  ]);
+
   upsertAppChild('activity', 'dev.rokbot.nativeapp.UsageActivity', [
     makeAttrStr('name', 'dev.rokbot.nativeapp.UsageActivity'),
     makeAttrBool('exported', false),

@@ -106,9 +106,10 @@ test('Update wiring: auto-check trigger, verified hand-off to the installer and 
   assert.match(au, /"立即更新"/);
   assert.match(au, /"稍后"/);
 
-  // rokbot.5: "检查更新 / Software Update" is a first-level settings row (hermes-settings.mjs
-  // applySettingsMenu) routed to UpdateActivity; the connection page has no update flow of its own.
-  assert.match(boot, /matchesSoftwareUpdateLabel\(s\)\) \{\s*return \(paired && isInteractiveTarget[^;]*\? UpdateActivity\.class/, 'settings row "检查更新" opens UpdateActivity');
+  // rokbot.5/6: "应用更新 / App Updates" (rokbot.5: "检查更新 / Software Update") is a first-level
+  // settings row (hermes-settings.mjs applySettingsMenu) routed to UpdateActivity; the connection
+  // page has no update flow of its own.
+  assert.match(boot, /matchesSoftwareUpdateLabel\(s\)\) \{\s*return \(paired && isInteractiveTarget[^;]*\? UpdateActivity\.class/, 'settings row "应用更新" opens UpdateActivity');
   const pairing = read('PairingActivity.java');
   assert.doesNotMatch(pairing, /runUpdateCheck|UpdateManager\.stageFromInfoAsync/, 'PairingActivity does not repeat the update flow');
 });
