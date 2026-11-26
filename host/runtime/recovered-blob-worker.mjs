@@ -1,12 +1,19 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Worker, isMainThread, threadId } from 'node:worker_threads';
 import { constructRecoveredModules } from './recovered-modules.mjs';
 import inputs from '../recipes/host/manifest.json' with { type: 'json' };
 
+const requireNode = createRequire(import.meta.url);
+const CONVERSATION_BLOB_SCHEMA = `
+CREATE TABLE IF NOT EXISTS blobs (
+  id TEXT PRIMARY KEY,
+  data BLOB NOT NULL
+) STRICT;
+`;
 const sourceSha256 = inputs.sourceSha256['agent-isolation/agent-store-worker.cjs'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const DEFAULT_BLOB_QUICK_CHECK_MAX_BYTES = 32 * 1024 * 1024;
@@ -162,6 +169,47 @@ export function defaultScheduleBackgroundQuickCheck({
   timer.unref?.();
 }
 
+function hasPendingRecoveryFiles(dbPath, options, bindings, readdir) {
+  if (typeof bindings?.findPendingRecovery === 'function') {
+    const recovery = options.recovery ?? bindings.DISK_RECOVERY;
+    return bindings.findPendingRecovery(dbPath, recovery) != null;
+  }
+  const dbName = basename(dbPath);
+  const prefix = `${dbName}.corrupt-`;
+  for (const name of readdir(dirname(dbPath))) {
+    if (name === `${dbName}.pending` || name === `${dbName}.replacement`) return true;
+    if (name.startsWith(prefix) && (name.endsWith('.intent') || name.endsWith('.pending') || name.endsWith('.replacement'))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function openConfiguredBlobDb(dbPath, busyTimeoutMs, bindings) {
+  if (typeof bindings?.openConfiguredConversationBlobDb === 'function') {
+    return bindings.openConfiguredConversationBlobDb(dbPath, busyTimeoutMs);
+  }
+  if (
+    typeof bindings?.refuseSandDataDatabaseLinksSync !== 'function' ||
+    typeof bindings?.checkSandDataDatabaseSync !== 'function' ||
+    typeof bindings?.applyStorePragmas !== 'function'
+  ) {
+    throw new TypeError('Missing conversation blob DB setup bindings');
+  }
+  bindings.refuseSandDataDatabaseLinksSync(dbPath);
+  const { DatabaseSync } = requireNode('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  try {
+    bindings.checkSandDataDatabaseSync(db, dbPath);
+    bindings.applyStorePragmas(db, { busyTimeoutMs, allowWalFailure: true });
+    db.exec(CONVERSATION_BLOB_SCHEMA);
+    return db;
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
+}
+
 /** Avoid blocking worker init for 60s+ on PRAGMA quick_check for multi-hundred-MB blob DBs. */
 export function wrapOpenConversationBlobDb(
   originalOpen,
@@ -170,6 +218,7 @@ export function wrapOpenConversationBlobDb(
     maxQuickCheckBytes = blobQuickCheckMaxBytes(),
     stat = statSync,
     exists = existsSync,
+    readdir = readdirSync,
     readText = path => readFileSync(path, 'utf8'),
     writeText = (path, content) => writeFileSync(path, content, 'utf8'),
     unlink = unlinkSync,
@@ -211,18 +260,22 @@ export function wrapOpenConversationBlobDb(
       finishOriginalOpen(options.dbPath, false);
       return db;
     }
-    const recovery = options.recovery ?? bindings.DISK_RECOVERY;
-    if (
-      bindings.findPendingRecovery(options.dbPath, recovery) != null ||
-      exists(quickCheckRequiredMarkerPath(options.dbPath))
-    ) {
+    let needsOriginalOpen = false;
+    try {
+      needsOriginalOpen =
+        hasPendingRecoveryFiles(options.dbPath, options, bindings, readdir) ||
+        exists(quickCheckRequiredMarkerPath(options.dbPath));
+    } catch {
+      needsOriginalOpen = true;
+    }
+    if (needsOriginalOpen) {
       const db = originalOpen(options);
       finishOriginalOpen(options.dbPath, true);
       return db;
     }
     let db;
     try {
-      db = bindings.openConfiguredConversationBlobDb(options.dbPath, options.busyTimeoutMs);
+      db = openConfiguredBlobDb(options.dbPath, options.busyTimeoutMs, bindings);
       db.prepare('PRAGMA schema_version').get();
       db.prepare('SELECT id FROM blobs LIMIT 1').get();
     } catch {
@@ -284,7 +337,8 @@ export async function loadRecoveredBlobWorker(state) {
     'Blob worker',
     {
       overrides: {
-        openConversationBlobDb: (originalOpen, bindings) => wrapOpenConversationBlobDb(originalOpen, bindings),
+        openConversationBlobDb: (originalOpen, bindings, original) =>
+          wrapOpenConversationBlobDb(originalOpen, { ...original, ...bindings }),
       },
     },
   );

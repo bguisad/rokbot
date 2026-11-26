@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { Worker } from 'node:worker_threads';
 import {
   DEFAULT_BLOB_QUICK_CHECK_MAX_BYTES,
   blobQuickCheckMaxBytes,
+  loadRecoveredBlobWorker,
   quickCheckRequiredMarkerPath,
   quickCheckVerifiedMarkerPath,
   wrapOpenConversationBlobDb,
@@ -348,3 +350,181 @@ test('proxyHttp defaults to 120s upstream headers timeout and enforces custom he
     await new Promise(resolve => upstream.close(resolve));
   }
 });
+
+test('wrapOpenConversationBlobDb works with real 2bb5e41 binding shape and pending-recovery files', async () => {
+  const dir = realpathSync(await mkdtemp(join(tmpdir(), 'rokbot-blob-2bb5e41-unit-')));
+  let handle = null;
+  try {
+    const dbPath = join(dir, 'conversation-blobs.db');
+    const seed = new DatabaseSync(dbPath);
+    seed.exec('CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB NOT NULL) STRICT;');
+    seed.prepare('INSERT INTO blobs (id, data) VALUES (?, ?)').run('0011', Buffer.alloc(2048, 7));
+    seed.close();
+
+    const calls = { refuse: 0, check: 0, pragmas: 0, original: 0 };
+    const originalOpen = opts => {
+      calls.original += 1;
+      return { kind: 'original', path: opts.dbPath };
+    };
+    const bindings2bb5e41 = {
+      refuseSandDataDatabaseLinksSync: path => {
+        calls.refuse += 1;
+        assert.equal(path, dbPath);
+      },
+      checkSandDataDatabaseSync: (_db, path) => {
+        calls.check += 1;
+        assert.equal(path, dbPath);
+      },
+      applyStorePragmas: (db, opts) => {
+        calls.pragmas += 1;
+        assert.equal(opts.allowWalFailure, true);
+        db.exec(`PRAGMA busy_timeout = ${opts.busyTimeoutMs ?? 5000}`);
+      },
+    };
+
+    const fastOpen = wrapOpenConversationBlobDb(originalOpen, bindings2bb5e41, {
+      maxQuickCheckBytes: 1024,
+      backgroundDelayMs: 0,
+    });
+
+    // 1) Fast-opens real SQLite DB > maxQuickCheckBytes without DISK_RECOVERY/findPendingRecovery/openConfiguredConversationBlobDb.
+    handle = fastOpen({ dbPath, busyTimeoutMs: 5000 });
+    assert.ok(handle instanceof DatabaseSync);
+    assert.equal(calls.original, 0);
+    assert.equal(calls.refuse, 1);
+    assert.equal(calls.check, 1);
+    assert.equal(calls.pragmas, 1);
+    const verified = JSON.parse(await waitForFile(quickCheckVerifiedMarkerPath(dbPath)));
+    assert.equal(verified.path, dbPath);
+    handle.close();
+    handle = null;
+
+    // 2) Delegates to originalOpen when recovery marker files exist beside the DB.
+    for (const markerName of [
+      'conversation-blobs.db.pending',
+      'conversation-blobs.db.replacement',
+      'conversation-blobs.db.corrupt-2026.intent',
+    ]) {
+      const markerPath = join(dir, markerName);
+      writeFileSync(markerPath, '');
+      const before = calls.original;
+      assert.equal(fastOpen({ dbPath, busyTimeoutMs: 5000 }).kind, 'original');
+      assert.equal(calls.original, before + 1);
+      await rm(markerPath, { force: true });
+    }
+
+    // 3) Falls back cleanly to originalOpen when bindings are incomplete or readdir throws.
+    const emptyBindingsOpen = wrapOpenConversationBlobDb(originalOpen, {}, {
+      maxQuickCheckBytes: 1024,
+      backgroundDelayMs: 0,
+    });
+    assert.equal(emptyBindingsOpen({ dbPath, busyTimeoutMs: 5000 }).kind, 'original');
+
+    const throwingReaddirOpen = wrapOpenConversationBlobDb(originalOpen, bindings2bb5e41, {
+      maxQuickCheckBytes: 1024,
+      backgroundDelayMs: 0,
+      readdir: () => { throw new Error('EACCES'); },
+    });
+    assert.equal(throwingReaddirOpen({ dbPath, busyTimeoutMs: 5000 }).kind, 'original');
+  } finally {
+    try { handle?.close(); } catch {}
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+const realSeedDir = process.env.ROKBOT_TEST_HOST_SEED || '/tmp/rokbot-seed/seed';
+
+test(
+  'startRecoveredBlobWorker fast-opens large conversation-blobs.db against real 2bb5e41 seed',
+  { skip: !existsSync(join(realSeedDir, 'blob-worker-library.cjs')) },
+  async () => {
+    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'rokbot-blob-real-seed-')));
+    let worker = null;
+    try {
+      const dbPath = join(dir, 'conversation-blobs.db');
+      const seedDb = new DatabaseSync(dbPath);
+      seedDb.exec('PRAGMA journal_mode = WAL; CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB NOT NULL) STRICT;');
+      seedDb.prepare('INSERT INTO blobs (id, data) VALUES (?, ?)').run('aa'.repeat(32), Buffer.alloc(4096, 3));
+      seedDb.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      seedDb.close();
+      assert.ok(statSync(dbPath).size > 1024);
+
+      const workerModuleUrl = new URL('../runtime/recovered-blob-worker.mjs', import.meta.url).href;
+      worker = new Worker(
+        `const { workerData } = require('node:worker_threads');
+         import(${JSON.stringify(workerModuleUrl)})
+           .then(({ startRecoveredBlobWorker }) => startRecoveredBlobWorker(workerData.seedDir))
+           .catch(err => { console.error(err); process.exit(1); });`,
+        {
+          eval: true,
+          workerData: {
+            seedDir: realSeedDir,
+            agentId: 'test-large',
+            blobDbPath: dbPath,
+            busyTimeoutMs: 5000,
+          },
+          env: {
+            ...process.env,
+            ROKBOT_BLOB_DB_QUICK_CHECK_MAX_BYTES: '1024',
+          },
+        },
+      );
+
+      const rpc = (payload) => new Promise((resolve, reject) => {
+        const requestId = payload.requestId;
+        const onMessage = (msg) => {
+          if (msg?.requestId !== requestId) return;
+          cleanup();
+          if (msg.kind === 'error') {
+            reject(new Error(msg.message || msg.code || 'worker error'));
+          } else {
+            resolve(msg);
+          }
+        };
+        const onExit = (code) => {
+          cleanup();
+          reject(new Error(`blob worker exited unexpectedly with code ${code}`));
+        };
+        const onError = (err) => {
+          cleanup();
+          reject(err);
+        };
+        const cleanup = () => {
+          worker.off('message', onMessage);
+          worker.off('exit', onExit);
+          worker.off('error', onError);
+        };
+        worker.on('message', onMessage);
+        worker.once('exit', onExit);
+        worker.once('error', onError);
+        worker.postMessage(payload);
+      });
+
+      const initRes = await rpc({ kind: 'init', requestId: 1 });
+      assert.equal(initRes.kind, 'init-ok');
+
+      const blobId = new Uint8Array(32).fill(0x42);
+      const blobData = Buffer.from('hello-large-blob-db');
+      const setRes = await rpc({ kind: 'set-blob', requestId: 2, blobId, blobData });
+      assert.equal(setRes.kind, 'set-blob-ok');
+
+      const getRes = await rpc({ kind: 'get-blob', requestId: 3, blobId });
+      assert.equal(getRes.kind, 'get-blob-ok');
+      assert.deepEqual(Buffer.from(getRes.blobData), blobData);
+
+      const verified = JSON.parse(await waitForFile(quickCheckVerifiedMarkerPath(dbPath), 8000));
+      assert.equal(verified.path, dbPath);
+
+      const exitPromise = new Promise(resolve => worker.once('exit', resolve));
+      const closeRes = await rpc({ kind: 'close', requestId: 4 });
+      assert.equal(closeRes.kind, 'close-ok');
+      assert.equal(await exitPromise, 0);
+      worker = null;
+    } finally {
+      if (worker) {
+        await worker.terminate().catch(() => {});
+      }
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
