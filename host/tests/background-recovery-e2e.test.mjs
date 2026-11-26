@@ -175,6 +175,8 @@ async function realHostHarness(t, { env: extraEnv = {} } = {}) {
       }),
     });
     await host.start();
+    // Background work only: the Auto-review switch (on by default) would review each Task dispatch.
+    await host.getApi().setHostSettings({ autoReviewInstructions: { isEnabled: false, allowInstructions: [], blockInstructions: [] } });
     return host;
   };
   const wakeFile = join(stateDir, 'host-data', 'host-pending-wakes.json');

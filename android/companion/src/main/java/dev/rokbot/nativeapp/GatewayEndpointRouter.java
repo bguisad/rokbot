@@ -225,6 +225,12 @@ public final class GatewayEndpointRouter {
         return path;
     }
 
+    /** RPCs answered on the device once paired (mirrors iOS RBLocalPreferenceResponse). */
+    public static boolean isLocalPreferenceRpc(String path) {
+        return "/aiserver.v1.DashboardService/GetTeamAdminSettingsOrEmptyIfNotInTeam".equals(path)
+                || "/aiserver.v1.BackgroundComposerService/GetBackgroundComposerUserSettings".equals(path);
+    }
+
     public static boolean isTelemetryPath(String path) {
         return "/aiserver.v1.AnalyticsService/TrackEvents".equals(path)
                 || "/aiserver.v1.AnalyticsService/SubmitLogs".equals(path);
