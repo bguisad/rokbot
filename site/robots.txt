@@ -1,0 +1,4 @@
+# Placeholder domain: https://rokbot.cosfoc.com (replace when custom domain is finalized)
+User-agent: *
+Allow: /
+Sitemap: https://rokbot.cosfoc.com/sitemap.xml
