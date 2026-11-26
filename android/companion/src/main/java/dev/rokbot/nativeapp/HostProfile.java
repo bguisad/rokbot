@@ -79,7 +79,19 @@ final class HostProfile {
         JSONObject p = current(context);
         if (p == null) return null;
         String v = p.optString("hostName", "").trim();
-        return v.isEmpty() ? "RokBot Host" : v;
+        return v.isEmpty() ? "RokBot Host" : rebrandHostName(v);
+    }
+
+    private static final java.util.regex.Pattern LEGACY_BRAND =
+            java.util.regex.Pattern.compile("\\bgrok[\\s_-]?bot\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Display form of a Host-reported name: Hosts set up from Grok Bot data still call themselves
+     * "Grok Bot Host". Only the shown text changes; the stored profile keeps the Host's value.
+     */
+    static String rebrandHostName(String name) {
+        if (name == null || name.isEmpty()) return name;
+        return LEGACY_BRAND.matcher(name).replaceAll("RokBot");
     }
 
     static String avatarDataUrl(Context context) {

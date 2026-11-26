@@ -1732,6 +1732,15 @@ public class RokBotBootstrap {
         return matchesLabelOrCommaPrefix(s, "用量", false) || matchesLabelOrCommaPrefix(s, "Usage", true);
     }
 
+    /** rokbot section rows (hermes-settings.mjs applySettingsMenu, MENU_LABELS). */
+    static boolean matchesModelSettingsLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "模型配置", false) || matchesLabelOrCommaPrefix(s, "Model Settings", true);
+    }
+
+    static boolean matchesSoftwareUpdateLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "检查更新", false) || matchesLabelOrCommaPrefix(s, "Software Update", true);
+    }
+
     private static boolean matchesComputersLabel(String s) {
         return matchesLabelOrCommaPrefix(s, "Bot 电脑", false)
                 || matchesLabelOrCommaPrefix(s, "Bot Computer", true)
@@ -1834,6 +1843,8 @@ public class RokBotBootstrap {
                     || matchesNotificationsLabel(s)
                     || matchesLibraryLabel(s)
                     || matchesUsageLabel(s)
+                    || matchesModelSettingsLabel(s)
+                    || matchesSoftwareUpdateLabel(s)
                     || matchesComputersLabel(s))) {
                 return null;
             }
@@ -1930,6 +1941,13 @@ public class RokBotBootstrap {
         }
         if (matchesComputersLabel(s)) {
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? ComputersActivity.class : null;
+        }
+        if (matchesModelSettingsLabel(s)) {
+            // rokbot.5 settings rows (hermes-settings.mjs applySettingsMenu): full-width nav rows.
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? ModelsActivity.class : null;
+        }
+        if (matchesSoftwareUpdateLabel(s)) {
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? UpdateActivity.class : null;
         }
         if (matchesNotificationsLabel(s)) {
             if (!paired) return null;
@@ -2398,6 +2416,12 @@ public class RokBotBootstrap {
         }
         if (matchesUsageLabel(s)) {
             return UsageActivity.class;
+        }
+        if (matchesModelSettingsLabel(s)) {
+            return ModelsActivity.class;
+        }
+        if (matchesSoftwareUpdateLabel(s)) {
+            return UpdateActivity.class;
         }
         if (matchesComputersLabel(s)) {
             return ComputersActivity.class;

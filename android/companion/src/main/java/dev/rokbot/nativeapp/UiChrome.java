@@ -554,6 +554,77 @@ public final class UiChrome {
         et.setBackground(roundRect(p.bgSurface2, dp(ctx, 14), p.border, dp(ctx, 1)));
     }
 
+    /** Inset-group card for list rows (same surface as makeCard, rows supply their own padding). */
+    public static LinearLayout makeRowGroup(Context ctx, Palette p) {
+        LinearLayout group = new LinearLayout(ctx);
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setBackground(roundRect(p.bgCard, dp(ctx, 18), p.border, dp(ctx, 1)));
+        group.setClipToOutline(true);
+        return group;
+    }
+
+    /** Full-width list row: label on the left, optional chevron on the right, ripple on press. */
+    public static TextView makeNavRow(Context ctx, String label, int color, boolean chevron, Palette p, View.OnClickListener onClick) {
+        TextView row = new TextView(ctx);
+        row.setText(label);
+        row.setTextColor(color);
+        row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        row.setSingleLine(true);
+        row.setEllipsize(TextUtils.TruncateAt.END);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinHeight(dp(ctx, 52));
+        row.setPadding(dp(ctx, 16), dp(ctx, 12), dp(ctx, 14), dp(ctx, 12));
+        if (chevron) {
+            Drawable d = new ChevronDrawable(p.textMuted, dp(ctx, 1.6f));
+            d.setBounds(0, 0, dp(ctx, 16), dp(ctx, 16));
+            row.setCompoundDrawables(null, null, d, null);
+            row.setCompoundDrawablePadding(dp(ctx, 8));
+        }
+        row.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf((p.textPrimary & 0x00FFFFFF) | 0x1F000000), null,
+                new android.graphics.drawable.ColorDrawable(0xFFFFFFFF)));
+        row.setClickable(true);
+        row.setOnClickListener(onClick);
+        row.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return row;
+    }
+
+    /** Hairline between rows of a makeRowGroup, inset like the label. */
+    public static View makeRowDivider(Context ctx, Palette p) {
+        View d = new View(ctx);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(ctx, 0.7f)));
+        lp.leftMargin = dp(ctx, 16);
+        d.setLayoutParams(lp);
+        d.setBackgroundColor(p.border);
+        return d;
+    }
+
+    private static final class ChevronDrawable extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        ChevronDrawable(int color, float strokePx) {
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(strokePx);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            float cx = b.exactCenterX(), cy = b.exactCenterY(), r = Math.min(b.width(), b.height()) * 0.5f;
+            Path path = new Path();
+            path.moveTo(cx - r * 0.25f, cy - r * 0.6f);
+            path.lineTo(cx + r * 0.35f, cy);
+            path.lineTo(cx - r * 0.25f, cy + r * 0.6f);
+            canvas.drawPath(path, paint);
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+    }
+
     public static TextView makeSectionLabel(Context ctx, String text, Palette p) {
         TextView tv = new TextView(ctx);
         tv.setText(text);

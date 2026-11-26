@@ -540,6 +540,197 @@ export function applyConnectionEntry(hbcBuffer) {
   return { buffer: buf, applied: true, reason: 'Connection & Diagnostics row in place of the bug button', edits };
 }
 
+// ---------------------------------------------------------------------------
+// rokbot.5: the rokbot entries move into the first settings level.
+//
+// rokbot.3 gave the former "Send Feedback" InsetGroup one row, "Connection & Diagnostics";
+// the other rokbot pages (model settings, software update) were only reachable from buttons
+// on that page. This edit turns the group into a titled section of native rows, built with the
+// same InsetGroup / InsetGroupNavRow components (and the same {label, onPress} props) as the
+// official rows:
+//
+//   rokbot                        <- InsetGroup header (the rebrand's "rokbot" string)
+//     连接与诊断 / <Connection> & Diagnostics   (rokbot.3 label, unchanged)
+//     模型配置 / Model Settings
+//     检查更新 / Software Update
+//
+//   SettingsSheet +3809  PutOwnBySlotIdx r32, r35, 0; Call3 r19, r34, r1, r33, r32
+//                        -> JmpLong into the free tail of the dead link-group block
+//                        (+3155..+3688, AsyncBreakCheck padding after the rokbot.3 label
+//                        builder). There:
+//     r40 = [connectionRow, modelsRow, updateRow]
+//     labels: zh when the rokbot.3 label starts with 连 (it is 连接与诊断 for zh-Hans and
+//             zh-Hant), else English, each String.fromCharCode(a, b) + ...
+//     r19 = jsxs(InsetGroup, {header: 'rokbot', children: r40}); JmpLong +3819 (memo store).
+//   Rows reuse the rokbot.3 no-op onPress (r38); the companion opens the native page for
+//   the label. Scratch registers: r0 (numbers), r9, r32, r34, r35, r39, r40 (all written
+//   before their next read after +3819; r19 is the group, as before). Calls only take the
+//   pointer registers r9/r19/r32..r40 and the number register r0; r41+ is the call area.
+const MENU_CAVE = 3155;
+const MENU_CAVE_END = 3689;
+export const MENU_LABELS = {
+  zh: { models: '模型配置', update: '检查更新' },
+  en: { models: 'Model Settings', update: 'Software Update' },
+};
+
+function literalStrings(buf, L, base, off, n) {
+  const out = [];
+  let p = base + off;
+  while (out.length < n) {
+    const t = buf[p++];
+    let cnt = t & 0x0f;
+    if (t & 0x80) cnt = (cnt << 8) | buf[p++];
+    const type = (t >> 4) & 7;
+    for (let i = 0; i < cnt; i++) {
+      if (type === 4) { out.push(stringText(buf, L, buf.readUInt32LE(p))); p += 4; }
+      else if (type === 5) { out.push(stringText(buf, L, buf.readUInt16LE(p))); p += 2; }
+      else if (type === 6) { out.push(stringText(buf, L, buf[p])); p += 1; }
+      else return null;
+    }
+  }
+  return out;
+}
+
+/** Keys of object shape `index` (null if they are not all strings). */
+function shapeKeys(buf, L, index) {
+  const keyOff = align4(L.lvOff + L.literalValueBufferSize);
+  const keySize = buf.readUInt32LE(84);
+  const shapeCount = buf.readUInt32LE(88);
+  if (index >= shapeCount) return null;
+  const tableOff = align4(keyOff + keySize);
+  const at = tableOff + 8 * index;
+  if (at + 8 > buf.length) return null;
+  return literalStrings(buf, L, keyOff, buf.readUInt32LE(at), buf.readUInt32LE(at + 4));
+}
+
+/** String.fromCharCode pairs into `dst` (r32 = fromCharCode, r19 = String; r9/r0 scratch). */
+function emitCharLabel(emit, dst, text) {
+  const loadNum = (reg, code) => (code < 256 ? ins(139 /* LoadConstUInt8 */, reg, code) : ins(OPX.LoadConstInt, reg, i32le(code)));
+  for (let i = 0; i < text.length; i += 2) {
+    const target = i === 0 ? dst : 9;
+    emit(loadNum(9, text.charCodeAt(i)));
+    if (i + 1 < text.length) {
+      emit(loadNum(0, text.charCodeAt(i + 1)));
+      emit(ins(OPX.Call3, target, 32, 19, 9, 0));
+    } else {
+      emit(ins(OPX.Call2, target, 32, 19, 9));
+    }
+    if (i > 0) emit(ins(OPX.Add, dst, dst, 9));
+  }
+}
+
+/**
+ * Adds the rokbot section (header + model settings + software update rows) around the
+ * Connection & Diagnostics row. Input must be applyConnectionEntry() output.
+ * Returns { buffer, applied, reason, edits }; the input is never mutated.
+ */
+export function applySettingsMenu(hbcBuffer) {
+  const skip = reason => ({ buffer: hbcBuffer, applied: false, reason, edits: [] });
+  const L = parseLayout(hbcBuffer);
+  if (!L) return skip('not a Hermes v98 bytecode file');
+  const buf = Buffer.from(hbcBuffer);
+  const settings = findUniqueFunction(buf, L, 'SettingsSheet', 4376);
+  if (!settings) return skip('SettingsSheet not found exactly once');
+  const S = rel => settings.offset + rel;
+  const expectAt = (abs, bytes) => buf.subarray(abs, abs + bytes.length).equals(bytes);
+
+  const wanted = new Set([BRAND_NAME, 'jsxs', 'charCodeAt', 'String', 'fromCharCode']);
+  const ids = findStringIds(buf, L, wanted);
+  const sid = {};
+  for (const name of wanted) {
+    if (ids.get(name).length !== 1) return skip(`string "${name}" not found exactly once`);
+    sid[name] = ids.get(name)[0];
+  }
+  if (sid.jsxs >= 256 || sid.charCodeAt >= 256 || sid.String >= 65536 || sid.fromCharCode >= 65536) {
+    return skip('string ids out of range');
+  }
+
+  // Anchors: rokbot.3 state of the feedback group block.
+  const checks = [
+    // +3724 JmpTrue +95, r19 (group always built) | +3727 LoadFromEnvironment r36, r6, 42
+    [3724, hex('b0 5f 13 3b 24 06 2a')],
+    // +3763 NewObjectWithBufferLong r35, 11202, 114747 ({label, onPress}) ; +3773 JmpLong -> +3001
+    [3763, ins(OPX.NewObjectWithBufferLong, 35, u32le(11202), u32le(114747))],
+    [3773, ins(OPX.JmpLong, i32le(3001 - 3773))],
+    // +3788 PutOwnBySlotIdx r35, r39, 0 ; +3792 CreateClosureLongIndex r38, ...
+    [3788, hex('52 23 27 00 85 26 26')],
+    // +3803 Call3 r35, r37, r1, r36, r35 ; +3809 PutOwnBySlotIdx r32, r35, 0 ; Call3 r19, r34, r1, r33, r32
+    [3803, hex('6f 23 25 01 24 23 52 20 23 00 6f 13 22 01 21 20')],
+    // +3819 LoadConstUInt8 r0, 103 (memo store of the group)
+    [3819, hex('8b 00 67')],
+  ];
+  for (const [rel, bytes] of checks) {
+    if (!expectAt(S(rel), bytes)) return skip(`SettingsSheet bytes differ at +${rel}`);
+  }
+  // rokbot.3 label builder ends right before the cave, which is all AsyncBreakCheck padding.
+  if (!expectAt(S(MENU_CAVE - 5), ins(OPX.JmpLong, i32le(3788 - (MENU_CAVE - 5))))) return skip('rokbot.3 label builder not found');
+  for (let rel = MENU_CAVE; rel < MENU_CAVE_END; rel++) {
+    if (buf[S(rel)] !== OP.AsyncBreakCheck) return skip(`cave is not free at +${rel}`);
+  }
+  // Shapes: 11202 {label, onPress}; 10320 {header, children}; both with the two-null values at 114747.
+  const rowKeys = shapeKeys(buf, L, 11202);
+  const groupKeys = shapeKeys(buf, L, 10320);
+  if (!rowKeys || rowKeys.join() !== 'label,onPress') return skip('row shape differs');
+  if (!groupKeys || groupKeys.join() !== 'header,children') return skip('group shape differs');
+  if (buf[L.lvOff + 114747] !== 0x02) return skip('two-null literal differs');
+
+  // --- cave ------------------------------------------------------------------
+  const code = [];
+  let pos = MENU_CAVE;
+  const emit = b => { code.push(b); pos += b.length; };
+  const jmpLongTo = target => ins(OPX.JmpLong, i32le(target - pos));
+  emit(ins(8 /* NewArray */, 40, u16le(3)));
+  emit(ins(90 /* DefineOwnInDenseArray */, 40, 35, 0));          // [0] = Connection & Diagnostics row
+  emit(ins(OPX.GetByIdShort, 9, 39, 45, sid.charCodeAt));
+  emit(ins(OPX.LoadConstZero, 19));
+  emit(ins(OPX.Call2, 0, 9, 39, 19));                             // r0 = label.charCodeAt(0)
+  emit(ins(OPX.GetGlobalObject, 19));
+  emit(ins(OPX.TryGetById, 19, 19, 52, u16le(sid.String)));       // r19 = String
+  emit(ins(OPX.GetById, 32, 19, 46, u16le(sid.fromCharCode)));    // r32 = String.fromCharCode
+  emit(ins(OPX.LoadConstInt, 9, i32le(0x8fde)));                  // 连
+  const zhJump = pos;
+  emit(ins(212 /* JStrictEqualLong */, i32le(0), 0, 9));
+  emitCharLabel(emit, 39, MENU_LABELS.en.models);
+  emitCharLabel(emit, 34, MENU_LABELS.en.update);
+  const enJump = pos;
+  emit(ins(OPX.JmpLong, i32le(0)));
+  const zh = pos;
+  emitCharLabel(emit, 39, MENU_LABELS.zh.models);
+  emitCharLabel(emit, 34, MENU_LABELS.zh.update);
+  const rows = pos;
+  [[39, 1], [34, 2]].forEach(([label, index]) => {
+    emit(ins(OPX.NewObjectWithBufferLong, 35, u32le(11202), u32le(114747)));
+    emit(ins(82 /* PutOwnBySlotIdx */, 35, label, 0));
+    emit(ins(82, 35, 38, 1));                                     // onPress: rokbot.3 no-op
+    emit(ins(OPX.Call3, 35, 37, 1, 36, 35));                      // jsx(InsetGroupNavRow, props)
+    emit(ins(90, 40, 35, index));
+  });
+  emit(ins(OPX.NewObjectWithBufferLong, 32, u32le(10320), u32le(114747)));
+  emit(sid[BRAND_NAME] < 65536
+    ? ins(OPX.LoadConstString, 39, u16le(sid[BRAND_NAME]))
+    : ins(OPX.LoadConstStringLongIndex, 39, u32le(sid[BRAND_NAME])));
+  emit(ins(82, 32, 39, 0));                                       // header: 'rokbot'
+  emit(ins(82, 32, 40, 1));                                       // children
+  emit(ins(59 /* LoadFromEnvironment */, 34, 6, 42));
+  emit(ins(OPX.GetByIdShort, 34, 34, 45, sid.jsxs));
+  emit(ins(OPX.Call3, 19, 34, 1, 33, 32));                        // r19 = jsxs(InsetGroup, props)
+  emit(jmpLongTo(3819));
+  const block = Buffer.concat(code);
+  block.writeInt32LE(zh - zhJump, zhJump - MENU_CAVE + 1);
+  block.writeInt32LE(rows - enJump, enJump - MENU_CAVE + 1);
+  if (MENU_CAVE + block.length > MENU_CAVE_END) return skip(`menu block does not fit (${block.length} bytes)`);
+
+  const edits = [];
+  const write = (label, abs, bytes) => { bytes.copy(buf, abs); edits.push(label); };
+  write('settings: rokbot section rows in the dead link-group block', S(MENU_CAVE), block);
+  write('settings: feedback group -> rokbot section', S(3809), Buffer.concat([
+    ins(OPX.JmpLong, i32le(MENU_CAVE - 3809)), Buffer.alloc(5, OP.AsyncBreakCheck),
+  ]));
+  const sha1 = crypto.createHash('sha1').update(buf.subarray(0, buf.length - 20)).digest();
+  sha1.copy(buf, buf.length - 20);
+  return { buffer: buf, applied: true, reason: 'rokbot section in the first settings level', edits, size: block.length };
+}
+
 /**
  * Byte edits that switch the sidebar ordering to "last message first". They
  * are not applied at build time: the companion applies them while generating
@@ -1122,10 +1313,15 @@ export function rebrandPinnedHermesResources(pinned) {
   const unpairedConn = applyConnectionEntry(unpaired.buffer);
   const templateConn = applyConnectionEntry(template.buffer);
   const connApplied = unpairedConn.applied && templateConn.applied;
-  const unpairedOut = connApplied ? unpairedConn.buffer : unpaired.buffer;
+  // rokbot.5: the rokbot section (both bundles or neither, so paired and unpaired sheets match).
+  const unpairedMenu = connApplied ? applySettingsMenu(unpairedConn.buffer) : { applied: false, reason: 'connection entry not applied', edits: [] };
+  const templateMenu = connApplied ? applySettingsMenu(templateConn.buffer) : { applied: false, reason: 'connection entry not applied', edits: [] };
+  const menuApplied = unpairedMenu.applied && templateMenu.applied;
+  const unpairedOut = connApplied ? (menuApplied ? unpairedMenu.buffer : unpairedConn.buffer) : unpaired.buffer;
+  const templateBase = menuApplied ? templateMenu.buffer : templateConn.buffer;
   // The header bell only matters in the paired bundle (generated from the template).
-  const templateBell = connApplied ? applyHomeBarBell(templateConn.buffer) : { applied: false, reason: 'connection entry not applied', edits: [] };
-  const templateOut = connApplied ? (templateBell.applied ? templateBell.buffer : templateConn.buffer) : template.buffer;
+  const templateBell = connApplied ? applyHomeBarBell(templateBase) : { applied: false, reason: 'connection entry not applied', edits: [] };
+  const templateOut = connApplied ? (templateBell.applied ? templateBell.buffer : templateBase) : template.buffer;
   const sortEdits = connApplied ? listSortEdits(templateOut) : null;
   const groupEdits = sortEdits ? listGroupEdits(templateOut) : null;
 
@@ -1160,6 +1356,11 @@ export function rebrandPinnedHermesResources(pinned) {
         applied: connApplied,
         reason: connApplied ? unpairedConn.reason : (unpairedConn.applied ? `gateway-template: ${templateConn.reason}` : `unpaired: ${unpairedConn.reason}`),
         edits: connApplied ? unpairedConn.edits : [],
+      },
+      settingsMenu: {
+        applied: menuApplied,
+        reason: menuApplied ? unpairedMenu.reason : (unpairedMenu.applied ? `gateway-template: ${templateMenu.reason}` : `unpaired: ${unpairedMenu.reason}`),
+        edits: menuApplied ? unpairedMenu.edits : [],
       },
       homeBell: { applied: templateBell.applied, reason: templateBell.reason, edits: templateBell.edits },
       listSort: { available: Boolean(sortEdits), edits: sortEdits ? sortEdits.length : 0, groups: Boolean(groupEdits) },

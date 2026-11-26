@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { patchHermesBundleSafely, synthesizeHermesBytecode } from '../patchers/hermes.mjs';
 import {
-  applyConnectionEntry, applyHomeBarBell, applyListSortEdits, applySettingsRebrand, listSortEdits, rebrandPinnedHermesResources,
+  applyConnectionEntry, applyHomeBarBell, applyListSortEdits, applySettingsMenu, applySettingsRebrand, listSortEdits,
+  rebrandPinnedHermesResources,
 } from '../patchers/hermes-settings.mjs';
 import { entryBytes, readZip } from '../patchers/signing.mjs';
 
@@ -78,8 +79,12 @@ test(
     // rokbot.3: the shipped unpaired bundle is the rebrand + the Connection & Diagnostics row.
     const withConnection = applyConnectionEntry(rebrandOnly.buffer);
     assert.equal(withConnection.applied, true, withConnection.reason);
-    assert.ok(unpaired.buffer.equals(withConnection.buffer), 'unpaired = rebrand + connection entry (no header bell)');
+    // rokbot.5: + the rokbot section (settings-menu.test.mjs).
+    const withMenu = applySettingsMenu(withConnection.buffer);
+    assert.equal(withMenu.applied, true, withMenu.reason);
+    assert.ok(unpaired.buffer.equals(withMenu.buffer), 'unpaired = rebrand + connection entry + rokbot section (no header bell)');
     assert.equal(unpaired.settingsRebrand.connectionEntry.applied, true);
+    assert.equal(unpaired.settingsRebrand.settingsMenu.applied, true);
     const footer = unpaired.buffer.length - 20;
     assert.deepEqual(diffRanges(plain.buffer, rebrandOnly.buffer), [
       [1556812, 3], // string table entry '6YgCQb' -> "rokbot" bytes
@@ -123,7 +128,7 @@ test(
     // rokbot.3b header bell: only the template carries it; exactly SearchButton + HomeScreen +7489 change.
     assert.equal(paired.settingsRebrand.homeBell.applied, true, paired.settingsRebrand.homeBell.reason);
     assert.equal(paired.settingsRebrand.homeBell.edits.length, 2);
-    const templateConn = applyConnectionEntry(applySettingsRebrand(plain.gatewayTemplateHbc).buffer).buffer;
+    const templateConn = applySettingsMenu(applyConnectionEntry(applySettingsRebrand(plain.gatewayTemplateHbc).buffer).buffer).buffer;
     const bellRanges = diffRanges(templateConn, paired.gatewayTemplateHbc);
     assert.equal(bellRanges.length, 3, JSON.stringify(bellRanges));
     assert.deepEqual(bellRanges[2], [paired.gatewayTemplateHbc.length - 20, 20]);

@@ -1453,6 +1453,10 @@ public class VerifyHarness {
         check(RokBotBootstrap.resolveNativeTargetForLabel("Bot 电脑") == ComputersActivity.class, "Bot 电脑");
         check(RokBotBootstrap.resolveNativeTargetForLabel("Usage") == UsageActivity.class, "Usage");
         check(RokBotBootstrap.resolveNativeTargetForLabel("用量") == UsageActivity.class, "用量");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("模型配置") == ModelsActivity.class, "模型配置");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Model Settings") == ModelsActivity.class, "Model Settings");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("检查更新") == UpdateActivity.class, "检查更新");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Software Update") == UpdateActivity.class, "Software Update");
         check(RokBotBootstrap.resolveNativeTargetForLabel("消息") == null, "Bots list stays in RN");
         check(RokBotBootstrap.resolveNativeTargetForLabel("Bots") == null, "Bots stays in RN");
         check(RokBotBootstrap.resolveNativeTargetForLabel("连接器") == null, "Connectors stay in RN");
@@ -2581,7 +2585,9 @@ public class VerifyR3Harness {
         check(cachedProfile != null && "IKUN".equals(cachedProfile.optString("displayName", "")), "HostProfile.apply must persist profileCache");
         scanViewsM.invoke(null, reactAct, profileCard);
         check("IKUN".equals(String.valueOf(profileTitle.getText())), "Account title must show Host displayName: " + profileTitle.getText());
-        check("Grok Bot Host".equals(String.valueOf(profileSub.getText())), "Account subtitle must show Host hostName: " + profileSub.getText());
+        // rokbot.5: a Host still named after the old brand is shown with the rokbot name (display only).
+        check("RokBot Host".equals(String.valueOf(profileSub.getText())), "Account subtitle must show Host hostName (rebranded): " + profileSub.getText());
+        check("Grok Bot Host".equals(Storage.getProfileCache(app).optString("hostName", "")), "Stored profile keeps the Host's own hostName");
         check(resolveViewM.invoke(null, reactAct, profileTitle) == ProfileActivity.class, "Rewritten account row must still open ProfileActivity");
         org.json.JSONObject renamed = new org.json.JSONObject();
         renamed.put("displayName", "Xiaobai");
@@ -2686,6 +2692,29 @@ public class VerifyR3Harness {
         check(resolveViewM.invoke(null, reactAct, usageTxt) == UsageActivity.class, "Usage, 12% comma-prefix with SVG <= 32 nodes must open UsageActivity");
         Object hitUsage = findAtPointM.invoke(null, reactAct, usageCard, 50f, 230f);
         check(hitUsage != null && hitTargetF.get(hitUsage) == UsageActivity.class, "Point hit on Usage card with SVG nodes must target UsageActivity");
+
+        // 7b) rokbot.5 settings rows (InsetGroupNavRow, full width) -> ModelsActivity / UpdateActivity;
+        //     the same words on a small control stay in RN.
+        FakeViewGroup modelsRow = new FakeViewGroup();
+        modelsRow.leftPx = 45; modelsRow.topPx = 1400; modelsRow.wPx = 990; modelsRow.hPx = 132; modelsRow.clickable = true; modelsRow.res = res;
+        FakeTextView modelsTxt = new FakeTextView();
+        modelsTxt.leftPx = 92; modelsTxt.topPx = 1437; modelsTxt.wPx = 300; modelsTxt.hPx = 58; modelsTxt.text = "模型配置";
+        modelsRow.addMockChild(modelsTxt);
+        check(resolveViewM.invoke(null, reactAct, modelsTxt) == ModelsActivity.class, "模型配置 settings row must open ModelsActivity");
+        FakeViewGroup updateRow = new FakeViewGroup();
+        updateRow.leftPx = 45; updateRow.topPx = 1532; updateRow.wPx = 990; updateRow.hPx = 132; updateRow.clickable = true; updateRow.res = res;
+        FakeTextView updateTxt = new FakeTextView();
+        updateTxt.leftPx = 92; updateTxt.topPx = 1569; updateTxt.wPx = 360; updateTxt.hPx = 58; updateTxt.text = "Software Update";
+        updateRow.addMockChild(updateTxt);
+        check(resolveViewM.invoke(null, reactAct, updateTxt) == UpdateActivity.class, "Software Update settings row must open UpdateActivity");
+        Object hitUpdate = findAtPointM.invoke(null, reactAct, updateRow, 600f, 1600f);
+        check(hitUpdate != null && hitTargetF.get(hitUpdate) == UpdateActivity.class, "Tap anywhere on the Software Update row must target UpdateActivity");
+        FakeViewGroup smallPill = new FakeViewGroup();
+        smallPill.wPx = 260; smallPill.hPx = 96; smallPill.clickable = true; smallPill.res = res;
+        FakeTextView smallTxt = new FakeTextView();
+        smallTxt.wPx = 200; smallTxt.hPx = 48; smallTxt.text = "检查更新";
+        smallPill.addMockChild(smallTxt);
+        check(resolveViewM.invoke(null, reactAct, smallTxt) == null, "Small 检查更新 control must stay in RN");
 
         // 8) SidebarIdentityBar ("Connect apps" / "Update to latest version") exclusion
         FakeViewGroup sidebarAppsCard = new FakeViewGroup();
