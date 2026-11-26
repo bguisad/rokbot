@@ -2015,38 +2015,34 @@ public class RokBotBootstrap {
 
     private static void showNewChatChooser(Activity activity, Window.Callback origCallback, float rawX, float rawY) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
-        final String[] options = new String[] {
-                Localize.t(activity, "新建 Bot", "New Bot"),
-                Localize.t(activity, "新建群组", "New Group"),
-        };
         try {
-            new android.app.AlertDialog.Builder(activity)
-                    .setTitle(Localize.t(activity, "新建", "Create"))
-                    .setItems(options, (dialog, which) -> {
-                        if (which == 0) {
-                            sBypassNewChatUntilMs = android.os.SystemClock.uptimeMillis() + 1800L;
-                            getMainHandler().postDelayed(() -> {
-                                if (activity.isFinishing() || activity.isDestroyed() || origCallback == null) return;
-                                try {
-                                    long now = android.os.SystemClock.uptimeMillis();
-                                    MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, rawX, rawY, 0);
-                                    MotionEvent up = MotionEvent.obtain(now, now + 35L, MotionEvent.ACTION_UP, rawX, rawY, 0);
-                                    origCallback.dispatchTouchEvent(down);
-                                    origCallback.dispatchTouchEvent(up);
-                                    down.recycle();
-                                    up.recycle();
-                                } catch (Throwable ignored) {}
-                            }, 80L);
-                        } else if (which == 1) {
-                            try {
-                                activity.startActivity(new Intent(activity, CreateGroupActivity.class));
-                            } catch (Throwable t) {
-                                android.util.Log.w("RokBotBootstrap", "Failed to open CreateGroupActivity", t);
-                            }
-                        }
-                    })
-                    .setNegativeButton(Localize.t(activity, "取消", "Cancel"), null)
-                    .show();
+            NewChatChooserSheet.show(activity, new NewChatChooserSheet.Listener() {
+                @Override
+                public void onNewBot() {
+                    sBypassNewChatUntilMs = android.os.SystemClock.uptimeMillis() + 1800L;
+                    getMainHandler().postDelayed(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed() || origCallback == null) return;
+                        try {
+                            long now = android.os.SystemClock.uptimeMillis();
+                            MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, rawX, rawY, 0);
+                            MotionEvent up = MotionEvent.obtain(now, now + 35L, MotionEvent.ACTION_UP, rawX, rawY, 0);
+                            origCallback.dispatchTouchEvent(down);
+                            origCallback.dispatchTouchEvent(up);
+                            down.recycle();
+                            up.recycle();
+                        } catch (Throwable ignored) {}
+                    }, 80L);
+                }
+
+                @Override
+                public void onNewGroup() {
+                    try {
+                        activity.startActivity(new Intent(activity, CreateGroupActivity.class));
+                    } catch (Throwable t) {
+                        android.util.Log.w("RokBotBootstrap", "Failed to open CreateGroupActivity", t);
+                    }
+                }
+            });
         } catch (Throwable t) {
             android.util.Log.w("RokBotBootstrap", "showNewChatChooser failed", t);
         }

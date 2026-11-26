@@ -24,9 +24,22 @@ test('Android companion sources wire scenario models, per-Bot model routes, crea
   assert.ok(groupAct.includes('HostApiClient.createGroup'), 'CreateGroupActivity calls HostApiClient.createGroup');
   assert.ok(groupAct.includes('新建群组') && groupAct.includes('New Group'), 'CreateGroupActivity localized zh + en');
   assert.ok(groupAct.includes('RokBotBootstrap.openAgentFromDeepLink'), 'CreateGroupActivity opens created group');
+  assert.ok(groupAct.includes('UiChrome.styleEditText'), 'CreateGroupActivity styles EditTexts via UiChrome');
+  assert.ok(groupAct.includes('RokBotAvatars.makeView'), 'CreateGroupActivity uses RokBotAvatars for member rows');
+  assert.ok(groupAct.includes('CheckBadgeDrawable') && !groupAct.includes('new CheckBox('), 'CreateGroupActivity uses custom vector check badge instead of default CheckBox');
+
+  const chooserSheet = fs.readFileSync(path.join(SRC, 'NewChatChooserSheet.java'), 'utf8');
+  assert.ok(chooserSheet.includes('create_chooser_sheet'), 'NewChatChooserSheet renders custom bottom sheet');
+  assert.ok(chooserSheet.includes('create_chooser_handle'), 'NewChatChooserSheet includes drag handle');
+  assert.ok(chooserSheet.includes('SheetIconDrawable'), 'NewChatChooserSheet draws vector icons');
+  assert.ok(chooserSheet.includes('新建 Bot') && chooserSheet.includes('New Bot'), 'NewChatChooserSheet localized New Bot');
+  assert.ok(chooserSheet.includes('新建群组') && chooserSheet.includes('New Group'), 'NewChatChooserSheet localized New Group');
+  assert.ok(!chooserSheet.includes('AlertDialog'), 'NewChatChooserSheet does not use system AlertDialog');
+  assert.ok(!chooserSheet.includes('setNegativeButton'), 'NewChatChooserSheet has no separate Cancel button');
 
   const boot = fs.readFileSync(path.join(SRC, 'RokBotBootstrap.java'), 'utf8');
   assert.ok(boot.includes('matchesNewChatButtonLabel'), 'RokBotBootstrap intercepts + button');
+  assert.ok(boot.includes('NewChatChooserSheet.show'), 'RokBotBootstrap opens NewChatChooserSheet');
   assert.ok(boot.includes('CreateGroupActivity.class'), 'RokBotBootstrap launches CreateGroupActivity');
   assert.ok(boot.includes('ComposerSuggestionsOverlay.onReactResumed'), 'RokBotBootstrap wires ComposerSuggestionsOverlay');
   assert.ok(boot.includes('BotProfileModelOverlay.onReactResumed'), 'RokBotBootstrap wires BotProfileModelOverlay');
