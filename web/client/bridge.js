@@ -13,6 +13,7 @@ import { boot as androidBoot, native, log, timeout } from './native.js';
 import { createGateway } from './gateway.js';
 import { installWebviewFrames } from './webview.js';
 import { installLayoutFixes, computerStageOpen, phoneBack, showConversation } from './layout.js';
+import { installComposerSuggestions } from './suggestions.js';
 import { installAnchorFallback } from './anchor-fallback.js';
 import { rokText } from './desktop/i18n.mjs';
 import { createModelBridge } from './desktop/model-bridge.mjs';
@@ -320,6 +321,7 @@ globalThis.__rokbotProfile = Object.freeze({
   getAutomations: id => gateway.command('getAgentAutomations', { id }),
 });
 installLayoutFixes();
+installComposerSuggestions({ request: gateway.request, locale });
 if (anchorFallback) log(`[webview] CSS anchor positioning fallback active (${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'unknown'})`);
 
 // ---- Android shell events and the back gesture --------------------------------------------
