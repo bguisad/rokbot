@@ -462,3 +462,95 @@ export function findResourceId(arscBuf, typeName, entryName) {
 export function findMipmapResourceId(arscBuf, entryName) {
   return findResourceId(arscBuf, 'mipmap', entryName);
 }
+
+/**
+ * Rewrites every configuration of the color resource `entryName` (e.g. 'iconBackground') in place
+ * to the ARGB value `argb`. Only simple TYPE_INT_COLOR_* values are touched; the table layout and
+ * size are unchanged. Returns { buffer, patched } where buffer is a patched copy (or the input when
+ * nothing matched).
+ */
+export function setColorResourceValue(arscBuf, entryName, argb) {
+  if (!Buffer.isBuffer(arscBuf) || arscBuf.length < 12 || !entryName) return { buffer: arscBuf, patched: 0 };
+  const out = Buffer.from(arscBuf);
+  let patched = 0;
+  try {
+    if (out.readUInt16LE(0) !== RES_TABLE_TYPE) return { buffer: arscBuf, patched: 0 };
+    let pos = out.readUInt16LE(2);
+    while (pos + 8 <= out.length) {
+      const ct = out.readUInt16LE(pos);
+      const csz = out.readUInt32LE(pos + 4);
+      if (csz < 8) break;
+      if (ct === RES_TABLE_PACKAGE_TYPE) {
+        const pkgBuf = out.subarray(pos, pos + csz);
+        const typeStrings = parseResStringPool(pkgBuf, pkgBuf.readUInt32LE(268));
+        const keyStrings = parseResStringPool(pkgBuf, pkgBuf.readUInt32LE(276));
+        const colorTid = typeStrings.strings.indexOf('color') + 1;
+        const keyIdx = keyStrings.strings.indexOf(entryName);
+        if (colorTid > 0 && keyIdx >= 0) {
+          let p = pkgBuf.readUInt16LE(2);
+          while (p + 8 <= pkgBuf.length) {
+            const t = pkgBuf.readUInt16LE(p);
+            const sz = pkgBuf.readUInt32LE(p + 4);
+            if (sz < 8) break;
+            if (t === RES_TABLE_TYPE_TYPE && pkgBuf[p + 8] === colorTid) {
+              patched += patchColorEntries(pkgBuf.subarray(p, p + sz), keyIdx, argb);
+            }
+            p += sz;
+          }
+        }
+      }
+      pos += csz;
+    }
+  } catch {
+    return { buffer: arscBuf, patched: 0 };
+  }
+  return patched > 0 ? { buffer: out, patched } : { buffer: arscBuf, patched: 0 };
+}
+
+function patchColorEntries(buf, keyIdx, argb) {
+  const chunkHeaderSize = buf.readUInt16LE(2);
+  const flags = buf[9];
+  const entryCount = buf.readUInt32LE(12);
+  const entriesStart = buf.readUInt32LE(16);
+  const isSparse = (flags & FLAG_SPARSE) !== 0;
+  const isOffset16 = (flags & FLAG_OFFSET16) !== 0;
+  let patched = 0;
+  for (let i = 0; i < entryCount; i++) {
+    let relOff;
+    if (isSparse) {
+      relOff = buf.readUInt16LE(chunkHeaderSize + i * 4 + 2) * 4;
+    } else if (isOffset16) {
+      const o16 = buf.readUInt16LE(chunkHeaderSize + i * 2);
+      if (o16 === 0xffff) continue;
+      relOff = o16 * 4;
+    } else {
+      relOff = buf.readUInt32LE(chunkHeaderSize + i * 4);
+      if (relOff === NO_ENTRY) continue;
+    }
+    const entryPos = entriesStart + relOff;
+    if (entryPos + 8 > buf.length) continue;
+    const sizeOrKey = buf.readUInt16LE(entryPos);
+    const entryFlags = buf.readUInt16LE(entryPos + 2);
+    if ((entryFlags & FLAG_COMPLEX) !== 0) continue;
+    let typePos;
+    let dataPos;
+    if ((entryFlags & FLAG_COMPACT) !== 0) {
+      // Compact entry: key in the size field, dataType in the high flag byte, data inline.
+      if (sizeOrKey !== keyIdx) continue;
+      typePos = entryPos + 3;
+      dataPos = entryPos + 4;
+    } else {
+      if (buf.readUInt32LE(entryPos + 4) !== keyIdx) continue;
+      const valuePos = entryPos + sizeOrKey; // Res_value follows the entry header
+      if (valuePos + 8 > buf.length) continue;
+      typePos = valuePos + 3;
+      dataPos = valuePos + 4;
+    }
+    const dataType = buf[typePos];
+    if (dataType < 0x1c || dataType > 0x1f) continue; // TYPE_INT_COLOR_ARGB8 .. RGB4
+    buf[typePos] = 0x1c;
+    buf.writeUInt32LE(argb >>> 0, dataPos);
+    patched++;
+  }
+  return patched;
+}

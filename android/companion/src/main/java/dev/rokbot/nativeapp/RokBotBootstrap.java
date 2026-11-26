@@ -157,6 +157,8 @@ public class RokBotBootstrap {
                 }
                 hookExpoClientsFromActivity(app, activity);
                 maybeAttachRnViewInterceptor(activity);
+                // Official app marks (Settings footer, launch / signed-out screens) -> RokBot logo.
+                if (isReactActivity(activity)) RokBotAppMarks.onReactResumed(activity);
                 if (isReactActivity(activity) && Storage.isPaired(activity)) {
                     // Returning from ProfileActivity or another app: repaint, then re-fetch.
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
@@ -173,6 +175,7 @@ public class RokBotBootstrap {
                     setViewingAgentId(null);
                     ListArrangement.onReactPaused(activity);
                     RokBotAvatarManager.onReactPaused(activity);
+                    RokBotAppMarks.onReactPaused(activity);
                 }
             }
 

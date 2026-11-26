@@ -1,9 +1,13 @@
 .loading { display: grid; place-items: center; min-height: 100dvh; color: var(--sand-text-tertiary); font: var(--text-body2); }
 
 .brand-mark { width: 28px; height: 28px; flex: none; }
-.brand-mark .brand-face { fill: var(--sand-bg-primary); }
-.brand-mark .brand-eye { fill: var(--sand-text-inverted); }
-.brand-mark .brand-accent { fill: var(--sand-bg-accent-primary); }
+/* The white-tile RokBot logo (assets/logo/rokbot-logo.svg): fixed brand colors in both themes. */
+.brand-mark .brand-tile-rim { fill: none; stroke: #fff; stroke-opacity: .9; stroke-width: 8; }
+/* A 1 px hairline at any size keeps the near-white tile visible on light sidebars. */
+.brand-mark .brand-tile-edge { fill: none; stroke: #0e4a5c; stroke-opacity: .22; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.brand-mark .brand-face { stroke: #303747; stroke-width: 20; stroke-linejoin: round; }
+.brand-mark .brand-eye { fill: #f5f5f4; }
+.brand-mark .brand-accent { fill: #38bdf8; }
 
 /* The column background continues the sidebar below the sticky panel on long pages. */
 .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100dvh; background: linear-gradient(to right, var(--sand-bg-sidebar) 232px, var(--sand-bg-pane) 232px); }

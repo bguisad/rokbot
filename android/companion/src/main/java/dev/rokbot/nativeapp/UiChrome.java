@@ -325,50 +325,13 @@ public final class UiChrome {
         return btn;
     }
 
+    /** The white-tile RokBot logo (assets/logo/rokbot-logo.svg), drawn as vectors at any size. */
     public static ImageView makeRokLogoView(Context context, int sizeDp, final Palette p) {
         final int size = dp(context, sizeDp);
         ImageView view = new ImageView(context);
         view.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        view.setImageDrawable(new Drawable() {
-            @Override
-            public void draw(Canvas canvas) {
-                float w = getBounds().width();
-                float h = getBounds().height();
-                if (w <= 0 || h <= 0) return;
-                Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-                bg.setColor(p.dark ? Color.parseColor("#1B202C") : Color.parseColor("#181C26"));
-                float rad = w * 0.26f;
-                canvas.drawRoundRect(new RectF(0, 0, w, h), rad, rad, bg);
-
-                Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
-                border.setStyle(Paint.Style.STROKE);
-                border.setStrokeWidth(Math.max(1.5f, w * 0.03f));
-                border.setColor(Color.parseColor("#4A556B"));
-                canvas.drawRoundRect(new RectF(w * 0.02f, h * 0.02f, w * 0.98f, h * 0.98f), rad, rad, border);
-
-                // RokBot tilted eyes + cyan status node
-                Paint eyes = new Paint(Paint.ANTI_ALIAS_FLAG);
-                eyes.setColor(Color.parseColor("#F5F5F4"));
-                canvas.save();
-                canvas.rotate(-26f, w * 0.37f, h * 0.56f);
-                canvas.drawRoundRect(new RectF(w * 0.30f, h * 0.40f, w * 0.44f, h * 0.72f), w * 0.07f, w * 0.07f, eyes);
-                canvas.restore();
-                canvas.save();
-                canvas.rotate(-26f, w * 0.63f, h * 0.50f);
-                canvas.drawRoundRect(new RectF(w * 0.56f, h * 0.37f, w * 0.70f, h * 0.63f), w * 0.07f, w * 0.07f, eyes);
-                canvas.restore();
-
-                Paint accent = new Paint(Paint.ANTI_ALIAS_FLAG);
-                accent.setColor(Color.parseColor("#38BDF8"));
-                canvas.drawCircle(w * 0.75f, h * 0.16f, w * 0.055f, accent);
-            }
-
-            @Override public void setAlpha(int alpha) {}
-            @Override public void setColorFilter(ColorFilter colorFilter) {}
-            @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
-            @Override public int getIntrinsicWidth() { return size; }
-            @Override public int getIntrinsicHeight() { return size; }
-        });
+        view.setImageDrawable(new RokBotLogo.LogoDrawable(size));
+        view.setContentDescription("RokBot");
         return view;
     }
 
