@@ -282,7 +282,16 @@ export function specForTarget(target = 'windows') {
     edit(chunks.eagerApp, [
       { prepend: I18N },
       { replace: 'let f;e[5]===Symbol.for(`react.memo_cache_sentinel`)?(f=(0,Z.jsx)(bXr,{}),e[5]=f):f=e[5];',
-        text: 'let f=(0,Z.jsxs)(Z.Fragment,{children:[(0,Z.jsx)(bXr,{}),(0,Z.jsx)(RokNeedsModelBanner,{}),(0,Z.jsx)(RokModelConfigHost,{})]});' },
+        text: 'let f=(0,Z.jsxs)(Z.Fragment,{children:[(0,Z.jsx)(bXr,{}),(0,Z.jsx)(RokNeedsModelBanner,{}),(0,Z.jsx)(RokModelConfigHost,{}),(0,Z.jsx)(RokBatchImageHost,{})]});' },
+      // Multi-select batch image download: track resolved images per conversation and add Media Viewer batch button.
+      { replace: 'resolveMedia:(n,r)=>e.desktop.resolveAttachmentMedia({...n,...t?{inRoom:t}:{},viewSlot:e.accountSlot},r)',
+        text: 'resolveMedia:(n,r)=>rokTrackResolvedMedia(n,e.desktop.resolveAttachmentMedia({...n,...t?{inRoom:t}:{},viewSlot:e.accountSlot},r))' },
+      { replace: 'await e.desktop.setViewingAgent({agentId:r,',
+        text: 'rokSetActiveAgentId(r),await e.desktop.setViewingAgent({agentId:r,' },
+      { replace: '(0,BS.createPortal)((0,Z.jsxs)(Z.Fragment,{children:[Ht,Bt]}),g.actionsSlot)',
+        text: '(0,BS.createPortal)((0,Z.jsxs)(Z.Fragment,{children:[Ht,(0,Z.jsx)(RokMediaViewerBatchButton,{sources:n,captions:r,embedded:!0}),Bt]}),g.actionsSlot)' },
+      { replace: 'children:[Bt,(0,Z.jsx)(IC,{"aria-label":p({id:`bpMYYF`}),className:`sand-media-viewer__close`',
+        text: 'children:[(0,Z.jsx)(RokMediaViewerBatchButton,{sources:n,captions:r,embedded:!1}),Bt,(0,Z.jsx)(IC,{"aria-label":p({id:`bpMYYF`}),className:`sand-media-viewer__close`' },
       { replace: 'VU={FEATURED:{id:`FkMol5`},', text: 'VU={HOST:{id:`Host`,message:`Host`},FEATURED:{id:`FkMol5`},' },
       // Account menu: connection settings instead of adding a cloud account; no mobile app offer.
       { replace: '(et=(0,Z.jsxs)(Rw.Section,{children:[Ye,Xe,$e]}),', text: '(et=(0,Z.jsxs)(Rw.Section,{children:[Xe,$e]}),' },
@@ -361,6 +370,7 @@ export function specForTarget(target = 'windows') {
       { append: extension('eager-app.js') },
       { append: extension('list-arrangement.js') },
       { append: extension('avatar-style.js') },
+      { append: extension('batch-image-download.js') },
     ]),
 
     // The render-trace hook installs a React DevTools stub for the vendor's render sampling.
