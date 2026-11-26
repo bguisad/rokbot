@@ -528,6 +528,22 @@ export function localAutoReviewOptions({ tm, session, autoReviewExt, settingsExt
   };
 }
 
+/**
+ * Desktop surface of the forever-box (computerUse subagent, Screenshot/Computer, browser handoff,
+ * RequestUserForm). Upstream SandAgentRunner defaults `remoteBoxHasDesktop ?? false`, so the host
+ * must opt in explicitly. The rokbot box image ships a desktop; ROKBOT_REMOTE_BOX_DESKTOP=0 disables it.
+ */
+export function remoteBoxDesktopOptions(remoteBox, env = process.env) {
+  const override = String(env.ROKBOT_REMOTE_BOX_DESKTOP ?? '').trim().toLowerCase();
+  const disabled = ['0', 'false', 'off', 'no'].includes(override);
+  const hasDesktop = Boolean(remoteBox) && !disabled;
+  return {
+    remoteBoxHasDesktop: hasDesktop,
+    // Must be synchronous; the forever-box HostBox exposes no sync probe, so presence is availability.
+    getRemoteBoxAvailable: () => Boolean(remoteBox),
+  };
+}
+
 export function createRunnerForSession(library, tm, session, { extensions, emitGatewayEvent } = {}) {
   const RunnerClass = withLocalLibraryRunner(library.SandAgentRunner, library);
   const extApi = (id) => extensions?.(id);
@@ -671,6 +687,7 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     inference: inferenceExt?.port,
     box,
     remoteBox,
+    ...remoteBoxDesktopOptions(remoteBox),
     userComputers: localExecExt?.userComputers,
     rejectUnknownMachineIds: Boolean(localExecExt?.userComputers),
     mcp: mcpExt?.mcp,
