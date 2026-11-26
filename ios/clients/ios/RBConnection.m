@@ -1,4 +1,5 @@
 #import "RBConnection.h"
+#import "RBAvatarStyle.h"
 #import "RBDeviceIdentity.h"
 #import "RBModels.h"
 #import "RBUpdater.h"
@@ -327,6 +328,17 @@ static UIViewController *RBTop(void) {
     [modelsButton.heightAnchor constraintEqualToConstant:50].active = YES;
     [modelsButton addTarget:self action:@selector(openModels) forControlEvents:UIControlEventTouchUpInside];
     [stack addArrangedSubview:modelsButton];
+    UIButton *avatarStyleButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *avatarConfig = UIButtonConfiguration.tintedButtonConfiguration;
+    avatarConfig.title = RBL(@"Bot 动态图标", @"Bot Avatar Style");
+    avatarConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    avatarConfig.baseForegroundColor = UIColor.labelColor;
+    avatarConfig.baseBackgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    avatarStyleButton.configuration = avatarConfig;
+    avatarStyleButton.accessibilityIdentifier = @"rokbot.host.avatar-style";
+    [avatarStyleButton.heightAnchor constraintEqualToConstant:50].active = YES;
+    [avatarStyleButton addTarget:self action:@selector(openAvatarStyle) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:avatarStyleButton];
     UIButton *updatesButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *updatesConfig = UIButtonConfiguration.tintedButtonConfiguration;
     updatesConfig.title = RBL(@"检查更新", @"Check for Updates");
@@ -405,6 +417,7 @@ static UIViewController *RBTop(void) {
   self.status.textColor = UIColor.secondaryLabelColor; [stack addArrangedSubview:self.status];
 }
 - (void)openModels { RBShowModelsFrom(self); }
+- (void)openAvatarStyle { RBShowAvatarStyleFrom(self); }
 - (void)openUpdater { RBShowUpdaterFrom(self); }
 - (void)authModeChanged {
   BOOL passwordMode = (self.authMode.selectedSegmentIndex == 1);

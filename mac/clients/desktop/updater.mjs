@@ -81,6 +81,23 @@ export function validUpdateUrl(raw, { allowOrigin } = {}) {
   return parsed.href.replace(/\/+$/, '');
 }
 
+const DESKTOP_FEED_SUFFIX_RE = /\/((?:macos|windows|darwin-arm64|darwin-x64|win32-x64)(?:-[a-z0-9_-]+)?\.json)$/i;
+
+export function normalizeDesktopUpdateUrl(rawUrl, explicitFeedFile = null) {
+  const clean = String(rawUrl ?? '').trim().replace(/\/+$/, '');
+  const match = DESKTOP_FEED_SUFFIX_RE.exec(clean);
+  if (match) {
+    return {
+      baseUpdateUrl: clean.slice(0, -match[0].length),
+      feedFile: explicitFeedFile || match[1],
+    };
+  }
+  return {
+    baseUpdateUrl: clean,
+    feedFile: explicitFeedFile || null,
+  };
+}
+
 function resolveManifestUrl(rawUrl, feedUrl, allowOrigin) {
   if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
   const trimmed = rawUrl.trim();
@@ -571,18 +588,20 @@ export function createDesktopUpdater({
       emit({ type: 'checking' });
       try {
         const baseFeedName = activeTrack === 'stable' ? `${platformId}.json` : `${platformId}-${activeTrack}.json`;
-        const primaryFeedName = config.feedFile
+        const normalizedUrl = normalizeDesktopUpdateUrl(config.updateUrl, config.feedFile);
+        const configuredFeed = normalizedUrl.feedFile;
+        const primaryFeedName = configuredFeed
           ? (activeTrack === 'stable'
-              ? config.feedFile
-              : config.feedFile.endsWith('.json')
-                ? `${config.feedFile.slice(0, -5)}-${activeTrack}.json`
-                : `${config.feedFile}-${activeTrack}.json`)
+              ? configuredFeed
+              : configuredFeed.endsWith('.json')
+                ? `${configuredFeed.slice(0, -5)}-${activeTrack}.json`
+                : `${configuredFeed}-${activeTrack}.json`)
           : baseFeedName;
-        const baseUpdateUrl = config.updateUrl.replace(/\/+$/, '');
+        const baseUpdateUrl = normalizedUrl.baseUpdateUrl;
         let feedUrl = `${baseUpdateUrl}/${primaryFeedName}?t=${Date.now()}`;
         let res = await fetchImpl(feedUrl, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
         if (!isCurrentGen()) return status();
-        if (res.status === 404 && config.feedFile && primaryFeedName !== baseFeedName) {
+        if (res.status === 404 && configuredFeed && primaryFeedName !== baseFeedName) {
           await res.body?.cancel?.().catch(() => {});
           feedUrl = `${baseUpdateUrl}/${baseFeedName}?t=${Date.now()}`;
           res = await fetchImpl(feedUrl, { cache: 'no-store', signal: AbortSignal.timeout(20000) });

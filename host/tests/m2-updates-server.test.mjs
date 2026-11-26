@@ -799,6 +799,17 @@ test('Iteration 3 regressions: DELETE symlinked parent/leaf preservation, upload
     assert.equal(dlAsar.status, 200);
     assert.ok(Buffer.from(await dlAsar.arrayBuffer()).equals(asarOrig));
 
+    // Legacy desktop clients configured with .../macos.json or .../windows.json must still resolve the feed.
+    const directFeed = await fetch(`${origin}/local/updates/win32-x64.json`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    });
+    assert.equal(directFeed.status, 200);
+    const legacyNestedFeed = await fetch(`${origin}/local/updates/windows.json/win32-x64.json`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    });
+    assert.equal(legacyNestedFeed.status, 200);
+    assert.equal((await legacyNestedFeed.json()).version, '1.0.0');
+
     // iOS tokenized altstore.json + public altstore.json
     const ipa1 = randomBytes(1024);
     const ipa2 = randomBytes(1536);

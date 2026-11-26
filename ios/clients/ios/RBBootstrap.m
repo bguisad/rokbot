@@ -1,4 +1,5 @@
 #import "RBComputers.h"
+#import "RBAvatarStyle.h"
 #import "RBConnection.h"
 #import "RBAppIntents.h"
 #import "RBLibrary.h"
@@ -880,10 +881,11 @@ typedef NS_ENUM(NSInteger, RBLayoutKind) {
   RBLayoutKindEntry = 1,
   RBLayoutKindSwitch = 2,
   RBLayoutKindImage = 3,
+  RBLayoutKindAvatarSvg = 4,
 };
 static RBLayoutKind RBLayoutKindForClass(Class cls) {
   static CFMutableDictionaryRef cache;
-  static Class scrollClass, paragraphClass, textInputClass, switchClass, imageClass;
+  static Class scrollClass, paragraphClass, textInputClass, switchClass, imageClass, svgClass;
   static dispatch_once_t once;
   dispatch_once(&once, ^{
     cache = CFDictionaryCreateMutable(NULL, 32, NULL, NULL);
@@ -892,6 +894,7 @@ static RBLayoutKind RBLayoutKindForClass(Class cls) {
     textInputClass = NSClassFromString(@"RCTTextInputComponentView");
     switchClass = RBSwitchViewClass();
     imageClass = RBImageViewClass();
+    svgClass = NSClassFromString(@"RNSVGSvgView");
   });
   const void *key = (__bridge const void *)cls;
   const void *cached = NULL;
@@ -907,6 +910,8 @@ static RBLayoutKind RBLayoutKindForClass(Class cls) {
     kind = RBLayoutKindSwitch;
   } else if (imageClass && [cls isSubclassOfClass:imageClass]) {
     kind = RBLayoutKindImage;
+  } else if (svgClass && [cls isSubclassOfClass:svgClass]) {
+    kind = RBLayoutKindAvatarSvg;
   } else if ([NSStringFromClass(cls) hasPrefix:@"RNSVG"]) {
     kind = RBLayoutKindSkip;
   }
@@ -916,8 +921,7 @@ static RBLayoutKind RBLayoutKindForClass(Class cls) {
 static void RBLayout(id self, SEL selector) {
   ((void (*)(id, SEL))RBOriginalLayout)(self, selector);
   // Skip known expensive non-target Fabric subclasses (scroll views at 120Hz,
-  // text paragraphs, text inputs, RNSVG* avatar nodes) while still handling
-  // RCTViewComponentView and custom button/row subclasses on cold screen entry.
+  // text paragraphs, text inputs, RNSVG* child nodes) while handling RNSVGSvgView avatars.
   switch (RBLayoutKindForClass([self class])) {
     case RBLayoutKindSkip:
       break;
@@ -931,6 +935,9 @@ static void RBLayout(id self, SEL selector) {
       if (RBConnection.shared.isPaired)
         RBReplaceProfileView(self);
       break;
+    case RBLayoutKindAvatarSvg:
+      RBUpdateAvatarView(self);
+      break;
   }
 }
 static void RBRecycle(id self, SEL selector) {
@@ -938,6 +945,7 @@ static void RBRecycle(id self, SEL selector) {
     RBUntrackModifiedView(self);
     RBResetProfileView(self);
     RBResetPushView(self);
+    RBResetAvatarSuperview(self);
     if ([self accessibilityIdentifier] != nil)
       RBClearHostSettingsIdentifier(self);
     NSMutableArray<UIView *> *stale = nil;

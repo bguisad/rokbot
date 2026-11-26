@@ -163,6 +163,7 @@ public class RokBotBootstrap {
                     HostProfile.refresh(activity, false);
                     AppUpdater.onReactActivityResumed(activity);
                     ListArrangement.onReactResumed(activity);
+                    RokBotAvatarManager.onReactResumed(activity);
                 }
             }
 
@@ -171,6 +172,7 @@ public class RokBotBootstrap {
                 if (isReactActivity(activity)) {
                     setViewingAgentId(null);
                     ListArrangement.onReactPaused(activity);
+                    RokBotAvatarManager.onReactPaused(activity);
                 }
             }
 

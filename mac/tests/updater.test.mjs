@@ -493,4 +493,29 @@ test('updater & delta support rokbot-* schemas, RBD1 magic, rokbot-local-* confi
     updatePublicKey: spkiBase64,
   }));
   assert.equal((await loadDesktopUpdateConfig({ resourcesDir: resFallback })).updateUrl, 'https://legacy-patch.example/updates');
+
+  // Feed-suffixed updateUrl (e.g. .../local/updates/macos.json) normalizes cleanly without doubling .json segments.
+  const suffixProfile = path.join(dir, 'suffix-profile');
+  await mkdir(suffixProfile, { recursive: true });
+  const requestedUrls = [];
+  const suffixUpdater = createDesktopUpdater({
+    appVersion: '1.2.3-rokbot.5',
+    platformId: 'darwin-arm64',
+    profileDir: suffixProfile,
+    config: {
+      updateUrl: 'https://updates.example/local/updates/macos.json',
+      updatePublicKey: spkiBase64,
+    },
+    fetchImpl: async url => {
+      requestedUrls.push(url);
+      if (url.includes('/local/updates/macos.json?')) {
+        return new Response(JSON.stringify({ ...rokManifest, version: '1.2.3-rokbot.5', signature: sign('sha256', Buffer.from(canonicalDesktopPayload({ ...rokManifest, version: '1.2.3-rokbot.5' }), 'utf8'), privateKey).toString('base64') }), { status: 200 });
+      }
+      return new Response('Not Found', { status: 404 });
+    },
+  });
+  const checked = await suffixUpdater.check();
+  assert.equal(checked.state.lastCheck?.result, 'up-to-date');
+  assert.equal(requestedUrls.some(u => u.includes('/local/updates/macos.json?')), true);
+  assert.equal(requestedUrls.some(u => u.includes('.json/')), false);
 });
