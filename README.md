@@ -15,6 +15,16 @@
 </p>
 
 <p align="center">
+  <a href="docs/media/rokbot-promo.mp4">
+    <img src="docs/media/rokbot-promo-teaser.webp" width="800" alt="RokBot 宣传片预告动图：云电脑、多端接力、生图、语音对话、模型自选" />
+  </a>
+  <br />
+  <sub><a href="docs/media/rokbot-promo.mp4">观看完整宣传片（80 秒，带配音）</a></sub>
+</p>
+
+<!-- 用户可在 GitHub 网页编辑器中把 mp4 拖入此处，生成 user-attachments 链接后即可内嵌播放 -->
+
+<p align="center">
   <strong>简体中文</strong> ·
   <a href="README.en.md">English</a> ·
   <a href="#核心功能">核心功能</a> ·
@@ -24,13 +34,18 @@
   <a href="#常见问题">常见问题</a>
 </p>
 
-<p align="center">
-  <a href="docs/media/rokbot-promo.mp4">
-    <img src="docs/images/rokbot-promo-cover.jpg" width="820" alt="RokBot 产品介绍视频封面" />
-  </a>
-  <br />
-  <sub>点击封面观看产品介绍视频（MP4，720p，约 80 秒）</sub>
-</p>
+<div align="center">
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/rokbot-android-bot-list.png" width="210" alt="Android 会话列表：待处理、进行中、未读、已读四组" /><br /><sub>Bot 列表</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-image-generation.png" width="210" alt="和设计助手聊天，生成的图片直接发回对话" /><br /><sub>聊天与生图</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-bot-details.png" width="210" alt="Bot 详情：例行任务、资料库、Bot 的电脑和说明" /><br /><sub>Bot 的电脑与任务</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-approval-card.png" width="210" alt="Bot 要执行 git push 前弹出的审批卡片" /><br /><sub>审批卡片</sub></td>
+  </tr>
+</table>
+
+</div>
 
 ## 简介
 
@@ -121,15 +136,11 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
 
 ### Android 客户端
 
+会话列表、聊天、Bot 详情和审批卡片见页首，这里是其余界面。
+
 <table>
   <tr>
-    <td align="center"><img src="docs/images/rokbot-android-bot-list.png" width="190" alt="Android 会话列表：待处理、进行中、未读、已读四组" /><br /><sub>会话列表分组</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-question-card.png" width="190" alt="Android 对话中的选项问题卡片" /><br /><sub>问题卡片</sub></td>
-    <td align="center"><img src="docs/images/rokbot-android-approval-card.png" width="190" alt="Android 对话中等待确认的操作审批卡片" /><br /><sub>审批卡片</sub></td>
-    <td align="center"><img src="docs/images/rokbot-android-image-generation.png" width="190" alt="设计助手把生成的 16:9 图片发回对话" /><br /><sub>生成图片</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/rokbot-android-bot-details.png" width="190" alt="Bot 详情：例行任务、资料库、电脑和说明" /><br /><sub>Bot 详情</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-usage.png" width="190" alt="用量页：今日 Token、请求数、缓存命中率和按小时用量" /><br /><sub>用量</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-models.png" width="190" alt="模型设置：模型服务和模型档案" /><br /><sub>模型设置</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-settings.png" width="190" alt="设置页：用量、时区、Bot 电脑和通知" /><br /><sub>设置</sub></td>
