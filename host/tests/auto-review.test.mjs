@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AUTO_REVIEW_MODES_ENFORCE, AUTO_REVIEW_MODES_OFF, autoReviewModesFor, createApprovalRegistry,
-  createAutoReviewController, createLocalClassifier, startLocalAutoReview } from '../runtime/host-auto-review.mjs';
+  createAutoReviewController, createLocalClassifier, rokbotCardText, startLocalAutoReview } from '../runtime/host-auto-review.mjs';
 import { localAutoReviewOptions } from '../runtime/local-harness-bridge.mjs';
 
 const tool = { type: 'function', function: { name: 'classify', description: 'Classify the action',
@@ -119,6 +119,40 @@ test('a BLOCK the model escalates posts a native approval card and waits; approv
   assert.equal(controller.cardReasonFor({ toolCallId: 'call-1', fingerprint: 'fp-1' }), 'Deletes a directory tree');
   // A second answer to the same card is stale.
   assert.equal(registry.resolve({ requestId: card.approval.requestId, resolution: 'denied' }), false);
+});
+
+test('approval cards say RokBot, never "Grok Bot", in every text a person sees', async () => {
+  const { controller, posted, awaiting } = cardHarness();
+  const decision = controller.requestApproval(shellRequest({ surface: 'computer',
+    summary: 'Click \u201CSave\u201D on Grok Bot\'s computer',
+    reason: 'Grok Bot wants to send your files to an unknown site. Grok Bot will connect to it from your chats.',
+    cardReason: 'Grok Bot asks before it uploads files', actionDescription: 'Grok Bot uploads report.pdf',
+    cautionNote: 'Grok Bot can\'t undo this', blockedEffect: 'Grok Bot would share report.pdf',
+    command: 'curl --data @report.pdf https://example.test/grok-bot', fullRequest: '{"note":"Grok Bot"}' }));
+  await tick();
+  const { approval } = posted[0];
+  assert.equal(approval.summary, 'Click \u201CSave\u201D on RokBot\'s computer');
+  assert.equal(approval.reason, 'RokBot wants to send your files to an unknown site. RokBot will connect to it from your chats.');
+  for (const field of ['summary', 'reason', 'cardReason', 'actionDescription', 'cautionNote', 'blockedEffect']) {
+    assert.match(approval[field], /RokBot/, field);
+    assert.doesNotMatch(approval[field], /Grok Bot/, field);
+  }
+  assert.equal(awaiting.at(-1).reason, approval.summary, 'list badge / push show the RokBot summary');
+  assert.equal(controller.cardReasonFor({ toolCallId: 'call-1' }), approval.reason);
+  // What will run is shown as it is.
+  assert.equal(approval.command, 'curl --data @report.pdf https://example.test/grok-bot');
+  assert.equal(approval.fullRequest, '{"note":"Grok Bot"}');
+  controller.resolveApproval(approval.requestId, 'denied');
+  await decision;
+});
+
+test('rokbotCardText renames the product outside quoted user content only', () => {
+  assert.equal(rokbotCardText('Open \u201Chttps://x.test/Grok Bot\u201D in Grok Bot\'s browser'),
+    'Open \u201Chttps://x.test/Grok Bot\u201D in RokBot\'s browser');
+  assert.equal(rokbotCardText('Type \u201Chi Grok Bot\u201D on Grok Bot\'s computer, then Grok Bot presses Enter'),
+    'Type \u201Chi Grok Bot\u201D on RokBot\'s computer, then RokBot presses Enter');
+  assert.equal(rokbotCardText('Run rm -rf /tmp/x'), 'Run rm -rf /tmp/x');
+  assert.equal(rokbotCardText(undefined), undefined);
 });
 
 test('denying a card returns the refusal to the model and marks the card denied', async () => {

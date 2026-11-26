@@ -5,7 +5,7 @@ import { basename, extname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath } from 'node:url';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
 import { BackgroundRecovery, pendingWakeFilePath, resolveBackgroundRecoveryConfig } from './background-recovery.mjs';
-import { AUTO_REVIEW_AWAITING_TAB_ID, autoReviewModesFor } from './host-auto-review.mjs';
+import { AUTO_REVIEW_AWAITING_TAB_ID, autoReviewModesFor, rokbotCardText } from './host-auto-review.mjs';
 
 const patchedLibraries = new WeakSet();
 
@@ -924,7 +924,7 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
               agentId,
               tabId,
               approval.status === 'pending'
-                ? { tabId, reason: approval.summary ?? approval.reason ?? 'Approval needed', since: entry.timestampMs ?? Date.now() }
+                ? { tabId, reason: rokbotCardText(approval.summary ?? approval.reason ?? 'Approval needed'), since: entry.timestampMs ?? Date.now() }
                 : null,
             );
           }

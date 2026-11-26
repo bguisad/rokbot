@@ -214,6 +214,18 @@ const CARD_FIELDS = ['surface', 'summary', 'summaryCopy', 'reason', 'command', '
   'cardReason', 'classifierErrorKind', 'blockedEffect', 'proposedRule', 'proposedRuleReplaces', 'appliedRules', 'toolSetting',
   'connector', 'mcpToolName', 'toolCallId'];
 
+// The 2bb5e41 runner and classifier word their card texts for the official app ("Click Save on
+// Grok Bot's computer", "Grok Bot will connect to it ..."). People see these on the card, its list
+// badge and push, so name the product RokBot. Quoted user content (\u201C...\u201D, the runner's
+// quoting of URLs and typed text), the command and the full request stay as they are: they say
+// what will run.
+const CARD_TEXT_FIELDS = ['summary', 'reason', 'cardReason', 'actionDescription', 'cautionNote', 'blockedEffect'];
+const QUOTED = /(\u201C[^\u201D]*\u201D)/;
+export function rokbotCardText(text) {
+  if (typeof text !== 'string' || !text.includes('Grok Bot')) return text;
+  return text.split(QUOTED).map((part, i) => (i % 2 ? part : part.replace(/\bGrok Bot\b/g, 'RokBot'))).join('');
+}
+
 function cardApprovalOf(request, requestId, now, ttlMs) {
   const approval = { requestId, status: 'pending' };
   for (const field of CARD_FIELDS) {
@@ -221,6 +233,7 @@ function cardApprovalOf(request, requestId, now, ttlMs) {
     if (value === undefined || value === null || typeof value === 'function') continue;
     try { approval[field] = JSON.parse(JSON.stringify(value)); } catch { /* not plain data: leave it out */ }
   }
+  for (const field of CARD_TEXT_FIELDS) approval[field] = rokbotCardText(approval[field]);
   approval.summary = String(approval.summary ?? approval.command ?? 'Approve this action').slice(0, 500);
   approval.reason = String(approval.reason ?? 'Auto-review blocked this action.').slice(0, 2000);
   approval.createdAtMs = now;
