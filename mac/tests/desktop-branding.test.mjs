@@ -62,7 +62,8 @@ test('brand-assets applies Info.plist, wires RokBot icons into app.asar & bundle
     SUPublicEDKey: 'abc',
   });
   assert.equal(info.CFBundleIdentifier, 'dev.rokbot.local');
-  assert.equal(info.CFBundleName, 'RokBot');
+  // CFBundleName must stay aligned with Contents/Frameworks/Grok Bot Helper*.app.
+  assert.equal(info.CFBundleName, 'Grok Bot');
   assert.equal(info.CFBundleDisplayName, 'RokBot');
   assert.equal(info.CFBundleIconFile, 'icon.icns');
   assert.equal('CFBundleIconName' in info, false);

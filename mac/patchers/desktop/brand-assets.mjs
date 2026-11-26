@@ -34,7 +34,9 @@ export async function installBundleIcon({ outResources, icnsPath }) {
 
 export function applyRokBotInfoPlist(info) {
   info.CFBundleIdentifier = BUNDLE_IDENTIFIER;
-  info.CFBundleName = BUNDLE_NAME;
+  // Electron resolves Contents/Frameworks/<CFBundleName> Helper*.app on macOS;
+  // keep CFBundleName aligned with CFBundleExecutable / helper bundle names while
+  // CFBundleDisplayName and app.setName() rebrand user-facing surfaces.
   info.CFBundleDisplayName = BUNDLE_NAME;
   info.CFBundleIconFile = 'icon.icns';
   delete info.CFBundleIconName;
