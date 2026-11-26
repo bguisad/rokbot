@@ -157,9 +157,10 @@ test('avatar style: one source, preloaded at Application start, shared by every 
   const notif = read('NotificationService.java');
   assert.match(notif, /RokBotAvatars\.render\(context, look, size\)/, 'notification large icon uses the shared renderer');
   assert.match(read('ShareTargetActivity.java'), /RokBotAvatars\.makeView\(/, 'share sheet uses the shared view');
-  const pairing = read('PairingActivity.java');
-  assert.match(pairing, /RokBotAvatarManager\.getStyle\(this\)/, 'picker shows the style in effect');
-  assert.match(pairing, /RokBotAvatarManager\.setStyle\(this, info\.id\)/, 'picker writes through the manager');
+  // The picker lives on its own page since the settings layout change.
+  const picker = read('AvatarStyleActivity.java');
+  assert.match(picker, /RokBotAvatarManager\.getStyle\(this\)/, 'picker shows the style in effect');
+  assert.match(picker, /RokBotAvatarManager\.setStyle\(this, info\.id\)|RokBotAvatarManager\.setStyle\(this, styleId\)/, 'picker writes through the manager');
 });
 
 test('avatar manager: official marks are replaced before the frame that would draw them', () => {
