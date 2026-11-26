@@ -273,8 +273,11 @@
 }
 .bot-group-head:hover { background: var(--bg-2); color: var(--ink); }
 .bot-group-chev {
-  display: inline-block;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   transition: transform 0.2s;
 }
 .bot-group.is-collapsed .bot-group-chev { transform: rotate(-90deg); }
@@ -875,6 +878,11 @@
 }
 .vnc-term-body .t-cmd { color: #38BDF8; }
 .vnc-term-body .t-ok { color: #34D399; }
+.vnc-term-body .t-ok-ico {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
 .vnc-term-input-row {
   display: flex;
   align-items: center;
@@ -917,6 +925,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+.vnc-url-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+  flex: none;
 }
 .vnc-browser-body {
   flex: 1;
@@ -940,6 +957,9 @@
   transition: height 0.5s var(--ease);
 }
 .vnc-browser-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 6px 10px;
   border-radius: 7px;
   background: #0F172A;
@@ -1110,6 +1130,12 @@
   gap: 6px;
 }
 .stream-ok { color: #34D399; }
+.stream-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.stream-line .ico { margin-top: 3px; }
 .stream-err { color: #F87171; }
 .stream-dim { color: #94A3B8; }
 
@@ -1193,7 +1219,13 @@
   color: var(--ink-2);
 }
 .wh-checks li.is-pass { border-color: var(--green); color: var(--ink); }
-.wh-checks li .wh-ok { font: 700 11.5px var(--mono); color: var(--green); }
+.wh-checks li .wh-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 700 11.5px var(--mono);
+  color: var(--green);
+}
 .wh-deliveries {
   display: grid;
   gap: 6px;
@@ -1232,11 +1264,28 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-2);
   font-size: 12.5px;
   font-weight: 650;
+}
+.cap-tile-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cap-tile-ico {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
 }
 .cap-live-dot {
   display: inline-flex;
@@ -1328,6 +1377,14 @@
   color: var(--ink);
   border-color: var(--green);
   background: var(--green-soft);
+}
+.sig-steps li .sig-check {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-3);
+}
+.sig-steps li.is-on .sig-check {
+  color: var(--green);
 }
 
 /* ---------- Responsive Demos ---------- */

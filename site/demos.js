@@ -13,6 +13,9 @@
   var reduceMQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
   var motionOK = function () { return !reduceMQ.matches; };
   var lang = function () { return root.dataset.lang === 'en' ? 'en' : 'zh'; };
+  var icoSvg = function (name, cls) {
+    return '<svg class="ico ' + (cls || 'ico-14') + '" aria-hidden="true"><use href="#i-' + name + '"></use></svg>';
+  };
 
   // ---------- Copy Dictionary ----------
   var COPY = {
@@ -42,8 +45,8 @@
       evReset: '已重置四组初始状态',
       chatUser: '把 fix/list 分支推到远端，再帮我画一张 16:9 的海边日落发布海报。',
       chatThink: '好的，我先检查当前分支并准备推送到远端仓库 origin/fix/list。',
-      chatApproved: '✓ 已允许执行 · Exit code: 0 (pushed 3 commits to fix/list)',
-      chatDenied: '✕ 已拒绝 git push · 已取消远端推送，保留本地改动。',
+      chatApproved: '已允许执行 · Exit code: 0 (pushed 3 commits to fix/list)',
+      chatDenied: '已拒绝 git push · 已取消远端推送，保留本地改动。',
       chatImgText: '推送已完成！接下来为你生成 16:9 海边日落主题海报：',
       chatDenyFollow: '已按你的要求取消推送。需要我先生成海报，还是先查看 diff？',
       allowBtn: '本次允许',
@@ -58,7 +61,7 @@
       modelTrying: '请求中...',
       modelErr: '429 限流 (0 tok)',
       modelOk: '200 OK · 流式输出',
-      modelStreamOk: '✓ 主模型首字前 429，12ms 内无感切换至备用模型 #1，已锁定本轮输出防止重复工具调用。',
+      modelStreamOk: '主模型首字前 429，12ms 内无感切换至备用模型 #1，已锁定本轮输出防止重复工具调用。',
       cronWait: '等待',
       cronRun: '运行中',
       cronDone: '已完成',
@@ -91,8 +94,8 @@
       evReset: 'reset all 4 groups',
       chatUser: 'Push fix/list to origin, then generate a 16:9 seaside sunset poster.',
       chatThink: 'Sure — checking local commits and preparing to push branch fix/list to origin.',
-      chatApproved: '✓ Allowed once · Exit code: 0 (pushed 3 commits to fix/list)',
-      chatDenied: '✕ Denied · Cancelled git push, local branch untouched.',
+      chatApproved: 'Allowed once · Exit code: 0 (pushed 3 commits to fix/list)',
+      chatDenied: 'Denied · Cancelled git push, local branch untouched.',
       chatImgText: 'Push succeeded! Here is your generated 16:9 seaside sunset visual:',
       chatDenyFollow: 'Push cancelled as requested. Want me to generate the poster anyway or inspect the diff?',
       allowBtn: 'Allow once',
@@ -107,7 +110,7 @@
       modelTrying: 'Calling...',
       modelErr: '429 Rate Limit (0 tok)',
       modelOk: '200 OK · Streaming',
-      modelStreamOk: '✓ Primary hit 429 before first token; switched to Fallback #1 in 12ms and locked mid-stream.',
+      modelStreamOk: 'Primary hit 429 before first token; switched to Fallback #1 in 12ms and locked mid-stream.',
       cronWait: 'Scheduled',
       cronRun: 'Running',
       cronDone: 'Done',
@@ -289,7 +292,7 @@
       head.type = 'button';
       head.className = 'bot-group-head';
       head.dataset.groupToggle = gk;
-      head.innerHTML = '<span>' + L.groups[gk] + '</span><span class="bot-group-chev">▾</span><span class="bot-group-cnt">' + list.length + '</span>';
+      head.innerHTML = '<span>' + L.groups[gk] + '</span><span class="bot-group-chev">' + icoSvg('chevron-down', 'ico-12') + '</span><span class="bot-group-cnt">' + list.length + '</span>';
       wrap.appendChild(head);
 
       var ul = document.createElement('div');
@@ -424,7 +427,7 @@
     card.className = 'approval-card';
     card.id = 'simApprovalCard';
     card.innerHTML =
-      '<div class="approval-kicker"><span>🖥</span><span>Computer · Your Desktop</span></div>' +
+      '<div class="approval-kicker">' + icoSvg('monitor', 'ico-15') + '<span>Computer · Your Desktop</span></div>' +
       '<div class="approval-title">' + (lang() === 'en' ? 'Shell command approval' : '等待确认终端命令') + '</div>' +
       '<div class="approval-sub">' + (lang() === 'en' ? 'Auto-review flagged a remote git push' : '自动审查拦截了远端推送操作，等待你确认') + '</div>' +
       '<div class="approval-cmd">git push origin fix/list</div>' +
@@ -461,7 +464,7 @@
       card.classList.add(approved ? 'is-approved' : 'is-denied');
       var btns = $('.approval-btns', card);
       if (btns) {
-        btns.innerHTML = '<span class="approval-verdict ' + (approved ? 'ok' : 'no') + '">' + (approved ? L.chatApproved : L.chatDenied) + '</span>';
+        btns.innerHTML = '<span class="approval-verdict ' + (approved ? 'ok' : 'no') + '">' + icoSvg(approved ? 'check-circle' : 'x-circle', 'ico-14') + '<span>' + (approved ? L.chatApproved : L.chatDenied) + '</span></span>';
       }
     }
     if (approved) {
@@ -567,11 +570,16 @@
   var vncRefreshBtn = $('#vncBrowserRefresh');
   var vncHuman = false;
 
-  function appendVncTerm(cls, text) {
+  function appendVncTerm(cls, text, iconName) {
     if (!vncTermBody) return;
     var d = document.createElement('div');
-    d.className = cls;
-    d.textContent = text;
+    d.className = iconName ? cls + ' t-ok-ico' : cls;
+    if (iconName) {
+      d.innerHTML = icoSvg(iconName, 'ico-13') + '<span></span>';
+      d.lastChild.textContent = text;
+    } else {
+      d.textContent = text;
+    }
     vncTermBody.appendChild(d);
     while (vncTermBody.children.length > 10) vncTermBody.removeChild(vncTermBody.firstChild);
     vncTermBody.scrollTop = vncTermBody.scrollHeight;
@@ -698,7 +706,7 @@
     chainNodes[1].classList.add('is-ok');
     $('.chain-status', chainNodes[1]).textContent = L.modelOk;
     if (streamOut) {
-      streamOut.innerHTML += '<div class="stream-ok">' + L.modelStreamOk + '</div>';
+      streamOut.innerHTML += '<div class="stream-ok stream-line">' + icoSvg('check', 'ico-14') + '<span>' + L.modelStreamOk + '</span></div>';
     }
   }
 
@@ -748,13 +756,13 @@
     whChecks.forEach(function (li) {
       li.classList.remove('is-pass');
       var ok = $('.wh-ok', li);
-      if (ok) ok.textContent = '…';
+      if (ok) ok.innerHTML = icoSvg('loader', 'ico-13 ico-spin');
     });
     for (var i = 0; i < whChecks.length; i++) {
       await waitFn(220, g);
       whChecks[i].classList.add('is-pass');
       var ok = $('.wh-ok', whChecks[i]);
-      if (ok) ok.textContent = '✓ ' + L.whPass;
+      if (ok) ok.innerHTML = icoSvg('check', 'ico-13') + '<span>' + L.whPass + '</span>';
     }
     if (whLogEl) {
       var li = document.createElement('li');
@@ -798,7 +806,7 @@
       if (vncHuman) { await w(1500); return; }
       var cmds = [
         { cmd: 'uname -sr && nproc', out: 'Linux 6.8.0-117-generic · 8 cores' },
-        { cmd: 'python3 render_chart.py --out /workspace', out: '✓ wrote report.html (142 ms)' },
+        { cmd: 'python3 render_chart.py --out /workspace', out: 'wrote report.html (142 ms)', icon: 'check' },
         { cmd: 'curl -s localhost:8080/health', out: '{"status":"healthy","box":"debian-13"}' }
       ];
       for (var c = 0; c < cmds.length; c++) {
@@ -807,7 +815,7 @@
         await w(850);
         appendVncTerm('t-cmd', 'box@rokbot:~/workspace$ ' + cmds[c].cmd);
         await w(650);
-        appendVncTerm('t-ok', cmds[c].out);
+        appendVncTerm('t-ok', cmds[c].out, cmds[c].icon);
         await w(500);
         if (vncCursor) vncCursor.style.transform = 'translate(460px, 210px)';
         await w(750);

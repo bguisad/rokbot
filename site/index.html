@@ -32,14 +32,63 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<script src="/theme.js?v=2"></script>
-<link rel="stylesheet" href="/style.css?v=2">
-<link rel="stylesheet" href="/demos.css?v=2">
-<script src="/lang.js?v=2" defer></script>
-<script src="/site.js?v=2" defer></script>
-<script src="/demos.js?v=2" defer></script>
+<script src="/theme.js?v=3"></script>
+<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/demos.css?v=3">
+<script src="/lang.js?v=3" defer></script>
+<script src="/site.js?v=3" defer></script>
+<script src="/demos.js?v=3" defer></script>
 </head>
 <body>
+<!-- Unified Inline SVG Icon Sprite (Lucide-style 24x24, currentColor) -->
+<svg class="svg-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <!-- Theme & Navigation -->
+  <symbol id="i-contrast" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 18a6 6 0 0 0 0-12v12z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></symbol>
+  <!-- Arrows & Chevrons -->
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+  <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <!-- Core UI & Demo Actions -->
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></symbol>
+  <symbol id="i-rotate-cw" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+  <symbol id="i-layout-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3" fill="currentColor"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+  <!-- Feature & Capability Icons -->
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></symbol>
+  <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+  <!-- Simplified Monochrome Geometric Platform Icons -->
+  <symbol id="i-plat-docker" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+  <symbol id="i-plat-android" viewBox="0 0 24 24"><path d="M4.5 18a7.5 7.5 0 0 1 15 0Z"/><path d="M8.5 11.4 6.6 8"/><path d="M15.5 11.4 17.4 8"/><path d="M9.5 14.5h.01"/><path d="M14.5 14.5h.01"/></symbol>
+  <symbol id="i-plat-ios" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2.5" ry="2.5"/><path d="M10 6h4"/><path d="M12 18h.01"/></symbol>
+  <symbol id="i-plat-macos" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+  <symbol id="i-plat-windows" viewBox="0 0 24 24"><rect width="7.5" height="7.5" x="3.5" y="3.5" rx="1.2"/><rect width="7.5" height="7.5" x="13" y="3.5" rx="1.2"/><rect width="7.5" height="7.5" x="13" y="13" rx="1.2"/><rect width="7.5" height="7.5" x="3.5" y="13" rx="1.2"/></symbol>
+  <symbol id="i-plat-linux" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
+</svg>
 
 <header class="site-header" id="top">
   <div class="container header-inner">
@@ -55,25 +104,25 @@
       <a href="#video"><span lang="zh">宣传片</span><span lang="en">Video</span></a>
       <a href="#quickstart"><span lang="zh">部署</span><span lang="en">Quick Start</span></a>
       <a href="#clients"><span lang="zh">客户端</span><span lang="en">Clients</span></a>
-      <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub ↗</a>
+      <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub<svg class="ico ico-13" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg></a>
     </nav>
     <div class="header-actions">
       <div class="theme-seg" id="themeSeg" role="radiogroup" aria-label="外观 Appearance">
         <button type="button" role="radio" data-theme-pref="system" aria-checked="true" title="跟随系统 · System">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" class="svg-fill"/></svg>
+          <svg class="ico ico-15" aria-hidden="true"><use href="#i-contrast"></use></svg>
         </button>
         <button type="button" role="radio" data-theme-pref="light" aria-checked="false" title="浅色 · Light">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
+          <svg class="ico ico-15" aria-hidden="true"><use href="#i-sun"></use></svg>
         </button>
         <button type="button" role="radio" data-theme-pref="dark" aria-checked="false" title="深色 · Dark">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 10.1A5.6 5.6 0 0 1 5.9 2.8a5.6 5.6 0 1 0 7.3 7.3z"/></svg>
+          <svg class="ico ico-15" aria-hidden="true"><use href="#i-moon"></use></svg>
         </button>
       </div>
       <button class="lang-btn" id="langBtn" type="button" aria-label="Switch language">
         <span lang="zh">EN</span><span lang="en">中文</span>
       </button>
       <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" aria-expanded="false" aria-controls="mobileDrawer" aria-label="打开导航菜单 Menu">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        <svg class="ico ico-18" aria-hidden="true"><use href="#i-menu"></use></svg>
       </button>
     </div>
   </div>
@@ -86,7 +135,7 @@
       <a href="#platforms"><span lang="zh">支持平台</span><span lang="en">Platforms</span></a>
       <a href="#quickstart"><span lang="zh">快速部署</span><span lang="en">Quick Start</span></a>
       <a href="#clients"><span lang="zh">获取客户端</span><span lang="en">Get Clients</span></a>
-      <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub ↗</a>
+      <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub<svg class="ico ico-13" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg></a>
     </nav>
   </div>
 </header>
@@ -123,21 +172,23 @@
             <i class="btn-led" aria-hidden="true"></i>
           </a>
           <a class="btn-outline" href="#quickstart">
-            <span lang="zh">快速开始 →</span>
-            <span lang="en">Quick Start →</span>
+            <span lang="zh">快速开始</span>
+            <span lang="en">Quick Start</span>
+            <svg class="ico ico-16" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
           </a>
           <a class="hero-jump" href="#demos">
-            <span lang="zh">体验交互演示 ↓</span>
-            <span lang="en">Try live demos ↓</span>
+            <span lang="zh">体验交互演示</span>
+            <span lang="en">Try live demos</span>
+            <svg class="ico ico-15" aria-hidden="true"><use href="#i-arrow-down"></use></svg>
           </a>
         </div>
         <div class="hero-platforms">
-          <span class="plat-chip"><i></i>Docker Host</span>
-          <span class="plat-chip"><i></i>Android</span>
-          <span class="plat-chip"><i></i>iOS</span>
-          <span class="plat-chip"><i></i>macOS</span>
-          <span class="plat-chip"><i></i>Windows</span>
-          <span class="plat-chip"><i></i>Web</span>
+          <span class="plat-chip"><svg class="ico ico-14" aria-hidden="true"><use href="#i-plat-docker"></use></svg>Docker Host</span>
+          <span class="plat-chip"><svg class="ico ico-14" aria-hidden="true"><use href="#i-plat-android"></use></svg>Android</span>
+          <span class="plat-chip"><svg class="ico ico-14" aria-hidden="true"><use href="#i-plat-ios"></use></svg>iOS</span>
+          <span class="plat-chip"><svg class="ico ico-14" aria-hidden="true"><use href="#i-plat-macos"></use></svg>macOS</span>
+          <span class="plat-chip"><svg class="ico ico-14" aria-hidden="true"><use href="#i-plat-windows"></use></svg>Windows</span>
+          <span class="plat-chip"><svg class="ico ico-14" aria-hidden="true"><use href="#i-globe"></use></svg>Web</span>
         </div>
       </div>
 
@@ -268,13 +319,13 @@
               <div class="sim-phone-top">
                 <span class="sim-avatar-me">R</span>
                 <div class="sim-phone-actions">
-                  <span class="sim-circle-ico" aria-hidden="true">🔔<span class="sim-bell-badge" id="androidBellBadge">2</span></span>
-                  <span class="sim-circle-ico" aria-hidden="true">＋</span>
+                  <span class="sim-circle-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-bell"></use></svg><span class="sim-bell-badge" id="androidBellBadge">2</span></span>
+                  <span class="sim-circle-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plus"></use></svg></span>
                 </div>
               </div>
               <div class="sim-bot-scroll" id="androidBotScroll"></div>
               <div class="sim-phone-search">
-                <div class="sim-search-pill"><span>🔍</span><span lang="zh">搜索 Bot 或历史消息</span><span lang="en">Search Bots or chats</span></div>
+                <div class="sim-search-pill"><svg class="ico ico-14" aria-hidden="true"><use href="#i-search"></use></svg><span lang="zh">搜索 Bot 或历史消息</span><span lang="en">Search Bots or chats</span></div>
               </div>
             </div>
 
@@ -333,7 +384,8 @@
                   <span lang="zh">发布与设计助手</span><span lang="en">Release &amp; Design Bot</span>
                 </span>
                 <button class="sim-btn" id="chatReplayBtn" type="button">
-                  <span lang="zh">↻ 重播完整流程</span><span lang="en">↻ Replay Flow</span>
+                  <svg class="ico ico-14" aria-hidden="true"><use href="#i-rotate-cw"></use></svg>
+                  <span lang="zh">重播完整流程</span><span lang="en">Replay Flow</span>
                 </button>
               </div>
               <div class="sim-chat-body" id="simChatBody"></div>
@@ -381,7 +433,7 @@
                 <div class="vnc-win-browser">
                   <div class="vnc-urlbar">
                     <span>http://127.0.0.1:8080/report</span>
-                    <span>●</span>
+                    <i class="vnc-url-dot" aria-hidden="true"></i>
                   </div>
                   <div class="vnc-browser-body">
                     <strong><span lang="zh">每日巡检趋势图</span><span lang="en">Daily Ops Telemetry</span></strong>
@@ -389,15 +441,16 @@
                       <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
                     </div>
                     <button class="vnc-browser-btn" id="vncBrowserRefresh" type="button">
-                      <span lang="zh">↻ 刷新数据</span><span lang="en">↻ Refresh Data</span>
+                      <svg class="ico ico-12" aria-hidden="true"><use href="#i-rotate-cw"></use></svg>
+                      <span lang="zh">刷新数据</span><span lang="en">Refresh Data</span>
                     </button>
                   </div>
                 </div>
 
                 <div class="vnc-dock" aria-hidden="true">
-                  <button type="button" tabindex="-1">&gt;_</button>
-                  <button type="button" tabindex="-1">🌐</button>
-                  <button type="button" tabindex="-1">📁</button>
+                  <button type="button" tabindex="-1"><svg class="ico ico-15" aria-hidden="true"><use href="#i-terminal"></use></svg></button>
+                  <button type="button" tabindex="-1"><svg class="ico ico-15" aria-hidden="true"><use href="#i-globe"></use></svg></button>
+                  <button type="button" tabindex="-1"><svg class="ico ico-15" aria-hidden="true"><use href="#i-folder"></use></svg></button>
                 </div>
 
                 <div class="vnc-bot-cursor" id="vncBotCursor" aria-hidden="true">
@@ -433,7 +486,8 @@
               </div>
               <div class="sim-action-row">
                 <button class="sim-btn is-primary" id="simTriggerFailBtn" type="button">
-                  <span lang="zh">⚡ 模拟 429 限流并切换备用</span><span lang="en">⚡ Simulate 429 Failover</span>
+                  <svg class="ico ico-14" aria-hidden="true"><use href="#i-zap"></use></svg>
+                  <span lang="zh">模拟 429 限流并切换备用</span><span lang="en">Simulate 429 Failover</span>
                 </button>
               </div>
             </div>
@@ -498,9 +552,9 @@
                 </button>
               </div>
               <ul class="wh-checks" id="simWhChecks">
-                <li><span>HMAC-SHA256 Signature</span><span class="wh-ok">✓</span></li>
-                <li><span>Timestamp Window (±5 min)</span><span class="wh-ok">✓</span></li>
-                <li><span>Event Filter &amp; Rate Limit</span><span class="wh-ok">✓</span></li>
+                <li><span>HMAC-SHA256 Signature</span><span class="wh-ok"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg></span></li>
+                <li><span>Timestamp Window (±5 min)</span><span class="wh-ok"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg></span></li>
+                <li><span>Event Filter &amp; Rate Limit</span><span class="wh-ok"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg></span></li>
               </ul>
               <ul class="wh-deliveries" id="simWhDeliveries">
                 <li><span>08:02 · github.release.published</span><span class="stream-ok">202 Accepted</span></li>
@@ -527,7 +581,7 @@
       <div class="sticky-layout">
         <div class="sticky-steps">
           <article class="sticky-step is-active" data-step="1" aria-current="step">
-            <span class="step-num">01 / CLOUD DESKTOP</span>
+            <span class="step-num"><span class="step-num-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-monitor"></use></svg></span>01 / CLOUD DESKTOP</span>
             <h3><span lang="zh">共享云电脑与实时接管</span><span lang="en">Shared Linux Desktop &amp; Live Takeover</span></h3>
             <p>
               <span lang="zh">Host 自带隔离的 Linux 桌面容器（<code>box</code>），内置浏览器、终端与独立工作区数据卷，也可替换为远程 Linux 节点。在客户端里随时打开实时 VNC 画面并接管键鼠，还能反向连接操作你自己的 Mac 或 Windows 电脑而无需开放端口。</span>
@@ -542,7 +596,7 @@
           </article>
 
           <article class="sticky-step" data-step="2">
-            <span class="step-num">02 / MULTI-DEVICE</span>
+            <span class="step-num"><span class="step-num-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-layers"></use></svg></span>02 / MULTI-DEVICE</span>
             <h3><span lang="zh">五端无缝接力与原生交互</span><span lang="en">Seamless Handoff &amp; Native Clients</span></h3>
             <p>
               <span lang="zh">所有对话与配置保存在 Host，电脑上发起的复杂任务，出门后在 Android、iOS 或网页端接着看进度、点选项问题卡片和审批卡片。通知覆盖 APNs、Bark、ntfy、UnifiedPush、FCM 与 Webhook。</span>
@@ -557,7 +611,7 @@
           </article>
 
           <article class="sticky-step" data-step="3">
-            <span class="step-num">03 / BYO MODELS &amp; MEDIA</span>
+            <span class="step-num"><span class="step-num-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-cpu"></use></svg></span>03 / BYO MODELS &amp; MEDIA</span>
             <h3><span lang="zh">自选模型、生图生视频与语音</span><span lang="en">Bring Your Own Models, Media &amp; Voice</span></h3>
             <p>
               <span lang="zh">完整支持 OpenAI Chat、OpenAI Responses 与 Anthropic Messages 三种协议，可按 Bot 单独配置主模型、思考强度与最多 8 个备用模型。同时可在管理页接入图片生成、视频生成、语音识别与实时语音通话服务。</span>
@@ -572,7 +626,7 @@
           </article>
 
           <article class="sticky-step" data-step="4">
-            <span class="step-num">04 / SAFETY &amp; USAGE</span>
+            <span class="step-num"><span class="step-num-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-shield-check"></use></svg></span>04 / SAFETY &amp; USAGE</span>
             <h3><span lang="zh">自动审查与透明 Token 用量</span><span lang="en">Auto-Review &amp; Transparent Usage Ledger</span></h3>
             <p>
               <span lang="zh">Shell 命令、MCP 调用、电脑操作与子 Agent 启动前由你配置的模型自动审查，支持自定义允许/拦截规则。管理页概览与手机端内置按小时、7 天与 30 天用量图表、模型占比与缓存命中率统计。</span>
@@ -587,7 +641,7 @@
           </article>
 
           <article class="sticky-step" data-step="5">
-            <span class="step-num">05 / ZERO-TRUST NETWORK</span>
+            <span class="step-num"><span class="step-num-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-lock"></use></svg></span>05 / ZERO-TRUST NETWORK</span>
             <h3><span lang="zh">零云账号、局域网扫描与 Tailcat 组网</span><span lang="en">No Cloud Account, LAN Scan &amp; Tailcat</span></h3>
             <p>
               <span lang="zh">无需注册第三方云账号，使用 5 分钟有效的 6 位一次性配对码或管理员密码接入设备。Android 原生支持局域网自动发现 Host；没有公网 IP 时开启内置 Tailcat 加密组网，无需 Tailscale 账号即可外网直连。</span>
@@ -720,9 +774,10 @@
           <span class="count-pill">12</span>
         </h3>
         <div class="gallery-controls">
-          <button class="icon-circle-btn" id="phonePrev" type="button" aria-label="向左滚动 Scroll left">←</button>
-          <button class="icon-circle-btn" id="phoneNext" type="button" aria-label="向右滚动 Scroll right">→</button>
+          <button class="icon-circle-btn" id="phonePrev" type="button" aria-label="向左滚动 Scroll left"><svg class="ico ico-16" aria-hidden="true"><use href="#i-arrow-left"></use></svg></button>
+          <button class="icon-circle-btn" id="phoneNext" type="button" aria-label="向右滚动 Scroll right"><svg class="ico ico-16" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
           <button class="pill-toggle" id="phoneGridToggle" type="button" aria-pressed="false">
+            <svg class="ico ico-14" aria-hidden="true"><use href="#i-layout-grid"></use></svg>
             <span lang="zh">切换网格平铺</span><span lang="en">Toggle Grid</span>
           </button>
         </div>
@@ -897,7 +952,7 @@
         <img class="video-cover-img" id="videoCoverImg" src="/img/video-poster.webp" width="800" height="450" loading="lazy" alt="RokBot 产品宣传片动态预览">
         <div class="video-overlay">
           <button class="video-play-btn" id="videoPlayBtn" type="button" aria-label="播放 80 秒产品宣传片 Play 80s product video">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5L4 2.5z"/></svg>
+            <svg class="ico ico-18" aria-hidden="true"><use href="#i-play"></use></svg>
             <span lang="zh">播放完整宣传片（80 秒）</span>
             <span lang="en">Play full video (80s)</span>
           </button>
@@ -906,7 +961,7 @@
       </div>
       <div class="video-foot">
         <span><span lang="zh">包含云电脑实操、多端接力、生图、语音与模型路由演示（中文解说）。</span><span lang="en">Covers cloud desktop, multi-device handoff, image gen, voice &amp; routing (Chinese narration).</span></span>
-        <a href="/media/rokbot-promo.mp4"><span lang="zh">直接打开 MP4 ↗</span><span lang="en">Direct MP4 link ↗</span></a>
+        <a href="/media/rokbot-promo.mp4"><span lang="zh">直接打开 MP4</span><span lang="en">Direct MP4 link</span><svg class="ico ico-13" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg></a>
       </div>
     </div>
   </section>
@@ -927,7 +982,7 @@
       <div class="cap-tiles-grid" id="capTiles">
         <div class="cap-tile reveal">
           <div class="cap-tile-bar">
-            <span><span lang="zh">语音转写与实时通话</span><span lang="en">Voice STT &amp; Calls</span></span>
+            <span class="cap-tile-title"><span class="cap-tile-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-mic"></use></svg></span><span lang="zh">语音转写与实时通话</span><span lang="en">Voice STT &amp; Calls</span></span>
             <span class="cap-live-dot"><i></i>24 kHz PCM</span>
           </div>
           <div class="cap-tile-body">
@@ -943,7 +998,7 @@
 
         <div class="cap-tile reveal">
           <div class="cap-tile-bar">
-            <span><span lang="zh">生图 · 生视频 · 参考图修图</span><span lang="en">Image &amp; Video Gen</span></span>
+            <span class="cap-tile-title"><span class="cap-tile-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-image"></use></svg></span><span lang="zh">生图 · 生视频 · 参考图修图</span><span lang="en">Image &amp; Video Gen</span></span>
             <span class="cap-live-dot"><i></i>BYO Key</span>
           </div>
           <div class="cap-tile-body">
@@ -961,14 +1016,14 @@
 
         <div class="cap-tile reveal">
           <div class="cap-tile-bar">
-            <span><span lang="zh">自托管客户端增量更新</span><span lang="en">Self-Hosted Delta Updates</span></span>
+            <span class="cap-tile-title"><span class="cap-tile-ico" aria-hidden="true"><svg class="ico ico-14" aria-hidden="true"><use href="#i-shield-check"></use></svg></span><span lang="zh">自托管客户端增量更新</span><span lang="en">Self-Hosted Delta Updates</span></span>
             <span class="cap-live-dot"><i></i>ECDSA P-256</span>
           </div>
           <div class="cap-tile-body">
             <ul class="sig-steps">
-              <li class="is-on"><span>SHA-256 &amp; Cert Match</span><span>✓</span></li>
-              <li class="is-on"><span>ECDSA P-256 Manifest</span><span>✓</span></li>
-              <li><span>Delta Patch / AltStore</span><span>✓</span></li>
+              <li class="is-on"><span>SHA-256 &amp; Cert Match</span><span class="sig-check"><svg class="ico ico-14" aria-hidden="true"><use href="#i-check"></use></svg></span></li>
+              <li class="is-on"><span>ECDSA P-256 Manifest</span><span class="sig-check"><svg class="ico ico-14" aria-hidden="true"><use href="#i-check"></use></svg></span></li>
+              <li><span>Delta Patch / AltStore</span><span class="sig-check"><svg class="ico ico-14" aria-hidden="true"><use href="#i-check"></use></svg></span></li>
             </ul>
             <p class="cap-tile-desc">
               <span lang="zh">在管理页向自己 Host 的设备发布增量更新，Android 核验签名证书，iOS 支持 itms-services 与 AltStore。</span>
@@ -981,46 +1036,46 @@
       <!-- Supported Platforms Matrix -->
       <div class="plat-table reveal">
         <div class="plat-row">
-          <span class="plat-name">Android</span>
+          <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-android"></use></svg></span>Android</span>
           <span class="plat-form"><span lang="zh">原生 APK（arm64-v8a，16KB 对齐）</span><span lang="en">Native APK (arm64-v8a, 16KB aligned)</span></span>
           <span class="plat-base mono">1.26.0 (build 3212)</span>
           <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
-          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
-          <span class="plat-name">iOS</span>
+          <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-ios"></use></svg></span>iOS</span>
           <span class="plat-form"><span lang="zh">IPA（自备解密原版 IPA + 自行签名）</span><span lang="en">IPA (bring decrypted IPA &amp; sign)</span></span>
           <span class="plat-base mono">1.27.0 / 1.26.0 / 1.16.0</span>
           <span class="plat-how"><span lang="zh">自行构建并签名 / Host 分发</span><span lang="en">Build &amp; sign / From your Host</span></span>
-          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
-          <span class="plat-name">macOS</span>
+          <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-macos"></use></svg></span>macOS</span>
           <span class="plat-form"><span lang="zh">Apple Silicon 原生桌面端（支持 GUI 控制）</span><span lang="en">Apple Silicon desktop (GUI + Shell)</span></span>
           <span class="plat-base mono">1.2.3</span>
           <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
-          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
-          <span class="plat-name">Windows</span>
+          <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-windows"></use></svg></span>Windows</span>
           <span class="plat-form"><span lang="zh">x64 安装版与便携版（支持本机命令）</span><span lang="en">x64 installer &amp; portable (local shell)</span></span>
           <span class="plat-base mono">1.2.3 / 0.71.2</span>
           <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
-          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
-          <span class="plat-name">Web</span>
+          <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-globe"></use></svg></span>Web</span>
           <span class="plat-form"><span lang="zh">浏览器界面（由自己的 Host :18081 托管）</span><span lang="en">Browser UI (served by your Host :18081)</span></span>
           <span class="plat-base mono">Win 1.2.3 / 0.71.2 UI</span>
           <span class="plat-how"><span lang="zh">自行构建界面包并上传至 Host</span><span lang="en">Build UI bundle &amp; upload to Host</span></span>
-          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
-          <span class="plat-name"><span lang="zh">Linux 服务端</span><span lang="en">Linux Server</span></span>
+          <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-linux"></use></svg></span><span lang="zh">Linux 服务端</span><span lang="en">Linux Server</span></span>
           <span class="plat-form"><span lang="zh">Docker：<code>host</code> (amd64/arm64) + <code>box</code> (amd64)</span><span lang="en">Docker: <code>host</code> (amd64/arm64) + <code>box</code> (amd64)</span></span>
           <span class="plat-base mono">Host 2bb5e41</span>
           <span class="plat-how"><span lang="zh">源码构建或 GHCR 预构建镜像</span><span lang="en">Build from source or GHCR images</span></span>
-          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/host/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/host/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
       </div>
     </div>
@@ -1053,7 +1108,7 @@
               <pre><code>gh repo clone hongfaqiu/rokbot rokbot-src
 mkdir rokbot &amp;&amp; cd rokbot
 bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
-              <button class="copy-btn" type="button" aria-label="复制命令 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+              <button class="copy-btn" type="button" aria-label="复制命令 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
           </div>
         </li>
@@ -1070,7 +1125,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
             </p>
             <div class="code-wrap">
               <pre><code>docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /data/setup-key</code></pre>
-              <button class="copy-btn" type="button" aria-label="复制命令 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+              <button class="copy-btn" type="button" aria-label="复制命令 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
           </div>
         </li>
@@ -1100,8 +1155,11 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
       </div>
 
       <div class="notice-banner reveal">
-        <span lang="zh">本官网与 GitHub 仓库<strong>不提供任何客户端安装包下载</strong>（无 APK / IPA / DMG / EXE）。客户端只有两种获取方式：使用仓库内的补丁工具<strong>自行构建</strong>，或者<strong>从你自己部署的 Host 获取</strong>。</span>
-        <span lang="en">Neither this site nor the repository <strong>hosts or distributes client installers</strong> (no APK / IPA / DMG / EXE downloads). Obtain clients either by <strong>building them yourself</strong> with the patch tools, or <strong>directly from your own deployed Host</strong>.</span>
+        <span class="notice-ico" aria-hidden="true"><svg class="ico ico-18" aria-hidden="true"><use href="#i-info"></use></svg></span>
+        <div>
+          <span lang="zh">本官网与 GitHub 仓库<strong>不提供任何客户端安装包下载</strong>（无 APK / IPA / DMG / EXE）。客户端只有两种获取方式：使用仓库内的补丁工具<strong>自行构建</strong>，或者<strong>从你自己部署的 Host 获取</strong>。</span>
+          <span lang="en">Neither this site nor the repository <strong>hosts or distributes client installers</strong> (no APK / IPA / DMG / EXE downloads). Obtain clients either by <strong>building them yourself</strong> with the patch tools, or <strong>directly from your own deployed Host</strong>.</span>
+        </div>
       </div>
 
       <div class="client-grid">
@@ -1113,11 +1171,11 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
           </p>
 
           <div class="patch-tabs" id="patchTabs" role="tablist" aria-label="补丁命令平台 Patch platforms">
-            <button type="button" role="tab" data-tab="p-android" aria-selected="true">Android</button>
-            <button type="button" role="tab" data-tab="p-ios" aria-selected="false" tabindex="-1">iOS</button>
-            <button type="button" role="tab" data-tab="p-mac" aria-selected="false" tabindex="-1">macOS</button>
-            <button type="button" role="tab" data-tab="p-win" aria-selected="false" tabindex="-1">Windows</button>
-            <button type="button" role="tab" data-tab="p-web" aria-selected="false" tabindex="-1">Web</button>
+            <button type="button" role="tab" data-tab="p-android" aria-selected="true"><svg class="ico ico-13" aria-hidden="true"><use href="#i-plat-android"></use></svg>Android</button>
+            <button type="button" role="tab" data-tab="p-ios" aria-selected="false" tabindex="-1"><svg class="ico ico-13" aria-hidden="true"><use href="#i-plat-ios"></use></svg>iOS</button>
+            <button type="button" role="tab" data-tab="p-mac" aria-selected="false" tabindex="-1"><svg class="ico ico-13" aria-hidden="true"><use href="#i-plat-macos"></use></svg>macOS</button>
+            <button type="button" role="tab" data-tab="p-win" aria-selected="false" tabindex="-1"><svg class="ico ico-13" aria-hidden="true"><use href="#i-plat-windows"></use></svg>Windows</button>
+            <button type="button" role="tab" data-tab="p-web" aria-selected="false" tabindex="-1"><svg class="ico ico-13" aria-hidden="true"><use href="#i-globe"></use></svg>Web</button>
           </div>
 
           <div data-patch-panel="p-android">
@@ -1125,7 +1183,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
               <pre><code>node android/release/patch-android.mjs \
   --input-apk /path/to/official-1.26.0.xapk \
   --output-apk android/output/rokbot-android-patched.apk</code></pre>
-              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">Node.js 20+ · 输出 16KB 对齐、v2/v3 签名 APK。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener">android/README.md</a></span><span lang="en">Node.js 20+ · Outputs 16KB-aligned v2/v3 signed APK. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.en.md" rel="noopener">android/README.en.md</a></span></small></p>
           </div>
@@ -1136,7 +1194,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
   --input /path/to/decrypted.ipa \
   --output ios/output/RokBot-Patched \
   --bundle-id dev.rokbot.local</code></pre>
-              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">Python 3.9+ · 输出未签名 IPA 后用你自己的证书签名安装。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.md" rel="noopener">ios/README.md</a></span><span lang="en">Python 3.9+ · Sign the output IPA with your own certificate. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.en.md" rel="noopener">ios/README.en.md</a></span></small></p>
           </div>
@@ -1144,7 +1202,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
           <div data-patch-panel="p-mac" hidden>
             <div class="code-wrap">
               <pre><code>node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"</code></pre>
-              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">macOS · Node.js 22.12+ · 生成 <code>mac/output.noindex/RokBot.app</code>。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener">mac/README.md</a></span><span lang="en">macOS · Node.js 22.12+ · Builds <code>mac/output.noindex/RokBot.app</code>. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.en.md" rel="noopener">mac/README.en.md</a></span></small></p>
           </div>
@@ -1152,7 +1210,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
           <div data-patch-panel="p-win" hidden>
             <div class="code-wrap">
               <pre><code>node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe</code></pre>
-              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">Windows x64 · Node.js 22.12+ · 生成安装版与便携 ZIP。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener">windows/README.md</a></span><span lang="en">Windows x64 · Node.js 22.12+ · Builds installer &amp; portable ZIP. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.en.md" rel="noopener">windows/README.en.md</a></span></small></p>
           </div>
@@ -1160,7 +1218,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
           <div data-patch-panel="p-web" hidden>
             <div class="code-wrap">
               <pre><code>node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe</code></pre>
-              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">生成界面 ZIP 包后在 Host 管理页「网页版」上传，或加 <code>--upload &lt;Host&gt;</code> 直传。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener">web/README.md</a></span><span lang="en">Upload the generated UI bundle in Admin → Web, or pass <code>--upload &lt;Host&gt;</code>. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.en.md" rel="noopener">web/README.en.md</a></span></small></p>
           </div>
@@ -1177,7 +1235,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
             <li><span lang="zh">在管理页「客户端更新」上传并发布，支持基于旧版本生成增量差分补丁。</span><span lang="en">Upload in Admin → Client updates and optionally generate delta patches from an older build.</span></li>
             <li><span lang="zh">已配对的 Android 与桌面客户端自动从你的 Host 校验（SHA-256 / ECDSA P-256 / 证书一致）并升级；iOS 支持 <code>itms-services</code> 与 AltStore / SideStore 源。</span><span lang="en">Paired Android &amp; desktop clients verify SHA-256 / ECDSA P-256 / certs and update directly; iOS supports <code>itms-services</code> and AltStore / SideStore feeds.</span></li>
           </ol>
-          <p><a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener"><span lang="zh">查看完整发布与分发手册 →</span><span lang="en">Read the full distribution guide →</span></a></p>
+          <p><a class="link-ico" href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener"><span lang="zh">查看完整发布与分发手册</span><span lang="en">Read the full distribution guide</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a></p>
         </div>
       </div>
     </div>
@@ -1233,8 +1291,8 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
 
 <!-- Fullscreen Lightbox Modal -->
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="截图预览 Screenshot preview">
-  <button class="lightbox-close" id="lightboxClose" type="button" aria-label="关闭 Close">✕</button>
-  <button class="lightbox-nav lightbox-prev" id="lightboxPrev" type="button" aria-label="上一张 Previous">‹</button>
+  <button class="lightbox-close" id="lightboxClose" type="button" aria-label="关闭 Close"><svg class="ico ico-20" aria-hidden="true"><use href="#i-x"></use></svg></button>
+  <button class="lightbox-nav lightbox-prev" id="lightboxPrev" type="button" aria-label="上一张 Previous"><svg class="ico ico-20" aria-hidden="true"><use href="#i-chevron-left"></use></svg></button>
   <div class="lightbox-inner">
     <img class="lightbox-img" id="lightboxImg" src="/img/desktop-live-vnc.webp" alt="">
     <div class="lightbox-bar">
@@ -1242,7 +1300,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
       <span class="mono" id="lightboxCounter">1 / 18</span>
     </div>
   </div>
-  <button class="lightbox-nav lightbox-next" id="lightboxNext" type="button" aria-label="下一张 Next">›</button>
+  <button class="lightbox-nav lightbox-next" id="lightboxNext" type="button" aria-label="下一张 Next"><svg class="ico ico-20" aria-hidden="true"><use href="#i-chevron-right"></use></svg></button>
 </div>
 
 </body>
