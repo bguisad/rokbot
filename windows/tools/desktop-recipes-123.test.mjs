@@ -83,6 +83,8 @@ for (const target of ['windows', 'mac']) {
     const generalAdded = addedBytes(generalEntry.recipe).toString('utf8');
     assert.match(generalAdded, /export \{ RokModelConfigModal, RokUsageSettings \}/);
     assert.match(generalAdded, /RokModelSettings/);
+    assert.match(generalAdded, /\(0,\$\.jsx\)\(RokAvatarStyleSettings,\{\}\)/);
+    assert.match(generalAdded, /function RokAvatarStyleSettings\(/);
     assert.match(generalAdded, /\(0,\$\.jsx\)\(RokListArrangementSettings,\{\}\)/);
     assert.match(generalAdded, /function RokListArrangementSettings\(/);
     // Settings > General lists the Host's usage per model right after the chat models.
@@ -125,6 +127,15 @@ for (const target of ['windows', 'mac']) {
     assert.match(eagerAdded, /rokListIsGroupId\(n\.id\)\?null:/);
     assert.match(eagerAdded, /disabled:rokListIsGroupId\(n\.id\)/);
     assert.match(eagerAdded, /\|\|rokListIsGroupId\(n\.id\)/);
+    // RokBot avatar styles: chassis default, all 6 styles, yT/bT wrappers preserving original fallback.
+    assert.match(eagerAdded, /RokUseAvatarStyle\(\)/);
+    assert.match(eagerAdded, /RokGrokBotMark/);
+    assert.match(eagerAdded, /RokGrokBotMarkMirror/);
+    assert.match(eagerAdded, /function yT_orig\(/);
+    assert.match(eagerAdded, /function bT_orig\(/);
+    for (const styleId of ['chassis', 'antenna', 'visor', 'pixel', 'orb', 'official']) {
+      assert.match(eagerAdded, new RegExp(`'${styleId}'`));
+    }
   });
 }
 

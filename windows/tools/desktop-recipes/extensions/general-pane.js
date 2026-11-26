@@ -62,7 +62,25 @@ const grokConnectionStyles = `
 .rok-model-btn{border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:8px;padding:6px 11px;background:transparent;color:inherit;font-size:12px;cursor:pointer}
 .rok-model-btn:disabled{opacity:.45;cursor:not-allowed}
 .rok-model-btn-primary{background:currentColor;color:#111}
-@media(prefers-reduced-motion:reduce){.grok-account-name svg{transition:none}}
+.rok-avatar-settings{display:grid;gap:12px;padding:14px 16px;border-radius:14px;border:1px solid color-mix(in srgb,currentColor 10%,transparent);background:color-mix(in srgb,currentColor 3%,transparent)}
+.rok-avatar-settings-head{display:grid;gap:3px}
+.rok-avatar-settings-head strong{font-size:13px;font-weight:550}
+.rok-avatar-settings-head span{font-size:12px;opacity:.68;line-height:1.45}
+.rok-avatar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.rok-avatar-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px 10px;border-radius:12px;border:1px solid color-mix(in srgb,currentColor 11%,transparent);background:color-mix(in srgb,currentColor 3%,transparent);color:inherit;text-align:center;cursor:pointer;transition:border-color .14s,background-color .14s,transform .14s}
+.rok-avatar-card:hover{border-color:color-mix(in srgb,currentColor 26%,transparent);background:color-mix(in srgb,currentColor 6%,transparent)}
+.rok-avatar-card:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.rok-avatar-card[data-selected=true]{border-color:color-mix(in srgb,currentColor 48%,transparent);background:color-mix(in srgb,currentColor 9%,transparent)}
+.rok-avatar-check{position:absolute;top:7px;right:7px;width:16px;height:16px;border-radius:999px;display:grid;place-items:center;background:currentColor;font-size:10px;line-height:1;opacity:0;transition:opacity .14s}
+.rok-avatar-card[data-selected=true] .rok-avatar-check{opacity:1}
+.rok-avatar-check svg{width:10px;height:10px;stroke:Canvas;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.rok-avatar-preview{width:44px;height:44px;display:grid;place-items:center;flex:none}
+.rok-avatar-preview canvas{width:44px;height:44px;display:block}
+.rok-avatar-title{display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:12px;font-weight:550;line-height:1.25;flex-wrap:wrap}
+.rok-avatar-badge{font-size:10px;font-weight:500;padding:1px 5px;border-radius:999px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);opacity:.78}
+.rok-avatar-desc{font-size:11px;opacity:.62;line-height:1.3}
+@media(prefers-reduced-motion:reduce){.grok-account-name svg,.rok-avatar-card,.rok-avatar-check{transition:none}}
+@media(max-width:520px){.rok-avatar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.grok-host-dialog .grok-host-content,.rok-model-dialog .grok-host-content{padding:22px 18px}.grok-host-dialog .sand-dialog__title{font-size:22px}}
 `;
 const grokBlockComposedEnter = composing => event => {
@@ -143,6 +161,158 @@ function RokListArrangementSettings() {
     children: $.jsx(gn, { isChecked: state.mode === 'activity', isDisabled: store === rokListNoStore, label,
       onToggle: () => store.setMode?.(state.mode === 'activity' ? 'default' : 'activity'), size: 'md' }),
   }) });
+}
+
+const ROK_AVATAR_FALLBACK_STYLES = [
+  { id: 'chassis', zh: '机甲灵偶', en: 'RokBot Chassis', descZh: '斜胶囊眼 + 脉冲信号灯', descEn: 'Tilted capsule eyes + beacon', defaultColor: 'cyan' },
+  { id: 'antenna', zh: '双天线波波', en: 'Twin Antenna', descZh: '弹性双天线 + 玻璃面罩', descEn: 'Spring antennas + glass visor', defaultColor: 'violet' },
+  { id: 'visor', zh: '赛博护目镜', en: 'Cyber Visor', descZh: '极客切角 + 扫描灯带', descEn: 'Chamfered shell + scanner LED', defaultColor: 'orange' },
+  { id: 'pixel', zh: '像素精灵', en: 'Pixel Sprite', descZh: '点阵 LED 眼 + 节奏灯条', descEn: 'LED matrix eyes + status bar', defaultColor: 'green' },
+  { id: 'orb', zh: '流体光球', en: 'Fluid Orb', descZh: '液体变形 + 轨道卫星', descEn: 'Morphing blob + orbiting dot', defaultColor: 'magenta' },
+  { id: 'official', zh: '官方原版', en: 'Official', descZh: '保留官方动态流体球', descEn: 'Original dynamic fluid orb', defaultColor: 'blue' },
+];
+const rokAvatarNoStore = { subscribe: () => () => {}, getSnapshot: () => ({ style: 'chassis' }) };
+
+function RokAvatarPreviewCanvas({ styleId, color, active }) {
+  const ref = Q.useRef(null);
+  Q.useEffect(() => {
+    if (styleId === 'official') return undefined;
+    const canvas = ref.current;
+    const drawApi = globalThis.__rokAvatarDraw;
+    if (!canvas || !drawApi) return undefined;
+    let raf = 0;
+    let lastDraw = 0;
+    let blinkAt = (globalThis.performance?.now?.() ?? 0) / 1000 + 1.0 + Math.random() * 2.0;
+    const render = nowMs => {
+      const dpr = Math.min(globalThis.window?.devicePixelRatio || 1, 2);
+      const size = 44;
+      const px = Math.round(size * dpr);
+      if (canvas.width !== px || canvas.height !== px) {
+        canvas.width = px;
+        canvas.height = px;
+      }
+      const ctx = canvas.getContext?.('2d');
+      if (!ctx) return;
+      const t = nowMs / 1000;
+      let blink = 0;
+      if (t >= blinkAt) {
+        const dt = t - blinkAt;
+        if (dt < 0.16) blink = Math.sin((dt / 0.16) * Math.PI);
+        else blinkAt = t + 2.6 + Math.random() * 2.2;
+      }
+      const isLight = drawApi.isLight();
+      const pal = drawApi.palette(color, null, isLight);
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size, size);
+      drawApi.draw(ctx, styleId, size, t, { x: 0, y: 0 }, blink, { angle: 0, bounce: 0 }, active ? 'thinking' : 'idle', pal, isLight, null, active);
+      ctx.restore();
+      lastDraw = nowMs;
+    };
+    const tick = nowMs => {
+      raf = 0;
+      if (globalThis.document?.hidden) return;
+      if (nowMs - lastDraw >= 32) render(nowMs);
+      raf = globalThis.requestAnimationFrame?.(tick) ?? 0;
+    };
+    render(globalThis.performance?.now?.() ?? 0);
+    const reduced = Boolean(globalThis.window?.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+    if (!reduced) raf = globalThis.requestAnimationFrame?.(tick) ?? 0;
+    const onVis = () => {
+      if (!globalThis.document?.hidden && !reduced && !raf) raf = globalThis.requestAnimationFrame?.(tick) ?? 0;
+    };
+    globalThis.document?.addEventListener?.('visibilitychange', onVis);
+    return () => {
+      if (raf) globalThis.cancelAnimationFrame?.(raf);
+      globalThis.document?.removeEventListener?.('visibilitychange', onVis);
+    };
+  }, [styleId, color, active]);
+
+  if (styleId === 'official') {
+    return $.jsxs('svg', {
+      width: 44, height: 44, viewBox: '0 0 44 44', 'aria-hidden': true,
+      children: [
+        $.jsx('defs', { children: $.jsxs('linearGradient', { id: 'rok-official-orb-grad', x1: '0', y1: '0', x2: '0', y2: '1', children: [
+          $.jsx('stop', { offset: '0%', stopColor: '#60a5fa' }),
+          $.jsx('stop', { offset: '55%', stopColor: '#3b82f6' }),
+          $.jsx('stop', { offset: '100%', stopColor: '#1d4ed8' }),
+        ] }) }),
+        $.jsx('path', { d: 'M22 6C30.8 6 37 11.4 37.8 20.4C38.6 29.8 31.6 38 21.8 38C12 38 5.6 30.8 6.3 21.2C7 11.8 13.2 6 22 6Z', fill: 'url(#rok-official-orb-grad)' }),
+        $.jsx('rect', { x: 14.5, y: 15.8, width: 4.5, height: 9.8, rx: 2.25, fill: '#ffffff' }),
+        $.jsx('rect', { x: 24.5, y: 15.8, width: 4.5, height: 9.8, rx: 2.25, fill: '#ffffff' }),
+      ],
+    });
+  }
+  return $.jsx('canvas', { ref, width: 88, height: 88 });
+}
+
+function RokAvatarStyleSettings() {
+  const store = globalThis.__rokAvatarStyle ?? rokAvatarNoStore;
+  const state = Q.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const styles = globalThis.__rokAvatarDraw?.styles ?? ROK_AVATAR_FALLBACK_STYLES;
+  const title = grokText('Bot 动态图标', 'Bot avatar style');
+  const subtitle = grokText('风格选择', 'Icon style');
+  const description = grokText('全局替换所有 Bot 的动态流体球图标与状态动效，也可随时切回官方原版，切换后立即生效。',
+    'Applies across every Bot avatar and live status animation, or switch back to the official fluid orb anytime.');
+  return $.jsxs($.Fragment, { children: [
+    $.jsx('style', { children: grokConnectionStyles }),
+    $.jsx(Vn, {
+      anchorId: 'outside-settings',
+      title,
+      children: $.jsxs('div', {
+        className: 'rok-avatar-settings',
+        children: [
+          $.jsxs('div', {
+            className: 'rok-avatar-settings-head',
+            children: [
+              $.jsx('strong', { children: subtitle }),
+              $.jsx('span', { children: description }),
+            ],
+          }),
+          $.jsx('div', {
+            className: 'rok-avatar-grid',
+            role: 'radiogroup',
+            'aria-label': title,
+            children: styles.map(item => {
+              const selected = state.style === item.id;
+              const name = grokText(item.zh, item.en);
+              const desc = grokText(item.descZh, item.descEn);
+              return $.jsxs('button', {
+                type: 'button',
+                role: 'radio',
+                'aria-checked': selected,
+                'aria-label': name,
+                'data-selected': selected,
+                'data-rok-avatar-option': item.id,
+                disabled: store === rokAvatarNoStore,
+                className: 'rok-avatar-card',
+                onClick: () => store.setStyle?.(item.id),
+                children: [
+                  $.jsx('span', {
+                    className: 'rok-avatar-check',
+                    'aria-hidden': true,
+                    children: $.jsx('svg', { viewBox: '0 0 12 12', children: $.jsx('path', { d: 'M2.5 6.2 5 8.7 9.6 3.5' }) }),
+                  }),
+                  $.jsx('span', {
+                    className: 'rok-avatar-preview',
+                    children: $.jsx(RokAvatarPreviewCanvas, { styleId: item.id, color: item.defaultColor, active: selected }),
+                  }),
+                  $.jsxs('span', {
+                    className: 'rok-avatar-title',
+                    children: [
+                      $.jsx('span', { children: name }),
+                      item.id === 'chassis' ? $.jsx('span', { className: 'rok-avatar-badge', children: grokText('默认', 'Default') }) : null,
+                    ],
+                  }),
+                  $.jsx('span', { className: 'rok-avatar-desc', children: desc }),
+                ],
+              }, item.id);
+            }),
+          }),
+        ],
+      }),
+    }),
+  ] });
 }
 
 const ROK_MODEL_FORMATS = [

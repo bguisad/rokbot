@@ -191,7 +191,7 @@ export function specForTarget(target = 'windows') {
       { replace: '(0,$.jsx)(Un,{children:(0,$.jsx)(Y,{id:`NFRGrQ`})})', text: 'null' },
       { replace: '(0,$.jsx)(it,{as:`span`,color:`tertiary`,level:`body2`,children:h})]}):null', text: 'null]}):null' },
       { replace: 'children:[l,f,p,m,b,x,h,g,_,v,y,S,C,w,T,E]',
-        text: 'children:[l,f,(0,$.jsx)(RokListArrangementSettings,{}),(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(RokUsageSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
+        text: 'children:[l,f,(0,$.jsx)(RokAvatarStyleSettings,{}),(0,$.jsx)(RokListArrangementSettings,{}),(0,$.jsx)(RokModelSettings,{}),(0,$.jsx)(RokUsageSettings,{}),(0,$.jsx)(GrokRealtimeVoiceSettings,{}),p,m,b,x,h,g,_,v,y,S,w,T,E]' },
       { append: extension('general-pane.js') },
     ]),
 
@@ -296,8 +296,14 @@ export function specForTarget(target = 'windows') {
       // enabled fold button) nor a drop target for Bots: the order comes from the messages.
       { replace: 'let le=o?void 0:j,ue;', text: 'let le=o||rokListIsGroupId(n.id)?void 0:j,ue;' },
       { replace: 'P={id:D.dndId,data:D.payload}', text: 'P={id:D.dndId,data:D.payload,disabled:rokListIsGroupId(n.id)}' },
+      // Bot avatar style: RokBot dynamic styles by default, with user-selectable style including official.
+      { replace: 'function yT(e){yT.d=3525;',
+        text: 'function yT(e){return RokUseAvatarStyle()===`official`?(0,Z.jsx)(yT_orig,e):(0,Z.jsx)(RokGrokBotMark,e)}function yT_orig(e){yT_orig.d=3525;' },
+      { replace: 'function bT(e){bT.d=3526;',
+        text: 'function bT(e){return RokUseAvatarStyle()===`official`?(0,Z.jsx)(bT_orig,e):(0,Z.jsx)(RokGrokBotMarkMirror,e)}function bT_orig(e){bT_orig.d=3526;' },
       { append: extension('eager-app.js') },
       { append: extension('list-arrangement.js') },
+      { append: extension('avatar-style.js') },
     ]),
 
     // The render-trace hook installs a React DevTools stub for the vendor's render sampling.
