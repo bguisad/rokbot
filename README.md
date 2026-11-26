@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
-  <a href="#支持平台"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, iOS, Android, Web" /></a>
+  <a href="#支持平台"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, Linux, iOS, Android, Web" /></a>
   <a href="#快速开始"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
 
@@ -49,7 +49,7 @@
 
 ## 简介
 
-RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）和 Bot 的执行桌面（`box`）都用 Docker 部署在你自己的机器上，模型调用走你配置的 OpenAI 或 Anthropic 兼容接口。macOS、Windows、Android、iOS 客户端和网页版只连接你自己的 Host。
+RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）和 Bot 的执行桌面（`box`）都用 Docker 部署在你自己的机器上，模型调用走你配置的 OpenAI 或 Anthropic 兼容接口。macOS、Windows、Linux、Android、iOS 客户端和网页版只连接你自己的 Host。
 
 对话、文件、配置和 API Key 都保存在 Host 的数据卷里。本仓库只包含本项目自己编写的部分：Host 源码、镜像构建脚本、各平台的补丁工具和构建脚本，以及文档；不包含、也不分发任何原版程序文件或客户端安装包。客户端可以用补丁工具自行构建，也可以从你自己部署的 Host 获取，见[获取客户端](#获取客户端)。
 
@@ -84,6 +84,7 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
 
 - 在管理页「图片与视频」接入服务商：OpenAI 兼容的图片和视频接口、WaveSpeed，或自定义的 HTTP JSON 接口。
 - 图片生成、视频生成、视频理解和视频审核可以分别设置默认模型。生成结果以附件形式发回对话。
+- 支持多选**批量下载图片**：桌面端可将所选图片保存到指定文件夹或打包为 ZIP，网页版自动打包为 ZIP，Android 原生图库查看器支持多选批量保存到相册（`Pictures/RokBot`）。
 - 需要自己配置服务商的 API Key。
 
 ### 语音对话
@@ -177,16 +178,17 @@ Android 截图为英文界面，桌面端和管理页截图为中文界面。And
 
 | 平台 | 形式 | 对应的官方版本 | 获取方式 | 说明 |
 | --- | --- | --- | --- | --- |
-| macOS | Apple Silicon 客户端 | 1.2.3 | 自行构建 / Host 分发 | [`mac/README.md`](mac/README.md) |
-| Windows | x64 安装版和便携版 | 1.2.3（推荐），也接受 0.71.2 | 自行构建 / Host 分发 | [`windows/README.md`](windows/README.md) |
-| 网页版 | 浏览器，可添加到主屏幕 | 界面取自 Windows 1.2.3（推荐）或 0.71.2 | 自行构建界面包，上传到自己的 Host | [`web/README.md`](web/README.md) |
+| macOS | Apple Silicon 客户端 | 1.3.0（推荐），也接受 1.2.3 | 自行构建 / Host 分发 | [`mac/README.md`](mac/README.md) |
+| Windows | x64 安装版和便携版 | 1.3.0（推荐），也接受 1.2.3、0.71.2 | 自行构建 / Host 分发 | [`windows/README.md`](windows/README.md) |
+| Linux | x64 / arm64 `.deb`、`.tar.gz` 与便携目录 | 1.3.0 | 自行构建 / Host 分发 | [`linux/README.md`](linux/README.md) |
+| 网页版 | 浏览器，可添加到主屏幕 | 界面取自 Windows 1.3.0（推荐），也接受 1.2.3、0.71.2 | 自行构建界面包，上传到自己的 Host | [`web/README.md`](web/README.md) |
 | Android | 原生 APK（arm64-v8a） | 1.26.0（build 3212） | 自行构建 / Host 分发 | [`android/README.md`](android/README.md) |
 | iOS | IPA，需要自备解密的原版 IPA | 1.27.0（29519），也接受 1.26.0、1.16.0 | 自行构建并签名 / Host 分发 | [`ios/README.md`](ios/README.md) |
 | Linux 服务端 | Docker：`host`（amd64 / arm64）和 `box`（amd64） | Host 基线 `2bb5e41` | 从源码构建镜像 / 拉取预构建镜像（需要访问权限） | [`host/README.md`](host/README.md) |
 
 「自行构建」和「Host 分发」的具体做法见[获取客户端](#获取客户端)。
 
-锁定版本的来源：`mac/patchers/desktop/supported.json`、`windows/patchers/desktop/supported.json`、`web/patchers/supported.json`、`android/recipes/manifest.json`、`ios/recipes/ios/manifest.json`、`host/recipes/host/manifest.json`。
+锁定版本的来源：`mac/patchers/desktop/supported.json`、`windows/patchers/desktop/supported.json`、`linux/patchers/desktop/{x64,arm64}/supported.json`、`web/patchers/supported.json`、`android/recipes/manifest.json`、`ios/recipes/ios/manifest.json`、`host/recipes/host/manifest.json`。
 
 ## 快速开始
 
@@ -260,16 +262,17 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u <GitHub 用户名> --password-stdin
 
 | 平台 | 运行环境 | 输入 | 输出 |
 | --- | --- | --- | --- |
-| macOS | macOS，Node.js 22.12+ | 官方 1.2.3 Apple Silicon 的 `.dmg` 或 `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
-| Windows | Windows 10/11 x64，Node.js 22.12+ | 官方 1.2.3（或 0.71.2）x64 安装包、`app-64.7z` 或已安装的原版目录 | `windows/output/` |
-| 网页版 | Windows、macOS 或 Linux，Node.js 22.12+ | 与 Windows 相同的官方安装包 | `web/output/RokBotLocal-web-1.2.3.zip` |
+| macOS | macOS，Node.js 22.12+ | 官方 1.3.0（或 1.2.3）Apple Silicon 的 `.dmg` 或 `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
+| Windows | Windows 10/11 x64，Node.js 22.12+ | 官方 1.3.0（或 1.2.3、0.71.2）x64 安装包、`app-64.7z` 或已安装的原版目录 | `windows/output/` |
+| Linux | Linux 或 macOS，Node.js 22.12+ | 官方 1.3.0 Linux x64 / arm64 `.deb` 或解压目录 | `linux/output/`（便携目录、`.tar.gz`、`.deb`） |
+| 网页版 | Windows、macOS 或 Linux，Node.js 22.12+ | 与 Windows 相同的官方安装包 | `web/output/RokBotLocal-web-1.3.0.zip` |
 | Android | Node.js 20+ | 官方 1.26.0（build 3212）的 `.xapk`、`.apks` 或 `.apk` | `--output-apk` 指定的 APK |
 | iOS | Python 3.9+ | 自己解密的官方 IPA：1.27.0（29519）、1.26.0（29388）或 1.16.0（23152） | `--output` 指定的新目录 |
 
 #### macOS
 
 ```bash
-node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
+node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.3.0.dmg"
 ```
 
 - 生成 `mac/output.noindex/RokBot.app`，原版的副本备份在 `mac/backup.noindex/RokBot.app`。输出已存在时工具不会覆盖。
@@ -279,21 +282,29 @@ node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
 #### Windows
 
 ```powershell
-node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe
+node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.3.0_Setup.exe
 ```
 
-- 在 `windows/output/` 生成便携目录 `RokBot Local/`、`RokBotLocal-1.2.3-x64-portable.zip`、按用户安装的 `RokBotLocal-1.2.3-x64-Setup.exe`，以及补丁记录 `RokBotLocal-1.2.3-x64.patch.json`。加 `--no-installer` 只生成便携版本。
-- 1.2.3 用不了时，用 `--version 0.71.2 --output windows/output/0.71.2` 改用 0.71.2，输出文件名中的版本号随之改变。
+- 在 `windows/output/` 生成便携目录 `RokBot Local/`、`RokBotLocal-1.3.0-x64-portable.zip`、按用户安装的 `RokBotLocal-1.3.0-x64-Setup.exe`，以及补丁记录 `RokBotLocal-1.3.0-x64.patch.json`。加 `--no-installer` 只生成便携版本。
+- 1.3.0 用不了时，可用 `--version 1.2.3` 或 `--version 0.71.2` 回退，输出文件名中的版本号随之改变。
 - 补丁会移除因修改而失效的原签名，生成的程序和安装包都未签名。详见 [`windows/README.md`](windows/README.md)。
+
+#### Linux
+
+```bash
+node linux/patchers/desktop/patch.mjs --arch x64   # 或 --arch arm64，也可加 --source 指定本地官方 .deb
+```
+
+- 在 `linux/output/` 生成便携目录 `RokBotLocal-1.3.0-linux-<arch>/`、通用便携包 `RokBotLocal-1.3.0-linux-<arch>.tar.gz`、Debian/Ubuntu 安装包 `RokBotLocal-1.3.0-linux-<arch>.deb`（已移除上游 apt 源注册，安装到 `/opt/RokBot/rokbot`）以及 `.patch.json`。详见 [`linux/README.md`](linux/README.md)。
 
 #### 网页版
 
 ```bash
-node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe
+node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.3.0_Setup.exe
 ```
 
-- 生成 `web/output/RokBotLocal-web-1.2.3.zip`，在管理页「网页版」上传。也可以加 `--upload <Host 地址>` 生成后直接安装到 Host，管理员密码从 `ROKBOT_ADMIN_PASSWORD`、`--password-file` 或终端输入读取。
-- 1.2.3 的界面用不了时加 `--version 0.71.2`。详见 [`web/README.md`](web/README.md)。
+- 生成 `web/output/RokBotLocal-web-1.3.0.zip`，在管理页「网页版」上传。也可以加 `--upload <Host 地址>` 生成后直接安装到 Host，管理员密码从 `ROKBOT_ADMIN_PASSWORD`、`--password-file` 或终端输入读取。
+- 1.3.0 的界面用不了时加 `--version 1.2.3` 或 `--version 0.71.2`。详见 [`web/README.md`](web/README.md)。
 
 #### Android
 
