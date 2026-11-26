@@ -62,8 +62,17 @@ const catalogOptionLabel = candidate => {
   const tag = candidate.contextSource === 'provider' ? t('API') : t('规格');
   return `${candidate.id} · ${cap} (${tag})`;
 };
-const emptyRouting = () => ({ version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {},
+const emptyRouting = () => ({ version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {}, scenarioRoutes: {},
   adaptiveRouting: { enabled: false, classifierModel: 'jev-latest', tiers: null } });
+
+const SCENARIO_DEFS = [
+  ['suggestions', '输入框建议', '根据当前对话上下文生成输入框快捷建议，推荐使用轻量快速模型'],
+  ['summarization', '上下文压缩', '对话过长自动压缩或手动摘要上下文时使用'],
+  ['memoryExtraction', '记忆提取', '对话结束后提取长期记忆时使用'],
+  ['autoReview', '自动审核', '执行敏感工具调用前的安全分类器'],
+  ['subagent', '子 Agent 执行', '运行委派子任务与电脑操作子 Agent 时使用'],
+  ['automation', '定时任务', '定时触发与 Webhook 自动化执行时使用'],
+];
 
 function editor(panel, id) {
   const dialog = node('dialog', 'dialog wide');
@@ -105,6 +114,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
         </details>
       </section>
       <section class="section"><div class="section-head"><h2 class="section-title">默认路由</h2></div><div id="model-default-route" class="card"></div></section>
+      <section class="section" id="model-scenario-section"><div class="section-head"><h2 class="section-title">场景模型</h2></div><div id="model-scenario-routes" class="card"></div></section>
       <section class="section"><div class="section-head"><h2 class="section-title">Bot 路由</h2><div class="section-actions"><button id="refresh-model-bots" class="icon-btn" type="button" aria-label="刷新 Bot"></button></div></div><div id="model-bot-routes" class="card"></div></section>
       <section class="section" id="model-adaptive-section"><div class="section-head"><h2 class="section-title">智能路由（JEV 自动选模型）</h2></div><div id="model-adaptive-routing" class="card"></div></section>
       <p id="legacy-routing-notice" class="hint" role="status" hidden></p>
@@ -121,7 +131,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
     </section>
     <section class="section"><div class="section-head"><h2 class="section-title">模型路由记录</h2><div class="section-actions"><button id="refresh-routing" class="icon-btn" type="button" aria-label="刷新"></button></div></div><div id="routing-log" class="card"></div></section>`);
   const form = $('#model-form'), providersRoot = $('#model-providers'), profilesRoot = $('#model-profiles');
-  const defaultRoot = $('#model-default-route'), botsRoot = $('#model-bot-routes'), adaptiveRoot = $('#model-adaptive-routing'),
+  const defaultRoot = $('#model-default-route'), scenariosRoot = $('#model-scenario-routes'), botsRoot = $('#model-bot-routes'), adaptiveRoot = $('#model-adaptive-routing'),
     routingLog = createRoutingLog({ api });
   const providerEditor = editor(panel, 'model-provider-editor'), profileEditor = editor(panel, 'model-profile-editor');
   const botEditor = editor(panel, 'model-bot-route-editor');
@@ -203,6 +213,13 @@ export function createModelPage({ api, toast, busy, refresh }) {
       ...(profile.contextMode ? { contextMode: profile.contextMode } : {}),
     })), defaultRoute: routeCopy(config.defaultRoute), botRoutes: Object.fromEntries(Object.entries(config.botRoutes)
       .map(([id, route]) => [id, routeCopy(route)]).filter(([, route]) => route)),
+      scenarioRoutes: Object.fromEntries(SCENARIO_DEFS.map(([key]) => {
+        const entry = config.scenarioRoutes?.[key];
+        if (!entry?.profileId) return null;
+        const profile = profileById(entry.profileId);
+        if (!profile) return null;
+        return [key, { profileId: profile.id, effort: effortFor(profile, entry.effort) }];
+      }).filter(Boolean)),
       adaptiveRouting,
       ...(pendingJevApiKey.trim() ? { jevApiKey: pendingJevApiKey.trim() } : {}),
       ...(clearJevApiKey && !pendingJevApiKey.trim() ? { clearJevApiKey: true } : {}) };
@@ -229,7 +246,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
           : (profile.efforts ?? []);
         return { ...profile, efforts: [...syncedEfforts] };
       }),
-      defaultRoute: null, botRoutes: clone(value.botRoutes ?? {}), adaptiveRouting: null };
+      defaultRoute: null, botRoutes: clone(value.botRoutes ?? {}), scenarioRoutes: {}, adaptiveRouting: null };
     routeEffortWarnings = [];
     const checkRouteEfforts = (route, label) => {
       if (!route) return;
@@ -244,6 +261,13 @@ export function createModelPage({ api, toast, busy, refresh }) {
       for (const fb of route.fallbacks ?? []) checkItem(fb.profileId, fb.effort);
     };
     checkRouteEfforts(value.defaultRoute, t('默认路由'));
+    for (const [key, label] of SCENARIO_DEFS) {
+      const entry = value.scenarioRoutes?.[key];
+      if (!entry?.profileId) continue;
+      checkRouteEfforts(entry, t(label));
+      const profile = profileById(entry.profileId);
+      if (profile) config.scenarioRoutes[key] = { profileId: profile.id, effort: effortFor(profile, entry.effort) };
+    }
     for (const [id, route] of Object.entries(value.botRoutes ?? {})) {
       checkRouteEfforts(route, agents.find(agent => agent.id === id)?.name ?? id);
     }
@@ -374,6 +398,9 @@ export function createModelPage({ api, toast, busy, refresh }) {
     if (uses(config.defaultRoute)) entries.push(t('默认路由'));
     for (const [agentId, route] of Object.entries(config.botRoutes)) if (uses(route))
       entries.push(agents.find(agent => agent.id === agentId)?.name ?? agentId);
+    for (const [key, label] of SCENARIO_DEFS) {
+      if (config.scenarioRoutes?.[key]?.profileId === profileId) entries.push(t(label));
+    }
     if (config.adaptiveRouting?.enabled &&
         Object.values(config.adaptiveRouting.tiers ?? {}).some(item => item?.profileId === profileId)) {
       entries.push(t('智能路由'));
@@ -605,7 +632,55 @@ export function createModelPage({ api, toast, busy, refresh }) {
     testDetails.append(summary, testBody);
     adaptiveRoot.append(testDetails);
   }
-  function render() { renderProviders(); renderProfiles(); renderDefaultRoute(); renderBots(); renderAdaptiveRouting(); }
+  function renderScenarioRoutes() {
+    scenariosRoot.replaceChildren();
+    if (!config.profiles.length) {
+      scenariosRoot.append(empty(t('还没有可路由的模型'), t('添加模型档案后，才可配置场景模型。')));
+      return;
+    }
+    for (const [scenarioKey, title, hint] of SCENARIO_DEFS) {
+      const current = config.scenarioRoutes?.[scenarioKey] ?? null;
+      const row = node('div', 'row'), copy = node('span', 'row-copy'), control = node('span', 'row-control wide');
+      copy.append(node('span', 'row-title', t(title)), node('span', 'row-hint', t(hint)));
+      const profileSelect = document.createElement('select'), effortSelect = document.createElement('select');
+      profileSelect.dataset.scenario = scenarioKey; profileSelect.dataset.field = 'profileId';
+      effortSelect.dataset.scenario = scenarioKey; effortSelect.dataset.field = 'effort';
+      profileSelect.setAttribute('aria-label', t(title));
+      effortSelect.setAttribute('aria-label', `${t(title)} · ${t('思考强度')}`);
+      choice(profileSelect, [['', '跟随默认'], ...config.profiles.map(profile => [profile.id, profileLabel(profile)])], current?.profileId ?? '');
+      if (current?.profileId) {
+        effortOptions(effortSelect, current.profileId, current.effort);
+        effortSelect.hidden = false;
+      } else {
+        effortSelect.replaceChildren(new Option(t('跟随默认'), 'default'));
+        effortSelect.hidden = true;
+      }
+      profileSelect.onchange = () => {
+        if (!profileSelect.value) {
+          delete config.scenarioRoutes[scenarioKey];
+        } else {
+          const nextProfile = profileById(profileSelect.value);
+          config.scenarioRoutes[scenarioKey] = {
+            profileId: profileSelect.value,
+            effort: effortFor(nextProfile, current?.effort ?? 'default'),
+          };
+        }
+        markDirty();
+        renderProfiles();
+        renderScenarioRoutes();
+      };
+      effortSelect.onchange = () => {
+        if (!config.scenarioRoutes[scenarioKey]) return;
+        config.scenarioRoutes[scenarioKey].effort = effortSelect.value;
+        markDirty();
+      };
+      control.append(profileSelect, effortSelect);
+      row.append(copy, control);
+      scenariosRoot.append(row);
+    }
+    scenariosRoot.append(node('p', 'hint', t('为不同后台与辅助场景单独指定模型和思考强度；未指定时沿用默认路由。')));
+  }
+  function render() { renderProviders(); renderProfiles(); renderDefaultRoute(); renderScenarioRoutes(); renderBots(); renderAdaptiveRouting(); }
 
   function showProvider(entry) {
     const current = entry ? clone(entry) : { id: uid('provider'), name: '', apiFormat: 'openai', baseUrl: '' };

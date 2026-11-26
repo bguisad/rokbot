@@ -7,6 +7,14 @@ export const API_FORMATS = Object.freeze(['openai', 'openai-responses', 'anthrop
 export const CONTEXT_MODES = Object.freeze(['auto', 'manual']);
 export const EFFORTS_MODES = Object.freeze(['auto', 'manual']);
 export const MODEL_ROUTING_ENV = 'ROKBOT_MODEL_ROUTING';
+export const SCENARIO_KEYS = Object.freeze([
+  'suggestions',
+  'summarization',
+  'memoryExtraction',
+  'autoReview',
+  'subagent',
+  'automation',
+]);
 export const ADAPTIVE_TIERS = Object.freeze(['simple', 'medium', 'complex']);
 export const DIFFICULTY_TO_ADAPTIVE_TIER = Object.freeze({ routine: 'simple', reasoning: 'medium', expert: 'complex' });
 export const ADAPTIVE_TIER_TO_DIFFICULTY = Object.freeze({ simple: 'routine', medium: 'reasoning', complex: 'expert' });
@@ -190,9 +198,26 @@ function normalizeAdaptiveRouting(value, profilesById, defaultRoute) {
   return { enabled, classifierModel, tiers };
 }
 
+function normalizeScenarioRoutes(value, profilesById) {
+  if (value === undefined || value === null) return {};
+  if (!plainObject(value)) fail('Invalid scenario routes');
+  const scenarioRoutes = {};
+  for (const [scenario, entry] of Object.entries(value)) {
+    if (!SCENARIO_KEYS.includes(scenario)) fail(`Unknown scenario: ${scenario}`);
+    if (entry === null || entry === undefined || entry === '') continue;
+    if (!plainObject(entry)) fail(`Invalid scenario route ${scenario}`);
+    if (entry.profileId === undefined || entry.profileId === null || entry.profileId === '') continue;
+    const profileId = identifier(entry.profileId, `scenario route ${scenario} profile ID`);
+    const profile = profilesById.get(profileId);
+    if (!profile) fail(`Unknown profile: ${profileId}`);
+    scenarioRoutes[scenario] = { profileId, effort: routeEffort(entry.effort, profile) };
+  }
+  return scenarioRoutes;
+}
+
 /** A usable empty draft for a new installation. It is intentionally not a persisted config. */
 export function emptyModelRouting() {
-  return { version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {} };
+  return { version: 1, providers: [], profiles: [], defaultRoute: null, botRoutes: {}, scenarioRoutes: {} };
 }
 
 /** Convert the old, single-provider environment shape into an editable draft. */
@@ -225,6 +250,7 @@ export function legacyModelRouting(legacy = {}) {
   return { version: 1, providers: provider ? [provider] : [], profiles: profile ? [profile] : [],
     defaultRoute: provider && profile ? { profileId: profile.id, effort: legacy.policy?.effort ?? 'default', fallbacks: [] } : null,
     botRoutes: {},
+    scenarioRoutes: {},
     ...(adaptiveRouting ? { adaptiveRouting } : {}) };
 }
 
@@ -283,7 +309,9 @@ export function validateModelRouting(input, { previous } = {}) {
     botRoutes[agentId] = normalizeRoute(route, profilesById, `Bot route ${agentId}`);
   }
   const adaptiveRouting = normalizeAdaptiveRouting(input.adaptiveRouting, profilesById, defaultRoute);
+  const scenarioRoutes = normalizeScenarioRoutes(input.scenarioRoutes, profilesById);
   return { version: 1, providers, profiles, defaultRoute, botRoutes,
+    ...(Object.keys(scenarioRoutes).length ? { scenarioRoutes } : {}),
     ...(adaptiveRouting ? { adaptiveRouting } : {}) };
 }
 
@@ -295,6 +323,7 @@ export function publicModelRouting(config) {
     profiles: (config.profiles ?? []).map(profile => ({ ...profile, efforts: [...profile.efforts] })),
     defaultRoute: config.defaultRoute ? structuredClone(config.defaultRoute) : null,
     botRoutes: structuredClone(config.botRoutes ?? {}),
+    scenarioRoutes: structuredClone(config.scenarioRoutes ?? {}),
     adaptiveRouting: config.adaptiveRouting ? structuredClone(config.adaptiveRouting) : defaultAdaptiveRouting(config),
   };
 }
@@ -381,6 +410,44 @@ export function modelRouteForAdaptiveTier(config, tier, { agentId, resolvedEffor
     fallbacks,
     routeSource: 'adaptive',
     tier,
+    agentId: agentId || undefined,
+    ...routeContext([primary, ...fallbacks]),
+  };
+}
+
+/**
+ * Resolve a scenario route (e.g. suggestions, summarization, memoryExtraction, autoReview,
+ * subagent, automation). When absent, falls back to the Bot/default route.
+ */
+export function modelRouteForScenario(config, scenario, { agentId, direct = false } = {}) {
+  if (!SCENARIO_KEYS.includes(scenario)) fail(`Unknown scenario: ${scenario}`);
+  const entry = config?.scenarioRoutes?.[scenario];
+  if (!entry) {
+    const base = modelRouteForAgent(config, agentId);
+    if (!direct) return base;
+    return { ...base, fallbacks: [], ...routeContext([base]) };
+  }
+  const profiles = new Map(config.profiles.map(item => [item.id, item]));
+  const providers = new Map(config.providers.map(item => [item.id, item]));
+  const resolve = item => {
+    const profile = profiles.get(item.profileId);
+    const provider = profile ? providers.get(profile.providerId) : undefined;
+    if (!profile || !provider) fail(`Invalid configured profile: ${item.profileId}`);
+    return candidate(profile, provider, item);
+  };
+  const primary = resolve(entry);
+  const botRoute = agentId && config.botRoutes?.[agentId];
+  const baseRoute = botRoute ?? config.defaultRoute;
+  const fallbacks = direct
+    ? []
+    : (baseRoute?.fallbacks ?? [])
+      .filter(item => item.profileId !== primary.profileId)
+      .map(resolve);
+  return {
+    ...primary,
+    fallbacks,
+    routeSource: 'scenario',
+    scenario,
     agentId: agentId || undefined,
     ...routeContext([primary, ...fallbacks]),
   };

@@ -559,6 +559,7 @@ export class MockHostServer {
       ],
       defaultRoute: { profileId: 'default', effort: 'default', fallbacks: [] },
       botRoutes: {},
+      scenarioRoutes: {},
     };
   }
 
@@ -573,6 +574,7 @@ export class MockHostServer {
       profiles: structuredClone(this.modelConfig.profiles || []),
       defaultRoute: this.modelConfig.defaultRoute ? structuredClone(this.modelConfig.defaultRoute) : null,
       botRoutes: structuredClone(this.modelConfig.botRoutes || {}),
+      scenarioRoutes: structuredClone(this.modelConfig.scenarioRoutes || {}),
     };
   }
 
@@ -874,6 +876,7 @@ export class MockHostServer {
         profiles: body.profiles,
         defaultRoute: body.defaultRoute,
         botRoutes: body.botRoutes && typeof body.botRoutes === 'object' ? body.botRoutes : {},
+        scenarioRoutes: body.scenarioRoutes && typeof body.scenarioRoutes === 'object' ? body.scenarioRoutes : {},
       };
       this.needsModel = false;
       this.routingMigrated = false;
@@ -892,6 +895,23 @@ export class MockHostServer {
         needsModel: !configured,
         reload: this.modelReload,
         canConfigureModel: true,
+      });
+    }
+
+    // Local Suggestions: POST /local/suggestions
+    if (pathname === '/local/suggestions' && method === 'POST') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {}
+      const zh = /^zh/i.test(String(body.locale || ''));
+      const suggestions = zh
+        ? ['继续展开说说', '总结核心要点', '给我一个具体例子', '下一步应该怎么推进？']
+        : ['Tell me more about that', 'Summarize the key points', 'Give me a concrete example', 'What should I do next?'];
+      return this._json(res, 200, {
+        suggestions,
+        source: 'model',
+        cached: false,
+        lang: zh ? 'zh' : 'en',
       });
     }
 
@@ -1974,6 +1994,71 @@ export class MockHostServer {
       const serialized = this._serializeAgent(agent, slim);
       this._broadcastEvent('agent-upserted', { activeAgentId: agent.id, agent: this._serializeAgent(agent, false) });
       return this._json(res, 200, { agent: serialized, transcript: [] });
+    }
+
+    // Create Group: POST /api/createGroup
+    if (pathname === '/api/createGroup' && method === 'POST') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {
+        return this._json(res, 400, { error: 'Invalid JSON' });
+      }
+      const memberIds = Array.isArray(body.memberAgentIds)
+        ? [...new Set(body.memberAgentIds.filter(id => typeof id === 'string' && this.agents.some(a => a.id === id && !a.isGroup)))]
+        : [];
+      if (memberIds.length === 0) {
+        return this._json(res, 400, { error: 'A group must have at least one existing member agent' });
+      }
+      const memberNames = memberIds.map(id => this.agents.find(a => a.id === id)?.name || id);
+      const name = typeof body.name === 'string' && body.name.trim()
+        ? body.name.trim()
+        : memberNames.join(', ');
+      const now = Date.now();
+      const group = this._makeAgentSummary({
+        id: 'group-' + crypto.randomUUID().slice(0, 8),
+        name,
+        description: typeof body.description === 'string' ? body.description.trim() : '',
+        isGroup: true,
+        memberIds,
+        avatarShape: 'circle',
+        avatarColor: 'purple',
+        createdAt: now,
+        updatedAt: now,
+        createdAtMs: now,
+        updatedAtMs: now,
+        isRunning: false,
+      });
+      this.agents.unshift(group);
+      this.transcripts.set(group.id, []);
+      const slim = this._wantsSlimAvatars(req);
+      const serialized = this._serializeAgent(group, slim);
+      this._broadcastEvent('agent-upserted', { activeAgentId: group.id, agent: this._serializeAgent(group, false) });
+      return this._json(res, 200, { agent: serialized, transcript: [] });
+    }
+
+    // Set Group Members: POST /api/setGroupMembers
+    if (pathname === '/api/setGroupMembers' && method === 'POST') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {
+        return this._json(res, 400, { error: 'Invalid JSON' });
+      }
+      const group = this.agents.find(a => a.id === body.id && a.isGroup);
+      if (!group) return this._json(res, 404, { error: 'Group not found' });
+      const memberIds = Array.isArray(body.memberAgentIds)
+        ? [...new Set(body.memberAgentIds.filter(id => typeof id === 'string' && this.agents.some(a => a.id === id && !a.isGroup)))]
+        : [];
+      if (memberIds.length === 0) {
+        return this._json(res, 400, { error: 'A group must have at least one existing member agent' });
+      }
+      group.memberIds = memberIds;
+      const now = Date.now();
+      group.updatedAt = now;
+      group.updatedAtMs = now;
+      const slim = this._wantsSlimAvatars(req);
+      const serialized = this._serializeAgent(group, slim);
+      this._broadcastEvent('agent-upserted', { activeAgentId: group.id, agent: this._serializeAgent(group, false) });
+      return this._json(res, 200, { agent: serialized });
     }
 
     // Update Bot: POST /api/updateAgent

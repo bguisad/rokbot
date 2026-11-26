@@ -43,6 +43,39 @@ import java.util.UUID;
 
 public class ModelsActivity extends Activity {
     public static final String EXTRA_ONBOARDING = "onboarding";
+    public static final String EXTRA_AGENT_ID = "agent_id";
+    public static final String EXTRA_AGENT_NAME = "agent_name";
+
+    private static final class ScenarioDef {
+        final String key;
+        final String titleZh;
+        final String titleEn;
+        final String descZh;
+        final String descEn;
+
+        ScenarioDef(String key, String titleZh, String titleEn, String descZh, String descEn) {
+            this.key = key;
+            this.titleZh = titleZh;
+            this.titleEn = titleEn;
+            this.descZh = descZh;
+            this.descEn = descEn;
+        }
+    }
+
+    private static final ScenarioDef[] SCENARIOS = new ScenarioDef[] {
+            new ScenarioDef("suggestions", "输入建议", "Input Suggestions",
+                    "聊天输入框预制输入建议生成", "Chat composer quick reply suggestions"),
+            new ScenarioDef("summarization", "上下文压缩与摘要", "Summarization & Compaction",
+                    "长对话历史压缩与摘要生成", "Long conversation compaction and summaries"),
+            new ScenarioDef("memoryExtraction", "记忆提取", "Memory Extraction",
+                    "对话后自动提炼长期记忆", "Post-turn long-term memory extraction"),
+            new ScenarioDef("autoReview", "自动审核分类器", "Auto-Review Classifier",
+                    "敏感工具调用的风险自动判定", "Safety classification for risky tool calls"),
+            new ScenarioDef("subagent", "子任务 Agent", "Subagents",
+                    "后台子代理与并发任务执行", "Background subagent and helper runs"),
+            new ScenarioDef("automation", "定时任务与自动化", "Automations & Routines",
+                    "定时触发的自动运行任务", "Scheduled routine and automation runs"),
+    };
 
     private static final String[] API_FORMATS = { "openai", "openai-responses", "anthropic" };
     private static final String[] ALL_EFFORTS = { "none", "minimal", "low", "medium", "high", "xhigh", "max" };
@@ -52,11 +85,16 @@ public class ModelsActivity extends Activity {
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private volatile boolean mDestroyed = false;
     private boolean mOnboarding = false;
+    private String mTargetAgentId = "";
+    private String mTargetAgentName = "";
+    private boolean mInitialBotDialogOpened = false;
 
     private JSONArray mProviders = new JSONArray();
     private JSONArray mProfiles = new JSONArray();
     private JSONObject mDefaultRoute = null;
     private JSONObject mBotRoutes = new JSONObject();
+    private JSONObject mScenarioRoutes = new JSONObject();
+    private JSONArray mAgents = new JSONArray();
     private boolean mRoutingMigrated = false;
     private boolean mConfigured = false;
     private boolean mCanConfigureModel = true;
@@ -78,6 +116,8 @@ public class ModelsActivity extends Activity {
     private TextView mContinueBtn;
     private ProgressBar mActionProgress;
     private TextView mActionResultText;
+    private LinearLayout mScenariosContainer;
+    private LinearLayout mBotRoutesContainer;
     private LinearLayout mProvidersContainer;
     private LinearLayout mProfilesContainer;
 
@@ -92,6 +132,12 @@ public class ModelsActivity extends Activity {
         super.onCreate(savedInstanceState);
         Storage.init(this);
         mOnboarding = getIntent() != null && getIntent().getBooleanExtra(EXTRA_ONBOARDING, false);
+        if (getIntent() != null) {
+            String extraAgent = getIntent().getStringExtra(EXTRA_AGENT_ID);
+            String extraName = getIntent().getStringExtra(EXTRA_AGENT_NAME);
+            mTargetAgentId = extraAgent != null ? extraAgent.trim() : "";
+            mTargetAgentName = extraName != null ? extraName.trim() : "";
+        }
         buildUi();
         loadModelConfig();
     }
@@ -288,6 +334,18 @@ public class ModelsActivity extends Activity {
 
         root.addView(routeCard);
 
+        // Scenario Models Section
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "场景模型 (Scenario Models)", "Scenario Models"), p));
+        mScenariosContainer = new LinearLayout(this);
+        mScenariosContainer.setOrientation(LinearLayout.VERTICAL);
+        root.addView(mScenariosContainer);
+
+        // Per-Bot Model Routes Section
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "Bot 独立模型 (Bot Routes)", "Per-Bot Model Routes"), p));
+        mBotRoutesContainer = new LinearLayout(this);
+        mBotRoutesContainer.setOrientation(LinearLayout.VERTICAL);
+        root.addView(mBotRoutesContainer);
+
         // Providers Section
         LinearLayout provHeader = new LinearLayout(this);
         provHeader.setOrientation(LinearLayout.HORIZONTAL);
@@ -359,13 +417,22 @@ public class ModelsActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONObject res = HostApiClient.getModelConfig(this, mAdminPassword);
+                JSONArray agents = null;
+                try {
+                    agents = HostApiClient.listAgents(this);
+                } catch (Throwable ignored) {}
+                final JSONArray loadedAgents = agents;
                 if (mDestroyed) return;
                 mMain.post(() -> {
                     if (mDestroyed) return;
                     mActionProgress.setVisibility(View.GONE);
                     mAuthBlocked = false;
+                    if (loadedAgents != null) {
+                        mAgents = loadedAgents;
+                    }
                     applyServerResponse(res, true);
                     renderData();
+                    maybeOpenInitialBotDialog();
                 });
             } catch (HostApiClient.ApiException ae) {
                 if (mDestroyed) return;
@@ -410,6 +477,8 @@ public class ModelsActivity extends Activity {
         mDefaultRoute = defRoute != null ? copyJsonObject(defRoute) : null;
         JSONObject botRoutes = cfg.optJSONObject("botRoutes");
         mBotRoutes = botRoutes != null ? copyJsonObject(botRoutes) : new JSONObject();
+        JSONObject scenarioRoutes = cfg.optJSONObject("scenarioRoutes");
+        mScenarioRoutes = scenarioRoutes != null ? copyJsonObject(scenarioRoutes) : new JSONObject();
         boolean fallbackConfigured = mProviders.length() > 0 && mProfiles.length() > 0 && mDefaultRoute != null;
         mRoutingMigrated = (res != null && res.has("routingMigrated") && !res.isNull("routingMigrated"))
                 ? res.optBoolean("routingMigrated", false)
@@ -538,8 +607,390 @@ public class ModelsActivity extends Activity {
             mBindingSpinners = false;
         }
 
+        renderScenarioRoutesList(p);
+        renderBotRoutesList(p);
         renderProvidersList(p);
         renderProfilesList(p);
+    }
+
+    private void maybeOpenInitialBotDialog() {
+        if (mInitialBotDialogOpened || (mTargetAgentId.isEmpty() && mTargetAgentName.isEmpty()) || mProfiles.length() == 0) return;
+        mInitialBotDialogOpened = true;
+        // Prefer exact visible Bot name match from the Bot Profile screen (works even when RN opens a cached chat).
+        if (!mTargetAgentName.isEmpty() && mAgents != null) {
+            String matchedId = findAgentIdByName(mTargetAgentName);
+            if (!matchedId.isEmpty()) {
+                mTargetAgentId = matchedId;
+            }
+        }
+        if (mTargetAgentId.isEmpty()) return;
+        String resolvedName = mTargetAgentName;
+        if (resolvedName.isEmpty()) {
+            resolvedName = findAgentName(mTargetAgentId);
+        }
+        showBotRouteDialog(mTargetAgentId, resolvedName, true);
+    }
+
+    private String findAgentIdByName(String name) {
+        if (mAgents == null || name == null || name.isEmpty()) return "";
+        String firstMatch = "";
+        int matchCount = 0;
+        for (int i = 0; i < mAgents.length(); i++) {
+            JSONObject a = mAgents.optJSONObject(i);
+            if (a == null || a.optBoolean("isGroup", false)) continue;
+            if (name.equals(UiChrome.jsonStr(a, "name"))) {
+                String id = UiChrome.jsonStr(a, "id");
+                if (!id.isEmpty()) {
+                    firstMatch = id;
+                    matchCount++;
+                }
+            }
+        }
+        return matchCount == 1 ? firstMatch : "";
+    }
+
+    private String findAgentName(String agentId) {
+        if (mAgents != null) {
+            for (int i = 0; i < mAgents.length(); i++) {
+                JSONObject a = mAgents.optJSONObject(i);
+                if (a != null && agentId.equals(UiChrome.jsonStr(a, "id"))) {
+                    String n = UiChrome.jsonStr(a, "name");
+                    if (!n.isEmpty()) return n;
+                }
+            }
+        }
+        return agentId;
+    }
+
+    private String describeRouteSummary(JSONObject route) {
+        if (route == null) return Localize.t(this, "跟随默认", "Follow default");
+        String pid = UiChrome.jsonStr(route, "profileId");
+        if (pid.isEmpty()) return Localize.t(this, "跟随默认", "Follow default");
+        JSONObject prof = findById(mProfiles, pid);
+        String name = prof != null ? UiChrome.jsonStr(prof, "name", pid) : pid;
+        String model = prof != null ? UiChrome.jsonStr(prof, "model") : "";
+        String eff = UiChrome.jsonStr(route, "effort", "default");
+        String base = model.isEmpty() ? name : (name + " · " + model);
+        return "default".equals(eff) ? base : (base + " (" + eff + ")");
+    }
+
+    private void renderScenarioRoutesList(UiChrome.Palette p) {
+        if (mScenariosContainer == null) return;
+        mScenariosContainer.removeAllViews();
+        LinearLayout card = UiChrome.makeCard(this, p);
+        TextView hint = new TextView(this);
+        hint.setText(Localize.t(this,
+                "按调用场景单独指定模型与推理强度，未设置则跟随默认对话模型。",
+                "Assign a model and effort per scenario. Leave unset to follow the default route."));
+        hint.setTextColor(p.textSecondary);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        hint.setPadding(0, 0, 0, UiChrome.dp(this, 8));
+        card.addView(hint);
+
+        for (int i = 0; i < SCENARIOS.length; i++) {
+            final ScenarioDef def = SCENARIOS[i];
+            if (i > 0) {
+                View divider = new View(this);
+                divider.setBackgroundColor(p.border);
+                LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, UiChrome.dp(this, 0.5f)));
+                dlp.topMargin = UiChrome.dp(this, 6);
+                dlp.bottomMargin = UiChrome.dp(this, 6);
+                divider.setLayoutParams(dlp);
+                card.addView(divider);
+            }
+            JSONObject route = mScenarioRoutes != null ? mScenarioRoutes.optJSONObject(def.key) : null;
+            boolean custom = route != null && !UiChrome.jsonStr(route, "profileId").isEmpty();
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, UiChrome.dp(this, 4), 0, UiChrome.dp(this, 4));
+            row.setContentDescription("scenario_route_" + def.key);
+
+            LinearLayout left = new LinearLayout(this);
+            left.setOrientation(LinearLayout.VERTICAL);
+            left.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            TextView titleTv = new TextView(this);
+            titleTv.setText(Localize.t(this, def.titleZh, def.titleEn));
+            titleTv.setTextColor(p.textPrimary);
+            titleTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            titleTv.setTypeface(Typeface.DEFAULT_BOLD);
+            left.addView(titleTv);
+
+            TextView descTv = new TextView(this);
+            descTv.setText(Localize.t(this, def.descZh, def.descEn));
+            descTv.setTextColor(p.textSecondary);
+            descTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            left.addView(descTv);
+            row.addView(left);
+
+            TextView badge = new TextView(this);
+            badge.setText(describeRouteSummary(route));
+            badge.setTextColor(custom ? p.blueAccent : p.textMuted);
+            badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            badge.setTypeface(custom ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            badge.setPadding(UiChrome.dp(this, 8), 0, 0, 0);
+            badge.setMaxWidth(UiChrome.dp(this, 160));
+            badge.setSingleLine(true);
+            badge.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(badge);
+
+            row.setOnClickListener(v -> showRouteOverrideDialog(
+                    Localize.t(this, def.titleZh, def.titleEn),
+                    route,
+                    false,
+                    chosen -> {
+                        try {
+                            if (mScenarioRoutes == null) mScenarioRoutes = new JSONObject();
+                            if (chosen == null) mScenarioRoutes.remove(def.key);
+                            else mScenarioRoutes.put(def.key, chosen);
+                        } catch (Throwable ignored) {}
+                        renderData();
+                    }
+            ));
+            card.addView(row);
+        }
+        mScenariosContainer.addView(card);
+    }
+
+    private void renderBotRoutesList(UiChrome.Palette p) {
+        if (mBotRoutesContainer == null) return;
+        mBotRoutesContainer.removeAllViews();
+        LinearLayout card = UiChrome.makeCard(this, p);
+
+        List<String[]> botEntries = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+        if (mAgents != null) {
+            for (int i = 0; i < mAgents.length(); i++) {
+                JSONObject a = mAgents.optJSONObject(i);
+                if (a == null || a.optBoolean("isGroup", false) || a.optBoolean("isHiddenFromSidebar", false)) continue;
+                String id = UiChrome.jsonStr(a, "id");
+                if (id.isEmpty() || !seenIds.add(id)) continue;
+                botEntries.add(new String[] { id, UiChrome.jsonStr(a, "name", id) });
+            }
+        }
+        if (mBotRoutes != null) {
+            JSONArray keys = mBotRoutes.names();
+            if (keys != null) {
+                for (int i = 0; i < keys.length(); i++) {
+                    String id = jsonArrStr(keys, i);
+                    if (!id.isEmpty() && seenIds.add(id)) {
+                        botEntries.add(new String[] { id, id });
+                    }
+                }
+            }
+        }
+        if (!mTargetAgentId.isEmpty() && seenIds.add(mTargetAgentId)) {
+            botEntries.add(0, new String[] { mTargetAgentId, mTargetAgentName.isEmpty() ? mTargetAgentId : mTargetAgentName });
+        }
+
+        if (botEntries.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText(Localize.t(this, "暂无可配置的 Bot。", "No Bots available yet."));
+            empty.setTextColor(p.textMuted);
+            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            card.addView(empty);
+            mBotRoutesContainer.addView(card);
+            return;
+        }
+
+        TextView hint = new TextView(this);
+        hint.setText(Localize.t(this,
+                "点击任意 Bot 单独指定对话模型与推理强度，保存后立即生效。",
+                "Tap any Bot to assign its own model profile and effort, or follow default."));
+        hint.setTextColor(p.textSecondary);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        hint.setPadding(0, 0, 0, UiChrome.dp(this, 8));
+        card.addView(hint);
+
+        for (int i = 0; i < botEntries.size(); i++) {
+            final String botId = botEntries.get(i)[0];
+            final String botName = botEntries.get(i)[1];
+            if (i > 0) {
+                View divider = new View(this);
+                divider.setBackgroundColor(p.border);
+                LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, UiChrome.dp(this, 0.5f)));
+                dlp.topMargin = UiChrome.dp(this, 6);
+                dlp.bottomMargin = UiChrome.dp(this, 6);
+                divider.setLayoutParams(dlp);
+                card.addView(divider);
+            }
+            JSONObject route = mBotRoutes != null ? mBotRoutes.optJSONObject(botId) : null;
+            boolean custom = route != null && !UiChrome.jsonStr(route, "profileId").isEmpty();
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, UiChrome.dp(this, 5), 0, UiChrome.dp(this, 5));
+            row.setContentDescription("bot_route_" + botId);
+
+            TextView nameTv = new TextView(this);
+            nameTv.setText(botName);
+            nameTv.setTextColor(p.textPrimary);
+            nameTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            nameTv.setTypeface(Typeface.DEFAULT_BOLD);
+            nameTv.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            nameTv.setSingleLine(true);
+            nameTv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(nameTv);
+
+            TextView badge = new TextView(this);
+            badge.setText(describeRouteSummary(route));
+            badge.setTextColor(custom ? p.blueAccent : p.textMuted);
+            badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            badge.setTypeface(custom ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            badge.setPadding(UiChrome.dp(this, 8), 0, 0, 0);
+            badge.setMaxWidth(UiChrome.dp(this, 175));
+            badge.setSingleLine(true);
+            badge.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(badge);
+
+            row.setOnClickListener(v -> showBotRouteDialog(botId, botName, false));
+            card.addView(row);
+        }
+        mBotRoutesContainer.addView(card);
+    }
+
+    private interface RouteChoiceCallback {
+        void onChosen(JSONObject routeOrNull);
+    }
+
+    private void showBotRouteDialog(String botId, String botName, boolean autoSave) {
+        JSONObject existing = mBotRoutes != null ? mBotRoutes.optJSONObject(botId) : null;
+        String title = Localize.t(this, "Bot 模型：" + botName, "Bot Model: " + botName);
+        showRouteOverrideDialog(title, existing, autoSave, chosen -> {
+            try {
+                if (mBotRoutes == null) mBotRoutes = new JSONObject();
+                if (chosen == null) {
+                    mBotRoutes.remove(botId);
+                } else {
+                    if (!chosen.has("fallbacks")) chosen.put("fallbacks", new JSONArray());
+                    mBotRoutes.put(botId, chosen);
+                }
+            } catch (Throwable ignored) {}
+            renderData();
+            if (autoSave) {
+                saveModelConfig();
+            }
+        });
+    }
+
+    private void showRouteOverrideDialog(String title, JSONObject existing, boolean immediateSave, RouteChoiceCallback callback) {
+        if (mProfiles == null || mProfiles.length() == 0) {
+            Toast.makeText(this, Localize.t(this, "请先添加至少一个模型档案", "Add at least one model profile first"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        UiChrome.Palette p = UiChrome.palette(this);
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(UiChrome.dp(this, 20), UiChrome.dp(this, 14), UiChrome.dp(this, 20), UiChrome.dp(this, 6));
+
+        final List<String> profileIds = new ArrayList<>();
+        final List<String> profileLabels = new ArrayList<>();
+        profileIds.add("");
+        profileLabels.add(Localize.t(this, "跟随默认模型", "Follow default"));
+
+        String currentProfileId = existing != null ? UiChrome.jsonStr(existing, "profileId") : "";
+        String currentEffort = existing != null ? UiChrome.jsonStr(existing, "effort", "default") : "default";
+        int initialProfilePos = 0;
+
+        for (int i = 0; i < mProfiles.length(); i++) {
+            JSONObject pf = mProfiles.optJSONObject(i);
+            if (pf == null) continue;
+            String id = UiChrome.jsonStr(pf, "id");
+            if (id.isEmpty()) continue;
+            JSONObject prov = findById(mProviders, UiChrome.jsonStr(pf, "providerId"));
+            String provName = prov != null ? UiChrome.jsonStr(prov, "name") : "";
+            profileIds.add(id);
+            profileLabels.add(UiChrome.jsonStr(pf, "name", id) + " · " + UiChrome.jsonStr(pf, "model")
+                    + (provName.isEmpty() ? "" : (" (" + provName + ")")));
+            if (id.equals(currentProfileId)) {
+                initialProfilePos = profileIds.size() - 1;
+            }
+        }
+
+        TextView profLbl = new TextView(this);
+        profLbl.setText(Localize.t(this, "模型档案", "Model Profile"));
+        profLbl.setTextColor(p.textSecondary);
+        profLbl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        form.addView(profLbl);
+
+        Spinner profSpinner = new Spinner(this);
+        profSpinner.setContentDescription("route_dialog_profile_spinner");
+        profSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, profileLabels));
+        profSpinner.setSelection(initialProfilePos, false);
+        form.addView(profSpinner);
+
+        TextView effLbl = new TextView(this);
+        effLbl.setText(Localize.t(this, "推理强度 (Effort)", "Reasoning Effort"));
+        effLbl.setTextColor(p.textSecondary);
+        effLbl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        effLbl.setPadding(0, UiChrome.dp(this, 10), 0, 0);
+        form.addView(effLbl);
+
+        Spinner effSpinner = new Spinner(this);
+        effSpinner.setContentDescription("route_dialog_effort_spinner");
+        form.addView(effSpinner);
+
+        final List<String> effOptions = new ArrayList<>();
+        final Runnable bindEfforts = () -> {
+            int pos = profSpinner.getSelectedItemPosition();
+            String pid = (pos >= 0 && pos < profileIds.size()) ? profileIds.get(pos) : "";
+            boolean isFollowDefault = pid.isEmpty();
+            effLbl.setVisibility(isFollowDefault ? View.GONE : View.VISIBLE);
+            effSpinner.setVisibility(isFollowDefault ? View.GONE : View.VISIBLE);
+            effOptions.clear();
+            effOptions.add("default");
+            if (!isFollowDefault) {
+                JSONObject pf = findById(mProfiles, pid);
+                JSONArray efforts = pf != null ? pf.optJSONArray("efforts") : null;
+                if (efforts != null) {
+                    for (int i = 0; i < efforts.length(); i++) {
+                        String e = jsonArrStr(efforts, i);
+                        if (!e.isEmpty() && !effOptions.contains(e)) effOptions.add(e);
+                    }
+                } else {
+                    for (String e : ALL_EFFORTS) effOptions.add(e);
+                }
+            }
+            effSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, effOptions));
+            int sel = effOptions.indexOf(currentEffort);
+            effSpinner.setSelection(sel >= 0 ? sel : 0, false);
+        };
+        bindEfforts.run();
+        profSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) { bindEfforts.run(); }
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
+
+        String posBtnLabel = immediateSave
+                ? Localize.t(this, "保存并应用", "Save & Apply")
+                : Localize.t(this, "确定", "Confirm");
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(form)
+                .setNegativeButton(Localize.t(this, "取消", "Cancel"), null)
+                .setPositiveButton(posBtnLabel, (d, w) -> {
+                    int pIdx = profSpinner.getSelectedItemPosition();
+                    String chosenPid = (pIdx >= 0 && pIdx < profileIds.size()) ? profileIds.get(pIdx) : "";
+                    if (chosenPid.isEmpty()) {
+                        callback.onChosen(null);
+                        return;
+                    }
+                    int eIdx = effSpinner.getSelectedItemPosition();
+                    String chosenEff = (eIdx >= 0 && eIdx < effOptions.size()) ? effOptions.get(eIdx) : "default";
+                    try {
+                        JSONObject routeObj = new JSONObject();
+                        routeObj.put("profileId", chosenPid);
+                        routeObj.put("effort", chosenEff);
+                        if (existing != null && existing.has("fallbacks")) {
+                            routeObj.put("fallbacks", copyJsonArray(existing.optJSONArray("fallbacks")));
+                        }
+                        callback.onChosen(routeObj);
+                    } catch (Throwable ignored) {}
+                })
+                .show();
     }
 
     private void refreshEffortSpinner(String profileId) {
@@ -1413,6 +1864,25 @@ public class ModelsActivity extends Activity {
         dropFallbacksMatchingPrimary();
         payload.put("defaultRoute", copyJsonObject(mDefaultRoute));
         payload.put("botRoutes", mBotRoutes != null ? copyJsonObject(mBotRoutes) : new JSONObject());
+        JSONObject outScenarios = new JSONObject();
+        if (mScenarioRoutes != null) {
+            JSONArray sKeys = mScenarioRoutes.names();
+            if (sKeys != null) {
+                for (int i = 0; i < sKeys.length(); i++) {
+                    String sk = jsonArrStr(sKeys, i);
+                    JSONObject sr = !sk.isEmpty() ? mScenarioRoutes.optJSONObject(sk) : null;
+                    if (sr != null && !UiChrome.jsonStr(sr, "profileId").isEmpty()) {
+                        JSONObject clean = new JSONObject();
+                        clean.put("profileId", UiChrome.jsonStr(sr, "profileId"));
+                        clean.put("effort", UiChrome.jsonStr(sr, "effort", "default"));
+                        outScenarios.put(sk, clean);
+                    }
+                }
+            }
+        }
+        if (outScenarios.length() > 0) {
+            payload.put("scenarioRoutes", outScenarios);
+        }
         return payload;
     }
 
@@ -1548,6 +2018,25 @@ public class ModelsActivity extends Activity {
                 for (int i = 0; i < keys.length(); i++) {
                     String key = jsonArrStr(keys, i);
                     JSONObject route = !key.isEmpty() ? mBotRoutes.optJSONObject(key) : null;
+                    if (route != null) {
+                        if (profileId.equals(UiChrome.jsonStr(route, "profileId"))) return true;
+                        JSONArray fbs = route.optJSONArray("fallbacks");
+                        if (fbs != null) {
+                            for (int j = 0; j < fbs.length(); j++) {
+                                JSONObject fb = fbs.optJSONObject(j);
+                                if (fb != null && profileId.equals(UiChrome.jsonStr(fb, "profileId"))) return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (mScenarioRoutes != null) {
+            JSONArray keys = mScenarioRoutes.names();
+            if (keys != null) {
+                for (int i = 0; i < keys.length(); i++) {
+                    String key = jsonArrStr(keys, i);
+                    JSONObject route = !key.isEmpty() ? mScenarioRoutes.optJSONObject(key) : null;
                     if (route != null && profileId.equals(UiChrome.jsonStr(route, "profileId"))) return true;
                 }
             }
