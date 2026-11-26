@@ -5,6 +5,7 @@ import { basename, extname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath } from 'node:url';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
 import { BackgroundRecovery, pendingWakeFilePath, resolveBackgroundRecoveryConfig } from './background-recovery.mjs';
+import { AUTO_REVIEW_AWAITING_TAB_ID, autoReviewModesFor } from './host-auto-review.mjs';
 
 const patchedLibraries = new WeakSet();
 
@@ -495,6 +496,38 @@ export function createLocalAgentMemoryStore(library, agentDir) {
   };
 }
 
+/**
+ * Auto-review for a 2bb5e41 runner: the Auto-review switch (settings autoReviewInstructions)
+ * enforces every surface, the Host-configured model classifies, and a BLOCK the model escalates
+ * shows an approval card (host-auto-review.mjs createAutoReviewController).
+ */
+export function localAutoReviewOptions({ tm, session, autoReviewExt, settingsExt, postCard }) {
+  const agentId = session.id;
+  const getAutoReviewInstructions = () => settingsExt?.getAutoReviewInstructions?.();
+  const classifier = autoReviewExt?.createClassifierExecutor?.();
+  const settleCard = ({ entryId, requestId, status }) => {
+    if (tm.widgetResponses?.settlePendingAutoReviewApprovalsOnSession?.({ agentId, status, requestId })) return;
+    let updated = null;
+    session.db?.updateTranscriptEntry?.(entryId, (prev) => {
+      if (prev?.message?.type !== 'auto-review-approval' || prev.message.approval?.requestId !== requestId) return prev;
+      updated = { ...prev, message: { ...prev.message, approval: { ...prev.message.approval, status } } };
+      return updated;
+    });
+    if (updated) tm.roster?.emit?.({ type: 'updated', entry: updated }, agentId);
+  };
+  const setAwaiting = (state) => {
+    void Promise.resolve(tm.sessionStore?.setAwaitingUserResponseForTab?.(agentId, AUTO_REVIEW_AWAITING_TAB_ID, state))
+      .then(() => tm.roster?.emitAgentUpdate?.(agentId)).catch(() => {});
+  };
+  const controller = autoReviewExt?.createController?.({ agentId, postCard, settleCard, setAwaiting });
+  return {
+    getAutoReviewInstructions,
+    getAutoReviewModes: () => autoReviewModesFor(getAutoReviewInstructions()),
+    ...(classifier ? { autoReviewClassifierExecutor: classifier } : {}),
+    ...(controller ? { autoReviewController: controller } : {}),
+  };
+}
+
 export function createRunnerForSession(library, tm, session, { extensions, emitGatewayEvent } = {}) {
   const RunnerClass = withLocalLibraryRunner(library.SandAgentRunner, library);
   const extApi = (id) => extensions?.(id);
@@ -650,7 +683,8 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     profilePromptSnapshots: session.db,
     automationStore: session.automations,
     skillStore: session.skills ?? { list: () => [], listAll: () => [] },
-    ...(typeof autoReviewExt?.beginUserMessageEpoch === 'function' ? { autoReviewController: autoReviewExt } : {}),
+    ...localAutoReviewOptions({ tm, session, autoReviewExt, settingsExt,
+      postCard: (message) => transport.onUpdate({ type: 'send-message', message, timestampMs: Date.now() }) }),
     localToolPermission: createLocalToolPermissionAdapter(localToolPermissionExt),
     webSearchService: inferenceExt?.createWebSearch?.(),
     webFetchService: inferenceExt?.createWebFetch?.(),

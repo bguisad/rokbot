@@ -521,6 +521,8 @@ if (configuredSeed || configuredArchive) {
 
     try {
       await host.start();
+      // Routing only: the Auto-review switch (on by default) would send each Shell call to review.
+      await host.getApi().setHostSettings({ autoReviewInstructions: { isEnabled: false, allowInstructions: [], blockInstructions: [] } });
       const execBridge = host.getLocalExecBridge();
       installDefaultMachineRouting(execBridge, macMiniId);
 
