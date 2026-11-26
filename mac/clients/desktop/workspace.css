@@ -6,16 +6,3 @@
     max-width: max(80%, calc(100% - 8rem)) !important;
   }
 }
-
-/* Replace upstream Grok Bot avatar/logo mark with the RokBot logo mark. */
-.sand-grok-bot-mark {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 1024 1024%27%3E%3Cdefs%3E%3ClinearGradient id=%27rokbot-chassis%27 x1=%27512%27 y1=%2756%27 x2=%27512%27 y2=%27960%27 gradientUnits=%27userSpaceOnUse%27%3E%3Cstop offset=%270%25%27 stop-color=%27%23242936%27/%3E%3Cstop offset=%27100%25%27 stop-color=%27%2312141b%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath class=%27brand-face%27 d=%27M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z%27 fill=%27url(%23rokbot-chassis)%27 stroke=%27%234a556b%27 stroke-width=%2720%27 stroke-linejoin=%27round%27 /%3E%3Cg class=%27brand-eyes%27 fill=%27%23f5f5f4%27%3E%3Crect class=%27brand-eye%27 x=%27304%27 y=%27396%27 width=%27144%27 height=%27336%27 rx=%2772%27 transform=%27rotate(-26 376 564)%27/%3E%3Crect class=%27brand-eye%27 x=%27576%27 y=%27370%27 width=%27144%27 height=%27268%27 rx=%2772%27 transform=%27rotate(-26 648 504)%27/%3E%3C/g%3E%3Ccircle class=%27brand-accent%27 cx=%27768%27 cy=%27144%27 r=%2742%27 fill=%27%2338bdf8%27/%3E%3C/svg%3E") !important;
-  background-repeat: no-repeat !important;
-  background-position: center !important;
-  background-size: contain !important;
-}
-
-.sand-grok-bot-mark > * {
-  opacity: 0 !important;
-  pointer-events: none;
-}

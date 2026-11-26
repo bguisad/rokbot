@@ -25,22 +25,3 @@ html.rokbot-web body {
     box-sizing: border-box;
   }
 }
-
-/* Replace the official .sand-grok-bot-mark SVG with the RokBot icon while preserving layout dimensions. */
-.sand-grok-bot-mark {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background-image: url('./icon.png');
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: contain;
-  border-radius: inherit;
-}
-
-.sand-grok-bot-mark > *,
-.sand-grok-bot-mark svg {
-  opacity: 0 !important;
-  visibility: hidden !important;
-}

@@ -206,11 +206,9 @@ test('desktop branding constants, profile isolation, i18n alias, and deep links 
   assert.equal(helperInfo.CFBundleExecutable, 'Grok Bot Helper (Renderer)');
 });
 
-test('desktop workspace.css overrides .sand-grok-bot-mark with the RokBot logo mark', async () => {
+test('desktop workspace.css preserves dynamic multi-color .sand-grok-bot-mark animations', async () => {
   const css = await readFile(path.join(macRoot, 'clients/desktop/workspace.css'), 'utf8');
-  assert.match(css, /\.sand-grok-bot-mark\s*\{[^}]*background-image:\s*url\("data:image\/svg\+xml,/);
-  assert.match(css, /rokbot-chassis/);
-  assert.match(css, /\.sand-grok-bot-mark\s*>\s*\*\s*\{[^}]*opacity:\s*0\s*!important/);
+  assert.doesNotMatch(css, /\.sand-grok-bot-mark\b/);
 });
 
 test('arm64 Mac builds pass --pagesize 16384 when signing binaries and the app bundle', async () => {

@@ -67,7 +67,7 @@ const ALLOWED_GROK_TOKENS = [
   // Category-B Electron preload / renderer / RPC / CSS identifiers
   { file: /^client\/bridge\.js$/, re: /grok_bot_box_harness_turns_blocked|Grok Bot Computer Use/g },
   { file: /^client\/services\.js$/, re: /proAndSuperGrokPlansGrantAccess|(?:list|upload|delete)GrokBot(?:AgentFiles|AgentFile|UserStoreFiles|UserStoreFile)|getGrokBotTermsRecord|markGrokBotTerms/g },
-  { file: /^client\/(?:layout\.js|android\.css|web\.css)$/, re: /sand-grok-bot-mark/g },
+  { file: /^client\/(?:layout\.js|android\.css)$/, re: /sand-grok-bot-mark/g },
 
   // Documented legacy read-compat fallbacks
   { file: /^client\/native\.js$/, re: /grokbot\.clientDeviceId/g },
@@ -110,11 +110,10 @@ test('every remaining /grok/i occurrence in web/ is on the explicit Category-B o
   assert.deepEqual(unexpected, []);
 });
 
-test('web-shell notifications and web.css logo mark use RokBot icon assets', async () => {
+test('web-shell notifications use RokBot icon assets and web.css preserves dynamic bot marks', async () => {
   const webShell = await readFile(path.join(webRoot, 'client/web-shell.js'), 'utf8');
   assert.match(webShell, /new Notification\([\s\S]*?icon:\s*'\.\.\/client\/icon\.png'/);
 
   const webCss = await readFile(path.join(webRoot, 'client/web.css'), 'utf8');
-  assert.match(webCss, /\.sand-grok-bot-mark\s*\{[\s\S]*?background-image:\s*url\(['"]\.\/icon\.png['"]\)/);
-  assert.match(webCss, /\.sand-grok-bot-mark\s*>\s*\*[\s\S]*?visibility:\s*hidden/);
+  assert.doesNotMatch(webCss, /\.sand-grok-bot-mark\b/);
 });
