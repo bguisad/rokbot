@@ -79,6 +79,7 @@ import {
   verifyPassword,
 } from "./security.mjs";
 import { readJson } from "./storage.mjs";
+import { createSpeedTest } from "./speedtest.mjs";
 
 const publicDir = fileURLToPath(new URL("./public/", import.meta.url));
 const assetTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
@@ -236,6 +237,7 @@ export async function createSelfHostServer(options = {}) {
   const browserProviders = new DesktopBrowserProviders({ authenticate: device, connections, hostUrl, internalToken, enabled: key => harness.current()[key] });
   let executionRevision = executionNode.active()?.revision;
   const limiter = options.rateLimit ?? new RateLimit();
+  const speedTest = createSpeedTest({ limiter });
   // ?timeZone= (default: the Host's) and an optional ?period=today|7d|30d to return one period.
   const usage = url => {
     const timeZone = url.searchParams.get('timeZone') || process.env.TZ || 'UTC', period = url.searchParams.get('period') || undefined;
@@ -1017,6 +1019,10 @@ export async function createSelfHostServer(options = {}) {
           capabilities: [...new Set([...(previous?.capabilities ?? []), 'gui'])] });
       }
       return sendJson(response, 200, { available: status.available || computers.size > 0, computers: [...computers.values()] });
+    }
+    if (path.startsWith("/local/speedtest/")) {
+      const found = device(request);
+      if (await speedTest.handle(request, response, path, url, found.id)) return;
     }
     if (request.method === "GET" && path === "/local/usage") {
       device(request, web);
