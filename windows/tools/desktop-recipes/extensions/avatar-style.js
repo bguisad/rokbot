@@ -1,16 +1,17 @@
 // RokBot custom dynamic Bot avatar styles (desktop and Web).
-// Default style is 'chassis' (RokBot Chassis / 机甲灵偶), replacing the official
-// GrokBotMark fluid orb across every scene while preserving all 5 RokBot styles
-// plus the 'official' style, selectable live in Settings > General.
+// Every RokBot theme (chassis, antenna, visor, pixel, orb) renders each Bot's
+// chosen official shape (blob, star, heart, cloud, hex, pumpkin, etc.) using the
+// exact same silhouette math as pele's GrokBotMark/selection rings, while
+// preserving 'official' as an in-app switchable option.
 const ROK_AVATAR_STORAGE_KEY = 'rokbot.avatarStyle.v1';
 const ROK_AVATAR_DEFAULT_STYLE = 'chassis';
 const ROK_AVATAR_STYLES = [
-  { id: 'chassis', zh: '机甲灵偶', en: 'RokBot Chassis', descZh: '斜胶囊眼 + 脉冲信号灯', descEn: 'Tilted capsule eyes + beacon', defaultColor: 'cyan' },
-  { id: 'antenna', zh: '双天线波波', en: 'Twin Antenna', descZh: '弹性双天线 + 玻璃面罩', descEn: 'Spring antennas + glass visor', defaultColor: 'violet' },
-  { id: 'visor', zh: '赛博护目镜', en: 'Cyber Visor', descZh: '极客切角 + 扫描灯带', descEn: 'Chamfered shell + scanner LED', defaultColor: 'orange' },
-  { id: 'pixel', zh: '像素精灵', en: 'Pixel Sprite', descZh: '点阵 LED 眼 + 节奏灯条', descEn: 'LED matrix eyes + status bar', defaultColor: 'green' },
-  { id: 'orb', zh: '流体光球', en: 'Fluid Orb', descZh: '液体变形 + 轨道卫星', descEn: 'Morphing blob + orbiting dot', defaultColor: 'magenta' },
-  { id: 'official', zh: '官方原版', en: 'Official', descZh: '保留官方动态流体球', descEn: 'Original dynamic fluid orb', defaultColor: 'blue' },
+  { id: 'chassis', zh: '机甲灵偶', en: 'RokBot Chassis', descZh: '全形状兼容 + 脉冲信号灯', descEn: 'Shape-aware + pulse beacon', defaultColor: 'cyan', previewShape: 'blob' },
+  { id: 'antenna', zh: '双天线波波', en: 'Twin Antenna', descZh: '弹性双天线 + 玻璃面罩', descEn: 'Spring antennas + glass visor', defaultColor: 'violet', previewShape: 'cloud' },
+  { id: 'visor', zh: '赛博护目镜', en: 'Cyber Visor', descZh: '极客切角框 + 扫描灯带', descEn: 'Cyber visor + scanner LED', defaultColor: 'orange', previewShape: 'hex' },
+  { id: 'pixel', zh: '像素精灵', en: 'Pixel Sprite', descZh: '点阵 LED 屏 + 节奏灯条', descEn: 'LED matrix + status bar', defaultColor: 'green', previewShape: 'star' },
+  { id: 'orb', zh: '流体光球', en: 'Fluid Orb', descZh: '呼吸微动 + 轨道卫星', descEn: 'Breathing shape + orbiting dot', defaultColor: 'magenta', previewShape: 'heart' },
+  { id: 'official', zh: '官方原版', en: 'Official', descZh: '保留官方动态流体球', descEn: 'Original dynamic fluid orb', defaultColor: 'blue', previewShape: 'blob' },
 ];
 const ROK_AVATAR_STYLE_IDS = ROK_AVATAR_STYLES.map(item => item.id);
 const ROK_AVATAR_PRESETS = {
@@ -27,7 +28,50 @@ const ROK_AVATAR_PRESETS = {
   blackLight: { top: '#475569', mid: '#1e293b', bot: '#090d16', accent: '#38bdf8', rim: '#334155' },
   blackDark: { top: '#64748b', mid: '#334155', bot: '#0f172a', accent: '#38bdf8', rim: '#94a3b8' },
 };
-const ROK_AVATAR_CHASSIS_PATH_D = 'M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z';
+
+// Procedural 0..100 fallback silhouettes used only in headless tests or if official pele helpers are absent.
+const ROK_FALLBACK_SHAPE_D = {
+  blob: 'M 33 14 C 40 14 47 14 53 14 C 60 14 65 6 74 5.5 C 82 5 87 10 86 17 C 86 21 91 27 93 36 C 94 45 94 55 93 64 C 91 80 80 90 62 92 C 52 93 41 94 32 93 C 15 92 7 82 7 65 C 6 54 6 41 7 33 C 8 20 18 14 33 14 Z',
+  cloud: 'M 28 74 C 16 74 8 66 8 55 C 8 46 14 39 22 37 C 24 25 35 16 48 16 C 60 16 70 23 73 34 C 83 35 92 43 92 54 C 92 65 83 74 71 74 Z',
+  hex: 'M 50 8 L 86 29 L 86 71 L 50 92 L 14 71 L 14 29 Z',
+  star: 'M 50 8 L 62 33 L 90 37 L 69 57 L 74 85 L 50 72 L 26 85 L 31 57 L 10 37 L 38 33 Z',
+  heart: 'M 50 88 C 20 68 8 49 8 33 C 8 20 18 11 30 11 C 39 11 46 16 50 23 C 54 16 61 11 70 11 C 82 11 92 20 92 33 C 92 49 80 68 50 88 Z',
+  square: 'M 14 14 L 86 14 L 86 86 L 14 86 Z',
+  squircle: 'M 50 8 C 82 8 92 18 92 50 C 92 82 82 92 50 92 C 18 92 8 82 8 50 C 8 18 18 8 50 8 Z',
+};
+
+const rokShapePathCache = new Map();
+const rokShapeDStringCache = new Map();
+
+function rokNormalizeShapeName(shape) {
+  return typeof shape === 'string' && shape.trim() ? shape.trim().toLowerCase() : 'blob';
+}
+
+function rokResolveShapePathD(rawShape) {
+  const key = rokNormalizeShapeName(rawShape);
+  if (rokShapeDStringCache.has(key)) return rokShapeDStringCache.get(key);
+  let d = null;
+  try {
+    if (typeof kt === 'function' && typeof yi === 'function') {
+      const fillVal = typeof Mi === 'number' ? Mi : undefined;
+      const svgMarkup = kt(fillVal !== void 0 ? { body: yi(key), size: 100, fill: fillVal } : { body: yi(key), size: 100 });
+      const m = typeof svgMarkup === 'string' ? svgMarkup.match(/\bd="([^"]+)"/) : null;
+      if (m?.[1]) d = m[1];
+    }
+  } catch {}
+  if (!d) d = ROK_FALLBACK_SHAPE_D[key] || ROK_FALLBACK_SHAPE_D.blob;
+  rokShapeDStringCache.set(key, d);
+  return d;
+}
+
+function rokGetShapePath(rawShape) {
+  const key = rokNormalizeShapeName(rawShape);
+  if (rokShapePathCache.has(key)) return rokShapePathCache.get(key);
+  const d = rokResolveShapePathD(key);
+  const path = typeof Path2D === 'function' ? new Path2D(d) : null;
+  if (path) rokShapePathCache.set(key, path);
+  return path;
+}
 
 function rokAvatarIsValidStyle(id) {
   return typeof id === 'string' && ROK_AVATAR_STYLE_IDS.includes(id);
@@ -161,14 +205,6 @@ function rokAvatarIsLightTheme() {
   return false;
 }
 
-let rokChassisPathCache = null;
-function rokGetChassisPath() {
-  if (!rokChassisPathCache && typeof Path2D === 'function') {
-    rokChassisPathCache = new Path2D(ROK_AVATAR_CHASSIS_PATH_D);
-  }
-  return rokChassisPathCache;
-}
-
 function rokRoundedRectPath(ctx, x, y, w, h, r) {
   const rr = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
@@ -201,32 +237,45 @@ function rokSignalColor(state, pal) {
   return pal.accent;
 }
 
-function rokDrawChassis(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
-  const path = rokGetChassisPath();
-  if (!path) return rokDrawOrb(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph);
-  ctx.save();
-  const sc = s / 1024;
-  const amp = emph ? 1.25 : 1;
-  const breath = state === 'sleeping' ? 1 + Math.sin(t * 1.4) * 0.015 : 1 + Math.sin(t * 2.8) * 0.025 * amp;
-  const bob = state === 'working' ? Math.sin(t * 7.5) * s * 0.028 * amp :
-    state === 'happy' ? -Math.abs(Math.sin(t * 5.2)) * s * 0.045 * amp :
-      state === 'thinking' ? Math.sin(t * 3.1) * s * 0.018 : Math.sin(t * 2.2) * s * 0.012;
-  const tilt = state === 'thinking' ? Math.sin(t * 2.4) * 0.06 :
-    state === 'working' ? Math.sin(t * 6) * 0.045 : 0;
+function rokFillShape(ctx, shapePath, pal, isLight, lineWidth = 2.4) {
+  if (!shapePath) {
+    ctx.beginPath();
+    ctx.arc(50, 50, 40, 0, Math.PI * 2);
+    ctx.fillStyle = rokMakeAvatarGrad(ctx, pal, 10, 90);
+    ctx.fill();
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.22)';
+    ctx.stroke();
+    return;
+  }
+  ctx.fillStyle = rokMakeAvatarGrad(ctx, pal, 8, 92);
+  ctx.fill(shapePath);
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.22)';
+  ctx.stroke(shapePath);
+}
 
-  ctx.translate(s / 2 + gaze.x * s * 0.025, s / 2 + bob + gaze.y * s * 0.025);
+function rokDrawChassis(ctx, shapePath, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
+  ctx.save();
+  const sc = s / 100;
+  const amp = emph ? 1.25 : 1;
+  const breath = state === 'sleeping' ? 1 + Math.sin(t * 1.4) * 0.015 : 1 + Math.sin(t * 2.8) * 0.024 * amp;
+  const bob = state === 'working' ? Math.sin(t * 7.5) * s * 0.025 * amp :
+    state === 'happy' ? -Math.abs(Math.sin(t * 5.2)) * s * 0.04 * amp :
+      state === 'thinking' ? Math.sin(t * 3.1) * s * 0.016 : Math.sin(t * 2.2) * s * 0.01;
+  const tilt = state === 'thinking' ? Math.sin(t * 2.4) * 0.055 :
+    state === 'working' ? Math.sin(t * 6) * 0.04 : 0;
+
+  ctx.translate(s / 2 + gaze.x * s * 0.022, s / 2 + bob + gaze.y * s * 0.022);
   ctx.rotate(poke.angle + tilt);
   ctx.scale(breath * (1 + poke.bounce * 0.14), breath * (1 - poke.bounce * 0.1));
   ctx.translate(-s / 2, -s / 2);
 
-  ctx.save();
   ctx.scale(sc, sc);
-  ctx.fillStyle = rokMakeAvatarGrad(ctx, pal, 56, 960);
-  ctx.fill(path);
-  ctx.lineWidth = 26;
-  ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.22)';
-  ctx.stroke(path);
+  rokFillShape(ctx, shapePath, pal, isLight, 2.4);
 
+  // Upper-right pulse signal beacon
+  const bx = 74, by = 22;
   const beaconColor = state === 'working' ? '#38bdf8' : rokSignalColor(state, pal);
   let beaconScale = 1 + Math.sin(t * 3) * 0.12;
   let halo = 0;
@@ -247,33 +296,34 @@ function rokDrawChassis(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeIn
 
   if (halo > 0) {
     ctx.beginPath();
-    ctx.arc(768, 144, 42 + halo * 74, 0, Math.PI * 2);
+    ctx.arc(bx, by, 4.2 + halo * 7.2, 0, Math.PI * 2);
     ctx.strokeStyle = beaconColor;
     ctx.globalAlpha = (1 - halo) * 0.65;
-    ctx.lineWidth = 18;
+    ctx.lineWidth = 1.8;
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
   ctx.beginPath();
-  ctx.arc(768, 144, 44 * beaconScale, 0, Math.PI * 2);
+  ctx.arc(bx, by, 4.2 * beaconScale, 0, Math.PI * 2);
   ctx.fillStyle = beaconColor;
   ctx.fill();
 
-  const gx = gaze.x * 48 + (state === 'thinking' ? Math.sin(t * 4) * 32 : 0);
-  const gy = gaze.y * 42 + (state === 'thinking' ? -24 : 0);
+  // Tilted capsule eyes tuned to fit every shape cleanly
+  const gx = gaze.x * 4.2 + (state === 'thinking' ? Math.sin(t * 4) * 2.8 : 0);
+  const gy = gaze.y * 3.8 + (state === 'thinking' ? -2.0 : 0);
   const eyeFill = eyeInk || '#ffffff';
   ctx.fillStyle = eyeFill;
   ctx.strokeStyle = eyeFill;
   ctx.lineCap = 'round';
 
   if (state === 'sleeping') {
-    ctx.lineWidth = 42;
-    ctx.beginPath(); ctx.arc(385, 575, 72, 0.2, Math.PI - 0.2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(650, 520, 62, 0.2, Math.PI - 0.2); ctx.stroke();
+    ctx.lineWidth = 3.8;
+    ctx.beginPath(); ctx.arc(40, 54, 6.2, 0.2, Math.PI - 0.2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(60, 50, 5.4, 0.2, Math.PI - 0.2); ctx.stroke();
   } else if (state === 'happy') {
-    ctx.lineWidth = 48;
-    ctx.beginPath(); ctx.arc(385 + gx * 0.4, 595 + gy * 0.4, 72, Math.PI + 0.35, -0.35); ctx.stroke();
-    ctx.beginPath(); ctx.arc(650 + gx * 0.4, 540 + gy * 0.4, 62, Math.PI + 0.35, -0.35); ctx.stroke();
+    ctx.lineWidth = 4.2;
+    ctx.beginPath(); ctx.arc(40 + gx * 0.4, 56 + gy * 0.4, 6.2, Math.PI + 0.35, -0.35); ctx.stroke();
+    ctx.beginPath(); ctx.arc(60 + gx * 0.4, 52 + gy * 0.4, 5.4, Math.PI + 0.35, -0.35); ctx.stroke();
   } else {
     const eyeScaleY = Math.max(0.08, 1 - blink) * (state === 'waiting' || state === 'error' ? 1.12 : 1);
     const drawCapsule = (cx, cy, w, h) => {
@@ -285,71 +335,68 @@ function rokDrawChassis(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeIn
       ctx.fill();
       ctx.restore();
     };
-    drawCapsule(376, 564, 144, 332);
-    drawCapsule(648, 504, 144, 268);
+    drawCapsule(40, 54, 10.2, 23.5);
+    drawCapsule(60, 49, 10.2, 19.0);
   }
-  ctx.restore();
   ctx.restore();
 }
 
-function rokDrawAntenna(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
+function rokDrawAntenna(ctx, shapePath, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
   ctx.save();
-  const bw = s * 0.76;
-  const bh = s * 0.66;
-  const bx = (s - bw) / 2;
-  const by = s * 0.26;
+  const sc = s / 100;
   const amp = emph ? 1.25 : 1;
-  const bob = state === 'working' ? Math.sin(t * 8) * s * 0.025 * amp :
-    state === 'happy' ? -Math.abs(Math.sin(t * 5.2)) * s * 0.04 * amp : Math.sin(t * 2.4) * s * 0.012;
+  const bob = state === 'working' ? Math.sin(t * 8) * s * 0.022 * amp :
+    state === 'happy' ? -Math.abs(Math.sin(t * 5.2)) * s * 0.036 * amp : Math.sin(t * 2.4) * s * 0.01;
   const sway = Math.sin(t * (state === 'working' ? 8 : 2.6)) * 0.14 + poke.bounce * 0.4;
 
   ctx.translate(s / 2 + gaze.x * s * 0.02, s / 2 + bob + gaze.y * s * 0.02);
   ctx.rotate(poke.angle);
   ctx.scale(1 + poke.bounce * 0.12, 1 - poke.bounce * 0.09);
   ctx.translate(-s / 2, -s / 2);
+  ctx.scale(sc, sc);
 
+  // Twin springy antennas perched above the Bot silhouette
   const activeTip = state === 'sleeping' ? pal.rim : rokSignalColor(state, pal);
   for (const side of [-1, 1]) {
-    const rootX = s / 2 + side * s * 0.17;
-    const rootY = by + s * 0.03;
-    const tipX = rootX + side * s * 0.07 + Math.sin(t * 3 + side) * s * 0.025 + sway * s * 0.08;
-    const tipY = s * 0.09 + Math.abs(sway) * s * 0.02;
+    const rootX = 50 + side * 14;
+    const rootY = 27;
+    const tipX = rootX + side * 6 + Math.sin(t * 3 + side) * 2.2 + sway * 7;
+    const tipY = 8 + Math.abs(sway) * 2;
     ctx.beginPath();
     ctx.moveTo(rootX, rootY);
-    ctx.quadraticCurveTo(rootX + side * s * 0.02, (rootY + tipY) / 2, tipX, tipY);
+    ctx.quadraticCurveTo(rootX + side * 2, (rootY + tipY) / 2, tipX, tipY);
     ctx.strokeStyle = pal.mid;
-    ctx.lineWidth = Math.max(1.6, s * 0.045);
+    ctx.lineWidth = Math.max(3.6, 4.2);
     ctx.lineCap = 'round';
     ctx.stroke();
 
     if (state === 'thinking' || state === 'working' || state === 'waiting' || state === 'error') {
       const pulse = (t * 1.8 + (side > 0 ? 0.5 : 0)) % 1;
       ctx.beginPath();
-      ctx.arc(tipX, tipY, s * 0.04 + pulse * s * 0.07, 0, Math.PI * 2);
+      ctx.arc(tipX, tipY, 3.8 + pulse * 6.5, 0, Math.PI * 2);
       ctx.strokeStyle = activeTip;
       ctx.globalAlpha = (1 - pulse) * 0.6;
-      ctx.lineWidth = Math.max(1, s * 0.02);
+      ctx.lineWidth = 1.8;
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
     ctx.beginPath();
-    ctx.arc(tipX, tipY, s * 0.048, 0, Math.PI * 2);
+    ctx.arc(tipX, tipY, 4.4, 0, Math.PI * 2);
     ctx.fillStyle = activeTip;
     ctx.fill();
   }
 
-  rokRoundedRectPath(ctx, bx, by, bw, bh, s * 0.24);
-  ctx.fillStyle = rokMakeAvatarGrad(ctx, pal, by, by + bh);
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.1, s * 0.025);
-  ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.16)' : 'rgba(255,255,255,0.22)';
-  ctx.stroke();
+  // Render the Bot's official shape slightly tucked under antennas
+  ctx.save();
+  ctx.translate(50, 57);
+  ctx.scale(0.84, 0.84);
+  ctx.translate(-50, -50);
+  rokFillShape(ctx, shapePath, pal, isLight, 2.8);
+  ctx.restore();
 
-  const vx = bx + bw * 0.13;
-  const vy = by + bh * 0.22;
-  const vw = bw * 0.74;
-  const vh = bh * 0.56;
-  rokRoundedRectPath(ctx, vx, vy, vw, vh, vh * 0.42);
+  // Centered glass visor pill inside the silhouette
+  const vw = 44, vh = 24, vx = 50 - vw / 2, vy = 56 - vh / 2;
+  rokRoundedRectPath(ctx, vx, vy, vw, vh, vh * 0.45);
   ctx.fillStyle = '#0f172a';
   ctx.fill();
 
@@ -360,21 +407,21 @@ function rokDrawAntenna(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeIn
   ctx.fillStyle = eyeFill;
   ctx.lineCap = 'round';
   for (const side of [-1, 1]) {
-    const ex = vx + vw / 2 + side * vw * 0.2 + gx;
+    const ex = vx + vw / 2 + side * vw * 0.21 + gx;
     const ey = vy + vh / 2 + gy;
     if (state === 'sleeping') {
-      ctx.lineWidth = Math.max(1.4, s * 0.04);
+      ctx.lineWidth = 2.8;
       ctx.beginPath(); ctx.arc(ex, ey, vw * 0.09, 0.2, Math.PI - 0.2); ctx.stroke();
     } else if (state === 'happy') {
-      ctx.lineWidth = Math.max(1.5, s * 0.044);
+      ctx.lineWidth = 3.0;
       ctx.beginPath(); ctx.arc(ex, ey + vh * 0.06, vw * 0.095, Math.PI + 0.35, -0.35); ctx.stroke();
     } else {
-      const eh = vh * 0.46 * Math.max(0.1, 1 - blink) * (state === 'waiting' || state === 'error' ? 1.15 : 1);
+      const eh = vh * 0.48 * Math.max(0.1, 1 - blink) * (state === 'waiting' || state === 'error' ? 1.15 : 1);
       const ew = vw * 0.18;
       ctx.beginPath();
       ctx.ellipse(ex, ey, ew / 2, eh / 2, 0, 0, Math.PI * 2);
       ctx.fill();
-      if (eh > s * 0.06) {
+      if (eh > 5) {
         ctx.beginPath();
         ctx.arc(ex + gaze.x * ew * 0.18 - ew * 0.12, ey - eh * 0.16, ew * 0.16, 0, Math.PI * 2);
         ctx.fillStyle = pal.accent;
@@ -386,43 +433,27 @@ function rokDrawAntenna(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeIn
   ctx.restore();
 }
 
-function rokDrawVisor(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
+function rokDrawVisor(ctx, shapePath, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
   ctx.save();
+  const sc = s / 100;
   const amp = emph ? 1.25 : 1;
   const bob = state === 'working' ? Math.sin(t * 7.5) * s * 0.022 * amp :
-    state === 'happy' ? -Math.abs(Math.sin(t * 5)) * s * 0.04 * amp : Math.sin(t * 2) * s * 0.01;
+    state === 'happy' ? -Math.abs(Math.sin(t * 5)) * s * 0.036 * amp : Math.sin(t * 2) * s * 0.01;
   ctx.translate(s / 2 + gaze.x * s * 0.02, s / 2 + bob + gaze.y * s * 0.02);
   ctx.rotate(poke.angle);
   ctx.scale(1 + poke.bounce * 0.1, 1 - poke.bounce * 0.08);
   ctx.translate(-s / 2, -s / 2);
+  ctx.scale(sc, sc);
 
-  const p = s * 0.11;
-  const c = s * 0.22;
-  ctx.beginPath();
-  ctx.moveTo(p + c, p * 1.15);
-  ctx.lineTo(s - p - c, p * 1.15);
-  ctx.lineTo(s - p, p * 1.15 + c);
-  ctx.lineTo(s - p, s - p - c);
-  ctx.lineTo(s - p - c, s - p);
-  ctx.lineTo(p + c, s - p);
-  ctx.lineTo(p, s - p - c);
-  ctx.lineTo(p, p * 1.15 + c);
-  ctx.closePath();
-  ctx.fillStyle = rokMakeAvatarGrad(ctx, pal, p, s - p);
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.1, s * 0.025);
-  ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.24)';
-  ctx.stroke();
+  rokFillShape(ctx, shapePath, pal, isLight, 2.4);
 
-  const vx = s * 0.13;
-  const vy = s * 0.34;
-  const vw = s * 0.74;
-  const vh = s * 0.34;
-  rokRoundedRectPath(ctx, vx, vy, vw, vh, s * 0.09);
+  // Cyber visor band centered safely inside every official silhouette
+  const vw = 50, vh = 22, vx = 50 - vw / 2, vy = 52 - vh / 2;
+  rokRoundedRectPath(ctx, vx, vy, vw, vh, 6.5);
   ctx.fillStyle = '#090d16';
   ctx.fill();
-  ctx.lineWidth = Math.max(0.9, s * 0.02);
-  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.stroke();
 
   const led = eyeInk || rokSignalColor(state, pal);
@@ -450,17 +481,17 @@ function rokDrawVisor(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk,
       const cx = vx + vw / 2 + side * vw * 0.21 + gx;
       const cy = vy + vh / 2 + gy;
       if (state === 'happy') {
-        ctx.lineWidth = Math.max(1.6, s * 0.045);
+        ctx.lineWidth = 3.2;
         ctx.beginPath();
-        ctx.moveTo(cx - vw * 0.08, cy + vh * 0.08);
-        ctx.lineTo(cx, cy - vh * 0.1);
-        ctx.lineTo(cx + vw * 0.08, cy + vh * 0.08);
+        ctx.moveTo(cx - vw * 0.08, cy + vh * 0.12);
+        ctx.lineTo(cx, cy - vh * 0.12);
+        ctx.lineTo(cx + vw * 0.08, cy + vh * 0.12);
         ctx.stroke();
       } else if (state === 'sleeping') {
-        ctx.fillRect(cx - vw * 0.08, cy - s * 0.015, vw * 0.16, Math.max(1.4, s * 0.03));
+        ctx.fillRect(cx - vw * 0.08, cy - 1.2, vw * 0.16, 2.4);
       } else {
-        const h = vh * 0.44 * Math.max(0.12, 1 - blink) * (state === 'waiting' || state === 'error' ? 1.2 : 1);
-        rokRoundedRectPath(ctx, cx - vw * 0.065, cy - h / 2, vw * 0.13, h, s * 0.03);
+        const h = vh * 0.46 * Math.max(0.12, 1 - blink) * (state === 'waiting' || state === 'error' ? 1.2 : 1);
+        rokRoundedRectPath(ctx, cx - vw * 0.07, cy - h / 2, vw * 0.14, h, 2.6);
         ctx.fill();
       }
     }
@@ -468,37 +499,31 @@ function rokDrawVisor(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk,
   ctx.restore();
 }
 
-function rokDrawPixel(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
+function rokDrawPixel(ctx, shapePath, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
   ctx.save();
+  const sc = s / 100;
   const amp = emph ? 1.25 : 1;
-  const bob = state === 'happy' ? -Math.abs(Math.sin(t * 5.2)) * s * 0.04 * amp :
-    state === 'working' ? Math.sin(t * 8) * s * 0.02 * amp : 0;
+  const bob = state === 'happy' ? -Math.abs(Math.sin(t * 5.2)) * s * 0.036 * amp :
+    state === 'working' ? Math.sin(t * 8) * s * 0.018 * amp : 0;
   ctx.translate(s / 2, s / 2 + bob);
   ctx.rotate(poke.angle);
   ctx.scale(1 + poke.bounce * 0.1, 1 - poke.bounce * 0.08);
   ctx.translate(-s / 2, -s / 2);
+  ctx.scale(sc, sc);
 
-  const pad = s * 0.1;
-  rokRoundedRectPath(ctx, pad, pad, s - pad * 2, s - pad * 2, s * 0.2);
-  ctx.fillStyle = rokMakeAvatarGrad(ctx, pal, pad, s - pad);
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.1, s * 0.025);
-  ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.22)';
-  ctx.stroke();
+  rokFillShape(ctx, shapePath, pal, isLight, 2.4);
 
-  const mx = s * 0.19;
-  const my = s * 0.25;
-  const mw = s * 0.62;
-  const mh = s * 0.52;
-  rokRoundedRectPath(ctx, mx, my, mw, mh, s * 0.09);
+  // Inner matrix screen (8x6 grid) centered within any silhouette
+  const mw = 42, mh = 31, mx = 50 - mw / 2, my = 55 - mh / 2;
+  rokRoundedRectPath(ctx, mx, my, mw, mh, 6);
   ctx.fillStyle = '#0b101b';
   ctx.fill();
 
   const cols = 8, rows = 6;
   const cellW = mw / (cols + 1);
   const cellH = mh / (rows + 1);
-  const px = Math.max(1.2, cellW * 0.72);
-  const py = Math.max(1.2, cellH * 0.72);
+  const px = cellW * 0.72;
+  const py = cellH * 0.72;
   const dot = (c, r, color) => {
     ctx.fillStyle = color;
     ctx.fillRect(mx + (c + 0.65) * cellW, my + (r + 0.65) * cellH, px, py);
@@ -538,89 +563,68 @@ function rokDrawPixel(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk,
     }
   }
 
+  // Top status bar LEDs
   const barPhase = Math.floor(t * 3) % 3;
   for (let i = 0; i < 3; i++) {
     ctx.fillStyle = state === 'sleeping' ? 'rgba(255,255,255,0.25)' :
-      (state === 'working' || state === 'thinking') && i === barPhase ? '#ffffff' : rokSignalColor(state, pal);
-    const bw = s * 0.08;
-    ctx.fillRect(s / 2 - s * 0.15 + i * s * 0.11, s * 0.145, bw, Math.max(1.4, s * 0.04));
+      (state === 'working' || state === 'thinking') && i === barPhase ? '#ffffff' : pal.accent;
+    ctx.fillRect(50 - 11 + i * 8.2, my - 6.2, 5.6, 2.8);
   }
   ctx.restore();
 }
 
-function rokDrawOrb(ctx, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
+function rokDrawOrb(ctx, shapePath, s, t, gaze, blink, poke, state, pal, isLight, eyeInk, emph) {
   ctx.save();
+  const sc = s / 100;
   const ampScale = emph ? 1.2 : 1;
-  const cx = s / 2 + gaze.x * s * 0.03;
-  const cy = s / 2 + gaze.y * s * 0.03 + (state === 'happy' ? -Math.abs(Math.sin(t * 5)) * s * 0.04 * ampScale : 0);
-
-  ctx.translate(cx, cy);
-  ctx.rotate(poke.angle);
-  ctx.scale(1 + poke.bounce * 0.14, 1 - poke.bounce * 0.11);
-
-  const pts = 32;
-  const baseR = s * 0.37;
   const speed = state === 'working' ? 4.2 : state === 'thinking' ? 2.8 : state === 'sleeping' ? 0.9 : 1.9;
-  const amp = (state === 'sleeping' ? 0.025 : state === 'working' ? 0.085 : 0.055) * ampScale;
-  const coords = [];
-  for (let i = 0; i < pts; i++) {
-    const a = (i / pts) * Math.PI * 2;
-    const r = baseR * (1 + amp * Math.sin(a * 3 + t * speed) + amp * 0.6 * Math.cos(a * 2 - t * speed * 1.3));
-    coords.push([Math.cos(a) * r, Math.sin(a) * r]);
-  }
+  const wave = (state === 'sleeping' ? 0.02 : state === 'working' ? 0.065 : 0.04) * ampScale;
+  const sx = 1 + wave * Math.sin(t * speed);
+  const sy = 1 + wave * Math.cos(t * speed * 1.15);
+  const cy = state === 'happy' ? -Math.abs(Math.sin(t * 5)) * s * 0.036 * ampScale : 0;
 
-  ctx.beginPath();
-  for (let i = 0; i < pts; i++) {
-    const p0 = coords[i];
-    const p1 = coords[(i + 1) % pts];
-    const mx = (p0[0] + p1[0]) / 2;
-    const my = (p0[1] + p1[1]) / 2;
-    if (i === 0) {
-      const prev = coords[pts - 1];
-      ctx.moveTo((prev[0] + p0[0]) / 2, (prev[1] + p0[1]) / 2);
-    }
-    ctx.quadraticCurveTo(p0[0], p0[1], mx, my);
-  }
-  ctx.closePath();
-  ctx.fillStyle = rokMakeAvatarGrad(ctx, pal, -baseR, baseR);
-  ctx.fill();
-  ctx.lineWidth = Math.max(1.1, s * 0.024);
-  ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.14)' : 'rgba(255,255,255,0.2)';
-  ctx.stroke();
+  ctx.translate(s / 2 + gaze.x * s * 0.028, s / 2 + cy + gaze.y * s * 0.028);
+  ctx.rotate(poke.angle + Math.sin(t * speed * 0.7) * 0.035);
+  ctx.scale(sx * (1 + poke.bounce * 0.14), sy * (1 - poke.bounce * 0.11));
+  ctx.translate(-s / 2, -s / 2);
+  ctx.scale(sc, sc);
 
-  const gx = gaze.x * s * 0.055 + (state === 'thinking' ? Math.sin(t * 4) * s * 0.035 : 0);
-  const gy = gaze.y * s * 0.05 + (state === 'thinking' ? -s * 0.025 : 0);
+  rokFillShape(ctx, shapePath, pal, isLight, 2.4);
+
+  const gx = gaze.x * 4.5 + (state === 'thinking' ? Math.sin(t * 4) * 3.0 : 0);
+  const gy = gaze.y * 4.0 + (state === 'thinking' ? -2.2 : 0);
   const eyeFill = eyeInk || '#ffffff';
   ctx.fillStyle = eyeFill;
   ctx.strokeStyle = eyeFill;
   ctx.lineCap = 'round';
 
   if (state === 'sleeping') {
-    ctx.lineWidth = Math.max(1.4, s * 0.04);
-    ctx.beginPath(); ctx.arc(-s * 0.11, s * 0.02, s * 0.065, 0.2, Math.PI - 0.2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(s * 0.11, -s * 0.02, s * 0.055, 0.2, Math.PI - 0.2); ctx.stroke();
+    ctx.lineWidth = 3.6;
+    ctx.beginPath(); ctx.arc(40.5, 52, 5.8, 0.2, Math.PI - 0.2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(59.5, 49, 5.0, 0.2, Math.PI - 0.2); ctx.stroke();
   } else if (state === 'happy') {
-    ctx.lineWidth = Math.max(1.5, s * 0.044);
-    ctx.beginPath(); ctx.arc(-s * 0.11 + gx * 0.4, s * 0.04 + gy * 0.4, s * 0.065, Math.PI + 0.35, -0.35); ctx.stroke();
-    ctx.beginPath(); ctx.arc(s * 0.11 + gx * 0.4, gy * 0.4, s * 0.058, Math.PI + 0.35, -0.35); ctx.stroke();
+    ctx.lineWidth = 4.0;
+    ctx.beginPath(); ctx.arc(40.5 + gx * 0.4, 54 + gy * 0.4, 5.8, Math.PI + 0.35, -0.35); ctx.stroke();
+    ctx.beginPath(); ctx.arc(59.5 + gx * 0.4, 50 + gy * 0.4, 5.2, Math.PI + 0.35, -0.35); ctx.stroke();
   } else {
-    const sy = Math.max(0.1, 1 - blink) * (state === 'waiting' || state === 'error' ? 1.14 : 1);
-    for (const [ex, ey, h] of [[-s * 0.105, s * 0.015, s * 0.25], [s * 0.105, -s * 0.035, s * 0.2]]) {
+    const eyeSy = Math.max(0.1, 1 - blink) * (state === 'waiting' || state === 'error' ? 1.14 : 1);
+    for (const [ex, ey, h] of [[40.5, 52, 22], [59.5, 48, 18]]) {
       ctx.save();
       ctx.translate(ex + gx, ey + gy);
       ctx.rotate(-24 * Math.PI / 180);
-      ctx.scale(1, sy);
-      rokRoundedRectPath(ctx, -s * 0.052, -h / 2, s * 0.104, h, s * 0.052);
+      ctx.scale(1, eyeSy);
+      rokRoundedRectPath(ctx, -4.6, -h / 2, 9.2, h, 4.6);
       ctx.fill();
       ctx.restore();
     }
   }
 
+  // Orbiting signal satellite
   const satSpeed = state === 'working' ? 3.4 : state === 'thinking' ? 2.2 : state === 'sleeping' ? 0.4 : 1.1;
   const satA = t * satSpeed - 0.8;
-  const satDist = baseR + s * 0.075;
+  const satDist = 44;
   ctx.beginPath();
-  ctx.arc(Math.cos(satA) * satDist, Math.sin(satA) * satDist * 0.86, s * 0.05, 0, Math.PI * 2);
+  ctx.arc(50 + Math.cos(satA) * satDist, 50 + Math.sin(satA) * satDist * 0.88, 4.6, 0, Math.PI * 2);
   ctx.fillStyle = rokSignalColor(state, pal);
   ctx.fill();
   ctx.restore();
@@ -634,10 +638,11 @@ const ROK_AVATAR_RENDERERS = {
   orb: rokDrawOrb,
 };
 
-function rokDrawAvatarStyle(ctx, styleId, s, t, gaze, blink, poke, rawState, pal, isLight, eyeInk, isEmphasized) {
+function rokDrawAvatarStyle(ctx, styleId, shapeName, s, t, gaze, blink, poke, rawState, pal, isLight, eyeInk, isEmphasized) {
   const fn = ROK_AVATAR_RENDERERS[styleId] || rokDrawChassis;
   const state = rokNormalizeAvatarState(rawState);
-  fn(ctx, s, t, gaze || { x: 0, y: 0 }, blink || 0, poke || { angle: 0, bounce: 0 }, state, pal || ROK_AVATAR_PRESETS.cyan, Boolean(isLight), eyeInk || null, Boolean(isEmphasized));
+  const shapePath = rokGetShapePath(shapeName);
+  fn(ctx, shapePath, s, t, gaze || { x: 0, y: 0 }, blink || 0, poke || { angle: 0, bounce: 0 }, state, pal || ROK_AVATAR_PRESETS.cyan, Boolean(isLight), eyeInk || null, Boolean(isEmphasized));
 }
 
 // One shared animation ticker + pointer tracker for every mounted avatar canvas.
@@ -724,7 +729,7 @@ function rokUseIsomorphicLayoutEffect(effect, deps) {
   return (typeof X.useLayoutEffect === 'function' ? X.useLayoutEffect : X.useEffect)(effect, deps);
 }
 
-function RokAvatarCanvas({ styleId, color, ink, eyeColor, state, sourceId, mirrorOf, isPaused, maxFrameRate, isEmphasized, isFollowingPointer, spinSignal, controllerRef }) {
+function RokAvatarCanvas({ styleId, shape, color, ink, eyeColor, state, sourceId, mirrorOf, isPaused, maxFrameRate, isEmphasized, isFollowingPointer, spinSignal, controllerRef }) {
   const canvasRef = X.useRef(null);
   const animRef = X.useRef({
     gaze: { x: 0, y: 0 },
@@ -737,7 +742,7 @@ function RokAvatarCanvas({ styleId, color, ink, eyeColor, state, sourceId, mirro
     resolvedEye: null,
   });
   const propsRef = X.useRef({});
-  propsRef.current = { styleId, color, ink, eyeColor, state, sourceId, mirrorOf, isPaused, maxFrameRate, isEmphasized, isFollowingPointer };
+  propsRef.current = { styleId, shape, color, ink, eyeColor, state, sourceId, mirrorOf, isPaused, maxFrameRate, isEmphasized, isFollowingPointer };
 
   const triggerPoke = () => {
     animRef.current.pokeStart = (globalThis.performance?.now?.() ?? 0) / 1000;
@@ -775,10 +780,11 @@ function RokAvatarCanvas({ styleId, color, ink, eyeColor, state, sourceId, mirro
     return () => rokTrackGlobalPointer(false);
   }, [isFollowingPointer]);
 
-  // Publish live state into mirror source registry so RokGrokBotMarkMirror can stay in sync.
+  // Publish live state + shape into mirror source registry so RokGrokBotMarkMirror stays in sync.
   X.useEffect(() => {
     if (!sourceId || mirrorOf) return undefined;
     const entry = rokAvatarSources.get(sourceId) || {};
+    entry.shape = shape;
     entry.color = color;
     entry.ink = ink;
     entry.eyeColor = eyeColor;
@@ -789,7 +795,7 @@ function RokAvatarCanvas({ styleId, color, ink, eyeColor, state, sourceId, mirro
       const current = rokAvatarSources.get(sourceId);
       if (current?.anim === animRef.current) rokAvatarSources.delete(sourceId);
     };
-  }, [sourceId, mirrorOf, color, ink, eyeColor, state]);
+  }, [sourceId, mirrorOf, shape, color, ink, eyeColor, state]);
 
   rokUseIsomorphicLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -822,6 +828,7 @@ function RokAvatarCanvas({ styleId, color, ink, eyeColor, state, sourceId, mirro
       if (!ctx) return;
 
       const mirrorEntry = p.mirrorOf ? rokAvatarSources.get(p.mirrorOf) : null;
+      const effShape = p.shape ?? mirrorEntry?.shape ?? 'blob';
       const effColor = p.color ?? mirrorEntry?.color;
       const effInk = p.ink ?? mirrorEntry?.ink ?? a.resolvedInk;
       const effEye = p.eyeColor ?? mirrorEntry?.eyeColor ?? a.resolvedEye;
@@ -870,7 +877,7 @@ function RokAvatarCanvas({ styleId, color, ink, eyeColor, state, sourceId, mirro
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, rectW, rectH);
       ctx.translate((rectW - logical) / 2, (rectH - logical) / 2);
-      rokDrawAvatarStyle(ctx, p.styleId, logical, t, a.gaze, blink, { angle: pokeAngle, bounce: pokeBounce }, normState, pal, isLight, effEye, p.isEmphasized);
+      rokDrawAvatarStyle(ctx, p.styleId, effShape, logical, t, a.gaze, blink, { angle: pokeAngle, bounce: pokeBounce }, normState, pal, isLight, effEye, p.isEmphasized);
       ctx.restore();
       a.lastDrawMs = nowMs;
     };
@@ -900,7 +907,7 @@ function RokAvatarCanvas({ styleId, color, ink, eyeColor, state, sourceId, mirro
       unsub();
       ro?.disconnect?.();
     };
-  }, [styleId, color, ink, eyeColor, state, isPaused]);
+  }, [styleId, shape, color, ink, eyeColor, state, isPaused]);
 
   return Z.jsx('span', {
     style: { display: 'block', width: '100%', height: '100%', position: 'relative' },
@@ -919,9 +926,10 @@ function RokUseAvatarStyle() {
 function RokGrokBotMark(e) {
   const activeStyle = RokUseAvatarStyle();
   const {
-    color, sourceId, ink, state, isPaused, maxFrameRate,
+    color, sourceId, ink, shape, state, isPaused, maxFrameRate,
     isEmphasized, spinSignal, isFollowingPointer, eyeColor, className, style, children, ref,
   } = e;
+  const resolvedShape = rokNormalizeShapeName(shape);
   const resolvedState = state === void 0 ? 'idle' : state;
   const pausedFlag = Boolean(isPaused);
   const rootMeta = Io(Ttt.root, style);
@@ -934,10 +942,12 @@ function RokGrokBotMark(e) {
     'data-grok-state': resolvedState,
     'data-paused': pausedFlag || void 0,
     'data-rokbot-avatar-style': activeStyle,
+    'data-rokbot-avatar-shape': resolvedShape,
     style: fullStyle,
     children: [
       Z.jsx(RokAvatarCanvas, {
         styleId: activeStyle,
+        shape: resolvedShape,
         color,
         ink,
         eyeColor,
@@ -957,8 +967,9 @@ function RokGrokBotMark(e) {
 
 function RokGrokBotMarkMirror(e) {
   const activeStyle = RokUseAvatarStyle();
-  const { sourceId, color, state, ink, eyeColor, className, style, children, ref } = e;
+  const { sourceId, color, shape, state, ink, eyeColor, className, style, children, ref } = e;
   const mirrorEntry = sourceId ? rokAvatarSources.get(sourceId) : null;
+  const resolvedShape = rokNormalizeShapeName(shape ?? mirrorEntry?.shape);
   const resolvedState = state === void 0 ? (mirrorEntry?.state ?? 'idle') : state;
   const safeColor = color ?? mirrorEntry?.color ?? ((ink ?? mirrorEntry?.ink) === void 0 ? 'cyan' : void 0);
   const safeInk = ink ?? mirrorEntry?.ink;
@@ -971,11 +982,13 @@ function RokGrokBotMarkMirror(e) {
     className: fullClass,
     'data-grok-state': resolvedState,
     'data-rokbot-avatar-style': activeStyle,
+    'data-rokbot-avatar-shape': resolvedShape,
     ref,
     style: fullStyle,
     children: [
       Z.jsx(RokAvatarCanvas, {
         styleId: activeStyle,
+        shape: shape ?? mirrorEntry?.shape,
         color,
         ink,
         eyeColor,

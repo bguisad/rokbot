@@ -7,7 +7,8 @@
 NSNotificationName const RBAvatarStyleDidChangeNotification = @"RokBotAvatarStyleDidChange";
 static NSString *const RBAvatarStyleDefaultsKey = @"RokBotLocal.avatarStyle";
 static const NSInteger RBAvatarOverlayTag = 731994;
-static const void *RBAvatarColorAssocKey = &RBAvatarColorAssocKey;
+static const void *RBAvatarSampleAssocKey = &RBAvatarSampleAssocKey;
+static const int RBAvatarMaskDim = 64;
 
 extern void RBTrackModifiedView(UIView *view);
 
@@ -18,17 +19,28 @@ typedef struct {
   __unsafe_unretained NSString *descZh;
   __unsafe_unretained NSString *descEn;
   uint32_t previewHex;
+  __unsafe_unretained NSString *previewShape;
 } RBAvatarStyleMeta;
 
 static const RBAvatarStyleMeta RBAvatarStyles[] = {
-  { @"chassis", @"机甲灵偶", @"RokBot Chassis", @"斜胶囊眼 + 脉冲灯", @"Capsule eyes + beacon", 0x06B6D4 },
-  { @"antenna", @"双天线波波", @"Twin Antenna", @"弹性天线 + 玻璃面罩", @"Antennas + visor", 0x8B5CF6 },
-  { @"visor", @"赛博护目镜", @"Cyber Visor", @"切角外壳 + 扫描灯", @"Cyber shell + scanner", 0xF97316 },
-  { @"pixel", @"像素精灵", @"Pixel Sprite", @"点阵屏幕 + 节奏条", @"LED matrix + status", 0x10B981 },
-  { @"orb", @"流体光球", @"Fluid Orb", @"液体变形 + 轨道星", @"Morphing blob + dot", 0xEC4899 },
-  { @"official", @"官方原版", @"Official", @"保留官方流体球", @"Original fluid orb", 0x3B82F6 },
+  { @"chassis", @"机甲灵偶", @"RokBot Chassis", @"全形状兼容 + 脉冲灯", @"Shape-aware + beacon", 0x06B6D4, @"blob" },
+  { @"antenna", @"双天线波波", @"Twin Antenna", @"弹性天线 + 玻璃面罩", @"Antennas + visor", 0x8B5CF6, @"cloud" },
+  { @"visor", @"赛博护目镜", @"Cyber Visor", @"切角框 + 扫描灯", @"Cyber visor + scan", 0xF97316, @"hex" },
+  { @"pixel", @"像素精灵", @"Pixel Sprite", @"点阵屏幕 + 节奏条", @"LED matrix + bar", 0x10B981, @"star" },
+  { @"orb", @"流体光球", @"Fluid Orb", @"呼吸微动 + 轨道星", @"Breathing + dot", 0xEC4899, @"heart" },
+  { @"official", @"官方原版", @"Official", @"保留官方流体球", @"Original fluid orb", 0x3B82F6, @"blob" },
 };
 static const NSUInteger RBAvatarStylesCount = sizeof(RBAvatarStyles) / sizeof(RBAvatarStyles[0]);
+
+@interface RBAvatarSample : NSObject
+@property(nonatomic, strong) UIColor *color;
+@property(nonatomic, strong, nullable) UIImage *maskImage;
+@property(nonatomic, assign) CGSize sampledParentSize;
+@property(nonatomic, assign) CFTimeInterval sampledAt;
+@end
+
+@implementation RBAvatarSample
+@end
 
 static BOOL RBAvatarIsValidStyle(NSString *styleId) {
   if (![styleId isKindOfClass:NSString.class]) return NO;
@@ -97,25 +109,103 @@ static void RBBuildPalette(UIColor *base, BOOL isDark,
   *outAccent = RBMixColor(r, g, b, 1.0, 1.0, 1.0, 0.56);
 }
 
-static CGPathRef RBChassisPath(void) {
+static CGPathRef RBBlobPath100(void) {
   static CGMutablePathRef path;
   static dispatch_once_t once;
   dispatch_once(&once, ^{
     path = CGPathCreateMutable();
-    CGPathMoveToPoint(path, NULL, 340, 148);
-    CGPathAddCurveToPoint(path, NULL, 408, 148, 476, 144, 540, 144);
-    CGPathAddCurveToPoint(path, NULL, 618, 144, 664, 60, 756, 56);
-    CGPathAddCurveToPoint(path, NULL, 836, 52, 892, 104, 884, 176);
-    CGPathAddCurveToPoint(path, NULL, 878, 214, 932, 272, 956, 368);
-    CGPathAddCurveToPoint(path, NULL, 964, 464, 960, 564, 948, 656);
-    CGPathAddCurveToPoint(path, NULL, 928, 816, 820, 924, 636, 944);
-    CGPathAddCurveToPoint(path, NULL, 532, 956, 424, 960, 324, 952);
-    CGPathAddCurveToPoint(path, NULL, 156, 938, 76, 836, 68, 668);
-    CGPathAddCurveToPoint(path, NULL, 62, 548, 64, 424, 72, 336);
-    CGPathAddCurveToPoint(path, NULL, 84, 200, 184, 148, 340, 148);
+    CGPathMoveToPoint(path, NULL, 33, 14);
+    CGPathAddCurveToPoint(path, NULL, 40, 14, 47, 14, 53, 14);
+    CGPathAddCurveToPoint(path, NULL, 60, 14, 65, 6, 74, 5.5);
+    CGPathAddCurveToPoint(path, NULL, 82, 5, 87, 10, 86, 17);
+    CGPathAddCurveToPoint(path, NULL, 86, 21, 91, 27, 93, 36);
+    CGPathAddCurveToPoint(path, NULL, 94, 45, 94, 55, 93, 64);
+    CGPathAddCurveToPoint(path, NULL, 91, 80, 80, 90, 62, 92);
+    CGPathAddCurveToPoint(path, NULL, 52, 93, 41, 94, 32, 93);
+    CGPathAddCurveToPoint(path, NULL, 15, 92, 7, 82, 7, 65);
+    CGPathAddCurveToPoint(path, NULL, 6, 54, 6, 41, 7, 33);
+    CGPathAddCurveToPoint(path, NULL, 8, 20, 18, 14, 33, 14);
     CGPathCloseSubpath(path);
   });
   return path;
+}
+
+static CGPathRef RBCloudPath100(void) {
+  static CGMutablePathRef path;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    path = CGPathCreateMutable();
+    CGPathMoveToPoint(path, NULL, 28, 74);
+    CGPathAddCurveToPoint(path, NULL, 16, 74, 8, 66, 8, 55);
+    CGPathAddCurveToPoint(path, NULL, 8, 46, 14, 39, 22, 37);
+    CGPathAddCurveToPoint(path, NULL, 24, 25, 35, 16, 48, 16);
+    CGPathAddCurveToPoint(path, NULL, 60, 16, 70, 23, 73, 34);
+    CGPathAddCurveToPoint(path, NULL, 83, 35, 92, 43, 92, 54);
+    CGPathAddCurveToPoint(path, NULL, 92, 65, 83, 74, 71, 74);
+    CGPathCloseSubpath(path);
+  });
+  return path;
+}
+
+static CGPathRef RBHexPath100(void) {
+  static CGMutablePathRef path;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    path = CGPathCreateMutable();
+    CGPathMoveToPoint(path, NULL, 50, 8);
+    CGPathAddLineToPoint(path, NULL, 86, 29);
+    CGPathAddLineToPoint(path, NULL, 86, 71);
+    CGPathAddLineToPoint(path, NULL, 50, 92);
+    CGPathAddLineToPoint(path, NULL, 14, 71);
+    CGPathAddLineToPoint(path, NULL, 14, 29);
+    CGPathCloseSubpath(path);
+  });
+  return path;
+}
+
+static CGPathRef RBStarPath100(void) {
+  static CGMutablePathRef path;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    path = CGPathCreateMutable();
+    CGPathMoveToPoint(path, NULL, 50, 8);
+    CGPathAddLineToPoint(path, NULL, 62, 33);
+    CGPathAddLineToPoint(path, NULL, 90, 37);
+    CGPathAddLineToPoint(path, NULL, 69, 57);
+    CGPathAddLineToPoint(path, NULL, 74, 85);
+    CGPathAddLineToPoint(path, NULL, 50, 72);
+    CGPathAddLineToPoint(path, NULL, 26, 85);
+    CGPathAddLineToPoint(path, NULL, 31, 57);
+    CGPathAddLineToPoint(path, NULL, 10, 37);
+    CGPathAddLineToPoint(path, NULL, 38, 33);
+    CGPathCloseSubpath(path);
+  });
+  return path;
+}
+
+static CGPathRef RBHeartPath100(void) {
+  static CGMutablePathRef path;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    path = CGPathCreateMutable();
+    CGPathMoveToPoint(path, NULL, 50, 88);
+    CGPathAddCurveToPoint(path, NULL, 20, 68, 8, 49, 8, 33);
+    CGPathAddCurveToPoint(path, NULL, 8, 20, 18, 11, 30, 11);
+    CGPathAddCurveToPoint(path, NULL, 39, 11, 46, 16, 50, 23);
+    CGPathAddCurveToPoint(path, NULL, 54, 16, 61, 11, 70, 11);
+    CGPathAddCurveToPoint(path, NULL, 82, 11, 92, 20, 92, 33);
+    CGPathAddCurveToPoint(path, NULL, 92, 49, 80, 68, 50, 88);
+    CGPathCloseSubpath(path);
+  });
+  return path;
+}
+
+static CGPathRef RBPathForPreviewShape(NSString *shape) {
+  if ([shape isEqualToString:@"cloud"]) return RBCloudPath100();
+  if ([shape isEqualToString:@"hex"]) return RBHexPath100();
+  if ([shape isEqualToString:@"star"]) return RBStarPath100();
+  if ([shape isEqualToString:@"heart"]) return RBHeartPath100();
+  return RBBlobPath100();
 }
 
 static CGGradientRef RBCreateBodyGradient(UIColor *top, UIColor *mid, UIColor *bot) {
@@ -145,7 +235,60 @@ static void RBDrawTiltedCapsule(CGContextRef ctx, CGFloat cx, CGFloat cy,
   CGContextRestoreGState(ctx);
 }
 
-static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
+/// Fills an extracted 64x64 shape mask (in 0..100 coordinates) or procedural preview path with
+/// RokBot's 3-stop vertical gradient and subtle outer rim.
+static void RBDrawShapeBody100(CGContextRef ctx, UIImage * _Nullable maskImage,
+                               NSString * _Nullable previewShape,
+                               UIColor *top, UIColor *mid, UIColor *bot, BOOL isDark) {
+  CGColorRef rimColor = isDark
+      ? [UIColor colorWithWhite:1.0 alpha:0.22].CGColor
+      : [UIColor colorWithRed:15.0 / 255.0 green:23.0 / 255.0 blue:42.0 / 255.0 alpha:0.18].CGColor;
+  CGImageRef mask = maskImage.CGImage;
+  if (mask) {
+    CGRect box = CGRectMake(0.0, 0.0, 100.0, 100.0);
+    // Subtle outer rim behind mask
+    CGContextSaveGState(ctx);
+    CGContextTranslateCTM(ctx, 50.0, 50.0);
+    CGContextScaleCTM(ctx, 1.045, 1.045);
+    CGContextTranslateCTM(ctx, -50.0, -50.0);
+    CGContextTranslateCTM(ctx, 0.0, 100.0);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    CGContextClipToMask(ctx, box, mask);
+    CGContextSetFillColorWithColor(ctx, rimColor);
+    CGContextFillRect(ctx, box);
+    CGContextRestoreGState(ctx);
+
+    // Gradient body clipped to the exact Bot silhouette
+    CGContextSaveGState(ctx);
+    CGContextTranslateCTM(ctx, 0.0, 100.0);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    CGContextClipToMask(ctx, box, mask);
+    CGContextTranslateCTM(ctx, 0.0, 100.0);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    CGGradientRef grad = RBCreateBodyGradient(top, mid, bot);
+    CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, 8), CGPointMake(0, 92), 0);
+    CGGradientRelease(grad);
+    CGContextRestoreGState(ctx);
+    return;
+  }
+
+  CGPathRef path = RBPathForPreviewShape(previewShape);
+  CGContextSaveGState(ctx);
+  CGContextAddPath(ctx, path);
+  CGContextClip(ctx);
+  CGGradientRef grad = RBCreateBodyGradient(top, mid, bot);
+  CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, 8), CGPointMake(0, 92), 0);
+  CGGradientRelease(grad);
+  CGContextRestoreGState(ctx);
+
+  CGContextSetStrokeColorWithColor(ctx, rimColor);
+  CGContextSetLineWidth(ctx, 2.4);
+  CGContextAddPath(ctx, path);
+  CGContextStrokePath(ctx);
+}
+
+static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, UIImage * _Nullable maskImage,
+                         NSString * _Nullable previewShape, CGFloat s,
                          NSTimeInterval t, CGFloat blink, BOOL active,
                          UIColor *baseColor, BOOL isDark) {
   if (s <= 0) return;
@@ -174,72 +317,63 @@ static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
 
   UIColor *top = nil, *mid = nil, *bot = nil, *accent = nil;
   RBBuildPalette(baseColor, isDark, &top, &mid, &bot, &accent);
-  CGColorRef strokeColor = isDark
-      ? [UIColor colorWithWhite:1.0 alpha:0.22].CGColor
-      : [UIColor colorWithRed:15.0 / 255.0 green:23.0 / 255.0 blue:42.0 / 255.0 alpha:0.18].CGColor;
+  CGFloat sc = s / 100.0;
 
   if ([styleId isEqualToString:@"antenna"]) {
     CGContextSaveGState(ctx);
-    CGFloat bw = s * 0.76, bh = s * 0.66, bx = (s - bw) * 0.5, by = s * 0.26;
-    CGFloat bob = active ? sin(t * 7.0) * s * 0.022 : sin(t * 2.4) * s * 0.012;
+    CGFloat bob = active ? sin(t * 7.0) * s * 0.022 : sin(t * 2.4) * s * 0.010;
     CGFloat sway = sin(t * (active ? 7.5 : 2.6)) * 0.14;
     CGContextTranslateCTM(ctx, 0, bob);
+    CGContextScaleCTM(ctx, sc, sc);
 
     CGContextSetLineCap(ctx, kCGLineCapRound);
-    CGContextSetLineWidth(ctx, fmax(1.5, s * 0.045));
+    CGContextSetLineWidth(ctx, 4.0);
     for (int side = -1; side <= 1; side += 2) {
-      CGFloat rootX = s * 0.5 + side * s * 0.17;
-      CGFloat rootY = by + s * 0.03;
-      CGFloat tipX = rootX + side * s * 0.07 + sin(t * 3.0 + side) * s * 0.025 + sway * s * 0.08;
-      CGFloat tipY = s * 0.09 + fabs(sway) * s * 0.02;
+      CGFloat rootX = 50.0 + side * 14.0;
+      CGFloat rootY = 27.0;
+      CGFloat tipX = rootX + side * 6.0 + sin(t * 3.0 + side) * 2.2 + sway * 7.0;
+      CGFloat tipY = 8.0 + fabs(sway) * 2.0;
       CGContextSetStrokeColorWithColor(ctx, mid.CGColor);
       CGContextMoveToPoint(ctx, rootX, rootY);
-      CGContextAddQuadCurveToPoint(ctx, rootX + side * s * 0.02, (rootY + tipY) * 0.5, tipX, tipY);
+      CGContextAddQuadCurveToPoint(ctx, rootX + side * 2.0, (rootY + tipY) * 0.5, tipX, tipY);
       CGContextStrokePath(ctx);
 
       if (active) {
         CGFloat pulse = fmod(t * 1.8 + (side > 0 ? 0.5 : 0.0), 1.0);
-        CGFloat pr = s * 0.04 + pulse * s * 0.07;
+        CGFloat pr = 3.8 + pulse * 6.5;
         CGContextSetStrokeColorWithColor(ctx, [accent colorWithAlphaComponent:(1.0 - pulse) * 0.6].CGColor);
-        CGContextSetLineWidth(ctx, fmax(1.0, s * 0.02));
+        CGContextSetLineWidth(ctx, 1.8);
         CGContextAddEllipseInRect(ctx, CGRectMake(tipX - pr, tipY - pr, pr * 2.0, pr * 2.0));
         CGContextStrokePath(ctx);
-        CGContextSetLineWidth(ctx, fmax(1.5, s * 0.045));
+        CGContextSetLineWidth(ctx, 4.0);
       }
-      CGFloat tr = s * 0.048;
+      CGFloat tr = 4.4;
       CGContextSetFillColorWithColor(ctx, accent.CGColor);
       CGContextFillEllipseInRect(ctx, CGRectMake(tipX - tr, tipY - tr, tr * 2.0, tr * 2.0));
     }
 
-    CGRect bodyRect = CGRectMake(bx, by, bw, bh);
     CGContextSaveGState(ctx);
-    RBDrawRoundedRect(ctx, bodyRect, s * 0.24);
-    CGContextClip(ctx);
-    CGGradientRef grad = RBCreateBodyGradient(top, mid, bot);
-    CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, by), CGPointMake(0, by + bh), 0);
-    CGGradientRelease(grad);
+    CGContextTranslateCTM(ctx, 50.0, 57.0);
+    CGContextScaleCTM(ctx, 0.84, 0.84);
+    CGContextTranslateCTM(ctx, -50.0, -50.0);
+    RBDrawShapeBody100(ctx, maskImage, previewShape, top, mid, bot, isDark);
     CGContextRestoreGState(ctx);
 
-    CGContextSetStrokeColorWithColor(ctx, strokeColor);
-    CGContextSetLineWidth(ctx, fmax(1.0, s * 0.025));
-    RBDrawRoundedRect(ctx, bodyRect, s * 0.24);
-    CGContextStrokePath(ctx);
-
-    CGFloat vx = bx + bw * 0.13, vy = by + bh * 0.22, vw = bw * 0.74, vh = bh * 0.56;
+    CGFloat vw = 44.0, vh = 24.0, vx = 50.0 - vw * 0.5, vy = 56.0 - vh * 0.5;
     CGContextSetFillColorWithColor(ctx, RBColorFromHex(0x0F172A).CGColor);
-    RBDrawRoundedRect(ctx, CGRectMake(vx, vy, vw, vh), vh * 0.42);
+    RBDrawRoundedRect(ctx, CGRectMake(vx, vy, vw, vh), vh * 0.45);
     CGContextFillPath(ctx);
 
     CGFloat gx = active ? sin(t * 4.5) * vw * 0.07 : 0.0;
     CGFloat gy = active ? -vh * 0.06 : 0.0;
-    CGFloat eh = vh * 0.46 * fmax(0.1, 1.0 - blink);
+    CGFloat eh = vh * 0.48 * fmax(0.1, 1.0 - blink);
     CGFloat ew = vw * 0.18;
     for (int side = -1; side <= 1; side += 2) {
-      CGFloat ex = vx + vw * 0.5 + side * vw * 0.20 + gx;
+      CGFloat ex = vx + vw * 0.5 + side * vw * 0.21 + gx;
       CGFloat ey = vy + vh * 0.5 + gy;
       CGContextSetFillColorWithColor(ctx, UIColor.whiteColor.CGColor);
       CGContextFillEllipseInRect(ctx, CGRectMake(ex - ew * 0.5, ey - eh * 0.5, ew, eh));
-      if (eh > s * 0.06) {
+      if (eh > 5.0) {
         CGFloat gr = ew * 0.16;
         CGContextSetFillColorWithColor(ctx, accent.CGColor);
         CGContextFillEllipseInRect(ctx, CGRectMake(ex - ew * 0.12 - gr, ey - eh * 0.16 - gr, gr * 2.0, gr * 2.0));
@@ -253,35 +387,13 @@ static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
     CGContextSaveGState(ctx);
     CGFloat bob = active ? sin(t * 7.2) * s * 0.02 : sin(t * 2.0) * s * 0.01;
     CGContextTranslateCTM(ctx, 0, bob);
-    CGFloat p = s * 0.11, c = s * 0.22;
-    CGMutablePathRef shell = CGPathCreateMutable();
-    CGPathMoveToPoint(shell, NULL, p + c, p * 1.15);
-    CGPathAddLineToPoint(shell, NULL, s - p - c, p * 1.15);
-    CGPathAddLineToPoint(shell, NULL, s - p, p * 1.15 + c);
-    CGPathAddLineToPoint(shell, NULL, s - p, s - p - c);
-    CGPathAddLineToPoint(shell, NULL, s - p - c, s - p);
-    CGPathAddLineToPoint(shell, NULL, p + c, s - p);
-    CGPathAddLineToPoint(shell, NULL, p, s - p - c);
-    CGPathAddLineToPoint(shell, NULL, p, p * 1.15 + c);
-    CGPathCloseSubpath(shell);
+    CGContextScaleCTM(ctx, sc, sc);
 
-    CGContextSaveGState(ctx);
-    CGContextAddPath(ctx, shell);
-    CGContextClip(ctx);
-    CGGradientRef grad = RBCreateBodyGradient(top, mid, bot);
-    CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, p), CGPointMake(0, s - p), 0);
-    CGGradientRelease(grad);
-    CGContextRestoreGState(ctx);
+    RBDrawShapeBody100(ctx, maskImage, previewShape, top, mid, bot, isDark);
 
-    CGContextSetStrokeColorWithColor(ctx, strokeColor);
-    CGContextSetLineWidth(ctx, fmax(1.0, s * 0.025));
-    CGContextAddPath(ctx, shell);
-    CGContextStrokePath(ctx);
-    CGPathRelease(shell);
-
-    CGFloat vx = s * 0.13, vy = s * 0.34, vw = s * 0.74, vh = s * 0.34;
+    CGFloat vw = 50.0, vh = 22.0, vx = 50.0 - vw * 0.5, vy = 52.0 - vh * 0.5;
     CGContextSetFillColorWithColor(ctx, RBColorFromHex(0x090D16).CGColor);
-    RBDrawRoundedRect(ctx, CGRectMake(vx, vy, vw, vh), s * 0.09);
+    RBDrawRoundedRect(ctx, CGRectMake(vx, vy, vw, vh), 6.5);
     CGContextFillPath(ctx);
 
     if (active) {
@@ -305,11 +417,11 @@ static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
       CGContextRestoreGState(ctx);
     } else {
       CGContextSetFillColorWithColor(ctx, accent.CGColor);
-      CGFloat h = vh * 0.44 * fmax(0.12, 1.0 - blink);
+      CGFloat h = vh * 0.46 * fmax(0.12, 1.0 - blink);
       for (int side = -1; side <= 1; side += 2) {
         CGFloat cx = vx + vw * 0.5 + side * vw * 0.21;
         CGFloat cy = vy + vh * 0.5;
-        RBDrawRoundedRect(ctx, CGRectMake(cx - vw * 0.065, cy - h * 0.5, vw * 0.13, h), s * 0.03);
+        RBDrawRoundedRect(ctx, CGRectMake(cx - vw * 0.07, cy - h * 0.5, vw * 0.14, h), 2.6);
         CGContextFillPath(ctx);
       }
     }
@@ -320,24 +432,13 @@ static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
   if ([styleId isEqualToString:@"pixel"]) {
     CGContextSaveGState(ctx);
     if (active) CGContextTranslateCTM(ctx, 0, sin(t * 7.0) * s * 0.018);
-    CGFloat pad = s * 0.10;
-    CGRect shellRect = CGRectMake(pad, pad, s - pad * 2.0, s - pad * 2.0);
-    CGContextSaveGState(ctx);
-    RBDrawRoundedRect(ctx, shellRect, s * 0.20);
-    CGContextClip(ctx);
-    CGGradientRef grad = RBCreateBodyGradient(top, mid, bot);
-    CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, pad), CGPointMake(0, s - pad), 0);
-    CGGradientRelease(grad);
-    CGContextRestoreGState(ctx);
+    CGContextScaleCTM(ctx, sc, sc);
 
-    CGContextSetStrokeColorWithColor(ctx, strokeColor);
-    CGContextSetLineWidth(ctx, fmax(1.0, s * 0.025));
-    RBDrawRoundedRect(ctx, shellRect, s * 0.20);
-    CGContextStrokePath(ctx);
+    RBDrawShapeBody100(ctx, maskImage, previewShape, top, mid, bot, isDark);
 
-    CGFloat mx = s * 0.19, my = s * 0.25, mw = s * 0.62, mh = s * 0.52;
+    CGFloat mw = 42.0, mh = 31.0, mx = 50.0 - mw * 0.5, my = 55.0 - mh * 0.5;
     CGContextSetFillColorWithColor(ctx, RBColorFromHex(0x0B101B).CGColor);
-    RBDrawRoundedRect(ctx, CGRectMake(mx, my, mw, mh), s * 0.09);
+    RBDrawRoundedRect(ctx, CGRectMake(mx, my, mw, mh), 6.0);
     CGContextFillPath(ctx);
 
     CGFloat cellW = mw / 9.0, cellH = mh / 7.0;
@@ -364,11 +465,10 @@ static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
       }
     }
     int barPhase = ((int)floor(t * 3.0)) % 3;
-    CGFloat bw = s * 0.08, bh = fmax(1.4, s * 0.04);
     for (int i = 0; i < 3; i++) {
       UIColor *col = (active && i == barPhase) ? UIColor.whiteColor : accent;
       CGContextSetFillColorWithColor(ctx, col.CGColor);
-      CGContextFillRect(ctx, CGRectMake(s * 0.5 - s * 0.15 + i * s * 0.11, s * 0.145, bw, bh));
+      CGContextFillRect(ctx, CGRectMake(50.0 - 11.0 + i * 8.2, my - 6.2, 5.6, 2.8));
     }
     CGContextRestoreGState(ctx);
     return;
@@ -376,63 +476,42 @@ static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
 
   if ([styleId isEqualToString:@"orb"]) {
     CGContextSaveGState(ctx);
+    double speed = active ? 3.2 : 1.9;
+    double wave = active ? 0.055 : 0.04;
+    CGFloat sx = 1.0 + wave * sin(t * speed);
+    CGFloat sy = 1.0 + wave * cos(t * speed * 1.15);
+
     CGContextTranslateCTM(ctx, s * 0.5, s * 0.5);
-    const int pts = 32;
-    CGFloat baseR = s * 0.37;
-    double speed = active ? 3.4 : 1.9;
-    double amp = active ? 0.075 : 0.055;
-    CGPoint coords[32];
-    for (int i = 0; i < pts; i++) {
-      double a = (i / (double)pts) * M_PI * 2.0;
-      double r = baseR * (1.0 + amp * sin(a * 3.0 + t * speed) + amp * 0.6 * cos(a * 2.0 - t * speed * 1.3));
-      coords[i] = CGPointMake(cos(a) * r, sin(a) * r);
-    }
-    CGMutablePathRef blob = CGPathCreateMutable();
-    CGPathMoveToPoint(blob, NULL, (coords[pts - 1].x + coords[0].x) * 0.5, (coords[pts - 1].y + coords[0].y) * 0.5);
-    for (int i = 0; i < pts; i++) {
-      int next = (i + 1) % pts;
-      CGPathAddQuadCurveToPoint(blob, NULL, coords[i].x, coords[i].y,
-                                (coords[i].x + coords[next].x) * 0.5,
-                                (coords[i].y + coords[next].y) * 0.5);
-    }
-    CGPathCloseSubpath(blob);
+    CGContextRotateCTM(ctx, sin(t * speed * 0.7) * 0.035);
+    CGContextScaleCTM(ctx, sx, sy);
+    CGContextTranslateCTM(ctx, -s * 0.5, -s * 0.5);
+    CGContextScaleCTM(ctx, sc, sc);
 
-    CGContextSaveGState(ctx);
-    CGContextAddPath(ctx, blob);
-    CGContextClip(ctx);
-    CGGradientRef grad = RBCreateBodyGradient(top, mid, bot);
-    CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, -baseR), CGPointMake(0, baseR), 0);
-    CGGradientRelease(grad);
-    CGContextRestoreGState(ctx);
-
-    CGContextSetStrokeColorWithColor(ctx, strokeColor);
-    CGContextSetLineWidth(ctx, fmax(1.0, s * 0.024));
-    CGContextAddPath(ctx, blob);
-    CGContextStrokePath(ctx);
-    CGPathRelease(blob);
+    RBDrawShapeBody100(ctx, maskImage, previewShape, top, mid, bot, isDark);
 
     CGContextSetFillColorWithColor(ctx, UIColor.whiteColor.CGColor);
-    CGFloat sy = fmax(0.1, 1.0 - blink);
-    CGFloat gx = active ? sin(t * 4.0) * s * 0.035 : 0.0;
-    CGFloat gy = active ? -s * 0.025 : 0.0;
-    RBDrawTiltedCapsule(ctx, -s * 0.105 + gx, s * 0.015 + gy, s * 0.104, s * 0.25, -24.0, sy);
-    RBDrawTiltedCapsule(ctx, s * 0.105 + gx, -s * 0.035 + gy, s * 0.104, s * 0.20, -24.0, sy);
+    CGFloat eyeSy = fmax(0.1, 1.0 - blink);
+    CGFloat gx = active ? sin(t * 4.0) * 3.0 : 0.0;
+    CGFloat gy = active ? -2.2 : 0.0;
+    RBDrawTiltedCapsule(ctx, 40.5 + gx, 52.0 + gy, 9.2, 22.0, -24.0, eyeSy);
+    RBDrawTiltedCapsule(ctx, 59.5 + gx, 48.0 + gy, 9.2, 18.0, -24.0, eyeSy);
 
     double satA = t * (active ? 2.8 : 1.1) - 0.8;
-    CGFloat satDist = baseR + s * 0.075;
-    CGFloat satR = s * 0.05;
+    CGFloat satDist = 44.0;
+    CGFloat satR = 4.6;
     CGContextSetFillColorWithColor(ctx, accent.CGColor);
-    CGContextFillEllipseInRect(ctx, CGRectMake(cos(satA) * satDist - satR, sin(satA) * satDist * 0.86 - satR, satR * 2.0, satR * 2.0));
+    CGContextFillEllipseInRect(ctx, CGRectMake(50.0 + cos(satA) * satDist - satR,
+                                              50.0 + sin(satA) * satDist * 0.88 - satR,
+                                              satR * 2.0, satR * 2.0));
     CGContextRestoreGState(ctx);
     return;
   }
 
   // Default: chassis
   CGContextSaveGState(ctx);
-  CGFloat sc = s / 1024.0;
-  CGFloat breath = 1.0 + sin(t * 2.8) * 0.025;
-  CGFloat bob = active ? sin(t * 3.4) * s * 0.018 : sin(t * 2.2) * s * 0.012;
-  CGFloat tilt = active ? sin(t * 2.4) * 0.06 : 0.0;
+  CGFloat breath = 1.0 + sin(t * 2.8) * 0.024;
+  CGFloat bob = active ? sin(t * 3.4) * s * 0.016 : sin(t * 2.2) * s * 0.010;
+  CGFloat tilt = active ? sin(t * 2.4) * 0.055 : 0.0;
 
   CGContextTranslateCTM(ctx, s * 0.5, s * 0.5 + bob);
   CGContextRotateCTM(ctx, tilt);
@@ -440,44 +519,35 @@ static void RBDrawAvatar(CGContextRef ctx, NSString *styleId, CGFloat s,
   CGContextTranslateCTM(ctx, -s * 0.5, -s * 0.5);
   CGContextScaleCTM(ctx, sc, sc);
 
-  CGPathRef cpath = RBChassisPath();
-  CGContextSaveGState(ctx);
-  CGContextAddPath(ctx, cpath);
-  CGContextClip(ctx);
-  CGGradientRef grad = RBCreateBodyGradient(top, mid, bot);
-  CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, 56), CGPointMake(0, 960), 0);
-  CGGradientRelease(grad);
-  CGContextRestoreGState(ctx);
+  RBDrawShapeBody100(ctx, maskImage, previewShape, top, mid, bot, isDark);
 
-  CGContextSetStrokeColorWithColor(ctx, strokeColor);
-  CGContextSetLineWidth(ctx, 26.0);
-  CGContextAddPath(ctx, cpath);
-  CGContextStrokePath(ctx);
-
+  CGFloat bx = 74.0, by = 22.0;
   CGFloat beaconScale = active ? (0.85 + fabs(sin(t * 7.0)) * 0.45) : (1.0 + sin(t * 3.0) * 0.12);
   if (active) {
     CGFloat halo = fmod(t * 1.4, 1.0);
-    CGFloat hr = 42.0 + halo * 74.0;
+    CGFloat hr = 4.2 + halo * 7.2;
     CGContextSetStrokeColorWithColor(ctx, [accent colorWithAlphaComponent:(1.0 - halo) * 0.65].CGColor);
-    CGContextSetLineWidth(ctx, 18.0);
-    CGContextAddEllipseInRect(ctx, CGRectMake(768.0 - hr, 144.0 - hr, hr * 2.0, hr * 2.0));
+    CGContextSetLineWidth(ctx, 1.8);
+    CGContextAddEllipseInRect(ctx, CGRectMake(bx - hr, by - hr, hr * 2.0, hr * 2.0));
     CGContextStrokePath(ctx);
   }
-  CGFloat br = 44.0 * beaconScale;
+  CGFloat br = 4.2 * beaconScale;
   CGContextSetFillColorWithColor(ctx, accent.CGColor);
-  CGContextFillEllipseInRect(ctx, CGRectMake(768.0 - br, 144.0 - br, br * 2.0, br * 2.0));
+  CGContextFillEllipseInRect(ctx, CGRectMake(bx - br, by - br, br * 2.0, br * 2.0));
 
   CGContextSetFillColorWithColor(ctx, UIColor.whiteColor.CGColor);
-  CGFloat gx = active ? sin(t * 4.0) * 32.0 : 0.0;
-  CGFloat gy = active ? -20.0 : 0.0;
+  CGFloat gx = active ? sin(t * 4.0) * 2.8 : 0.0;
+  CGFloat gy = active ? -2.0 : 0.0;
   CGFloat sy = fmax(0.08, 1.0 - blink);
-  RBDrawTiltedCapsule(ctx, 376.0 + gx, 564.0 + gy, 144.0, 332.0, -26.0, sy);
-  RBDrawTiltedCapsule(ctx, 648.0 + gx, 504.0 + gy, 144.0, 268.0, -26.0, sy);
+  RBDrawTiltedCapsule(ctx, 40.0 + gx, 54.0 + gy, 10.2, 23.5, -26.0, sy);
+  RBDrawTiltedCapsule(ctx, 60.0 + gx, 49.0 + gy, 10.2, 19.0, -26.0, sy);
   CGContextRestoreGState(ctx);
 }
 
 @interface RBAvatarOverlayView : UIView
 @property(nonatomic, copy) NSString *styleId;
+@property(nonatomic, copy, nullable) NSString *previewShape;
+@property(nonatomic, strong, nullable) UIImage *maskImage;
 @property(nonatomic, strong) UIColor *baseColor;
 @property(nonatomic, assign) BOOL activeState;
 @property(nonatomic, assign) NSTimeInterval nextBlinkAt;
@@ -562,6 +632,7 @@ static NSHashTable<RBAvatarOverlayView *> *RBAvatarOverlayInstances(void) {
     self.tag = RBAvatarOverlayTag;
     self.contentMode = UIViewContentModeRedraw;
     _styleId = @"chassis";
+    _previewShape = @"blob";
     _baseColor = RBColorFromHex(0x06B6D4);
     _nextBlinkAt = CACurrentMediaTime() + 1.0 + (arc4random_uniform(24) / 10.0);
     [RBAvatarOverlayInstances() addObject:self];
@@ -597,70 +668,96 @@ static NSHashTable<RBAvatarOverlayView *> *RBAvatarOverlayInstances(void) {
   BOOL isDark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
   CGContextSaveGState(ctx);
   CGContextTranslateCTM(ctx, (self.bounds.size.width - s) * 0.5, (self.bounds.size.height - s) * 0.5);
-  RBDrawAvatar(ctx, self.styleId ?: @"chassis", s, t, blink, self.activeState, self.baseColor, isDark);
+  RBDrawAvatar(ctx, self.styleId ?: @"chassis", self.maskImage, self.previewShape ?: @"blob",
+               s, t, blink, self.activeState, self.baseColor, isDark);
   CGContextRestoreGState(ctx);
 }
 @end
 
-static UIColor *RBExtractDominantColorFromSvgView(UIView *svgView) {
+static RBAvatarSample *RBExtractSvgSampleFromView(UIView *svgView) {
+  RBAvatarSample *sample = [RBAvatarSample new];
+  sample.color = RBColorFromHex(0x06B6D4);
+  if (!svgView || !svgView.superview) return sample;
+  CGSize ps = svgView.superview.bounds.size;
   CGSize sz = svgView.bounds.size;
-  if (sz.width <= 0 || sz.height <= 0) return RBColorFromHex(0x06B6D4);
+  if (ps.width <= 0 || ps.height <= 0 || sz.width <= 0 || sz.height <= 0) return sample;
+  sample.sampledParentSize = ps;
+  sample.sampledAt = CACurrentMediaTime();
+
   CGFloat prevAlpha = svgView.alpha;
   if (prevAlpha < 0.99) svgView.alpha = 1.0;
 
   UIGraphicsImageRendererFormat *fmt = UIGraphicsImageRendererFormat.defaultFormat;
   fmt.scale = 1.0;
   fmt.opaque = NO;
-  UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(16, 16) format:fmt];
+  UIGraphicsImageRenderer *renderer =
+      [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(RBAvatarMaskDim, RBAvatarMaskDim) format:fmt];
   UIImage *img = [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
-    CGContextScaleCTM(ctx.CGContext, 16.0 / sz.width, 16.0 / sz.height);
+    CGFloat sx = RBAvatarMaskDim / ps.width;
+    CGFloat sy = RBAvatarMaskDim / ps.height;
+    CGContextTranslateCTM(ctx.CGContext, svgView.frame.origin.x * sx, svgView.frame.origin.y * sy);
+    CGContextScaleCTM(ctx.CGContext, sx, sy);
     [svgView.layer renderInContext:ctx.CGContext];
   }];
 
   if (prevAlpha < 0.99) svgView.alpha = prevAlpha;
 
   CGImageRef cgImg = img.CGImage;
-  if (!cgImg) return RBColorFromHex(0x06B6D4);
-  uint8_t pixels[16 * 16 * 4] = {0};
+  if (!cgImg) return sample;
+  const int dim = RBAvatarMaskDim;
+  uint8_t pixels[64 * 64 * 4] = {0};
   CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-  CGContextRef mem = CGBitmapContextCreate(pixels, 16, 16, 8, 16 * 4, cs,
+  CGContextRef mem = CGBitmapContextCreate(pixels, dim, dim, 8, dim * 4, cs,
                                            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
   CGColorSpaceRelease(cs);
-  if (!mem) return RBColorFromHex(0x06B6D4);
-  CGContextDrawImage(mem, CGRectMake(0, 0, 16, 16), cgImg);
+  if (!mem) return sample;
+  CGContextDrawImage(mem, CGRectMake(0, 0, dim, dim), cgImg);
   CGContextRelease(mem);
 
-  long sumR = 0, sumG = 0, sumB = 0, count = 0;
+  uint8_t maskAlpha[64 * 64] = {0};
+  long sumR = 0, sumG = 0, sumB = 0, colorCount = 0, maskCount = 0;
   int bestScore = -1;
   uint8_t bestR = 6, bestG = 182, bestB = 212;
-  for (int y = 2; y < 14; y++) {
-    for (int x = 2; x < 14; x++) {
-      int idx = (y * 16 + x) * 4;
-      uint8_t a = pixels[idx + 3];
-      if (a < 180) continue;
-      uint8_t r = (uint8_t)fmin(255.0, pixels[idx] * 255.0 / a);
-      uint8_t g = (uint8_t)fmin(255.0, pixels[idx + 1] * 255.0 / a);
-      uint8_t b = (uint8_t)fmin(255.0, pixels[idx + 2] * 255.0 / a);
-      if (r > 236 && g > 236 && b > 236) continue;
-      int maxC = MAX(r, MAX(g, b));
-      int minC = MIN(r, MIN(g, b));
-      int sat = maxC - minC;
-      sumR += r; sumG += g; sumB += b; count++;
-      int score = sat * 3 + a;
-      if (score > bestScore) {
-        bestScore = score;
-        bestR = r; bestG = g; bestB = b;
+  for (int i = 0; i < dim * dim; i++) {
+    int idx = i * 4;
+    uint8_t a = pixels[idx + 3];
+    if (a >= 96) {
+      maskAlpha[i] = 255;
+      maskCount++;
+    }
+    if (a < 180) continue;
+    uint8_t r = (uint8_t)fmin(255.0, pixels[idx] * 255.0 / a);
+    uint8_t g = (uint8_t)fmin(255.0, pixels[idx + 1] * 255.0 / a);
+    uint8_t b = (uint8_t)fmin(255.0, pixels[idx + 2] * 255.0 / a);
+    if (r > 236 && g > 236 && b > 236) continue;
+    int maxC = MAX(r, MAX(g, b));
+    int minC = MIN(r, MIN(g, b));
+    int sat = maxC - minC;
+    sumR += r; sumG += g; sumB += b; colorCount++;
+    int score = sat * 3 + a;
+    if (score > bestScore) {
+      bestScore = score;
+      bestR = r; bestG = g; bestB = b;
+    }
+  }
+  if (colorCount > 0) {
+    uint8_t ar = (uint8_t)(sumR / colorCount), ag = (uint8_t)(sumG / colorCount), ab = (uint8_t)(sumB / colorCount);
+    sample.color = (MAX(ar, MAX(ag, ab)) - MIN(ar, MIN(ag, ab)) >= 20)
+        ? [UIColor colorWithRed:ar / 255.0 green:ag / 255.0 blue:ab / 255.0 alpha:1.0]
+        : [UIColor colorWithRed:bestR / 255.0 green:bestG / 255.0 blue:bestB / 255.0 alpha:1.0];
+  }
+  if (maskCount >= 32) {
+    CGContextRef alphaCtx = CGBitmapContextCreate(maskAlpha, dim, dim, 8, dim, NULL, (CGBitmapInfo)kCGImageAlphaOnly);
+    if (alphaCtx) {
+      CGImageRef alphaMask = CGBitmapContextCreateImage(alphaCtx);
+      CGContextRelease(alphaCtx);
+      if (alphaMask) {
+        sample.maskImage = [UIImage imageWithCGImage:alphaMask];
+        CGImageRelease(alphaMask);
       }
     }
   }
-  if (count > 0) {
-    uint8_t ar = (uint8_t)(sumR / count), ag = (uint8_t)(sumG / count), ab = (uint8_t)(sumB / count);
-    if (MAX(ar, MAX(ag, ab)) - MIN(ar, MIN(ag, ab)) >= 20) {
-      return [UIColor colorWithRed:ar / 255.0 green:ag / 255.0 blue:ab / 255.0 alpha:1.0];
-    }
-    return [UIColor colorWithRed:bestR / 255.0 green:bestG / 255.0 blue:bestB / 255.0 alpha:1.0];
-  }
-  return RBColorFromHex(0x06B6D4);
+  return sample;
 }
 
 static BOOL RBIsGrokBotMarkSvgView(UIView *svgView) {
@@ -689,10 +786,15 @@ void RBUpdateAvatarView(UIView *svgView) {
     return;
   }
 
-  UIColor *cachedColor = objc_getAssociatedObject(svgView, RBAvatarColorAssocKey);
-  if (!cachedColor) {
-    cachedColor = RBExtractDominantColorFromSvgView(svgView);
-    objc_setAssociatedObject(svgView, RBAvatarColorAssocKey, cachedColor, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  RBAvatarSample *sample = objc_getAssociatedObject(svgView, RBAvatarSampleAssocKey);
+  CFTimeInterval now = CACurrentMediaTime();
+  BOOL large = fmax(parent.bounds.size.width, parent.bounds.size.height) >= 48.0;
+  BOOL needResample = !sample || !sample.maskImage ||
+      !CGSizeEqualToSize(sample.sampledParentSize, parent.bounds.size) ||
+      (large && (now - sample.sampledAt > 0.25));
+  if (needResample) {
+    sample = RBExtractSvgSampleFromView(svgView);
+    objc_setAssociatedObject(svgView, RBAvatarSampleAssocKey, sample, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
   if (svgView.alpha > 0.01) svgView.alpha = 0.0;
 
@@ -709,7 +811,9 @@ void RBUpdateAvatarView(UIView *svgView) {
     ov.styleId = style;
     [ov setNeedsDisplay];
   }
-  ov.baseColor = cachedColor;
+  ov.maskImage = sample.maskImage;
+  ov.baseColor = sample.color;
+  if (needResample) [ov setNeedsDisplay];
 }
 
 void RBResetAvatarSuperview(UIView *superview) {
@@ -717,7 +821,7 @@ void RBResetAvatarSuperview(UIView *superview) {
   for (UIView *child in superview.subviews) {
     if ([NSStringFromClass([child class]) isEqualToString:@"RNSVGSvgView"] && child.alpha < 0.99) {
       child.alpha = 1.0;
-      objc_setAssociatedObject(child, RBAvatarColorAssocKey, nil, OBJC_ASSOCIATION_ASSIGN);
+      objc_setAssociatedObject(child, RBAvatarSampleAssocKey, nil, OBJC_ASSOCIATION_ASSIGN);
     }
   }
 }
@@ -770,8 +874,8 @@ static void RBApplyAvatarStyleRecursively(UIView *view) {
   ]];
 
   UILabel *hint = [UILabel new];
-  hint.text = RBL(@"全局替换所有 Bot 头像的动态流体球风格，也可随时切回官方原版，切换后立即生效。",
-                  @"Applies to every Bot avatar across the app, or switch back to the official orb anytime.");
+  hint.text = RBL(@"每个主题均保留全部 Bot 形状与配色，也可随时切回官方原版，切换后立即生效。",
+                  @"Every theme preserves all Bot shapes and colors, or switch back to the official orb anytime.");
   hint.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
   hint.textColor = UIColor.secondaryLabelColor;
   hint.numberOfLines = 0;
@@ -807,6 +911,7 @@ static void RBApplyAvatarStyleRecursively(UIView *view) {
       RBAvatarOverlayView *preview = [[RBAvatarOverlayView alloc] initWithFrame:CGRectMake(0, 0, 52, 52)];
       preview.tag = 0;
       preview.styleId = meta->styleId;
+      preview.previewShape = meta->previewShape;
       preview.baseColor = RBColorFromHex(meta->previewHex);
       [preview.widthAnchor constraintEqualToConstant:52].active = YES;
       [preview.heightAnchor constraintEqualToConstant:52].active = YES;

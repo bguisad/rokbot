@@ -6,13 +6,19 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.view.View;
+import android.view.ViewGroup;
 
 /**
  * Pure Canvas renderer for RokBot's 5 custom dynamic Bot avatar styles plus an official orb
- * preview, matching the desktop and Web renderers (chassis, antenna, visor, pixel, orb, official).
+ * preview. Supports exact silhouette masks extracted from react-native-svg GrokBotMark nodes
+ * (all 26 official shapes) as well as procedural multi-shape previews in Settings.
  */
 final class RokBotAvatarRenderer {
     static final String STYLE_CHASSIS = "chassis";
@@ -29,24 +35,26 @@ final class RokBotAvatarRenderer {
         final String descZh;
         final String descEn;
         final int previewColor;
+        final String previewShape;
 
-        StyleInfo(String id, String zh, String en, String descZh, String descEn, int previewColor) {
+        StyleInfo(String id, String zh, String en, String descZh, String descEn, int previewColor, String previewShape) {
             this.id = id;
             this.zh = zh;
             this.en = en;
             this.descZh = descZh;
             this.descEn = descEn;
             this.previewColor = previewColor;
+            this.previewShape = previewShape;
         }
     }
 
     static final StyleInfo[] STYLES = new StyleInfo[] {
-        new StyleInfo(STYLE_CHASSIS, "机甲灵偶", "RokBot Chassis", "斜胶囊眼 + 脉冲信号灯", "Capsule eyes + beacon", 0xFF06B6D4),
-        new StyleInfo(STYLE_ANTENNA, "双天线波波", "Twin Antenna", "弹性双天线 + 玻璃面罩", "Antennas + glass visor", 0xFF8B5CF6),
-        new StyleInfo(STYLE_VISOR, "赛博护目镜", "Cyber Visor", "极客切角 + 扫描灯带", "Cyber shell + scanner", 0xFFF97316),
-        new StyleInfo(STYLE_PIXEL, "像素精灵", "Pixel Sprite", "点阵 LED 眼 + 节奏灯条", "LED matrix + status bar", 0xFF10B981),
-        new StyleInfo(STYLE_ORB, "流体光球", "Fluid Orb", "液体变形 + 轨道卫星", "Morphing blob + satellite", 0xFFEC4899),
-        new StyleInfo(STYLE_OFFICIAL, "官方原版", "Official", "保留官方动态流体球", "Original fluid orb", 0xFF3B82F6),
+        new StyleInfo(STYLE_CHASSIS, "机甲灵偶", "RokBot Chassis", "全形状兼容 + 脉冲信号灯", "Shape-aware + beacon", 0xFF06B6D4, "blob"),
+        new StyleInfo(STYLE_ANTENNA, "双天线波波", "Twin Antenna", "弹性双天线 + 玻璃面罩", "Antennas + glass visor", 0xFF8B5CF6, "cloud"),
+        new StyleInfo(STYLE_VISOR, "赛博护目镜", "Cyber Visor", "极客切角框 + 扫描灯带", "Cyber visor + scanner", 0xFFF97316, "hex"),
+        new StyleInfo(STYLE_PIXEL, "像素精灵", "Pixel Sprite", "点阵 LED 屏 + 节奏灯条", "LED matrix + status bar", 0xFF10B981, "star"),
+        new StyleInfo(STYLE_ORB, "流体光球", "Fluid Orb", "呼吸微动 + 轨道卫星", "Breathing + satellite", 0xFFEC4899, "heart"),
+        new StyleInfo(STYLE_OFFICIAL, "官方原版", "Official", "保留官方动态流体球", "Original fluid orb", 0xFF3B82F6, "blob"),
     };
 
     static final class Palette {
@@ -65,23 +73,102 @@ final class RokBotAvatarRenderer {
         }
     }
 
-    private static final Path CHASSIS_PATH = buildChassisPath();
+    static final class SvgSample {
+        final int color;
+        final Bitmap mask;
+        final int signature;
 
-    private static Path buildChassisPath() {
+        SvgSample(int color, Bitmap mask, int signature) {
+            this.color = color;
+            this.mask = mask;
+            this.signature = signature;
+        }
+    }
+
+    private static final int MASK_DIM = 64;
+    private static final Path PATH_BLOB = buildBlobPath();
+    private static final Path PATH_CLOUD = buildCloudPath();
+    private static final Path PATH_HEX = buildHexPath();
+    private static final Path PATH_STAR = buildStarPath();
+    private static final Path PATH_HEART = buildHeartPath();
+
+    private static Path buildBlobPath() {
         Path p = new Path();
-        p.moveTo(340f, 148f);
-        p.cubicTo(408f, 148f, 476f, 144f, 540f, 144f);
-        p.cubicTo(618f, 144f, 664f, 60f, 756f, 56f);
-        p.cubicTo(836f, 52f, 892f, 104f, 884f, 176f);
-        p.cubicTo(878f, 214f, 932f, 272f, 956f, 368f);
-        p.cubicTo(964f, 464f, 960f, 564f, 948f, 656f);
-        p.cubicTo(928f, 816f, 820f, 924f, 636f, 944f);
-        p.cubicTo(532f, 956f, 424f, 960f, 324f, 952f);
-        p.cubicTo(156f, 938f, 76f, 836f, 68f, 668f);
-        p.cubicTo(62f, 548f, 64f, 424f, 72f, 336f);
-        p.cubicTo(84f, 200f, 184f, 148f, 340f, 148f);
+        p.moveTo(33f, 14f);
+        p.cubicTo(40f, 14f, 47f, 14f, 53f, 14f);
+        p.cubicTo(60f, 14f, 65f, 6f, 74f, 5.5f);
+        p.cubicTo(82f, 5f, 87f, 10f, 86f, 17f);
+        p.cubicTo(86f, 21f, 91f, 27f, 93f, 36f);
+        p.cubicTo(94f, 45f, 94f, 55f, 93f, 64f);
+        p.cubicTo(91f, 80f, 80f, 90f, 62f, 92f);
+        p.cubicTo(52f, 93f, 41f, 94f, 32f, 93f);
+        p.cubicTo(15f, 92f, 7f, 82f, 7f, 65f);
+        p.cubicTo(6f, 54f, 6f, 41f, 7f, 33f);
+        p.cubicTo(8f, 20f, 18f, 14f, 33f, 14f);
         p.close();
         return p;
+    }
+
+    private static Path buildCloudPath() {
+        Path p = new Path();
+        p.moveTo(28f, 74f);
+        p.cubicTo(16f, 74f, 8f, 66f, 8f, 55f);
+        p.cubicTo(8f, 46f, 14f, 39f, 22f, 37f);
+        p.cubicTo(24f, 25f, 35f, 16f, 48f, 16f);
+        p.cubicTo(60f, 16f, 70f, 23f, 73f, 34f);
+        p.cubicTo(83f, 35f, 92f, 43f, 92f, 54f);
+        p.cubicTo(92f, 65f, 83f, 74f, 71f, 74f);
+        p.close();
+        return p;
+    }
+
+    private static Path buildHexPath() {
+        Path p = new Path();
+        p.moveTo(50f, 8f);
+        p.lineTo(86f, 29f);
+        p.lineTo(86f, 71f);
+        p.lineTo(50f, 92f);
+        p.lineTo(14f, 71f);
+        p.lineTo(14f, 29f);
+        p.close();
+        return p;
+    }
+
+    private static Path buildStarPath() {
+        Path p = new Path();
+        p.moveTo(50f, 8f);
+        p.lineTo(62f, 33f);
+        p.lineTo(90f, 37f);
+        p.lineTo(69f, 57f);
+        p.lineTo(74f, 85f);
+        p.lineTo(50f, 72f);
+        p.lineTo(26f, 85f);
+        p.lineTo(31f, 57f);
+        p.lineTo(10f, 37f);
+        p.lineTo(38f, 33f);
+        p.close();
+        return p;
+    }
+
+    private static Path buildHeartPath() {
+        Path p = new Path();
+        p.moveTo(50f, 88f);
+        p.cubicTo(20f, 68f, 8f, 49f, 8f, 33f);
+        p.cubicTo(8f, 20f, 18f, 11f, 30f, 11f);
+        p.cubicTo(39f, 11f, 46f, 16f, 50f, 23f);
+        p.cubicTo(54f, 16f, 61f, 11f, 70f, 11f);
+        p.cubicTo(82f, 11f, 92f, 20f, 92f, 33f);
+        p.cubicTo(92f, 49f, 80f, 68f, 50f, 88f);
+        p.close();
+        return p;
+    }
+
+    private static Path pathForPreviewShape(String shape) {
+        if ("cloud".equals(shape)) return PATH_CLOUD;
+        if ("hex".equals(shape)) return PATH_HEX;
+        if ("star".equals(shape)) return PATH_STAR;
+        if ("heart".equals(shape)) return PATH_HEART;
+        return PATH_BLOB;
     }
 
     private RokBotAvatarRenderer() {}
@@ -122,67 +209,97 @@ final class RokBotAvatarRenderer {
     }
 
     /**
-     * Samples the dominant body color directly by drawing the RN SVG node into a tiny offscreen
-     * 16x16 bitmap. Immune to R8 class/method renaming inside react-native-svg.
+     * Captures BOTH the dominant body color and the exact 64x64 solid silhouette mask mapped to
+     * the SVG's parent container bounds, preserving all 26 official Bot shapes accurately.
      */
-    static int extractDominantColor(View svgView, int fallbackColor) {
+    static SvgSample extractSvgSample(View svgView, int fallbackColor) {
         if (svgView == null || svgView.getWidth() <= 0 || svgView.getHeight() <= 0) {
-            return fallbackColor;
+            return new SvgSample(fallbackColor, null, 0);
         }
+        int pw = (svgView.getParent() instanceof ViewGroup) ? ((ViewGroup) svgView.getParent()).getWidth() : svgView.getWidth();
+        int ph = (svgView.getParent() instanceof ViewGroup) ? ((ViewGroup) svgView.getParent()).getHeight() : svgView.getHeight();
+        if (pw <= 0 || ph <= 0) return new SvgSample(fallbackColor, null, 0);
+
         float prevAlpha = svgView.getAlpha();
-        Bitmap bmp = null;
+        Bitmap raw = null;
         try {
-            bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888);
-            Canvas c = new Canvas(bmp);
-            c.scale(16f / svgView.getWidth(), 16f / svgView.getHeight());
+            raw = Bitmap.createBitmap(MASK_DIM, MASK_DIM, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(raw);
+            float sx = MASK_DIM / (float) pw;
+            float sy = MASK_DIM / (float) ph;
+            c.save();
+            c.translate(svgView.getLeft() * sx, svgView.getTop() * sy);
+            c.scale(sx, sy);
             if (prevAlpha < 0.99f) svgView.setAlpha(1f);
             svgView.draw(c);
+            c.restore();
+
+            int[] pixels = new int[MASK_DIM * MASK_DIM];
+            raw.getPixels(pixels, 0, MASK_DIM, 0, 0, MASK_DIM, MASK_DIM);
 
             long sumR = 0, sumG = 0, sumB = 0;
-            int count = 0;
+            int colorCount = 0;
+            int maskCount = 0;
             int bestSatPixel = fallbackColor;
             int bestScore = -1;
-            for (int y = 2; y < 14; y++) {
-                for (int x = 2; x < 14; x++) {
-                    int px = bmp.getPixel(x, y);
-                    int a = Color.alpha(px);
-                    if (a < 180) continue;
-                    int r = Color.red(px);
-                    int g = Color.green(px);
-                    int b = Color.blue(px);
-                    if (r > 236 && g > 236 && b > 236) continue; // skip eyes / specular highlights
-                    int maxC = Math.max(r, Math.max(g, b));
-                    int minC = Math.min(r, Math.min(g, b));
-                    int sat = maxC - minC;
-                    sumR += r;
-                    sumG += g;
-                    sumB += b;
-                    count++;
-                    int score = sat * 3 + a;
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestSatPixel = Color.rgb(r, g, b);
-                    }
+            int sig = 17;
+
+            int[] maskPixels = new int[MASK_DIM * MASK_DIM];
+            for (int i = 0; i < pixels.length; i++) {
+                int px = pixels[i];
+                int a = Color.alpha(px);
+                if (a >= 96) {
+                    maskPixels[i] = 0xFFFFFFFF;
+                    maskCount++;
+                } else {
+                    maskPixels[i] = 0;
+                }
+                if ((i & 31) == 0) sig = sig * 31 + (a >= 96 ? (px | 0xFF000000) : 0);
+                if (a < 180) continue;
+                int r = Color.red(px);
+                int g = Color.green(px);
+                int b = Color.blue(px);
+                if (r > 236 && g > 236 && b > 236) continue;
+                int maxC = Math.max(r, Math.max(g, b));
+                int minC = Math.min(r, Math.min(g, b));
+                int sat = maxC - minC;
+                sumR += r;
+                sumG += g;
+                sumB += b;
+                colorCount++;
+                int score = sat * 3 + a;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestSatPixel = Color.rgb(r, g, b);
                 }
             }
-            if (count > 0) {
-                int avg = Color.rgb((int) (sumR / count), (int) (sumG / count), (int) (sumB / count));
+
+            int color = fallbackColor;
+            if (colorCount > 0) {
+                int avg = Color.rgb((int) (sumR / colorCount), (int) (sumG / colorCount), (int) (sumB / colorCount));
                 int maxAvg = Math.max(Color.red(avg), Math.max(Color.green(avg), Color.blue(avg)));
                 int minAvg = Math.min(Color.red(avg), Math.min(Color.green(avg), Color.blue(avg)));
-                return (maxAvg - minAvg >= 20) ? avg : bestSatPixel;
+                color = (maxAvg - minAvg >= 20) ? avg : bestSatPixel;
             }
+
+            if (maskCount < 32) {
+                return new SvgSample(color, null, sig);
+            }
+            Bitmap mask = Bitmap.createBitmap(MASK_DIM, MASK_DIM, Bitmap.Config.ARGB_8888);
+            mask.setPixels(maskPixels, 0, MASK_DIM, 0, 0, MASK_DIM, MASK_DIM);
+            return new SvgSample(color, mask, sig);
         } catch (Throwable ignored) {
+            return new SvgSample(fallbackColor, null, 0);
         } finally {
             if (prevAlpha < 0.99f) {
                 try { svgView.setAlpha(prevAlpha); } catch (Throwable ignored) {}
             }
-            if (bmp != null) bmp.recycle();
+            if (raw != null) raw.recycle();
         }
-        return fallbackColor;
     }
 
-    static void draw(Canvas canvas, String styleId, float size, double t, float blink,
-                     boolean isActive, int baseColor, boolean isDark) {
+    static void draw(Canvas canvas, String styleId, Bitmap shapeMask, String previewShape,
+                     float size, double t, float blink, boolean isActive, int baseColor, boolean isDark) {
         if (size <= 0f) return;
         if (STYLE_OFFICIAL.equals(styleId)) {
             drawOfficialPreview(canvas, size);
@@ -190,22 +307,23 @@ final class RokBotAvatarRenderer {
         }
         Palette pal = paletteForColor(baseColor, isDark);
         String style = isValidStyle(styleId) ? styleId : STYLE_CHASSIS;
+        Path fallbackPath = pathForPreviewShape(previewShape);
         switch (style) {
             case STYLE_ANTENNA:
-                drawAntenna(canvas, size, t, blink, isActive, pal, isDark);
+                drawAntenna(canvas, shapeMask, fallbackPath, size, t, blink, isActive, pal, isDark);
                 break;
             case STYLE_VISOR:
-                drawVisor(canvas, size, t, blink, isActive, pal, isDark);
+                drawVisor(canvas, shapeMask, fallbackPath, size, t, blink, isActive, pal, isDark);
                 break;
             case STYLE_PIXEL:
-                drawPixel(canvas, size, t, blink, isActive, pal, isDark);
+                drawPixel(canvas, shapeMask, fallbackPath, size, t, blink, isActive, pal, isDark);
                 break;
             case STYLE_ORB:
-                drawOrb(canvas, size, t, blink, isActive, pal, isDark);
+                drawOrb(canvas, shapeMask, fallbackPath, size, t, blink, isActive, pal, isDark);
                 break;
             case STYLE_CHASSIS:
             default:
-                drawChassis(canvas, size, t, blink, isActive, pal, isDark);
+                drawChassis(canvas, shapeMask, fallbackPath, size, t, blink, isActive, pal, isDark);
                 break;
         }
     }
@@ -220,30 +338,57 @@ final class RokBotAvatarRenderer {
         return p;
     }
 
-    private static void drawChassis(Canvas canvas, float s, double t, float blink,
-                                    boolean isActive, Palette pal, boolean isDark) {
+    /** Renders either an extracted 64x64 shape silhouette mask or a 0..100 procedural fallback path. */
+    private static void drawShapeBody(Canvas canvas, Bitmap shapeMask, Path fallbackPath,
+                                      Palette pal, boolean isDark) {
+        if (shapeMask != null && !shapeMask.isRecycled()) {
+            Rect src = new Rect(0, 0, shapeMask.getWidth(), shapeMask.getHeight());
+            RectF dst = new RectF(0f, 0f, 100f, 100f);
+
+            Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            rimPaint.setColorFilter(new PorterDuffColorFilter(isDark ? 0x38FFFFFF : 0x2E0F172A, PorterDuff.Mode.SRC_IN));
+            canvas.save();
+            canvas.translate(50f, 50f);
+            canvas.scale(1.045f, 1.045f);
+            canvas.translate(-50f, -50f);
+            canvas.drawBitmap(shapeMask, src, dst, rimPaint);
+            canvas.restore();
+
+            int layer = canvas.saveLayer(dst, null);
+            Paint bmpPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            canvas.drawBitmap(shapeMask, src, dst, bmpPaint);
+            Paint fillPaint = bodyGradPaint(pal, 8f, 92f);
+            fillPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+            canvas.drawRect(dst, fillPaint);
+            canvas.restoreToCount(layer);
+            return;
+        }
+
+        canvas.drawPath(fallbackPath, bodyGradPaint(pal, 8f, 92f));
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setStyle(Paint.Style.STROKE);
+        strokePaint.setStrokeWidth(2.4f);
+        strokePaint.setColor(isDark ? 0x38FFFFFF : 0x2E0F172A);
+        canvas.drawPath(fallbackPath, strokePaint);
+    }
+
+    private static void drawChassis(Canvas canvas, Bitmap shapeMask, Path fallbackPath, float s,
+                                    double t, float blink, boolean isActive, Palette pal, boolean isDark) {
         canvas.save();
-        float sc = s / 1024f;
-        float breath = (float) (1.0 + Math.sin(t * 2.8) * 0.025);
-        float bob = (float) (isActive ? Math.sin(t * 3.4) * s * 0.018 : Math.sin(t * 2.2) * s * 0.012);
-        float tiltDeg = isActive ? (float) (Math.sin(t * 2.4) * 3.4) : 0f;
+        float sc = s / 100f;
+        float breath = (float) (1.0 + Math.sin(t * 2.8) * 0.024);
+        float bob = (float) (isActive ? Math.sin(t * 3.4) * s * 0.016 : Math.sin(t * 2.2) * s * 0.010);
+        float tiltDeg = isActive ? (float) (Math.sin(t * 2.4) * 3.2) : 0f;
 
         canvas.translate(s / 2f, s / 2f + bob);
         canvas.rotate(tiltDeg);
         canvas.scale(breath, breath);
         canvas.translate(-s / 2f, -s / 2f);
-
-        canvas.save();
         canvas.scale(sc, sc);
-        Paint bodyPaint = bodyGradPaint(pal, 56f, 960f);
-        canvas.drawPath(CHASSIS_PATH, bodyPaint);
 
-        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        strokePaint.setStyle(Paint.Style.STROKE);
-        strokePaint.setStrokeWidth(26f);
-        strokePaint.setColor(isDark ? 0x38FFFFFF : 0x2E0F172A);
-        canvas.drawPath(CHASSIS_PATH, strokePaint);
+        drawShapeBody(canvas, shapeMask, fallbackPath, pal, isDark);
 
+        float bx = 74f, by = 22f;
         float beaconScale = isActive
                 ? (float) (0.85 + Math.abs(Math.sin(t * 7.0)) * 0.45)
                 : (float) (1.0 + Math.sin(t * 3.0) * 0.12);
@@ -251,23 +396,22 @@ final class RokBotAvatarRenderer {
             float halo = (float) ((t * 1.4) % 1.0);
             Paint haloPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
             haloPaint.setStyle(Paint.Style.STROKE);
-            haloPaint.setStrokeWidth(18f);
+            haloPaint.setStrokeWidth(1.8f);
             haloPaint.setColor(pal.accent);
             haloPaint.setAlpha(Math.max(0, Math.min(255, Math.round((1f - halo) * 0.65f * 255f))));
-            canvas.drawCircle(768f, 144f, 42f + halo * 74f, haloPaint);
+            canvas.drawCircle(bx, by, 4.2f + halo * 7.2f, haloPaint);
         }
         Paint beaconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         beaconPaint.setColor(pal.accent);
-        canvas.drawCircle(768f, 144f, 44f * beaconScale, beaconPaint);
+        canvas.drawCircle(bx, by, 4.2f * beaconScale, beaconPaint);
 
         Paint eyePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         eyePaint.setColor(Color.WHITE);
-        float gx = isActive ? (float) (Math.sin(t * 4.0) * 32.0) : 0f;
-        float gy = isActive ? -20f : 0f;
+        float gx = isActive ? (float) (Math.sin(t * 4.0) * 2.8) : 0f;
+        float gy = isActive ? -2.0f : 0f;
         float sy = Math.max(0.08f, 1f - blink);
-        drawTiltedCapsule(canvas, eyePaint, 376f + gx, 564f + gy, 144f, 332f, -26f, sy);
-        drawTiltedCapsule(canvas, eyePaint, 648f + gx, 504f + gy, 144f, 268f, -26f, sy);
-        canvas.restore();
+        drawTiltedCapsule(canvas, eyePaint, 40f + gx, 54f + gy, 10.2f, 23.5f, -26f, sy);
+        drawTiltedCapsule(canvas, eyePaint, 60f + gx, 49f + gy, 10.2f, 19.0f, -26f, sy);
         canvas.restore();
     }
 
@@ -282,63 +426,57 @@ final class RokBotAvatarRenderer {
         canvas.restore();
     }
 
-    private static void drawAntenna(Canvas canvas, float s, double t, float blink,
-                                    boolean isActive, Palette pal, boolean isDark) {
+    private static void drawAntenna(Canvas canvas, Bitmap shapeMask, Path fallbackPath, float s,
+                                    double t, float blink, boolean isActive, Palette pal, boolean isDark) {
         canvas.save();
-        float bw = s * 0.76f;
-        float bh = s * 0.66f;
-        float bx = (s - bw) / 2f;
-        float by = s * 0.26f;
-        float bob = (float) (isActive ? Math.sin(t * 7.0) * s * 0.022 : Math.sin(t * 2.4) * s * 0.012);
+        float sc = s / 100f;
+        float bob = (float) (isActive ? Math.sin(t * 7.0) * s * 0.022 : Math.sin(t * 2.4) * s * 0.010);
         float sway = (float) (Math.sin(t * (isActive ? 7.5 : 2.6)) * 0.14);
 
         canvas.translate(0f, bob);
+        canvas.scale(sc, sc);
 
         Paint stemPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         stemPaint.setStyle(Paint.Style.STROKE);
         stemPaint.setColor(pal.mid);
-        stemPaint.setStrokeWidth(Math.max(1.6f, s * 0.045f));
+        stemPaint.setStrokeWidth(4.0f);
         stemPaint.setStrokeCap(Paint.Cap.ROUND);
 
         Paint tipPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         tipPaint.setColor(pal.accent);
 
         for (int side = -1; side <= 1; side += 2) {
-            float rootX = s / 2f + side * s * 0.17f;
-            float rootY = by + s * 0.03f;
-            float tipX = rootX + side * s * 0.07f + (float) Math.sin(t * 3.0 + side) * s * 0.025f + sway * s * 0.08f;
-            float tipY = s * 0.09f + Math.abs(sway) * s * 0.02f;
+            float rootX = 50f + side * 14f;
+            float rootY = 27f;
+            float tipX = rootX + side * 6f + (float) Math.sin(t * 3.0 + side) * 2.2f + sway * 7f;
+            float tipY = 8f + Math.abs(sway) * 2f;
             Path stem = new Path();
             stem.moveTo(rootX, rootY);
-            stem.quadTo(rootX + side * s * 0.02f, (rootY + tipY) / 2f, tipX, tipY);
+            stem.quadTo(rootX + side * 2f, (rootY + tipY) / 2f, tipX, tipY);
             canvas.drawPath(stem, stemPaint);
             if (isActive) {
                 float pulse = (float) ((t * 1.8 + (side > 0 ? 0.5 : 0.0)) % 1.0);
                 Paint pPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
                 pPaint.setStyle(Paint.Style.STROKE);
-                pPaint.setStrokeWidth(Math.max(1f, s * 0.02f));
+                pPaint.setStrokeWidth(1.8f);
                 pPaint.setColor(pal.accent);
                 pPaint.setAlpha(Math.max(0, Math.min(255, Math.round((1f - pulse) * 0.6f * 255f))));
-                canvas.drawCircle(tipX, tipY, s * 0.04f + pulse * s * 0.07f, pPaint);
+                canvas.drawCircle(tipX, tipY, 3.8f + pulse * 6.5f, pPaint);
             }
-            canvas.drawCircle(tipX, tipY, s * 0.048f, tipPaint);
+            canvas.drawCircle(tipX, tipY, 4.4f, tipPaint);
         }
 
-        RectF body = new RectF(bx, by, bx + bw, by + bh);
-        canvas.drawRoundRect(body, s * 0.24f, s * 0.24f, bodyGradPaint(pal, by, by + bh));
-        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(1.1f, s * 0.025f));
-        stroke.setColor(isDark ? 0x38FFFFFF : 0x280F172A);
-        canvas.drawRoundRect(body, s * 0.24f, s * 0.24f, stroke);
+        canvas.save();
+        canvas.translate(50f, 57f);
+        canvas.scale(0.84f, 0.84f);
+        canvas.translate(-50f, -50f);
+        drawShapeBody(canvas, shapeMask, fallbackPath, pal, isDark);
+        canvas.restore();
 
-        float vx = bx + bw * 0.13f;
-        float vy = by + bh * 0.22f;
-        float vw = bw * 0.74f;
-        float vh = bh * 0.56f;
+        float vw = 44f, vh = 24f, vx = 50f - vw / 2f, vy = 56f - vh / 2f;
         Paint visor = new Paint(Paint.ANTI_ALIAS_FLAG);
         visor.setColor(0xFF0F172A);
-        canvas.drawRoundRect(new RectF(vx, vy, vx + vw, vy + vh), vh * 0.42f, vh * 0.42f, visor);
+        canvas.drawRoundRect(new RectF(vx, vy, vx + vw, vy + vh), vh * 0.45f, vh * 0.45f, visor);
 
         Paint eye = new Paint(Paint.ANTI_ALIAS_FLAG);
         eye.setColor(Color.WHITE);
@@ -346,57 +484,38 @@ final class RokBotAvatarRenderer {
         gl.setColor(pal.accent);
         float gx = isActive ? (float) (Math.sin(t * 4.5) * vw * 0.07) : 0f;
         float gy = isActive ? -vh * 0.06f : 0f;
-        float eh = vh * 0.46f * Math.max(0.1f, 1f - blink);
+        float eh = vh * 0.48f * Math.max(0.1f, 1f - blink);
         float ew = vw * 0.18f;
         for (int side = -1; side <= 1; side += 2) {
-            float ex = vx + vw / 2f + side * vw * 0.20f + gx;
+            float ex = vx + vw / 2f + side * vw * 0.21f + gx;
             float ey = vy + vh / 2f + gy;
             canvas.drawOval(new RectF(ex - ew / 2f, ey - eh / 2f, ex + ew / 2f, ey + eh / 2f), eye);
-            if (eh > s * 0.06f) {
+            if (eh > 5f) {
                 canvas.drawCircle(ex - ew * 0.12f, ey - eh * 0.16f, ew * 0.16f, gl);
             }
         }
         canvas.restore();
     }
 
-    private static void drawVisor(Canvas canvas, float s, double t, float blink,
-                                  boolean isActive, Palette pal, boolean isDark) {
+    private static void drawVisor(Canvas canvas, Bitmap shapeMask, Path fallbackPath, float s,
+                                  double t, float blink, boolean isActive, Palette pal, boolean isDark) {
         canvas.save();
+        float sc = s / 100f;
         float bob = (float) (isActive ? Math.sin(t * 7.2) * s * 0.02 : Math.sin(t * 2.0) * s * 0.01);
         canvas.translate(0f, bob);
+        canvas.scale(sc, sc);
 
-        float p = s * 0.11f;
-        float c = s * 0.22f;
-        Path shell = new Path();
-        shell.moveTo(p + c, p * 1.15f);
-        shell.lineTo(s - p - c, p * 1.15f);
-        shell.lineTo(s - p, p * 1.15f + c);
-        shell.lineTo(s - p, s - p - c);
-        shell.lineTo(s - p - c, s - p);
-        shell.lineTo(p + c, s - p);
-        shell.lineTo(p, s - p - c);
-        shell.lineTo(p, p * 1.15f + c);
-        shell.close();
+        drawShapeBody(canvas, shapeMask, fallbackPath, pal, isDark);
 
-        canvas.drawPath(shell, bodyGradPaint(pal, p, s - p));
-        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(1.1f, s * 0.025f));
-        stroke.setColor(isDark ? 0x3DFFFFFF : 0x2E0F172A);
-        canvas.drawPath(shell, stroke);
-
-        float vx = s * 0.13f;
-        float vy = s * 0.34f;
-        float vw = s * 0.74f;
-        float vh = s * 0.34f;
+        float vw = 50f, vh = 22f, vx = 50f - vw / 2f, vy = 52f - vh / 2f;
         Paint band = new Paint(Paint.ANTI_ALIAS_FLAG);
         band.setColor(0xFF090D16);
-        canvas.drawRoundRect(new RectF(vx, vy, vx + vw, vy + vh), s * 0.09f, s * 0.09f, band);
+        canvas.drawRoundRect(new RectF(vx, vy, vx + vw, vy + vh), 6.5f, 6.5f, band);
         Paint bandBorder = new Paint(Paint.ANTI_ALIAS_FLAG);
         bandBorder.setStyle(Paint.Style.STROKE);
-        bandBorder.setStrokeWidth(Math.max(0.9f, s * 0.02f));
-        bandBorder.setColor(0x28FFFFFF);
-        canvas.drawRoundRect(new RectF(vx, vy, vx + vw, vy + vh), s * 0.09f, s * 0.09f, bandBorder);
+        bandBorder.setStrokeWidth(1.6f);
+        bandBorder.setColor(0x2EFFFFFF);
+        canvas.drawRoundRect(new RectF(vx, vy, vx + vw, vy + vh), 6.5f, 6.5f, bandBorder);
 
         if (isActive) {
             float pos = (float) ((Math.sin(t * 2.4) + 1.0) / 2.0);
@@ -411,40 +530,32 @@ final class RokBotAvatarRenderer {
         } else {
             Paint led = new Paint(Paint.ANTI_ALIAS_FLAG);
             led.setColor(pal.accent);
-            float h = vh * 0.44f * Math.max(0.12f, 1f - blink);
+            float h = vh * 0.46f * Math.max(0.12f, 1f - blink);
             for (int side = -1; side <= 1; side += 2) {
                 float cx = vx + vw / 2f + side * vw * 0.21f;
                 float cy = vy + vh / 2f;
-                canvas.drawRoundRect(new RectF(cx - vw * 0.065f, cy - h / 2f, cx + vw * 0.065f, cy + h / 2f),
-                        s * 0.03f, s * 0.03f, led);
+                canvas.drawRoundRect(new RectF(cx - vw * 0.07f, cy - h / 2f, cx + vw * 0.07f, cy + h / 2f),
+                        2.6f, 2.6f, led);
             }
         }
         canvas.restore();
     }
 
-    private static void drawPixel(Canvas canvas, float s, double t, float blink,
-                                  boolean isActive, Palette pal, boolean isDark) {
+    private static void drawPixel(Canvas canvas, Bitmap shapeMask, Path fallbackPath, float s,
+                                  double t, float blink, boolean isActive, Palette pal, boolean isDark) {
         canvas.save();
+        float sc = s / 100f;
         if (isActive) {
             canvas.translate(0f, (float) (Math.sin(t * 7.0) * s * 0.018));
         }
+        canvas.scale(sc, sc);
 
-        float pad = s * 0.10f;
-        RectF shell = new RectF(pad, pad, s - pad, s - pad);
-        canvas.drawRoundRect(shell, s * 0.20f, s * 0.20f, bodyGradPaint(pal, pad, s - pad));
-        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(1.1f, s * 0.025f));
-        stroke.setColor(isDark ? 0x38FFFFFF : 0x2E0F172A);
-        canvas.drawRoundRect(shell, s * 0.20f, s * 0.20f, stroke);
+        drawShapeBody(canvas, shapeMask, fallbackPath, pal, isDark);
 
-        float mx = s * 0.19f;
-        float my = s * 0.25f;
-        float mw = s * 0.62f;
-        float mh = s * 0.52f;
+        float mw = 42f, mh = 31f, mx = 50f - mw / 2f, my = 55f - mh / 2f;
         Paint screen = new Paint(Paint.ANTI_ALIAS_FLAG);
         screen.setColor(0xFF0B101B);
-        canvas.drawRoundRect(new RectF(mx, my, mx + mw, my + mh), s * 0.09f, s * 0.09f, screen);
+        canvas.drawRoundRect(new RectF(mx, my, mx + mw, my + mh), 6f, 6f, screen);
 
         float cellW = mw / 9f;
         float cellH = mh / 7f;
@@ -478,65 +589,46 @@ final class RokBotAvatarRenderer {
         }
 
         int barPhase = ((int) Math.floor(t * 3.0)) % 3;
-        float bw = s * 0.08f;
-        float bh = Math.max(1.4f, s * 0.04f);
         for (int i = 0; i < 3; i++) {
             dot.setColor(isActive && i == barPhase ? Color.WHITE : pal.accent);
-            float bx = s / 2f - s * 0.15f + i * s * 0.11f;
-            float by = s * 0.145f;
-            canvas.drawRect(bx, by, bx + bw, by + bh, dot);
+            float bx = 50f - 11f + i * 8.2f;
+            float by = my - 6.2f;
+            canvas.drawRect(bx, by, bx + 5.6f, by + 2.8f, dot);
         }
         canvas.restore();
     }
 
-    private static void drawOrb(Canvas canvas, float s, double t, float blink,
-                                boolean isActive, Palette pal, boolean isDark) {
+    private static void drawOrb(Canvas canvas, Bitmap shapeMask, Path fallbackPath, float s,
+                                double t, float blink, boolean isActive, Palette pal, boolean isDark) {
         canvas.save();
-        float cx = s / 2f;
-        float cy = s / 2f;
-        canvas.translate(cx, cy);
+        float sc = s / 100f;
+        double speed = isActive ? 3.2 : 1.9;
+        double wave = isActive ? 0.055 : 0.04;
+        float sx = (float) (1.0 + wave * Math.sin(t * speed));
+        float sy = (float) (1.0 + wave * Math.cos(t * speed * 1.15));
 
-        int pts = 32;
-        float baseR = s * 0.37f;
-        double speed = isActive ? 3.4 : 1.9;
-        double amp = isActive ? 0.075 : 0.055;
-        float[] xs = new float[pts];
-        float[] ys = new float[pts];
-        for (int i = 0; i < pts; i++) {
-            double a = (i / (double) pts) * Math.PI * 2.0;
-            double r = baseR * (1.0 + amp * Math.sin(a * 3.0 + t * speed) + amp * 0.6 * Math.cos(a * 2.0 - t * speed * 1.3));
-            xs[i] = (float) (Math.cos(a) * r);
-            ys[i] = (float) (Math.sin(a) * r);
-        }
-        Path blob = new Path();
-        blob.moveTo((xs[pts - 1] + xs[0]) / 2f, (ys[pts - 1] + ys[0]) / 2f);
-        for (int i = 0; i < pts; i++) {
-            int next = (i + 1) % pts;
-            blob.quadTo(xs[i], ys[i], (xs[i] + xs[next]) / 2f, (ys[i] + ys[next]) / 2f);
-        }
-        blob.close();
+        canvas.translate(s / 2f, s / 2f);
+        canvas.rotate((float) (Math.sin(t * speed * 0.7) * 2.0));
+        canvas.scale(sx, sy);
+        canvas.translate(-s / 2f, -s / 2f);
+        canvas.scale(sc, sc);
 
-        canvas.drawPath(blob, bodyGradPaint(pal, -baseR, baseR));
-        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(1.1f, s * 0.024f));
-        stroke.setColor(isDark ? 0x33FFFFFF : 0x240F172A);
-        canvas.drawPath(blob, stroke);
+        drawShapeBody(canvas, shapeMask, fallbackPath, pal, isDark);
 
         Paint eye = new Paint(Paint.ANTI_ALIAS_FLAG);
         eye.setColor(Color.WHITE);
-        float sy = Math.max(0.1f, 1f - blink);
-        float gx = isActive ? (float) (Math.sin(t * 4.0) * s * 0.035) : 0f;
-        float gy = isActive ? -s * 0.025f : 0f;
-        drawTiltedCapsule(canvas, eye, -s * 0.105f + gx, s * 0.015f + gy, s * 0.104f, s * 0.25f, -24f, sy);
-        drawTiltedCapsule(canvas, eye, s * 0.105f + gx, -s * 0.035f + gy, s * 0.104f, s * 0.20f, -24f, sy);
+        float eyeSy = Math.max(0.1f, 1f - blink);
+        float gx = isActive ? (float) (Math.sin(t * 4.0) * 3.0) : 0f;
+        float gy = isActive ? -2.2f : 0f;
+        drawTiltedCapsule(canvas, eye, 40.5f + gx, 52f + gy, 9.2f, 22f, -24f, eyeSy);
+        drawTiltedCapsule(canvas, eye, 59.5f + gx, 48f + gy, 9.2f, 18f, -24f, eyeSy);
 
         double satA = t * (isActive ? 2.8 : 1.1) - 0.8;
-        float satDist = baseR + s * 0.075f;
+        float satDist = 44f;
         Paint sat = new Paint(Paint.ANTI_ALIAS_FLAG);
         sat.setColor(pal.accent);
-        canvas.drawCircle((float) (Math.cos(satA) * satDist),
-                (float) (Math.sin(satA) * satDist * 0.86), s * 0.05f, sat);
+        canvas.drawCircle(50f + (float) (Math.cos(satA) * satDist),
+                50f + (float) (Math.sin(satA) * satDist * 0.88), 4.6f, sat);
         canvas.restore();
     }
 

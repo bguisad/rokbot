@@ -2,6 +2,7 @@ package dev.rokbot.nativeapp;
 
 import android.content.Context;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,6 +26,8 @@ final class RokBotAvatarView extends View {
     private static boolean sResumed = true;
 
     private String mStyleId = RokBotAvatarRenderer.STYLE_CHASSIS;
+    private String mPreviewShape = "blob";
+    private Bitmap mShapeMask = null;
     private int mBaseColor = 0xFF06B6D4;
     private boolean mActive = false;
     private boolean mAttached = false;
@@ -112,6 +115,21 @@ final class RokBotAvatarView extends View {
         }
     }
 
+    void setShapeMask(Bitmap mask) {
+        if (mShapeMask != mask) {
+            mShapeMask = mask;
+            invalidate();
+        }
+    }
+
+    void setPreviewShape(String shape) {
+        String next = (shape != null && !shape.isEmpty()) ? shape : "blob";
+        if (!next.equals(mPreviewShape)) {
+            mPreviewShape = next;
+            invalidate();
+        }
+    }
+
     void setActive(boolean active) {
         if (mActive != active) {
             mActive = active;
@@ -161,7 +179,7 @@ final class RokBotAvatarView extends View {
                 == Configuration.UI_MODE_NIGHT_YES;
         canvas.save();
         canvas.translate((w - size) / 2f, (h - size) / 2f);
-        RokBotAvatarRenderer.draw(canvas, mStyleId, size, t, blink, mActive, mBaseColor, isDark);
+        RokBotAvatarRenderer.draw(canvas, mStyleId, mShapeMask, mPreviewShape, size, t, blink, mActive, mBaseColor, isDark);
         canvas.restore();
     }
 }

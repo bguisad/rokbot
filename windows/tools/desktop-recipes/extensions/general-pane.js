@@ -164,16 +164,16 @@ function RokListArrangementSettings() {
 }
 
 const ROK_AVATAR_FALLBACK_STYLES = [
-  { id: 'chassis', zh: '机甲灵偶', en: 'RokBot Chassis', descZh: '斜胶囊眼 + 脉冲信号灯', descEn: 'Tilted capsule eyes + beacon', defaultColor: 'cyan' },
-  { id: 'antenna', zh: '双天线波波', en: 'Twin Antenna', descZh: '弹性双天线 + 玻璃面罩', descEn: 'Spring antennas + glass visor', defaultColor: 'violet' },
-  { id: 'visor', zh: '赛博护目镜', en: 'Cyber Visor', descZh: '极客切角 + 扫描灯带', descEn: 'Chamfered shell + scanner LED', defaultColor: 'orange' },
-  { id: 'pixel', zh: '像素精灵', en: 'Pixel Sprite', descZh: '点阵 LED 眼 + 节奏灯条', descEn: 'LED matrix eyes + status bar', defaultColor: 'green' },
-  { id: 'orb', zh: '流体光球', en: 'Fluid Orb', descZh: '液体变形 + 轨道卫星', descEn: 'Morphing blob + orbiting dot', defaultColor: 'magenta' },
-  { id: 'official', zh: '官方原版', en: 'Official', descZh: '保留官方动态流体球', descEn: 'Original dynamic fluid orb', defaultColor: 'blue' },
+  { id: 'chassis', zh: '机甲灵偶', en: 'RokBot Chassis', descZh: '全形状兼容 + 脉冲信号灯', descEn: 'Shape-aware + pulse beacon', defaultColor: 'cyan', previewShape: 'blob' },
+  { id: 'antenna', zh: '双天线波波', en: 'Twin Antenna', descZh: '弹性双天线 + 玻璃面罩', descEn: 'Spring antennas + glass visor', defaultColor: 'violet', previewShape: 'cloud' },
+  { id: 'visor', zh: '赛博护目镜', en: 'Cyber Visor', descZh: '极客切角框 + 扫描灯带', descEn: 'Cyber visor + scanner LED', defaultColor: 'orange', previewShape: 'hex' },
+  { id: 'pixel', zh: '像素精灵', en: 'Pixel Sprite', descZh: '点阵 LED 屏 + 节奏灯条', descEn: 'LED matrix + status bar', defaultColor: 'green', previewShape: 'star' },
+  { id: 'orb', zh: '流体光球', en: 'Fluid Orb', descZh: '呼吸微动 + 轨道卫星', descEn: 'Breathing shape + orbiting dot', defaultColor: 'magenta', previewShape: 'heart' },
+  { id: 'official', zh: '官方原版', en: 'Official', descZh: '保留官方动态流体球', descEn: 'Original dynamic fluid orb', defaultColor: 'blue', previewShape: 'blob' },
 ];
 const rokAvatarNoStore = { subscribe: () => () => {}, getSnapshot: () => ({ style: 'chassis' }) };
 
-function RokAvatarPreviewCanvas({ styleId, color, active }) {
+function RokAvatarPreviewCanvas({ styleId, shape, color, active }) {
   const ref = Q.useRef(null);
   Q.useEffect(() => {
     if (styleId === 'official') return undefined;
@@ -205,7 +205,7 @@ function RokAvatarPreviewCanvas({ styleId, color, active }) {
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, size, size);
-      drawApi.draw(ctx, styleId, size, t, { x: 0, y: 0 }, blink, { angle: 0, bounce: 0 }, active ? 'thinking' : 'idle', pal, isLight, null, active);
+      drawApi.draw(ctx, styleId, shape || 'blob', size, t, { x: 0, y: 0 }, blink, { angle: 0, bounce: 0 }, active ? 'thinking' : 'idle', pal, isLight, null, active);
       ctx.restore();
       lastDraw = nowMs;
     };
@@ -226,7 +226,7 @@ function RokAvatarPreviewCanvas({ styleId, color, active }) {
       if (raf) globalThis.cancelAnimationFrame?.(raf);
       globalThis.document?.removeEventListener?.('visibilitychange', onVis);
     };
-  }, [styleId, color, active]);
+  }, [styleId, shape, color, active]);
 
   if (styleId === 'official') {
     return $.jsxs('svg', {
@@ -252,8 +252,8 @@ function RokAvatarStyleSettings() {
   const styles = globalThis.__rokAvatarDraw?.styles ?? ROK_AVATAR_FALLBACK_STYLES;
   const title = grokText('Bot 动态图标', 'Bot avatar style');
   const subtitle = grokText('风格选择', 'Icon style');
-  const description = grokText('全局替换所有 Bot 的动态流体球图标与状态动效，也可随时切回官方原版，切换后立即生效。',
-    'Applies across every Bot avatar and live status animation, or switch back to the official fluid orb anytime.');
+  const description = grokText('每个主题均完整保留全部 26 种 Bot 形状与各自配色（快速添加与外观编辑同步），也可随时切回官方原版。',
+    'Every theme renders all 26 Bot shapes and colors across Quick-Add and appearance settings, or switch back to the official orb.');
   return $.jsxs($.Fragment, { children: [
     $.jsx('style', { children: grokConnectionStyles }),
     $.jsx(Vn, {
@@ -295,7 +295,7 @@ function RokAvatarStyleSettings() {
                   }),
                   $.jsx('span', {
                     className: 'rok-avatar-preview',
-                    children: $.jsx(RokAvatarPreviewCanvas, { styleId: item.id, color: item.defaultColor, active: selected }),
+                    children: $.jsx(RokAvatarPreviewCanvas, { styleId: item.id, shape: item.previewShape, color: item.defaultColor, active: selected }),
                   }),
                   $.jsxs('span', {
                     className: 'rok-avatar-title',

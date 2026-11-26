@@ -144,17 +144,32 @@ test('rokAvatarPalette produces valid gradients for all 11 official colors and c
   assert.equal(customRgb.mid, '#c86432');
 });
 
-test('RokGrokBotMark and RokGrokBotMarkMirror preserve mirror DOM structure and omit invalid Ott colors', () => {
-  const { context } = load();
-  const markTree = context.RokGrokBotMark({ sizePx: 22, className: 'custom', color: undefined });
+test('RokGrokBotMark and RokGrokBotMarkMirror preserve mirror DOM structure, shape attribute, and safe Ott colors', () => {
+  const shapes = [];
+  const { context } = load({
+    extra: {
+      kt: ({ body }) => {
+        shapes.push(body);
+        return `<path d="M 10 10 L 90 10 L 50 90 Z" fill="#000"/>`;
+      },
+      yi: s => `shape:${s}`,
+      Mi: 0.84,
+    },
+  });
+  const markTree = context.RokGrokBotMark({ sizePx: 22, className: 'custom', color: undefined, shape: 'star' });
   assert.equal(markTree.type, 'span');
   assert.ok(markTree.props.className.includes('sand-grok-bot-mark'));
   assert.equal(markTree.props.style['--grok-bot-ink'], 'var(--cyan)');
   assert.equal(markTree.props['data-rokbot-avatar-style'], 'chassis');
+  assert.equal(markTree.props['data-rokbot-avatar-shape'], 'star');
 
-  const mirrorTree = context.RokGrokBotMarkMirror({ sourceId: 'bot-1', sizePx: 22 });
+  const mirrorTree = context.RokGrokBotMarkMirror({ sourceId: 'bot-1', sizePx: 22, shape: 'heart' });
   assert.ok(mirrorTree.props.className.includes('sand-grok-bot-mark--mirror'));
   assert.equal(mirrorTree.props.style['--grok-bot-ink'], 'var(--cyan)');
+  assert.equal(mirrorTree.props['data-rokbot-avatar-shape'], 'heart');
+
+  assert.equal(context.rokResolveShapePathD('star'), 'M 10 10 L 90 10 L 50 90 Z');
+  assert.deepEqual(shapes, ['shape:star']);
 });
 
 test('Settings > General renders all 6 avatar style radio options and switches live via shared store', () => {

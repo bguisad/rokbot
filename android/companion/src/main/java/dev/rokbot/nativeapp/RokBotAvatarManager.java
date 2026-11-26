@@ -24,6 +24,7 @@ final class RokBotAvatarManager {
     private static final int TAG_OVERLAY_VIEW = 0x0e0a7a01;
     private static final int TAG_COLOR_CACHE = 0x0e0a7a02;
     private static final int TAG_STYLE_CACHE = 0x0e0a7a03;
+    private static final int TAG_SAMPLE_META = 0x0e0a7a04;
 
     private static final Set<Runnable> LISTENERS = Collections.newSetFromMap(new WeakHashMap<>());
     private static WeakReference<Activity> sReactActivity = new WeakReference<>(null);
@@ -134,13 +135,20 @@ final class RokBotAvatarManager {
                     if (ov.getVisibility() != View.GONE) ov.setVisibility(View.GONE);
                 }
             } else {
-                Integer cachedColor = (v.getTag(TAG_COLOR_CACHE) instanceof Integer)
-                        ? (Integer) v.getTag(TAG_COLOR_CACHE)
+                int pw = parent.getWidth();
+                int ph = parent.getHeight();
+                long nowMs = android.os.SystemClock.uptimeMillis();
+                long[] meta = (v.getTag(TAG_SAMPLE_META) instanceof long[]) ? (long[]) v.getTag(TAG_SAMPLE_META) : null;
+                RokBotAvatarRenderer.SvgSample cached = (v.getTag(TAG_COLOR_CACHE) instanceof RokBotAvatarRenderer.SvgSample)
+                        ? (RokBotAvatarRenderer.SvgSample) v.getTag(TAG_COLOR_CACHE)
                         : null;
-                if (cachedColor == null) {
-                    int sampled = RokBotAvatarRenderer.extractDominantColor(v, 0xFF06B6D4);
-                    v.setTag(TAG_COLOR_CACHE, sampled);
-                    cachedColor = sampled;
+                boolean needResample = cached == null || cached.mask == null || cached.mask.isRecycled()
+                        || meta == null || meta[0] != pw || meta[1] != ph
+                        || (Math.max(pw, ph) >= 140 && nowMs - meta[2] > 250L);
+                if (needResample) {
+                    cached = RokBotAvatarRenderer.extractSvgSample(v, 0xFF06B6D4);
+                    v.setTag(TAG_COLOR_CACHE, cached);
+                    v.setTag(TAG_SAMPLE_META, new long[] { pw, ph, nowMs });
                 }
                 if (v.getAlpha() > 0.01f) v.setAlpha(0f);
 
@@ -153,15 +161,14 @@ final class RokBotAvatarManager {
                     parent.addView(ov);
                 }
                 if (ov.getVisibility() != View.VISIBLE) ov.setVisibility(View.VISIBLE);
-                int pw = parent.getWidth();
-                int ph = parent.getHeight();
                 if (ov.getLeft() != 0 || ov.getTop() != 0 || ov.getRight() != pw || ov.getBottom() != ph) {
                     ov.measure(
                             View.MeasureSpec.makeMeasureSpec(pw, View.MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(ph, View.MeasureSpec.EXACTLY));
                     ov.layout(0, 0, pw, ph);
                 }
-                ov.setBaseColor(cachedColor);
+                ov.setBaseColor(cached.color);
+                ov.setShapeMask(cached.mask);
                 ov.setStyleId(style);
                 v.setTag(TAG_STYLE_CACHE, style);
             }
