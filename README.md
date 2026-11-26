@@ -19,6 +19,7 @@
   <a href="README.en.md">English</a> ·
   <a href="#核心功能">核心功能</a> ·
   <a href="#快速开始">快速开始</a> ·
+  <a href="#获取客户端">获取客户端</a> ·
   <a href="#文档">文档</a> ·
   <a href="#常见问题">常见问题</a>
 </p>
@@ -35,7 +36,7 @@
 
 RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）和 Bot 的执行桌面（`box`）都用 Docker 部署在你自己的机器上，模型调用走你配置的 OpenAI 或 Anthropic 兼容接口。macOS、Windows、Android、iOS 客户端和网页版只连接你自己的 Host。
 
-对话、文件、配置和 API Key 都保存在 Host 的数据卷里。客户端由仓库里的补丁工具在你本机生成：工具使用官方安装包，先校验文件哈希再打补丁。本仓库不包含、也不分发任何原版程序文件。
+对话、文件、配置和 API Key 都保存在 Host 的数据卷里。本仓库只包含本项目自己编写的部分：Host 源码、镜像构建脚本、各平台的补丁工具和构建脚本，以及文档；不包含、也不分发任何原版程序文件或客户端安装包。客户端可以用补丁工具自行构建，也可以从你自己部署的 Host 获取，见[获取客户端](#获取客户端)。
 
 ## 核心功能
 
@@ -100,7 +101,7 @@ RokBot 是一个面向个人的自托管 AI 助手。Agent 服务端（Host）�
 
 ### 自托管部署与网络
 
-- 预构建镜像发布在 GitHub Container Registry（GHCR），一个脚本完成配置、拉取镜像和启动；也支持离线安装和从源码构建镜像。
+- 预构建镜像发布在 GitHub Container Registry（GHCR），和本仓库一样需要访问权限；一个脚本完成配置、拉取镜像和启动。也支持离线安装和从源码构建镜像。
 - Host 镜像支持 `linux/amd64` 和 `linux/arm64`。执行桌面 `box` 只有 `linux/amd64` 镜像，ARM 主机需要开启 binfmt/QEMU 或 Rosetta。
 - 管理页（`18080`）和网页版（`18081`）默认只监听 `127.0.0.1`，监听地址由 `ROKBOT_LISTEN_ADDRESS` 设置。
 - 不需要注册云端账号。设备用 6 位一次性配对码登录（5 分钟内有效），也可以用管理员密码登录。
@@ -161,16 +162,18 @@ Android 截图为英文界面，桌面端和管理页截图为中文界面。And
 
 ## 支持平台
 
-各端客户端由补丁工具在你本机生成，补丁只接受下表中的官方版本。版本以仓库中锁定的配置文件为准。
+本仓库不提供客户端安装包。各端客户端按下表的「获取方式」取得，补丁只接受下表中的官方版本。版本以仓库中锁定的配置文件为准。
 
-| 平台 | 形式 | 对应的官方版本 | 说明 |
-| --- | --- | --- | --- |
-| macOS | Apple Silicon 客户端 | 1.2.3 | [`mac/README.md`](mac/README.md) |
-| Windows | x64 安装版和便携版 | 1.2.3（推荐），也接受 0.71.2 | [`windows/README.md`](windows/README.md) |
-| 网页版 | 浏览器，可添加到主屏幕 | 界面取自 Windows 1.2.3（推荐）或 0.71.2 | [`web/README.md`](web/README.md) |
-| Android | 原生 APK（arm64-v8a） | 1.26.0（build 3212） | [`android/README.md`](android/README.md) |
-| iOS | IPA，需要自备解密的原版 IPA | 1.27.0（29519），也接受 1.26.0、1.16.0 | [`ios/README.md`](ios/README.md) |
-| Linux 服务端 | Docker：`host`（amd64 / arm64）和 `box`（amd64） | Host 基线 `2bb5e41` | [`host/README.md`](host/README.md) |
+| 平台 | 形式 | 对应的官方版本 | 获取方式 | 说明 |
+| --- | --- | --- | --- | --- |
+| macOS | Apple Silicon 客户端 | 1.2.3 | 自行构建 / Host 分发 | [`mac/README.md`](mac/README.md) |
+| Windows | x64 安装版和便携版 | 1.2.3（推荐），也接受 0.71.2 | 自行构建 / Host 分发 | [`windows/README.md`](windows/README.md) |
+| 网页版 | 浏览器，可添加到主屏幕 | 界面取自 Windows 1.2.3（推荐）或 0.71.2 | 自行构建界面包，上传到自己的 Host | [`web/README.md`](web/README.md) |
+| Android | 原生 APK（arm64-v8a） | 1.26.0（build 3212） | 自行构建 / Host 分发 | [`android/README.md`](android/README.md) |
+| iOS | IPA，需要自备解密的原版 IPA | 1.27.0（29519），也接受 1.26.0、1.16.0 | 自行构建并签名 / Host 分发 | [`ios/README.md`](ios/README.md) |
+| Linux 服务端 | Docker：`host`（amd64 / arm64）和 `box`（amd64） | Host 基线 `2bb5e41` | 从源码构建镜像 / 拉取预构建镜像（需要访问权限） | [`host/README.md`](host/README.md) |
+
+「自行构建」和「Host 分发」的具体做法见[获取客户端](#获取客户端)。
 
 锁定版本的来源：`mac/patchers/desktop/supported.json`、`windows/patchers/desktop/supported.json`、`web/patchers/supported.json`、`android/recipes/manifest.json`、`ios/recipes/ios/manifest.json`、`host/recipes/host/manifest.json`。
 
@@ -178,13 +181,24 @@ Android 截图为英文界面，桌面端和管理页截图为中文界面。And
 
 ### 1. 部署 Host 和执行容器
 
-准备一台装好 Docker（含 Compose v2）的 Linux 或 macOS 服务器，执行：
+准备一台装好 Docker（含 Compose v2）的 Linux 或 macOS 服务器。本仓库是私有仓库，匿名访问 `raw.githubusercontent.com` 会失败，所以先 clone 仓库（需要访问权限），再在本地运行安装脚本：
 
 ```bash
+# 克隆仓库；已登录 GitHub CLI 时可以用 gh
+gh repo clone hongfaqiu/rokbot rokbot-src
+# 没有 gh 时用 git：git clone https://github.com/hongfaqiu/rokbot.git rokbot-src
+
 mkdir rokbot && cd rokbot
-curl -fsSL https://raw.githubusercontent.com/hongfaqiu/rokbot/main/host/release/install-images.sh -o install-images.sh
-bash install-images.sh
+bash ../rokbot-src/host/release/install-images.sh --local
 ```
+
+`--local` 让脚本直接复制仓库里的 `docker-compose.images.yml` 和 `.env.images.example`，不再联网下载这两个文件。预构建镜像同样需要访问权限，拉取前先登录 GHCR，令牌需要 `read:packages` 权限：
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <GitHub 用户名> --password-stdin
+```
+
+无法拉取镜像时，可以改为在服务器上从源码构建，见 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md)。
 
 脚本依次完成以下工作：
 
@@ -197,8 +211,8 @@ bash install-images.sh
 > [!TIP]
 > - **交给 AI 部署**：把 [`docs/AGENT_DEPLOY.md`](docs/AGENT_DEPLOY.md) 发给 Claude Code、Cursor、Codex 等 AI 编程助手，它会按手册完成环境检查、部署和验收。
 > - **常用参数**：
->   - 已经在本地克隆了仓库，用 `bash install-images.sh --local`；
->   - 想先改配置再启动，用 `--prepare-only`；
+>   - 上面的命令已经带了 `--local`；去掉它，脚本会改从 `raw.githubusercontent.com` 下载模板，私有仓库下匿名访问会失败；
+>   - 想先改配置再启动，用 `--prepare-only`，改完后去掉它重新运行（保留 `--local`）；
 >   - 离线环境，先用 `docker load` 导入镜像，再用 `--offline`。
 > - **镜像加速和代理**：在 `.env` 中设置 `ROKBOT_HOST_IMAGE` / `ROKBOT_BOX_IMAGE` 换成镜像地址，或设置 `HTTP_PROXY` / `HTTPS_PROXY`。
 
@@ -210,8 +224,8 @@ bash install-images.sh
    ```
 2. 用浏览器打开管理页 `http://127.0.0.1:18080/admin`，输入初始化密钥，设置管理员密码（12–128 位）。
 3. 连接客户端：
-   - **原生客户端**：在管理页「设备与通知」创建 6 位配对码，在 macOS、Windows、Android 或 iOS 客户端中输入 Host 地址和配对码；也可以直接用管理员密码登录。
-   - **网页版**：默认启用，地址是 `http://127.0.0.1:18081/web/`。公开的预构建镜像不包含网页版界面包，第一次使用前需要按 [`web/README.md`](web/README.md) 生成界面包，并在管理页「网页版」上传。
+   - **原生客户端**：先按[获取客户端](#获取客户端)取得客户端。在管理页「设备与通知」创建 6 位配对码，在 macOS、Windows、Android 或 iOS 客户端中输入 Host 地址和配对码；也可以直接用管理员密码登录。
+   - **网页版**：默认启用，地址是 `http://127.0.0.1:18081/web/`。预构建镜像不包含网页版界面包，第一次使用前需要按 [`web/README.md`](web/README.md) 生成界面包，并在管理页「网页版」上传。
 
 ### 3. 配置模型
 
@@ -222,6 +236,90 @@ bash install-images.sh
 3. 设置默认路由；需要时，为单个 Bot 单独设置路由和备用模型。
 
 保存后就可以创建 Bot、开始对话了。
+
+## 获取客户端
+
+本仓库不提供现成的客户端安装包。客户端有两种获取方式：自行构建，或从你自己部署的 Host 获取。
+
+### 方式一：自行构建
+
+自备官方客户端安装包，用仓库里的补丁工具打补丁并签名。补丁工具先按锁定配置中的大小和 SHA-256 校验输入，不是表中的官方版本就停止。以下命令都在仓库根目录运行，命令里的路径换成你自己的文件。
+
+桌面端和网页版省略 `--source` 时，工具会从官方下载地址获取锁定版本，同样严格校验；可以用 `ROKBOT_DESKTOP_DOWNLOAD_BASE` 换成自建的镜像源。Android 和 iOS 必须自备安装包。
+
+| 平台 | 运行环境 | 输入 | 输出 |
+| --- | --- | --- | --- |
+| macOS | macOS，Node.js 22.12+ | 官方 1.2.3 Apple Silicon 的 `.dmg` 或 `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
+| Windows | Windows 10/11 x64，Node.js 22.12+ | 官方 1.2.3（或 0.71.2）x64 安装包、`app-64.7z` 或已安装的原版目录 | `windows/output/` |
+| 网页版 | Windows、macOS 或 Linux，Node.js 22.12+ | 与 Windows 相同的官方安装包 | `web/output/RokBotLocal-web-1.2.3.zip` |
+| Android | Node.js 20+ | 官方 1.26.0（build 3212）的 `.xapk`、`.apks` 或 `.apk` | `--output-apk` 指定的 APK |
+| iOS | Python 3.9+ | 自己解密的官方 IPA：1.27.0（29519）、1.26.0（29388）或 1.16.0（23152） | `--output` 指定的新目录 |
+
+#### macOS
+
+```bash
+node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
+```
+
+- 生成 `mac/output.noindex/RokBot.app`，原版的副本备份在 `mac/backup.noindex/RokBot.app`。输出已存在时工具不会覆盖。
+- 默认使用 ad-hoc 签名。需要控制本机图形界面时加 `--identity auto`，改用钥匙串里的 Developer ID Application 或 Apple Development 证书。
+- `--verify-only` 只在临时目录回放补丁，不生成客户端。详见 [`mac/README.md`](mac/README.md)。
+
+#### Windows
+
+```powershell
+node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe
+```
+
+- 在 `windows/output/` 生成便携目录 `RokBot Local/`、`RokBotLocal-1.2.3-x64-portable.zip`、按用户安装的 `RokBotLocal-1.2.3-x64-Setup.exe`，以及补丁记录 `RokBotLocal-1.2.3-x64.patch.json`。加 `--no-installer` 只生成便携版本。
+- 1.2.3 用不了时，用 `--version 0.71.2 --output windows/output/0.71.2` 改用 0.71.2，输出文件名中的版本号随之改变。
+- 补丁会移除因修改而失效的原签名，生成的程序和安装包都未签名。详见 [`windows/README.md`](windows/README.md)。
+
+#### 网页版
+
+```bash
+node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe
+```
+
+- 生成 `web/output/RokBotLocal-web-1.2.3.zip`，在管理页「网页版」上传。也可以加 `--upload <Host 地址>` 生成后直接安装到 Host，管理员密码从 `ROKBOT_ADMIN_PASSWORD`、`--password-file` 或终端输入读取。
+- 1.2.3 的界面用不了时加 `--version 0.71.2`。详见 [`web/README.md`](web/README.md)。
+
+#### Android
+
+```bash
+node android/release/patch-android.mjs \
+  --input-apk /path/to/official-1.26.0.xapk \
+  --output-apk android/output/rokbot-android-patched.apk
+```
+
+- 生成 16KB 对齐、v2/v3 签名的单个 APK，同目录写入 `patch-report.json`。输出已存在时需要加 `--force`。
+- 签名密钥默认保存在 `~/.rokbot-local/android-signing.json`，第一次运行时自动创建，可以用 `--keystore` 指定。后续升级必须使用同一把密钥，请单独备份。
+- 要通过 Host 发布升级包，每次构建用 `--rokbot-build <n>` 递增版本号（1–99）。详见 [`android/README.md`](android/README.md)。
+
+#### iOS
+
+```bash
+python3 ios/release/patch-ios.py \
+  --input /path/to/decrypted.ipa \
+  --output ios/output/RokBot-Patched \
+  --bundle-id dev.rokbot.local
+```
+
+- `--output` 必须是不存在的新目录。目录中包含未签名的 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib`、`patch-report.json`，保留扩展时还有 `extension-signing.json`。
+- 用你自己的签名工具和证书签名后安装。免费 Apple ID 最多 3 个 App ID，不够为主应用和三个扩展签名，可以加 `--remove-extensions` 只保留主应用。详见 [`ios/README.md`](ios/README.md)。
+
+### 方式二：从自己部署的 Host 获取
+
+Host 的管理员可以把构建好的安装包发布给自己 Host 上的设备：
+
+1. 管理员按方式一构建并签名安装包。
+2. 在管理页「客户端更新」选择平台（Android、iOS、macOS 或 Windows），上传安装包并发布；需要时选择一个旧版本，生成增量补丁。
+3. 已经配对的客户端从这台 Host 检查和下载更新：
+   - Android 下载后核对大小、SHA-256、包名和签名证书，证书必须与已安装的版本一致；
+   - macOS 和 Windows 支持增量补丁，更新清单用 ECDSA P-256 签名。客户端默认从已配对的 Host 检查更新；构建时加 `--update-url <Host 的 HTTPS 地址>/local/updates` 和 `--update-public-key-file <公钥文件>`，可以把「客户端更新」页显示的清单签名公钥固定在客户端里；
+   - iOS 不能在应用内自我替换，通过 `itms-services`（需要 HTTPS）、AltStore / SideStore 源，或下载 IPA 后交给签名工具安装。
+
+第一次安装时，客户端还没有和 Host 配对，安装包怎样交给用户由各 Host 的管理员自行决定，并由管理员负责。发布和接口的细节见 [`docs/AGENT_DEPLOY.md`](docs/AGENT_DEPLOY.md#5-发布四端签名安装包与增量自动更新)。
 
 ## 架构概览
 
@@ -284,7 +382,7 @@ flowchart LR
 
 **为什么仓库里没有客户端安装包？**
 
-本仓库不包含、也不分发原版程序文件。补丁工具在你本机下载官方安装包，校验哈希后打补丁；生成的客户端和网页版界面包都不对外分发。具体步骤见各平台目录的 README。
+本仓库只分发本项目自己编写的代码和文档，不包含原版程序文件，也不提供打过补丁的安装包。你可以自备官方安装包，用补丁工具在本机构建；也可以从自己 Host 的管理员那里获取，管理员在管理页「客户端更新」发布。两种方式见[获取客户端](#获取客户端)，原因见[分发与合规说明](#分发与合规说明)。
 
 **API Key 存在哪里？会被读出来吗？**
 
@@ -293,6 +391,14 @@ API Key 保存在 Host 数据卷的 `/data/model.env`。管理接口和客户端
 **怎么备份数据？**
 
 数据在 `host-data`（挂载为 `/data`）、`box-home` 和 `box-workspace` 三个数据卷里。用 `host/deploy.py` 部署时，可以运行 `python3 host/deploy.py backup`，恢复步骤见 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md#volume-recovery)。备份里有对话记录和 Key，请妥善保管。不要运行 `docker compose down -v`，它会删除数据卷。
+
+## 分发与合规说明
+
+- 本项目不分发第三方客户端的二进制文件。仓库中只有本项目自己编写的 Host 源码、镜像构建脚本、补丁工具、构建脚本和文档；原版安装包需要使用者自行取得。
+- 补丁工具仅供个人学习和自托管使用。[LICENSE](LICENSE) 允许的非商业分发只适用于本项目自己的代码，不涵盖原版程序的任何内容。
+- 使用原版客户端及其补丁时，请遵守原客户端的许可条款和相关服务条款。
+- 用补丁工具生成的客户端、网页版界面包和内置界面包的镜像，只用于你自己的 Host，请勿公开传播。通过 Host 分发安装包时，渠道和使用范围由该 Host 的管理员负责。
+- 以上说明不构成法律意见。具体能否使用，请以原客户端的许可条款和你所在地区的法律为准。
 
 ## 许可证
 

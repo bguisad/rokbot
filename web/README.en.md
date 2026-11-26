@@ -46,7 +46,7 @@ Either:
 
 The Host checks the size and SHA-256 of every file against the bundle's own manifest. If anything does not match, nothing is installed and the previous bundle stays in place.
 
-**Built into the image**: when you build the Host image on your own machine, the bundle can go straight into it, with no upload: `python3 host/release/build-docker.py --web-source windows/.cache/Grok_Bot_1.2.3_Setup.exe …` (or `--web-bundle <a built ZIP>`; `host/deploy.py up/update` accept both too). When no bundle has been uploaded, the Host installs the image's copy at startup and the admin page shows "built into the Host"; an image with a different bundle replaces it. An uploaded bundle always takes precedence, and deleting it falls back to the built-in one. Such an image contains the official interface: keep it to yourself and never push it to a public registry. The prebuilt public images do not include a bundle.
+**Built into the image**: when you build the Host image on your own machine, the bundle can go straight into it, with no upload: `python3 host/release/build-docker.py --web-source windows/.cache/Grok_Bot_1.2.3_Setup.exe …` (or `--web-bundle <a built ZIP>`; `host/deploy.py up/update` accept both too). When no bundle has been uploaded, the Host installs the image's copy at startup and the admin page shows "built into the Host"; an image with a different bundle replaces it. An uploaded bundle always takes precedence, and deleting it falls back to the built-in one. Such an image contains the official interface: keep it to yourself and never push it to a public registry. The prebuilt images do not include a bundle.
 
 ### 3. Sign in
 
@@ -70,7 +70,7 @@ The web client can open from the home screen like an app, full screen and withou
 - **Responsive layout**:
   - computers and landscape tablets (792 pixels wide and up) get the official desktop layout, with the sidebar beside the conversation;
   - portrait tablets and narrower windows fold the sidebar away; it slides in from the left when needed;
-  - phones (under 600 pixels wide) get the official phone layout, as in the [Android client](../android/README.en.md#features): the home screen is the Bot list, a Bot opens a full-screen conversation, and menus and dialogs rise from the bottom;
+  - phones (under 600 pixels wide) get the official phone layout, as in the [Android client](../android/README.en.md#key-capabilities): the home screen is the Bot list, a Bot opens a full-screen conversation, and menus and dialogs rise from the bottom;
   - the browser's back button and back gesture go back one step at a time: first closing an open panel, then returning from a conversation to the Bot list, and only then leaving the page;
   - when a phone keyboard opens, the message field moves up with it instead of being covered; the iPhone notch and home indicator areas are kept clear.
 - **The Bot's computer**: conversation details show the live screen of the Bot's computer. In the large view you can operate it directly with mouse, keyboard or touch.

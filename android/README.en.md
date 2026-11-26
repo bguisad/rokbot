@@ -69,6 +69,8 @@ node android/release/patch-android.mjs \
   --force
 ```
 
+Bring your own official package; this repository does not provide original or patched APKs. Use the generated APK only on your own devices, or have your Host administrator publish it on the Client updates page, after which installed clients receive updates through the Host's Android update channel. See [Getting the clients](../README.en.md#getting-the-clients).
+
 Key CLI options:
 
 - `--input-apk <path>` (aliases `--input`, `--apk`): Official RN `.xapk` / `.apks` / `.apk` (`ai.x.grok.bot` / `co.anysphere.sand` `1.26.0`)

@@ -2,17 +2,16 @@
 
 [English](README.en.md)
 
-为 Grok Bot `1.16.0`（`23152`）arm64 砸壳 IPA 注入补丁。主程序和三个扩展都必须是解密过的，需要 Python 3.9+。本仓库不提供任何原版或修改过的 IPA，请自己准备。
+为 Grok Bot arm64 砸壳 IPA 注入补丁，接受 `1.27.0`（`29519`）、`1.26.0`（`29388`）和 `1.16.0`（`23152`）。主程序和三个扩展都必须是解密过的，需要 Python 3.9+。本仓库不提供任何原版或修改过的 IPA，请自己准备。
 
 完整的部署步骤见[部署手册](../docs/AI-INSTALL.md#client-packages)，实现原理见[技术文档](../docs/ARCHITECTURE.md#ios-客户端)。
 
-## 版本锁定说明（`1.16.0` / `23152`）
+## 支持的版本
 
-尽管 App Store 上游已发布更高版本（如 `1.26.0`），本补丁仍锁定 `1.16.0 (23152)`：
+补丁按 IPA 中 `Info.plist` 的版本号、Build 号和固定摘要识别输入：`1.27.0 (29519)` 的配置在 `recipes/ios/manifest.json`，`1.26.0 (29388)` 和 `1.16.0 (23152)` 在 `recipes/ios/<版本>/manifest.json`。其他版本会被拒绝。
 
-- App Store 官方包受 FairPlay 加密保护，无法自动化拉取或解密。
-- `ios/recipes/ios/manifest.json` 与 `ios/patchers/ios/extensions.py` 校验了 `1.16.0 (23152)` 对应的 `nativeTextSha256`、`hbcSha256`（`hbcVersion: 98`）、三个扩展的 `__text` 摘要、`Widgets.appex` 的 arm64 指令偏移以及 `.gbp.gz` Hermes 字节补丁。
-- 通信接口已同步兼容新版 Host（`clientDeviceId` 设备去重、管理员密码配对、连接器全部 21 个 RPC、应用内模型配置与更新清单）。
+- App Store 官方包受 FairPlay 加密保护，工具不能自动下载或解密，需要自备解密过的 IPA。
+- 每个版本都核对主程序 `__text` 摘要（`nativeTextSha256`）、Hermes 包摘要（`hbcSha256`）和注入库 `RokBotLocal.dylib` 的摘要，再应用 `.gbp.gz` 字节补丁。
 
 ## 使用
 
@@ -23,7 +22,7 @@ python3 release/patch-ios.py \
   --bundle-id dev.rokbot.local
 ```
 
-输出 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib` 和 `extension-signing.json`。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码（或切换为**管理员密码**配对）。
+`--output` 必须是不存在的新目录，其中包含未签名的 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib`、`patch-report.json`，保留扩展时还有 `extension-signing.json`。本仓库不提供签名好的 IPA；生成的 IPA 只给自己的设备用，或由 Host 管理员在管理页「客户端更新」发布，见首页的[获取客户端](../README.md#获取客户端)。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码（或切换为**管理员密码**配对）。
 
 推送用 APNs 或 Bark，在 Host 管理页配置。实时通话在 App 设置中开启。
 

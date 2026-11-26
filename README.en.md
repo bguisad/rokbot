@@ -19,6 +19,7 @@
   <strong>English</strong> ·
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick Start</a> ·
+  <a href="#getting-the-clients">Getting the clients</a> ·
   <a href="#documentation">Documentation</a> ·
   <a href="#faq">FAQ</a>
 </p>
@@ -35,7 +36,7 @@
 
 RokBot is a self-hosted AI assistant for personal use. The agent server (the Host) and the Bot's desktop (`box`) run in Docker on your own machine, and model calls go to the OpenAI- or Anthropic-compatible endpoints you configure. The macOS, Windows, Android and iOS clients and the web client connect only to your Host.
 
-Conversations, files, settings and API keys stay on the Host's data volumes. You build the clients on your own machine with the patch tools in this repository: they use the official installers, check file hashes first and then apply the patches. This repository does not contain or distribute any original program files.
+Conversations, files, settings and API keys stay on the Host's data volumes. This repository contains only what this project wrote itself: the Host source, the image build scripts, the per-platform patch tools and build scripts, and the documentation. It does not contain or distribute any original program files or client installers. You can build the clients yourself with the patch tools, or get them from a Host you deploy yourself; see [Getting the clients](#getting-the-clients).
 
 ## Features
 
@@ -102,7 +103,7 @@ Conversations, files, settings and API keys stay on the Host's data volumes. You
 
 ### Self-hosted deployment and networking
 
-- **Images:** prebuilt images are published on GitHub Container Registry (GHCR). One script configures, pulls and starts everything. Offline installs and building the images from source are also supported.
+- **Images:** prebuilt images are published on GitHub Container Registry (GHCR) and, like this repository, require access. One script configures, pulls and starts everything. Offline installs and building the images from source are also supported.
 - **Architectures:** the Host image supports `linux/amd64` and `linux/arm64`. The `box` desktop image is `linux/amd64` only, so ARM hosts need binfmt/QEMU or Rosetta.
 - **Ports:** the admin console (`18080`) and the web client (`18081`) listen on `127.0.0.1` by default. `ROKBOT_LISTEN_ADDRESS` changes the listen address.
 - **Sign-in:** no cloud account is needed. Devices sign in with a single-use 6-digit pairing code that is valid for 5 minutes, or with the admin password.
@@ -163,16 +164,18 @@ The Android screenshots use the English interface; the desktop and admin screens
 
 ## Supported Platforms
 
-You build each client on your own machine with the patch tools, and the patches accept only the official versions below. The versions come from the configuration files pinned in the repository.
+This repository does not provide client installers. Each client is obtained as shown in the "How to get it" column, and the patches accept only the official versions below. The versions come from the configuration files pinned in the repository.
 
-| Platform | Form | Official version required | Guide |
-| --- | --- | --- | --- |
-| macOS | Apple Silicon client | 1.2.3 | [`mac/README.en.md`](mac/README.en.md) |
-| Windows | x64 installer and portable build | 1.2.3 (recommended); 0.71.2 also accepted | [`windows/README.en.md`](windows/README.en.md) |
-| Web | Browser; can be added to the home screen | Interface from Windows 1.2.3 (recommended) or 0.71.2 | [`web/README.en.md`](web/README.en.md) |
-| Android | Native APK (arm64-v8a) | 1.26.0 (build 3212) | [`android/README.en.md`](android/README.en.md) |
-| iOS | IPA; bring your own decrypted official IPA | 1.27.0 (29519); 1.26.0 and 1.16.0 also accepted | [`ios/README.en.md`](ios/README.en.md) |
-| Linux server | Docker: `host` (amd64 / arm64) and `box` (amd64) | Host baseline `2bb5e41` | [`host/README.en.md`](host/README.en.md) |
+| Platform | Form | Official version required | How to get it | Guide |
+| --- | --- | --- | --- | --- |
+| macOS | Apple Silicon client | 1.2.3 | Build it yourself / From your Host | [`mac/README.en.md`](mac/README.en.md) |
+| Windows | x64 installer and portable build | 1.2.3 (recommended); 0.71.2 also accepted | Build it yourself / From your Host | [`windows/README.en.md`](windows/README.en.md) |
+| Web | Browser; can be added to the home screen | Interface from Windows 1.2.3 (recommended) or 0.71.2 | Build the bundle yourself and upload it to your Host | [`web/README.en.md`](web/README.en.md) |
+| Android | Native APK (arm64-v8a) | 1.26.0 (build 3212) | Build it yourself / From your Host | [`android/README.en.md`](android/README.en.md) |
+| iOS | IPA; bring your own decrypted official IPA | 1.27.0 (29519); 1.26.0 and 1.16.0 also accepted | Build and sign it yourself / From your Host | [`ios/README.en.md`](ios/README.en.md) |
+| Linux server | Docker: `host` (amd64 / arm64) and `box` (amd64) | Host baseline `2bb5e41` | Build the images from source / Pull the prebuilt images (access required) | [`host/README.en.md`](host/README.en.md) |
+
+See [Getting the clients](#getting-the-clients) for both methods.
 
 The pinned versions come from these files: `mac/patchers/desktop/supported.json`, `windows/patchers/desktop/supported.json`, `web/patchers/supported.json`, `android/recipes/manifest.json`, `ios/recipes/ios/manifest.json` and `host/recipes/host/manifest.json`.
 
@@ -180,13 +183,24 @@ The pinned versions come from these files: `mac/patchers/desktop/supported.json`
 
 ### 1. Deploy the Host and the execution container
 
-On a Linux or macOS server with Docker (including Compose v2), run:
+You need a Linux or macOS server with Docker (including Compose v2). This repository is private, so anonymous requests to `raw.githubusercontent.com` fail. Clone the repository first (access required), then run the install script locally:
 
 ```bash
+# Clone the repository; if you are signed in to the GitHub CLI you can use gh
+gh repo clone hongfaqiu/rokbot rokbot-src
+# Without gh, use git: git clone https://github.com/hongfaqiu/rokbot.git rokbot-src
+
 mkdir rokbot && cd rokbot
-curl -fsSL https://raw.githubusercontent.com/hongfaqiu/rokbot/main/host/release/install-images.sh -o install-images.sh
-bash install-images.sh
+bash ../rokbot-src/host/release/install-images.sh --local
 ```
+
+`--local` makes the script copy `docker-compose.images.yml` and `.env.images.example` from the repository instead of downloading them. The prebuilt images also require access, so sign in to GHCR before pulling, with a token that has the `read:packages` scope:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <GitHub username> --password-stdin
+```
+
+If you cannot pull the images, build them from source on the server instead; see [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md).
 
 The script does the following, in order:
 
@@ -199,8 +213,8 @@ The script does the following, in order:
 > [!TIP]
 > - **Let an AI agent deploy it:** give [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md) to an AI coding assistant such as Claude Code, Cursor or Codex. It will run the environment checks, the deployment and the acceptance steps from the runbook.
 > - **Common options:**
->   - If you already have a local clone, use `bash install-images.sh --local`.
->   - To edit the configuration before starting, use `--prepare-only`.
+>   - The command above already passes `--local`. Without it, the script downloads the templates from `raw.githubusercontent.com`, which fails anonymously for a private repository.
+>   - To edit the configuration before starting, use `--prepare-only`, then run the command again without it (keep `--local`).
 >   - For an offline install, import the images with `docker load` first and then use `--offline`.
 > - **Mirrors and proxies:** set `ROKBOT_HOST_IMAGE` / `ROKBOT_BOX_IMAGE` in `.env` to use a mirror, or set `HTTP_PROXY` / `HTTPS_PROXY`.
 
@@ -212,8 +226,8 @@ The script does the following, in order:
    ```
 2. Open the admin console at `http://127.0.0.1:18080/admin`, enter the setup key and set an admin password (12–128 characters).
 3. Connect a client:
-   - **Native clients:** create a 6-digit pairing code under Devices & notifications in the admin console. Then enter the Host address and the code in the macOS, Windows, Android or iOS client. You can also sign in with the admin password.
-   - **Web client:** enabled by default at `http://127.0.0.1:18081/web/`. The public prebuilt images do not include the web client bundle. Before first use, build the bundle as described in [`web/README.en.md`](web/README.en.md) and upload it on the Web client page of the admin console.
+   - **Native clients:** first get a client as described in [Getting the clients](#getting-the-clients). Create a 6-digit pairing code under Devices & notifications in the admin console. Then enter the Host address and the code in the macOS, Windows, Android or iOS client. You can also sign in with the admin password.
+   - **Web client:** enabled by default at `http://127.0.0.1:18081/web/`. The prebuilt images do not include the web client bundle. Before first use, build the bundle as described in [`web/README.en.md`](web/README.en.md) and upload it on the Web client page of the admin console.
 
 ### 3. Configure models
 
@@ -224,6 +238,90 @@ Open the Chat model page of the admin console (`/admin?view=model`), or the sett
 3. Set the default route. If needed, give individual Bots their own routes and fallbacks.
 
 Once saved, you can create Bots and start chatting.
+
+## Getting the clients
+
+This repository does not provide ready-made client installers. There are two ways to get a client: build it yourself, or get it from a Host you deploy yourself.
+
+### Option 1: Build it yourself
+
+Bring your own official client installer, then patch and sign it with the patch tools in this repository. The tools first check the input's size and SHA-256 against the pinned configuration and stop if it is not one of the official versions in the table. Run every command below from the repository root, replacing the paths with your own files.
+
+If you omit `--source` for the desktop clients or the web client, the tool fetches the pinned version from the official download address and verifies it just as strictly. `ROKBOT_DESKTOP_DOWNLOAD_BASE` points it at a mirror you host. Android and iOS always need an installer you supply.
+
+| Platform | Runs on | Input | Output |
+| --- | --- | --- | --- |
+| macOS | macOS, Node.js 22.12+ | Official 1.2.3 Apple Silicon `.dmg` or `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
+| Windows | Windows 10/11 x64, Node.js 22.12+ | Official 1.2.3 (or 0.71.2) x64 installer, `app-64.7z` or an installed original directory | `windows/output/` |
+| Web | Windows, macOS or Linux, Node.js 22.12+ | The same official installer as Windows | `web/output/RokBotLocal-web-1.2.3.zip` |
+| Android | Node.js 20+ | Official 1.26.0 (build 3212) `.xapk`, `.apks` or `.apk` | The APK given by `--output-apk` |
+| iOS | Python 3.9+ | An official IPA you decrypted yourself: 1.27.0 (29519), 1.26.0 (29388) or 1.16.0 (23152) | The new directory given by `--output` |
+
+#### macOS
+
+```bash
+node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
+```
+
+- Produces `mac/output.noindex/RokBot.app` and keeps a copy of the original in `mac/backup.noindex/RokBot.app`. The tool does not overwrite an existing output.
+- The app is ad-hoc signed by default. To control the Mac's GUI, add `--identity auto` to sign with a Developer ID Application or Apple Development certificate from your keychain.
+- `--verify-only` replays the patches in a temporary directory without producing a client. See [`mac/README.en.md`](mac/README.en.md).
+
+#### Windows
+
+```powershell
+node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe
+```
+
+- Produces, in `windows/output/`, the portable directory `RokBot Local/`, `RokBotLocal-1.2.3-x64-portable.zip`, the per-user installer `RokBotLocal-1.2.3-x64-Setup.exe` and the patch record `RokBotLocal-1.2.3-x64.patch.json`. Add `--no-installer` to build only the portable version.
+- If 1.2.3 does not work for you, use `--version 0.71.2 --output windows/output/0.71.2`; the version in the file names changes accordingly.
+- The patch removes the original signature, which no longer matches once the program is modified, so the generated program and installer are unsigned. See [`windows/README.en.md`](windows/README.en.md).
+
+#### Web client
+
+```bash
+node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe
+```
+
+- Produces `web/output/RokBotLocal-web-1.2.3.zip`, which you upload on the Web client page of the admin console. Alternatively, add `--upload <Host address>` to install it on the Host right after the build; the admin password is read from `ROKBOT_ADMIN_PASSWORD`, `--password-file` or the terminal.
+- If the 1.2.3 interface does not work for you, add `--version 0.71.2`. See [`web/README.en.md`](web/README.en.md).
+
+#### Android
+
+```bash
+node android/release/patch-android.mjs \
+  --input-apk /path/to/official-1.26.0.xapk \
+  --output-apk android/output/rokbot-android-patched.apk
+```
+
+- Produces a single 16 KB-aligned APK with v2/v3 signatures and writes `patch-report.json` next to it. Add `--force` to overwrite an existing output.
+- The signing key is kept in `~/.rokbot-local/android-signing.json` by default and is created on the first run; `--keystore` chooses another path. Later upgrades must use the same key, so back it up separately.
+- To publish upgrades through a Host, raise the version on every build with `--rokbot-build <n>` (1–99). See [`android/README.en.md`](android/README.en.md).
+
+#### iOS
+
+```bash
+python3 ios/release/patch-ios.py \
+  --input /path/to/decrypted.ipa \
+  --output ios/output/RokBot-Patched \
+  --bundle-id dev.rokbot.local
+```
+
+- `--output` must be a new directory that does not exist yet. It receives the unsigned `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `patch-report.json`, plus `extension-signing.json` when the extensions are kept.
+- Sign it with your own signing tool and certificate, then install it. A free Apple ID allows only 3 App IDs, which is not enough for the main app and its three extensions; add `--remove-extensions` to keep only the main app. See [`ios/README.en.md`](ios/README.en.md).
+
+### Option 2: Get it from your own Host
+
+The administrator of a Host can publish the installers they built to the devices on that Host:
+
+1. The administrator builds and signs the installers as in Option 1.
+2. On the Client updates page of the admin console, they choose a platform (Android, iOS, macOS or Windows), upload the installer and publish it. They can optionally pick an older release to generate a delta patch from.
+3. Paired clients check for and download updates from that Host:
+   - Android checks the download's size, SHA-256, package name and signing certificate, and the certificate must match the installed app.
+   - macOS and Windows receive delta patches, and their update manifests are signed with ECDSA P-256. By default the clients check the Host they are paired with. To pin the manifest signing key shown on the Client updates page into the client, build it with `--update-url <Host HTTPS address>/local/updates` and `--update-public-key-file <key file>`.
+   - iOS apps cannot replace themselves, so iOS installs through `itms-services` (HTTPS required), an AltStore / SideStore source, or by downloading the IPA and handing it to a signing tool.
+
+For the first install the client is not yet paired with the Host. How the installer reaches users is decided by, and is the responsibility of, the administrator of each Host. Publishing and API details are in [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md#5-publishing-signed-4-platform-releases--incremental-updates).
 
 ## Architecture
 
@@ -286,7 +384,7 @@ Yes. The Host image supports `linux/arm64`. The `box` desktop image is `linux/am
 
 **Why are there no client installers in the repository?**
 
-This repository does not contain or distribute original program files. The patch tools download the official installers on your machine, verify their hashes and patch them there. The resulting clients and web client bundles are not distributed. See the README in each platform directory for the steps.
+This repository distributes only the code and documentation this project wrote itself. It contains no original program files and offers no patched installers. You can bring your own official installer and build the client on your machine with the patch tools, or get it from the administrator of your own Host, who publishes it on the Client updates page. Both methods are described in [Getting the clients](#getting-the-clients), and the reasons in [Distribution & compliance](#distribution--compliance).
 
 **Where are API keys stored, and can they be read back?**
 
@@ -295,6 +393,14 @@ API keys are stored in `/data/model.env` on the Host data volume. The admin API 
 **How do I back up my data?**
 
 Data lives in three volumes: `host-data` (mounted at `/data`), `box-home` and `box-workspace`. With a `host/deploy.py` deployment, run `python3 host/deploy.py backup`. For recovery, see [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md#volume-recovery). Backups contain conversations and keys, so keep them safe. Do not run `docker compose down -v`, which deletes the volumes.
+
+## Distribution & compliance
+
+- This project does not distribute binaries of third-party clients. The repository contains only what this project wrote itself: the Host source, image build scripts, patch tools, build scripts and documentation. Users obtain the original installers themselves.
+- The patch tools are provided for personal study and self-hosting only. The noncommercial redistribution permitted by the [LICENSE](LICENSE) covers only this project's own code, not any part of the original programs.
+- When you use the original clients and the patches, comply with the original client's license terms and the applicable terms of service.
+- Do not distribute publicly the clients, web client bundles or images with a built-in bundle that you generate with the patch tools; use them only with your own Host. When installers are distributed through a Host, the administrator of that Host is responsible for the channel and for who receives them.
+- This section is not legal advice. Whether a particular use is permitted depends on the original client's license terms and the laws where you live.
 
 ## License
 

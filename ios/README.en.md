@@ -2,17 +2,16 @@
 
 [简体中文](README.md)
 
-Patch a decrypted Grok Bot `1.16.0` (`23152`) arm64 IPA. The app and all three extensions must be decrypted. Requires Python 3.9+. This repository does not provide any original or modified IPA; bring your own.
+Patch a decrypted Grok Bot arm64 IPA: `1.27.0` (`29519`), `1.26.0` (`29388`) or `1.16.0` (`23152`). The app and all three extensions must be decrypted. Requires Python 3.9+. This repository does not provide any original or modified IPA; bring your own.
 
 For the full deployment steps see the [deployment guide](../docs/AI-INSTALL.en.md#client-packages); for how it works see the [technical documentation](../docs/ARCHITECTURE.en.md#ios-client).
 
-## Version Pin Rationale (`1.16.0` / `23152`)
+## Supported versions
 
-Although newer versions (such as `1.26.0`) exist on the App Store, this patcher remains pinned to `1.16.0 (23152)`:
+The patch identifies its input by the version, build number and pinned digests of the IPA's `Info.plist` and binaries: `1.27.0 (29519)` is configured in `recipes/ios/manifest.json`, and `1.26.0 (29388)` and `1.16.0 (23152)` in `recipes/ios/<version>/manifest.json`. Other versions are rejected.
 
-- App Store binaries are FairPlay-encrypted and cannot be automatically fetched or decrypted.
-- `ios/recipes/ios/manifest.json` and `ios/patchers/ios/extensions.py` verify exact `1.16.0 (23152)` digests and offsets: `nativeTextSha256`, `hbcSha256` (`hbcVersion: 98`), extension `__text` digests, `Widgets.appex` arm64 branch offset, and the `.gbp.gz` Hermes bytepatches.
-- The injected `RokBotLocal.dylib` brings full protocol parity with newer Host builds (`clientDeviceId` deduplication, admin-password pairing, all 21 mobile connector RPCs, in-app model configuration, and Host update manifests).
+- App Store binaries are FairPlay-encrypted and cannot be fetched or decrypted automatically, so you must bring your own decrypted IPA.
+- For every version the tool checks the main executable's `__text` digest (`nativeTextSha256`), the Hermes bundle digest (`hbcSha256`) and the digest of the injected `RokBotLocal.dylib` before applying the `.gbp.gz` bytepatches.
 
 ## Use
 
@@ -23,7 +22,7 @@ python3 release/patch-ios.py \
   --bundle-id dev.rokbot.local
 ```
 
-Outputs `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `extension-signing.json`. Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code (or switch to **Admin Password** pairing).
+`--output` must be a new directory that does not exist yet. It receives the unsigned `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `patch-report.json`, plus `extension-signing.json` when the extensions are kept. This repository does not provide signed IPAs; use the generated IPA only on your own devices, or have your Host administrator publish it on the Client updates page. See [Getting the clients](../README.en.md#getting-the-clients). Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code (or switch to **Admin Password** pairing).
 
 Push notifications use APNs or Bark, configured in the Host console. Enable realtime voice in the app settings.
 
