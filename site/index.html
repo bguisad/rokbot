@@ -1,28 +1,22 @@
 <!doctype html>
 <!--
   SITE_URL placeholder: https://rokbot.cosfoc.com
-  Replace `https://rokbot.cosfoc.com` in:
-  - site/index.html (canonical, og:url, og:image, twitter:image, JSON-LD url)
-  - site/robots.txt
-  - site/sitemap.xml
-  - site/lang.js (comment reference)
-  - site/og.png (regenerate with final domain)
+  Replace https://rokbot.cosfoc.com in index.html, robots.txt, sitemap.xml, lang.js when finalized.
 -->
 <html lang="zh-CN" data-lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RokBot · 自托管 Bot Host 与多端原生客户端</title>
-<meta name="description" content="RokBot 是 Grok Bot 的第三方私有部署方案：Docker 自托管 Bot Host 与共享云电脑，自选模型与备用链，数据留在本地，支持 Android、iOS、macOS、Windows 和网页版。">
+<title>RokBot · 自托管 Bot Host、云电脑与多端原生客户端</title>
+<meta name="description" content="RokBot 是 Grok Bot 的私有部署方案：Docker 自托管 Bot Host 与云电脑实时接管，自选 OpenAI / Anthropic 兼容模型与备用链，数据留在本地，配套 Android、iOS、macOS、Windows 和网页客户端。">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#F5F5F4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0C0D10" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F8FAFC">
 <meta name="keywords" content="RokBot, Grok Bot, 自托管, 私有部署, AI 助手, Bot Host, Docker, VNC, OpenAI, Anthropic, Android, iOS, macOS, Windows, self-hosted AI assistant">
 <link rel="canonical" href="https://rokbot.cosfoc.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="RokBot">
-<meta property="og:title" content="RokBot · 自托管 Bot Host 与多端原生客户端">
-<meta property="og:description" content="Grok Bot 的第三方私有部署方案：自选模型，共享云电脑与实时接管，数据留在本地。Self-hosted Bot Host and native clients for macOS, Windows, iOS, Android, and Web.">
+<meta property="og:title" content="RokBot · 自托管 Bot Host、云电脑与多端原生客户端">
+<meta property="og:description" content="Grok Bot 的私有部署方案：自选模型与备用链，内置云电脑与实时接管，数据留在本地，覆盖 Android、iOS、macOS、Windows 与网页端。">
 <meta property="og:image" content="https://rokbot.cosfoc.com/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -31,574 +25,1225 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="RokBot · Self-hosted Bot Host &amp; Native Clients">
-<meta name="twitter:description" content="Third-party self-hosted deployment for Grok Bot. Bring your own models, keep your data local.">
+<meta name="twitter:title" content="RokBot · Self-Hosted Bot Host &amp; Native Clients">
+<meta name="twitter:description" content="Private self-hosted deployment for Grok Bot. Bring your own models, live VNC cloud desktop, keep your data local.">
 <meta name="twitter:image" content="https://rokbot.cosfoc.com/og.png">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RokBot","operatingSystem":"Linux (Docker), macOS, Windows, iOS, Android, Web","applicationCategory":"DeveloperApplication","url":"https://rokbot.cosfoc.com/","codeRepository":"https://github.com/hongfaqiu/rokbot","license":"https://github.com/hongfaqiu/rokbot/blob/main/LICENSE","description":"Third-party self-hosted deployment for Grok Bot with a Docker Bot Host, shared Linux execution desktop, bring-your-own models, and multi-platform native clients."}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RokBot","operatingSystem":"Linux (Docker), macOS, Windows, iOS, Android, Web","applicationCategory":"DeveloperApplication","url":"https://rokbot.cosfoc.com/","codeRepository":"https://github.com/hongfaqiu/rokbot","license":"https://github.com/hongfaqiu/rokbot/blob/main/LICENSE","description":"Private self-hosted deployment for Grok Bot with a Docker Bot Host, shared Linux cloud desktop with live VNC takeover, bring-your-own models with 8-tier fallback chains, and native clients for Android, iOS, macOS, Windows, and Web."}</script>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<script src="/theme.js?v=1"></script>
-<link rel="stylesheet" href="/style.css?v=1">
-<script src="/lang.js?v=1" defer></script>
-<script src="/site.js?v=1" defer></script>
+<script src="/theme.js?v=2"></script>
+<link rel="stylesheet" href="/style.css?v=2">
+<link rel="stylesheet" href="/demos.css?v=2">
+<script src="/lang.js?v=2" defer></script>
+<script src="/site.js?v=2" defer></script>
+<script src="/demos.js?v=2" defer></script>
 </head>
 <body>
-<header class="top" id="top">
-  <a class="brand" href="/"><img src="/img/icon.png" width="24" height="24" alt=""><span>RokBot</span><span class="muted"><span lang="zh">自托管</span><span lang="en">Self-hosted</span></span></a>
-  <nav>
-    <a href="#features"><span lang="zh">功能</span><span lang="en">Features</span></a>
-    <a href="#screens"><span lang="zh">界面</span><span lang="en">Screenshots</span></a>
-    <a href="#platforms"><span lang="zh">平台</span><span lang="en">Platforms</span></a>
-    <a href="#quickstart"><span lang="zh">部署</span><span lang="en">Quick Start</span></a>
-    <a href="#clients"><span lang="zh">客户端</span><span lang="en">Clients</span></a>
-    <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub</a>
-    <div class="theme" id="themeSeg" role="radiogroup" aria-label="外观 Appearance">
-      <button type="button" role="radio" data-theme-pref="system" aria-checked="true" title="跟随系统 · System"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" class="fill"/></svg></button>
-      <button type="button" role="radio" data-theme-pref="light" aria-checked="false" title="浅色 · Light"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg></button>
-      <button type="button" role="radio" data-theme-pref="dark" aria-checked="false" title="深色 · Dark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 10.1A5.6 5.6 0 0 1 5.9 2.8a5.6 5.6 0 1 0 7.3 7.3z"/></svg></button>
+
+<header class="site-header" id="top">
+  <div class="container header-inner">
+    <a class="brand" href="/">
+      <img src="/img/icon.png" width="28" height="28" alt="RokBot">
+      <span class="brand-name">RokBot</span>
+      <span class="brand-tag"><span lang="zh">私有自托管</span><span lang="en">Self-Hosted</span></span>
+    </a>
+    <nav class="primary-nav" aria-label="主导航 Main navigation">
+      <a href="#demos"><span lang="zh">交互演示</span><span lang="en">Live Demos</span></a>
+      <a href="#workflow"><span lang="zh">工作流</span><span lang="en">Workflow</span></a>
+      <a href="#gallery"><span lang="zh">界面画廊</span><span lang="en">Gallery</span></a>
+      <a href="#video"><span lang="zh">宣传片</span><span lang="en">Video</span></a>
+      <a href="#quickstart"><span lang="zh">部署</span><span lang="en">Quick Start</span></a>
+      <a href="#clients"><span lang="zh">客户端</span><span lang="en">Clients</span></a>
+      <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub ↗</a>
+    </nav>
+    <div class="header-actions">
+      <div class="theme-seg" id="themeSeg" role="radiogroup" aria-label="外观 Appearance">
+        <button type="button" role="radio" data-theme-pref="system" aria-checked="true" title="跟随系统 · System">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" class="svg-fill"/></svg>
+        </button>
+        <button type="button" role="radio" data-theme-pref="light" aria-checked="false" title="浅色 · Light">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
+        </button>
+        <button type="button" role="radio" data-theme-pref="dark" aria-checked="false" title="深色 · Dark">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 10.1A5.6 5.6 0 0 1 5.9 2.8a5.6 5.6 0 1 0 7.3 7.3z"/></svg>
+        </button>
+      </div>
+      <button class="lang-btn" id="langBtn" type="button" aria-label="Switch language">
+        <span lang="zh">EN</span><span lang="en">中文</span>
+      </button>
+      <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" aria-expanded="false" aria-controls="mobileDrawer" aria-label="打开导航菜单 Menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
     </div>
-    <button class="lang" id="langBtn" type="button" aria-label="Switch language"><span lang="zh">EN</span><span lang="en">中文</span></button>
-  </nav>
+  </div>
+  <div class="mobile-drawer" id="mobileDrawer">
+    <nav>
+      <a href="#demos"><span lang="zh">交互演示</span><span lang="en">Live Demos</span></a>
+      <a href="#workflow"><span lang="zh">工作流</span><span lang="en">Workflow</span></a>
+      <a href="#gallery"><span lang="zh">界面画廊</span><span lang="en">Gallery</span></a>
+      <a href="#video"><span lang="zh">宣传片</span><span lang="en">Video</span></a>
+      <a href="#platforms"><span lang="zh">支持平台</span><span lang="en">Platforms</span></a>
+      <a href="#quickstart"><span lang="zh">快速部署</span><span lang="en">Quick Start</span></a>
+      <a href="#clients"><span lang="zh">获取客户端</span><span lang="en">Get Clients</span></a>
+      <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
 </header>
 
 <main>
-<section class="hero">
-  <div class="hero-text">
-    <p class="hero-kicker">
-      <i class="dot" aria-hidden="true"></i>
-      <span lang="zh">RokBot · Grok Bot 的第三方私有部署方案</span>
-      <span lang="en">RokBot · Third-party self-hosted deployment for Grok Bot</span>
-    </p>
-    <h1>
-      <span lang="zh">自托管 Bot Host，<br>多端原生客户端。</span>
-      <span lang="en">Self-hosted Bot Host.<br>Native clients everywhere.</span>
-    </h1>
-    <p class="lead">
-      <span lang="zh">把 Agent 服务端（Host）和共享 Linux 执行桌面（<code>box</code>）用 Docker 部署在你自己的服务器上。自选 OpenAI 或 Anthropic 兼容模型，对话、文件与 API Key 全部留在本地，桌面、手机与网页端只连你自己的 Host。</span>
-      <span lang="en">Run the agent server (Host) and shared Linux desktop container (<code>box</code>) in Docker on your own machine. Bring your own OpenAI- or Anthropic-compatible models, keep conversations, files and API keys local, and connect macOS, Windows, iOS, Android and web clients only to your Host.</span>
-    </p>
-    <div class="cta">
-      <a class="panel" href="https://github.com/hongfaqiu/rokbot" rel="noopener">
-        <b><span lang="zh">查看 GitHub</span><span lang="en">View on GitHub</span></b>
-        <small><span lang="zh">hongfaqiu/rokbot · 源码、补丁工具与文档</span><span lang="en">hongfaqiu/rokbot · Source, patch tools &amp; docs</span></small>
-        <i class="led" aria-hidden="true"></i>
-      </a>
-      <a class="btn-secondary" href="#quickstart">
-        <span lang="zh">部署指南</span><span lang="en">Deploy guide</span>
-      </a>
+  <!-- ==================== HERO ==================== -->
+  <section class="hero-section" id="hero">
+    <div class="hero-bg" aria-hidden="true">
+      <div class="hero-orb hero-orb-1"></div>
+      <div class="hero-orb hero-orb-2"></div>
+      <div class="hero-grid-overlay"></div>
+      <canvas class="hero-canvas" id="heroCanvas"></canvas>
     </div>
-    <div class="hero-links">
-      <a href="#clients"><span lang="zh">获取客户端</span><span lang="en">Get the clients</span></a>
-      <span>·</span>
-      <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/ARCHITECTURE.md" rel="noopener"><span lang="zh">架构文档</span><span lang="en">Architecture</span></a>
-      <span>·</span>
-      <a href="#compliance"><span lang="zh">非商业许可与合规说明</span><span lang="en">License &amp; compliance</span></a>
-    </div>
-  </div>
 
-  <figure class="hero-media">
-    <div class="promo-box" id="promoBox" data-video="/media/rokbot-promo.mp4" data-poster="/img/promo-cover.webp">
-      <img src="/img/promo-cover.webp" width="1280" height="720" fetchpriority="high" alt="RokBot 产品介绍视频封面 / RokBot product video cover">
-      <button class="promo-play" id="promoPlay" type="button" aria-label="播放产品介绍视频 Play product video">
-        <span class="promo-play-btn">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8v10.4L13 8 4 2.8z"/></svg>
-          <span lang="zh">观看介绍视频</span><span lang="en">Watch overview</span>
-        </span>
-      </button>
-    </div>
-    <figcaption>
-      <span><span lang="zh">产品介绍视频（MP4，720p，约 80 秒）</span><span lang="en">Product video (MP4, 720p, ~80s; Chinese narration &amp; text)</span></span>
-      <a href="/media/rokbot-promo.mp4"><span lang="zh">直接打开视频</span><span lang="en">Direct video link</span></a>
-    </figcaption>
-  </figure>
-</section>
-
-<section id="features" class="features">
-  <h2><span lang="zh">核心功能</span><span lang="en">Core features</span></h2>
-  <p class="sub">
-    <span lang="zh">保留完整的 Agent 工具与多端体验，把模型接口、数据存储、网络接入和客户端更新全部收归你自己的服务器。</span>
-    <span lang="en">Keep the full agent workflow and multi-device experience while bringing model endpoints, data storage, networking, and client updates under your own server.</span>
-  </p>
-  <dl>
-    <div class="reveal">
-      <dt><span lang="zh">共享云电脑与实时接管</span><span lang="en">Shared Bot computer &amp; live takeover</span></dt>
-      <dd>
-        <span lang="zh">Host 自带一台所有 Bot 共用的 Linux 桌面执行容器（<code>box</code>），内置浏览器、终端与独立工作区卷；也可替换为远程 Linux 执行节点。客户端可随时打开实时 VNC 画面，用键鼠或触摸直接接管；Bot 也能经由客户端主动连接操作你的 Mac（命令与图形界面）或 Windows（本机命令），电脑无需开放端口。</span>
-        <span lang="en">The Host ships with a single Linux desktop execution container (<code>box</code>) shared by all Bots, with browser, terminal and dedicated home/workspace volumes — or swap in a remote Linux node. Open live VNC in any client to take over with mouse, keyboard or touch. Bots can also work on your Mac (shell + GUI) or Windows PC (local shell) over an outbound client connection with no open ports.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">多端接力与通知</span><span lang="en">Continuity across devices &amp; notifications</span></dt>
-      <dd>
-        <span lang="zh">对话和配置保存在 Host 上，所有客户端连接同一台 Host：电脑上布置的任务，在手机或浏览器里接着看和回复。会话按最后消息排序分组（待处理、未读、已读，Android 另有进行中）。通知支持 iOS（APNs / Bark）、Android（直连、ntfy、UnifiedPush、FCM、Webhook）及网页浏览器通知，可选每条回复或仅任务完成提醒。</span>
-        <span lang="en">Conversations and settings live on the Host so you can start on desktop and follow up on mobile or web. Chats group into Needs attention, Unread and Read (plus In progress on Android). Notifications work via APNs/Bark on iOS, persistent connection or ntfy/UnifiedPush/FCM/Webhook on Android, and browser alerts on web — on every reply or task completion only.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">自选模型与备用链</span><span lang="en">Bring your own models &amp; fallbacks</span></dt>
-      <dd>
-        <span lang="zh">兼容 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 三种格式。默认路由与单个 Bot 路由可分别指定模型、思考强度和最多 8 个备用模型：仅在主模型尚未输出内容且遇到 402/408/429/5xx 或网络错误时切换，避免重复输出与重复执行工具。亦可选配 JEV 智能路由（默认关闭）。</span>
-        <span lang="en">Connect OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages endpoints. Set default and per-Bot routes with reasoning effort and up to 8 fallbacks. Fallback switches only on 402, 408, 429, 5xx or network errors before output starts — never mid-stream — preventing duplicate output or tool calls. Optional JEV routing is off by default.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt>
-        <span lang="zh">图片与视频生成</span><span lang="en">Image &amp; video generation</span>
-        <span class="tag"><span lang="zh">需服务商 Key</span><span lang="en">Requires provider key</span></span>
-      </dt>
-      <dd>
-        <span lang="zh">在管理页「图片与视频」接入 OpenAI 兼容图片/视频接口、WaveSpeed 或自定义 HTTP JSON 接口。图片生成、视频生成、视频理解与视频审核可分别指定默认模型，生成结果直接作为附件返回对话。需要自行配置对应服务商的 API Key。</span>
-        <span lang="en">Connect OpenAI-compatible image/video APIs, WaveSpeed, or custom HTTP JSON endpoints from the admin console. Configure separate default models for image generation, video generation, video understanding and video review, with outputs returned directly as chat attachments. Requires your own provider API keys.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt>
-        <span lang="zh">语音对话</span><span lang="en">Voice</span>
-        <span class="tag"><span lang="zh">实时通话为实验功能</span><span lang="en">Real-time calls experimental</span></span>
-      </dt>
-      <dd>
-        <span lang="zh">语音识别支持 Fish Audio 或 OpenAI 兼容转写服务，Mac 也可使用本地模型。语音通话复用当前 Bot 的模型、上下文和工具，由你配置的识别与合成服务驱动。实时通话目前为实验功能。</span>
-        <span lang="en">Speech recognition supports Fish Audio or OpenAI-compatible transcription services, plus local models on Mac. Voice calls use the active Bot’s model, context and tools with your configured STT and TTS services. Real-time voice calls are currently experimental.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">定时任务</span><span lang="en">Scheduled tasks</span></dt>
-      <dd>
-        <span lang="zh">Host 内置本地 cron 计时器，按计划自动触发 Bot 的例行巡检或汇总任务，不依赖外部调度服务。同一任务同时只运行一次，错过的触发时间点会合并成一次补跑。</span>
-        <span lang="en">A built-in local cron scheduler inside the Host triggers Bot routines with no external scheduler required. Each routine runs at most once concurrently, and missed windows merge into a single catch-up run.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt>Webhook</dt>
-      <dd>
-        <span lang="zh">在管理页为指定 Bot 创建外部触发入口，配置任务模板、事件类型过滤与每分钟调用上限。请求使用 HMAC-SHA256 签名校验（±5 分钟时间窗），地址与密钥仅在创建时展示一次并支持重置，每次触发留存运行记录。</span>
-        <span lang="en">Create per-Bot HTTP triggers with task templates, event-type filters and per-minute rate limits. Requests are verified with HMAC-SHA256 signatures over a ±5-minute window; URLs and secrets are shown once at creation (and can be reset), with every delivery logged.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">自动审查与审批卡片</span><span lang="en">Auto-review &amp; approval cards</span></dt>
-      <dd>
-        <span lang="zh">Bot 执行 Shell 命令、MCP 调用、电脑操作、写入定时任务或启动子 Agent 等风险操作前，由你配置的模型按规则评估，并支持自定义允许与拦截规则。被拦截的操作以原生审批卡片呈现，默认 30 分钟过期（可通过 <code>ROKBOT_AUTO_REVIEW_APPROVAL_TTL_MS</code> 调整），在客户端设置中开启。</span>
-        <span lang="en">Before risky actions — shell commands, MCP calls, computer use, scheduled-task writes, or sub-agent launches — your configured model checks them against built-in and custom allow/block rules. Blocked actions appear as native approval cards (30-minute default expiry via <code>ROKBOT_AUTO_REVIEW_APPROVAL_TTL_MS</code>). Enabled in client settings.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">用量统计</span><span lang="en">Usage statistics</span></dt>
-      <dd>
-        <span lang="zh">按模型记录输入、输出、缓存读写与推理 Token。管理页「概览」和客户端设置内均提供今日（按小时）、近 7 天和近 30 天（按天）用量图表、模型占比、明细表以及缓存命中率。</span>
-        <span lang="en">Tracks input, output, cache read/write and reasoning tokens per model. Both the admin Overview and client settings chart hourly (today) and daily (7-day / 30-day) usage along with model share, breakdowns and cache hit rate.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">Docker 自托管与隐私</span><span lang="en">Docker self-hosting &amp; privacy</span></dt>
-      <dd>
-        <span lang="zh">一个脚本完成配置、拉取 GHCR 镜像（或源码构建 / 离线导入）与启动。Host 支持 <code>amd64</code> 与 <code>arm64</code>，<code>box</code> 为 <code>amd64</code>（ARM 主机需开启 binfmt/QEMU 或 Rosetta）。管理页（<code>18080</code>）和网页版（<code>18081</code>）默认仅监听 <code>127.0.0.1</code>；API Key 只写不读地存于 <code>/data/model.env</code>，全端遥测与错误上报均已关闭。</span>
-        <span lang="en">One script configures, pulls GHCR images (or builds from source / loads offline) and starts the stack. Host supports <code>amd64</code> and <code>arm64</code>; <code>box</code> is <code>amd64</code> (use binfmt/QEMU or Rosetta on ARM). Admin (<code>18080</code>) and Web (<code>18081</code>) bind <code>127.0.0.1</code> by default. API keys are write-only in <code>/data/model.env</code>, and telemetry is disabled across Host and clients.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">局域网与加密隧道</span><span lang="en">LAN &amp; encrypted tunnel</span></dt>
-      <dd>
-        <span lang="zh">无需云端账号，通过 5 分钟有效的 6 位一次性配对码或管理员密码接入。局域网可直接用 IP 连接，Android 客户端支持局域网 Host 扫描；外网访问可用内置的 Tailcat 加密组网（无需 Tailscale 账号），也支持 Tailscale、VPN 或 HTTPS 反向代理。</span>
-        <span lang="en">No cloud account needed: pair devices with a single-use 6-digit code (valid 5 minutes) or the admin password. Connect directly by LAN IP (with LAN host scanning on Android). For remote access, enable the built-in Tailcat encrypted tunnel (no Tailscale account required), or use Tailscale, VPN, or an HTTPS reverse proxy.</span>
-      </dd>
-    </div>
-    <div class="reveal">
-      <dt><span lang="zh">自托管客户端更新</span><span lang="en">Self-hosted client updates</span></dt>
-      <dd>
-        <span lang="zh">Host 管理员可在管理页「客户端更新」向自己 Host 上的已配对设备发布自行构建的各端安装包：Android 与桌面端支持增量补丁，桌面端更新清单采用 ECDSA P-256 签名校验，iOS 支持 <code>itms-services</code>（需 HTTPS）及 AltStore / SideStore 源。</span>
-        <span lang="en">Host administrators can publish self-built installers to paired devices from the admin console’s Client updates page: Android and desktop support delta patches, desktop update manifests are verified with ECDSA P-256 signatures, and iOS supports <code>itms-services</code> (HTTPS) and AltStore / SideStore sources.</span>
-      </dd>
-    </div>
-  </dl>
-</section>
-
-<section id="screens" class="screens">
-  <h2><span lang="zh">实际界面</span><span lang="en">Screenshots</span></h2>
-  <p class="sub">
-    <span lang="zh">优先展示 Android 原生客户端与桌面布局，点击任意截图可查看大图。</span>
-    <span lang="en">Native Android client and desktop layouts shown first. Click any screenshot to inspect full size.</span>
-  </p>
-
-  <div class="tabs" id="screenTabs" role="tablist" aria-label="截图分类 Screenshot categories">
-    <button class="tab" role="tab" type="button" data-tab="android" aria-selected="true" aria-controls="panel-android">
-      <span class="n num">01</span><span lang="zh">Android 原生客户端</span><span lang="en">Android native</span>
-    </button>
-    <button class="tab" role="tab" type="button" data-tab="desktop" aria-selected="false" aria-controls="panel-desktop" tabindex="-1">
-      <span class="n num">02</span><span lang="zh">桌面端与实时桌面</span><span lang="en">Desktop &amp; Live VNC</span>
-    </button>
-    <button class="tab" role="tab" type="button" data-tab="admin" aria-selected="false" aria-controls="panel-admin" tabindex="-1">
-      <span class="n num">03</span><span lang="zh">Host 管理页</span><span lang="en">Admin console</span>
-    </button>
-  </div>
-
-  <div id="panel-android" class="shots-android" role="tabpanel" data-screen-panel="android">
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-bot-list.webp" width="480" height="1066" loading="lazy" alt="Android 会话列表：待处理、进行中、未读、已读四组"></button>
-      <figcaption><span lang="zh">会话列表分组</span><span lang="en">Grouped chat list</span><small><span lang="zh">待处理 / 进行中 / 未读 / 已读</span><span lang="en">Needs attention / In progress / Unread / Read</span></small></figcaption>
-    </figure>
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-approval-card.webp" width="480" height="1066" loading="lazy" alt="Android 对话中的原生操作审批卡片"></button>
-      <figcaption><span lang="zh">审批卡片</span><span lang="en">Approval card</span><small><span lang="zh">高风险命令等待确认放行</span><span lang="en">Approve or deny risky actions</span></small></figcaption>
-    </figure>
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-question-card.webp" width="480" height="1066" loading="lazy" alt="Android 对话中的选项问题卡片"></button>
-      <figcaption><span lang="zh">问题卡片</span><span lang="en">Question card</span><small><span lang="zh">快捷选项确认后续操作</span><span lang="en">Multiple-choice confirmation in chat</span></small></figcaption>
-    </figure>
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-image-generation.webp" width="480" height="1066" loading="lazy" alt="设计助手把生成的 16:9 图片发回对话"></button>
-      <figcaption><span lang="zh">生成图片</span><span lang="en">Generated image</span><small><span lang="zh">生图结果作为附件发回对话</span><span lang="en">Generated media returned as attachment</span></small></figcaption>
-    </figure>
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-usage.webp" width="480" height="1066" loading="lazy" alt="用量页：今日 Token、请求数、缓存命中率和按小时图表"></button>
-      <figcaption><span lang="zh">用量统计</span><span lang="en">Usage statistics</span><small><span lang="zh">按小时与 7/30 天 Token 及缓存命中率</span><span lang="en">Hourly &amp; 7/30-day tokens and cache rate</span></small></figcaption>
-    </figure>
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-models.webp" width="480" height="1066" loading="lazy" alt="模型设置：模型服务和模型档案"></button>
-      <figcaption><span lang="zh">模型设置</span><span lang="en">Model settings</span><small><span lang="zh">客户端直接管理服务商与模型档案</span><span lang="en">Manage providers and model profiles</span></small></figcaption>
-    </figure>
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-pairing.webp" width="480" height="1066" loading="lazy" alt="连接页：Tailcat 开关、Host 地址、局域网扫描和六位配对码"></button>
-      <figcaption><span lang="zh">连接 Host</span><span lang="en">Connect to Host</span><small><span lang="zh">局域网扫描、Tailcat 与 6 位配对码</span><span lang="en">LAN scan, Tailcat &amp; 6-digit pairing</span></small></figcaption>
-    </figure>
-    <figure class="shot-card shot-phone reveal">
-      <button class="shot-btn" type="button"><img src="/img/android-bot-details.webp" width="480" height="1066" loading="lazy" alt="Bot 详情：例行任务、资料库、电脑和说明"></button>
-      <figcaption><span lang="zh">Bot 详情</span><span lang="en">Bot details</span><small><span lang="zh">例行任务、资料库、电脑与指令</span><span lang="en">Routines, library, computer &amp; instructions</span></small></figcaption>
-    </figure>
-  </div>
-
-  <div id="panel-desktop" class="shots-wide" role="tabpanel" data-screen-panel="desktop" hidden>
-    <figure class="shot-card">
-      <button class="shot-btn" type="button"><img src="/img/desktop-chat.webp" width="1280" height="800" loading="lazy" alt="桌面布局：会话按待处理、未读、已读分组，右侧是运维助手的巡检结果"></button>
-      <figcaption><span lang="zh">桌面端 · 会话列表与对话</span><span lang="en">Desktop · Chat list &amp; conversation</span><small><span lang="zh">macOS、Windows 客户端与网页版共用同一套桌面布局</span><span lang="en">Shared desktop layout across macOS, Windows and Web</span></small></figcaption>
-    </figure>
-    <figure class="shot-card">
-      <button class="shot-btn" type="button"><img src="/img/desktop-live-vnc.webp" width="1280" height="800" loading="lazy" alt="对话旁边显示 Bot 共享云电脑的实时 VNC 画面"></button>
-      <figcaption><span lang="zh">Bot 的电脑 · 实时 VNC 桌面</span><span lang="en">Bot’s computer · Live VNC view</span><small><span lang="zh">在对话侧边查看共享 Linux 桌面并随时接管操作</span><span lang="en">Watch the shared Linux desktop beside chat and take over anytime</span></small></figcaption>
-    </figure>
-  </div>
-
-  <div id="panel-admin" class="shots-wide" role="tabpanel" data-screen-panel="admin" hidden>
-    <figure class="shot-card">
-      <button class="shot-btn" type="button"><img src="/img/admin-overview.webp" width="1280" height="800" loading="lazy" alt="管理页概览：今日按小时、按模型的 Token 用量"></button>
-      <figcaption><span lang="zh">管理页 · 概览与用量</span><span lang="en">Admin console · Overview &amp; usage</span><small><span lang="zh">按小时与模型维度查看 Token 消耗与缓存命中率</span><span lang="en">Hourly token usage, model share and cache hit rate</span></small></figcaption>
-    </figure>
-    <figure class="shot-card">
-      <button class="shot-btn" type="button"><img src="/img/admin-models.webp" width="1280" height="800" loading="lazy" alt="管理页对话模型：模型服务、模型档案、默认路由和备用模型"></button>
-      <figcaption><span lang="zh">管理页 · 对话模型与备用链</span><span lang="en">Admin console · Models &amp; fallbacks</span><small><span lang="zh">配置多服务商、思考强度与自动降级顺序</span><span lang="en">Providers, profiles, default route and fallback chain</span></small></figcaption>
-    </figure>
-  </div>
-
-  <p class="screens-note">
-    <span lang="zh">截图来自加载演示数据的 RokBot Host 与原生客户端，不含真实账号。Android、桌面端、网页版与管理页均提供中英文界面。</span>
-    <span lang="en">Captured from a RokBot Host and native clients with demo data (no real accounts). Android, desktop, web and the admin console all support Chinese and English.</span>
-  </p>
-</section>
-
-<section id="platforms" class="platforms">
-  <h2><span lang="zh">支持平台</span><span lang="en">Supported platforms</span></h2>
-  <p class="sub">
-    <span lang="zh">覆盖五大客户端形态与 Docker 服务端。各端补丁严格校验仓库中锁定的官方基线版本。</span>
-    <span lang="en">Covers all five client platforms plus the Docker Host &amp; execution server. Patches strictly verify the official baseline versions pinned in the repository.</span>
-  </p>
-  <ul class="plat-list">
-    <li class="reveal">
-      <span class="plat-name">Android</span>
-      <span class="plat-form"><span lang="zh">原生 APK（arm64-v8a）</span><span lang="en">Native APK (arm64-v8a)</span></span>
-      <span class="plat-base num"><span lang="zh">基线 1.26.0 (3212)</span><span lang="en">Baseline 1.26.0 (3212)</span></span>
-      <span class="plat-how"><span lang="zh">自行构建 / 自建 Host 分发</span><span lang="en">Build yourself / From your Host</span></span>
-      <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener"><span lang="zh">说明 →</span><span lang="en">Guide →</span></a>
-    </li>
-    <li class="reveal">
-      <span class="plat-name">iOS</span>
-      <span class="plat-form"><span lang="zh">IPA（需自备解密原版 IPA）</span><span lang="en">IPA (bring decrypted official IPA)</span></span>
-      <span class="plat-base num"><span lang="zh">基线 1.27.0 / 1.26.0 / 1.16.0</span><span lang="en">Baseline 1.27.0 / 1.26.0 / 1.16.0</span></span>
-      <span class="plat-how"><span lang="zh">自行构建并签名 / 自建 Host 分发</span><span lang="en">Build &amp; sign / From your Host</span></span>
-      <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.md" rel="noopener"><span lang="zh">说明 →</span><span lang="en">Guide →</span></a>
-    </li>
-    <li class="reveal">
-      <span class="plat-name">macOS</span>
-      <span class="plat-form"><span lang="zh">Apple Silicon 原生桌面客户端</span><span lang="en">Apple Silicon desktop client</span></span>
-      <span class="plat-base num"><span lang="zh">基线 1.2.3</span><span lang="en">Baseline 1.2.3</span></span>
-      <span class="plat-how"><span lang="zh">自行构建 / 自建 Host 分发</span><span lang="en">Build yourself / From your Host</span></span>
-      <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener"><span lang="zh">说明 →</span><span lang="en">Guide →</span></a>
-    </li>
-    <li class="reveal">
-      <span class="plat-name">Windows</span>
-      <span class="plat-form"><span lang="zh">x64 安装版与便携版</span><span lang="en">x64 installer &amp; portable build</span></span>
-      <span class="plat-base num"><span lang="zh">基线 1.2.3（或 0.71.2）</span><span lang="en">Baseline 1.2.3 (or 0.71.2)</span></span>
-      <span class="plat-how"><span lang="zh">自行构建 / 自建 Host 分发</span><span lang="en">Build yourself / From your Host</span></span>
-      <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener"><span lang="zh">说明 →</span><span lang="en">Guide →</span></a>
-    </li>
-    <li class="reveal">
-      <span class="plat-name">Web</span>
-      <span class="plat-form"><span lang="zh">浏览器界面（由自己的 Host 托管）</span><span lang="en">Browser UI (served by your Host)</span></span>
-      <span class="plat-base num"><span lang="zh">界面取自 Win 1.2.3 / 0.71.2</span><span lang="en">UI from Win 1.2.3 / 0.71.2</span></span>
-      <span class="plat-how"><span lang="zh">自行构建界面包并上传到 Host</span><span lang="en">Build bundle &amp; upload to Host</span></span>
-      <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener"><span lang="zh">说明 →</span><span lang="en">Guide →</span></a>
-    </li>
-    <li class="reveal">
-      <span class="plat-name"><span lang="zh">Linux 服务端</span><span lang="en">Linux Server</span></span>
-      <span class="plat-form"><span lang="zh">Docker：<code>host</code>（amd64/arm64）与共享 <code>box</code>（amd64）</span><span lang="en">Docker: <code>host</code> (amd64/arm64) &amp; shared <code>box</code> (amd64)</span></span>
-      <span class="plat-base num"><span lang="zh">Host 基线 2bb5e41</span><span lang="en">Host baseline 2bb5e41</span></span>
-      <span class="plat-how"><span lang="zh">源码构建或 GHCR 预构建镜像</span><span lang="en">Build from source / GHCR images</span></span>
-      <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/host/README.md" rel="noopener"><span lang="zh">说明 →</span><span lang="en">Guide →</span></a>
-    </li>
-  </ul>
-</section>
-
-<section id="quickstart" class="quickstart">
-  <h2><span lang="zh">快速开始</span><span lang="en">Quick Start</span></h2>
-  <p class="sub">
-    <span lang="zh">准备一台装好 Docker（含 Compose v2）的 Linux 或 macOS 服务器，三步启动 Host 与共享执行容器。也可以把 <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener">AI 部署手册</a> 发给编程助手自动完成。</span>
-    <span lang="en">Start on any Linux or macOS server with Docker and Compose v2 in three steps — or hand the <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.en.md" rel="noopener">AI agent deployment runbook</a> to your coding assistant.</span>
-  </p>
-
-  <ol class="timeline">
-    <li class="reveal">
-      <div class="step-label">
-        <span class="t num">01</span>
-        <span class="step-title"><span lang="zh">部署 Host 与执行容器</span><span lang="en">Deploy Host &amp; box</span></span>
-      </div>
-      <div>
-        <p>
-          <span lang="zh">克隆仓库后运行安装脚本。<code>--local</code> 会直接使用仓库内的 Compose 与环境变量模板；若拉取 GHCR 预构建镜像，需先用具备 <code>read:packages</code> 权限的令牌登录 <code>ghcr.io</code>。</span>
-          <span lang="en">Clone the repository and run the install script. Passing <code>--local</code> uses the templates from the repo directly. If pulling prebuilt GHCR images, sign in to <code>ghcr.io</code> with a token that has <code>read:packages</code>.</span>
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <p class="kicker-pill">
+          <i class="pulse-dot" aria-hidden="true"></i>
+          <span lang="zh">RokBot · Grok Bot 私有自托管方案</span>
+          <span lang="en">RokBot · Private Self-Hosted Grok Bot</span>
         </p>
-        <div class="code-wrap">
-          <pre><code>gh repo clone hongfaqiu/rokbot rokbot-src
-# git clone https://github.com/hongfaqiu/rokbot.git rokbot-src
+        <h1>
+          <span lang="zh">你的私有 Bot 团队，<br><span class="grad-text">装在自己服务器里。</span></span>
+          <span lang="en">Your private Bot team.<br><span class="grad-text">On your own server.</span></span>
+        </h1>
+        <p class="hero-lead">
+          <span lang="zh">Docker 一键部署 Host 与 Linux 云电脑（<code>box</code>），自选 OpenAI 或 Anthropic 兼容模型与 8 级备用链。随时在手机和电脑上看 Bot 操作桌面、点审批卡片、多端接力，对话与 API Key 全部留在本地。</span>
+          <span lang="en">Deploy the Host and Linux execution desktop (<code>box</code>) in Docker on your own hardware. Plug in any OpenAI- or Anthropic-compatible model with 8-tier fallback chains, watch or take over live VNC, approve risky actions natively, and keep every chat and key local.</span>
+        </p>
+        <div class="hero-ctas">
+          <a class="btn-primary-panel" href="https://github.com/hongfaqiu/rokbot" rel="noopener">
+            <span class="btn-panel-main"><span lang="zh">前往 GitHub 仓库</span><span lang="en">View on GitHub</span></span>
+            <span class="btn-panel-sub mono">hongfaqiu/rokbot · Docker &amp; Patch Tools</span>
+            <i class="btn-led" aria-hidden="true"></i>
+          </a>
+          <a class="btn-outline" href="#quickstart">
+            <span lang="zh">快速开始 →</span>
+            <span lang="en">Quick Start →</span>
+          </a>
+          <a class="hero-jump" href="#demos">
+            <span lang="zh">体验交互演示 ↓</span>
+            <span lang="en">Try live demos ↓</span>
+          </a>
+        </div>
+        <div class="hero-platforms">
+          <span class="plat-chip"><i></i>Docker Host</span>
+          <span class="plat-chip"><i></i>Android</span>
+          <span class="plat-chip"><i></i>iOS</span>
+          <span class="plat-chip"><i></i>macOS</span>
+          <span class="plat-chip"><i></i>Windows</span>
+          <span class="plat-chip"><i></i>Web</span>
+        </div>
+      </div>
 
+      <div class="hero-visual">
+        <div class="hero-stage-stack" id="heroStack">
+          <div class="hero-desktop-frame">
+            <div class="win-bar">
+              <span class="win-dots"><i></i><i></i><i></i></span>
+              <span class="win-title mono">RokBot · Live VNC &amp; Sandbox</span>
+              <span class="win-badge">rokbot-box</span>
+            </div>
+            <img src="/img/desktop-live-vnc.webp" width="1400" height="875" fetchpriority="high" alt="RokBot 桌面客户端与 Bot 实时 VNC 云电脑画面">
+          </div>
+
+          <div class="hero-phone-frame">
+            <div class="phone-notch" aria-hidden="true"></div>
+            <img src="/img/android-bot-list.webp" width="540" height="1200" fetchpriority="high" alt="RokBot Android 原生客户端四组会话列表">
+          </div>
+
+          <div class="float-chip float-chip-1">
+            <i class="chip-dot is-cyan"></i>
+            <span class="mono">Host :18080 · Tailcat</span>
+          </div>
+          <div class="float-chip float-chip-2">
+            <i class="chip-dot is-amber"></i>
+            <span lang="zh">自动审查 · 审批卡片就绪</span>
+            <span lang="en">Auto-review · Approval ready</span>
+          </div>
+          <div class="float-chip float-chip-3">
+            <i class="chip-dot is-green"></i>
+            <span class="mono">Anthropic → OpenAI · 0ms</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== VERIFIABLE REAL METRICS ==================== -->
+  <div class="metrics-band">
+    <div class="container metrics-grid">
+      <div class="metric-card reveal">
+        <div class="metric-val mono"><span data-count-to="5">5</span></div>
+        <div class="metric-label"><span lang="zh">全端客户端形态</span><span lang="en">Client platforms</span></div>
+        <div class="metric-sub"><span lang="zh">Android · iOS · macOS · Windows · Web</span><span lang="en">Android · iOS · macOS · Windows · Web</span></div>
+      </div>
+      <div class="metric-card reveal">
+        <div class="metric-val mono"><span data-count-to="3">3</span></div>
+        <div class="metric-label"><span lang="zh">主流模型协议适配</span><span lang="en">Model API formats</span></div>
+        <div class="metric-sub"><span lang="zh">OpenAI Chat · Responses · Anthropic</span><span lang="en">OpenAI Chat · Responses · Anthropic</span></div>
+      </div>
+      <div class="metric-card reveal">
+        <div class="metric-val mono"><span data-count-to="8">8</span><span class="unit">×</span></div>
+        <div class="metric-label"><span lang="zh">单路由备用模型链</span><span lang="en">Fallbacks per route</span></div>
+        <div class="metric-sub"><span lang="zh">402/408/429/5xx 首字前无感切换</span><span lang="en">Pre-stream failover on 429/5xx</span></div>
+      </div>
+      <div class="metric-card reveal">
+        <div class="metric-val mono"><span data-count-to="149">149</span></div>
+        <div class="metric-label"><span lang="zh">仓库自动化测试文件</span><span lang="en">Automated test suites</span></div>
+        <div class="metric-sub"><span lang="zh">覆盖 Host、补丁器与 4 级 E2E 套件</span><span lang="en">Host, patchers &amp; 4-tier E2E suites</span></div>
+      </div>
+      <div class="metric-card reveal">
+        <div class="metric-val mono"><span data-count-to="0">0</span></div>
+        <div class="metric-label"><span lang="zh">遥测与云端账号依赖</span><span lang="en">Telemetry &amp; cloud accounts</span></div>
+        <div class="metric-sub"><span lang="zh">Key 只写不读存于本地 /data/model.env</span><span lang="en">Write-only keys in /data/model.env</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== INTERACTIVE PLAYGROUND (5 LIVE SIMULATIONS) ==================== -->
+  <section class="section demos-section" id="demos" aria-labelledby="demosHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">Interactive Playground</span>
+        <h2 id="demosHeading"><span lang="zh">不用装环境，直接在网页里点一遍</span><span lang="en">Try the real workflows right in your browser</span></h2>
+        <p>
+          <span lang="zh">用 HTML、CSS 与 JS 还原 RokBot 的核心交互。离开视口自动暂停，回到视口自动恢复；你随时可以点开任意按钮亲自操作。</span>
+          <span lang="en">Five live HTML/CSS/JS recreations of RokBot’s core workflows. Autoplay pauses offscreen and hands control straight to you the moment you click.</span>
+        </p>
+      </div>
+
+      <div class="demo-top-bar">
+        <div class="demo-tabs" id="demoTabs" role="tablist" aria-label="交互演示 Demos">
+          <button class="demo-tab" type="button" role="tab" data-demo-tab="android" aria-selected="true">
+            <span class="tab-num">01</span>
+            <span lang="zh">安卓四组列表</span><span lang="en">Android Bot List</span>
+          </button>
+          <button class="demo-tab" type="button" role="tab" data-demo-tab="chat" aria-selected="false" tabindex="-1">
+            <span class="tab-num">02</span>
+            <span lang="zh">对话 · 审批 · 生图</span><span lang="en">Chat · Approve · Image</span>
+          </button>
+          <button class="demo-tab" type="button" role="tab" data-demo-tab="vnc" aria-selected="false" tabindex="-1">
+            <span class="tab-num">03</span>
+            <span lang="zh">云电脑与接管</span><span lang="en">Cloud VNC Takeover</span>
+          </button>
+          <button class="demo-tab" type="button" role="tab" data-demo-tab="models" aria-selected="false" tabindex="-1">
+            <span class="tab-num">04</span>
+            <span lang="zh">模型备用链</span><span lang="en">Model Fallbacks</span>
+          </button>
+          <button class="demo-tab" type="button" role="tab" data-demo-tab="auto" aria-selected="false" tabindex="-1">
+            <span class="tab-num">05</span>
+            <span lang="zh">定时与 Webhook</span><span lang="en">Cron &amp; Webhooks</span>
+          </button>
+        </div>
+        <div class="demo-controls">
+          <button class="demo-status-pill" id="demoToggle" type="button" aria-pressed="false" hidden>
+            <i aria-hidden="true"></i>
+            <span id="demoToggleTxt">暂停演示</span>
+          </button>
+        </div>
+      </div>
+
+      <p class="demo-caption-bar" id="demoCaption" aria-live="polite"></p>
+
+      <div class="demo-stage" id="demoStage">
+        <!-- Animated Fake Pointer -->
+        <div class="demo-pointer" id="demoPointer" aria-hidden="true">
+          <svg viewBox="0 0 18 22"><path d="M1.5 1.5v16.5l4.4-4.1 2.9 6.2 2.8-1.2-2.8-6.1h6.1z"/></svg>
+        </div>
+
+        <!-- ===== DEMO 1: ANDROID 4-GROUP BOT LIST ===== -->
+        <div class="demo-pane is-active" data-demo-pane="android">
+          <div class="sim-android-layout">
+            <div class="sim-phone">
+              <div class="sim-phone-status">
+                <span>5:12</span>
+                <span>5G · 96%</span>
+              </div>
+              <div class="sim-phone-top">
+                <span class="sim-avatar-me">R</span>
+                <div class="sim-phone-actions">
+                  <span class="sim-circle-ico" aria-hidden="true">🔔<span class="sim-bell-badge" id="androidBellBadge">2</span></span>
+                  <span class="sim-circle-ico" aria-hidden="true">＋</span>
+                </div>
+              </div>
+              <div class="sim-bot-scroll" id="androidBotScroll"></div>
+              <div class="sim-phone-search">
+                <div class="sim-search-pill"><span>🔍</span><span lang="zh">搜索 Bot 或历史消息</span><span lang="en">Search Bots or chats</span></div>
+              </div>
+            </div>
+
+            <div class="sim-inspector">
+              <div class="sim-inspector-head">
+                <h3><span lang="zh">实时状态流与多端同步</span><span lang="en">Live State &amp; Multi-Device Sync</span></h3>
+                <div class="sim-action-row">
+                  <button class="sim-btn is-primary" id="androidSimEventBtn" type="button">
+                    <span lang="zh">模拟新状态 / 消息</span><span lang="en">Simulate Event</span>
+                  </button>
+                  <button class="sim-btn" id="androidResetBtn" type="button">
+                    <span lang="zh">重置</span><span lang="en">Reset</span>
+                  </button>
+                </div>
+              </div>
+              <div class="sim-preview-box">
+                <div class="sim-preview-top">
+                  <span class="bot-blob c-green" id="androidPreviewBlob"></span>
+                  <strong id="androidPreviewName">代码审查</strong>
+                  <span class="sim-group-tag g-pending" id="androidPreviewGroup">待处理</span>
+                </div>
+                <p id="androidPreviewMsg"></p>
+              </div>
+              <div>
+                <span class="sim-field-label"><span lang="zh">Host SSE 事件流 (/notifications/events)</span><span lang="en">Host SSE Event Stream (/notifications/events)</span></span>
+                <ul class="sim-event-feed" id="androidEventFeed"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== DEMO 2: CHAT STREAM + APPROVAL CARD + IMAGE GENERATION ===== -->
+        <div class="demo-pane" data-demo-pane="chat">
+          <div class="sim-chat-window">
+            <aside class="sim-chat-side">
+              <div class="sim-chat-side-title"><span lang="zh">当前会话</span><span lang="en">ACTIVE BOT</span></div>
+              <div class="sim-chat-thread">
+                <span class="bot-blob c-teal"></span>
+                <div>
+                  <strong><span lang="zh">发布与设计助手</span><span lang="en">Release &amp; Design</span></strong>
+                  <div class="mono"><small>claude-sonnet-4.6</small></div>
+                </div>
+              </div>
+              <div class="sim-chat-side-title"><span lang="zh">执行管线</span><span lang="en">PIPELINE</span></div>
+              <div class="sim-chat-steps" id="simChatSteps">
+                <div class="sim-step-item is-done"><i></i><span lang="zh">1. 接收指令</span><span lang="en">1. Prompt received</span></div>
+                <div class="sim-step-item is-done"><i></i><span lang="zh">2. 流式打字回复</span><span lang="en">2. Streaming reply</span></div>
+                <div class="sim-step-item is-now"><i></i><span lang="zh">3. 自动审查 → 审批卡片</span><span lang="en">3. Auto-review card</span></div>
+                <div class="sim-step-item"><i></i><span lang="zh">4. 调用生图工具</span><span lang="en">4. Generate 16:9 image</span></div>
+              </div>
+            </aside>
+            <div class="sim-chat-main">
+              <div class="sim-chat-header">
+                <span class="sim-chat-bot-pill">
+                  <span class="bot-blob c-teal"></span>
+                  <span lang="zh">发布与设计助手</span><span lang="en">Release &amp; Design Bot</span>
+                </span>
+                <button class="sim-btn" id="chatReplayBtn" type="button">
+                  <span lang="zh">↻ 重播完整流程</span><span lang="en">↻ Replay Flow</span>
+                </button>
+              </div>
+              <div class="sim-chat-body" id="simChatBody"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== DEMO 3: CLOUD COMPUTER LIVE VNC + TAKEOVER ===== -->
+        <div class="demo-pane" data-demo-pane="vnc">
+          <div class="sim-vnc-layout">
+            <div class="sim-vnc-side">
+              <span class="vnc-status-badge" id="vncModeBadge"><i></i><span>Bot 自主操作中</span></span>
+              <h3><span lang="zh">Bot 的共享云电脑</span><span lang="en">Bot’s Linux Cloud Desktop</span></h3>
+              <p><small><span lang="zh">运行于隔离 Docker 容器 <code>rokbot-box</code>。你可以随时点击「接管操作」接管键鼠，完成后交还给 Bot。</span><span lang="en">Runs inside isolated Docker container <code>rokbot-box</code>. Click Take over anytime to control terminal &amp; browser directly.</span></small></p>
+              <button class="sim-btn is-amber" id="vncTakeBtn" type="button">接管操作</button>
+              <ul class="vnc-log-list" id="vncLogList"></ul>
+            </div>
+
+            <div class="sim-vnc-monitor" id="simVncMonitor">
+              <div class="vnc-toolbar">
+                <div class="vnc-toolbar-left">
+                  <span class="win-dots"><i></i><i></i><i></i></span>
+                  <span class="mono">noVNC · rokbot-box (Debian 13 · 1280×800)</span>
+                </div>
+                <span class="mono">60 FPS · WS</span>
+              </div>
+              <div class="vnc-desktop">
+                <div class="vnc-topbar">
+                  <span>Activities · Terminal · Chromium</span>
+                  <span>rokbot-box · /workspace</span>
+                </div>
+
+                <div class="vnc-win-term">
+                  <div class="vnc-win-head"><i></i><i></i><i></i><span>box@rokbot:~/workspace</span></div>
+                  <div class="vnc-term-body" id="vncTermBody">
+                    <div class="t-cmd">box@rokbot:~/workspace$ ls -la</div>
+                    <div class="t-ok">metrics.csv  render_chart.py  report.html  .rokbot-skills/</div>
+                  </div>
+                  <div class="vnc-term-input-row">
+                    <span>$</span>
+                    <input class="vnc-term-input" id="vncTermInput" type="text" disabled placeholder="点击「接管操作」后可在此输入命令..." aria-label="Sandbox terminal command">
+                  </div>
+                </div>
+
+                <div class="vnc-win-browser">
+                  <div class="vnc-urlbar">
+                    <span>http://127.0.0.1:8080/report</span>
+                    <span>●</span>
+                  </div>
+                  <div class="vnc-browser-body">
+                    <strong><span lang="zh">每日巡检趋势图</span><span lang="en">Daily Ops Telemetry</span></strong>
+                    <div class="vnc-chart-bars" id="vncChartBars">
+                      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                    <button class="vnc-browser-btn" id="vncBrowserRefresh" type="button">
+                      <span lang="zh">↻ 刷新数据</span><span lang="en">↻ Refresh Data</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="vnc-dock" aria-hidden="true">
+                  <button type="button" tabindex="-1">&gt;_</button>
+                  <button type="button" tabindex="-1">🌐</button>
+                  <button type="button" tabindex="-1">📁</button>
+                </div>
+
+                <div class="vnc-bot-cursor" id="vncBotCursor" aria-hidden="true">
+                  <svg width="16" height="20" viewBox="0 0 18 22"><path d="M1.5 1.5v16.5l4.4-4.1 2.9 6.2 2.8-1.2-2.8-6.1h6.1z" fill="#38BDF8" stroke="#0F172A" stroke-width="1.5"/></svg>
+                  <span class="vnc-cursor-tag">RokBot</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== DEMO 4: MODEL ROUTING & 8-TIER FALLBACK ===== -->
+        <div class="demo-pane" data-demo-pane="models">
+          <div class="sim-model-layout">
+            <div class="sim-card">
+              <h3><span lang="zh">对话模型与思考强度</span><span lang="en">Primary Model &amp; Effort</span></h3>
+              <div>
+                <label class="sim-field-label" for="simModelSelect"><span lang="zh">选择主模型档案</span><span lang="en">Primary Model Profile</span></label>
+                <select class="sim-select" id="simModelSelect">
+                  <option value="claude">claude-sonnet-4.6 · Anthropic Messages</option>
+                  <option value="gpt5">gpt-5 · OpenAI Responses</option>
+                  <option value="deepseek">deepseek-v4 · OpenAI Chat</option>
+                </select>
+              </div>
+              <div>
+                <span class="sim-field-label"><span lang="zh">思考强度（Reasoning Effort）</span><span lang="en">Reasoning Effort</span></span>
+                <div class="effort-pills" id="simEffortPills">
+                  <button class="effort-pill" type="button" data-effort="low">low</button>
+                  <button class="effort-pill" type="button" data-effort="medium">medium</button>
+                  <button class="effort-pill is-on" type="button" data-effort="high">high</button>
+                  <button class="effort-pill" type="button" data-effort="max">max</button>
+                </div>
+              </div>
+              <div class="sim-action-row">
+                <button class="sim-btn is-primary" id="simTriggerFailBtn" type="button">
+                  <span lang="zh">⚡ 模拟 429 限流并切换备用</span><span lang="en">⚡ Simulate 429 Failover</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="sim-card">
+              <h3><span lang="zh">备用模型链（最多 8 级）</span><span lang="en">Fallback Chain (Up to 8)</span></h3>
+              <div class="fallback-chain" id="simFallbackChain">
+                <div class="chain-node">
+                  <span class="idx">P0</span>
+                  <span class="chain-name mono">claude-sonnet-4.6 (Anthropic)</span>
+                  <span class="chain-status">就绪</span>
+                </div>
+                <div class="chain-node">
+                  <span class="idx">F1</span>
+                  <span class="chain-name mono">gpt-5 (OpenAI Responses)</span>
+                  <span class="chain-status">就绪</span>
+                </div>
+                <div class="chain-node">
+                  <span class="idx">F2</span>
+                  <span class="chain-name mono">deepseek-v4 (OpenAI Chat)</span>
+                  <span class="chain-status">就绪</span>
+                </div>
+              </div>
+              <div class="sim-stream-box" id="simModelStream"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== DEMO 5: CRON TIMELINE & HMAC WEBHOOK ===== -->
+        <div class="demo-pane" data-demo-pane="auto">
+          <div class="sim-auto-layout">
+            <div class="sim-card">
+              <div class="cron-clock-row">
+                <h3><span lang="zh">Host 本地定时任务（Cron）</span><span lang="en">Built-in Local Cron Routines</span></h3>
+                <span class="cron-clock" id="simCronClock">07:40</span>
+              </div>
+              <div class="cron-bar-wrap"><div class="cron-bar-fill" id="simCronBar"></div></div>
+              <div class="cron-list" id="simCronList">
+                <div class="cron-row" data-at="480">
+                  <span class="c-time">08:00</span>
+                  <div><strong><span lang="zh">晨间简报 Bot</span><span lang="en">Morning Brief Bot</span></strong><span class="c-expr">0 8 * * 1-5 · single-flight</span></div>
+                  <span class="cron-pill">等待</span>
+                </div>
+                <div class="cron-row" data-at="840">
+                  <span class="c-time">14:00</span>
+                  <div><strong><span lang="zh">价格监控 Bot</span><span lang="en">Price Watch Bot</span></strong><span class="c-expr">0 14 * * * · catch-up merge</span></div>
+                  <span class="cron-pill">等待</span>
+                </div>
+                <div class="cron-row" data-at="1380">
+                  <span class="c-time">23:00</span>
+                  <div><strong><span lang="zh">NAS 运维巡检</span><span lang="en">NAS Ops Audit</span></strong><span class="c-expr">0 23 * * 0 · box sandbox</span></div>
+                  <span class="cron-pill">等待</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sim-card">
+              <div class="cron-clock-row">
+                <h3><span lang="zh">Webhook 安全触发</span><span lang="en">Signed Webhook Triggers</span></h3>
+                <button class="sim-btn is-primary" id="simWhFireBtn" type="button">
+                  <span lang="zh">发送测试 Webhook</span><span lang="en">Fire Webhook</span>
+                </button>
+              </div>
+              <ul class="wh-checks" id="simWhChecks">
+                <li><span>HMAC-SHA256 Signature</span><span class="wh-ok">✓</span></li>
+                <li><span>Timestamp Window (±5 min)</span><span class="wh-ok">✓</span></li>
+                <li><span>Event Filter &amp; Rate Limit</span><span class="wh-ok">✓</span></li>
+              </ul>
+              <ul class="wh-deliveries" id="simWhDeliveries">
+                <li><span>08:02 · github.release.published</span><span class="stream-ok">202 Accepted</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== STICKY FEATURE WALKTHROUGH ==================== -->
+  <section class="section" id="workflow" aria-labelledby="workflowHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">Architecture &amp; Workflow</span>
+        <h2 id="workflowHeading"><span lang="zh">从云电脑到手机端，每一步都掌握在自己手里</span><span lang="en">From cloud desktop to mobile, every step stays yours</span></h2>
+        <p>
+          <span lang="zh">滚动浏览左侧章节（或点击切换），右侧画面同步展示真实客户端与管理后台界面。</span>
+          <span lang="en">Scroll through each chapter on the left (or click any card) to follow along with real product views on the right.</span>
+        </p>
+      </div>
+
+      <div class="sticky-layout">
+        <div class="sticky-steps">
+          <article class="sticky-step is-active" data-step="1" aria-current="step">
+            <span class="step-num">01 / CLOUD DESKTOP</span>
+            <h3><span lang="zh">共享云电脑与实时接管</span><span lang="en">Shared Linux Desktop &amp; Live Takeover</span></h3>
+            <p>
+              <span lang="zh">Host 自带隔离的 Linux 桌面容器（<code>box</code>），内置浏览器、终端与独立工作区数据卷，也可替换为远程 Linux 节点。在客户端里随时打开实时 VNC 画面并接管键鼠，还能反向连接操作你自己的 Mac 或 Windows 电脑而无需开放端口。</span>
+              <span lang="en">Your Host includes an isolated Linux desktop container (<code>box</code>) with browser, terminal and persistent volumes — or attach a remote Linux node. Open live VNC anytime to take over, or let Bots work on your Mac/Windows PC over an outbound connection with no open ports.</span>
+            </p>
+            <ul class="step-bullets">
+              <li>noVNC Live View</li>
+              <li>box-home / box-workspace</li>
+              <li>Mac GUI + Shell</li>
+              <li>Windows Shell</li>
+            </ul>
+          </article>
+
+          <article class="sticky-step" data-step="2">
+            <span class="step-num">02 / MULTI-DEVICE</span>
+            <h3><span lang="zh">五端无缝接力与原生交互</span><span lang="en">Seamless Handoff &amp; Native Clients</span></h3>
+            <p>
+              <span lang="zh">所有对话与配置保存在 Host，电脑上发起的复杂任务，出门后在 Android、iOS 或网页端接着看进度、点选项问题卡片和审批卡片。通知覆盖 APNs、Bark、ntfy、UnifiedPush、FCM 与 Webhook。</span>
+              <span lang="en">Conversations and state live on your Host. Start a long task on desktop and follow up on Android, iOS, or Web with native question cards, approval cards, and grouped lists. Alerts deliver via APNs, Bark, ntfy, UnifiedPush, FCM, or Webhooks.</span>
+            </p>
+            <ul class="step-bullets">
+              <li>Android Native APK</li>
+              <li>iOS IPA</li>
+              <li>macOS / Windows</li>
+              <li>APNs · Bark · ntfy · FCM</li>
+            </ul>
+          </article>
+
+          <article class="sticky-step" data-step="3">
+            <span class="step-num">03 / BYO MODELS &amp; MEDIA</span>
+            <h3><span lang="zh">自选模型、生图生视频与语音</span><span lang="en">Bring Your Own Models, Media &amp; Voice</span></h3>
+            <p>
+              <span lang="zh">完整支持 OpenAI Chat、OpenAI Responses 与 Anthropic Messages 三种协议，可按 Bot 单独配置主模型、思考强度与最多 8 个备用模型。同时可在管理页接入图片生成、视频生成、语音识别与实时语音通话服务。</span>
+              <span lang="en">Connect OpenAI Chat, OpenAI Responses, or Anthropic Messages endpoints with per-Bot reasoning effort and up to 8 fallbacks. Plug in OpenAI-compatible or WaveSpeed media APIs plus Fish Audio / local Mac STT and voice calls.</span>
+            </p>
+            <ul class="step-bullets">
+              <li>Anthropic · OpenAI</li>
+              <li>WaveSpeed / HTTP JSON</li>
+              <li>Fish Audio / Local STT</li>
+              <li>8-Tier Fallback</li>
+            </ul>
+          </article>
+
+          <article class="sticky-step" data-step="4">
+            <span class="step-num">04 / SAFETY &amp; USAGE</span>
+            <h3><span lang="zh">自动审查与透明 Token 用量</span><span lang="en">Auto-Review &amp; Transparent Usage Ledger</span></h3>
+            <p>
+              <span lang="zh">Shell 命令、MCP 调用、电脑操作与子 Agent 启动前由你配置的模型自动审查，支持自定义允许/拦截规则。管理页概览与手机端内置按小时、7 天与 30 天用量图表、模型占比与缓存命中率统计。</span>
+              <span lang="en">Risky shell commands, MCP tools, computer actions, and sub-agents are evaluated by your chosen model against custom rules before running. Track hourly, 7-day, and 30-day input/output/cache/reasoning tokens in both Admin and mobile settings.</span>
+            </p>
+            <ul class="step-bullets">
+              <li>30m Approval TTL</li>
+              <li>Custom Allow/Block Rules</li>
+              <li>Cache Hit Rate</li>
+              <li>Per-Model Ledger</li>
+            </ul>
+          </article>
+
+          <article class="sticky-step" data-step="5">
+            <span class="step-num">05 / ZERO-TRUST NETWORK</span>
+            <h3><span lang="zh">零云账号、局域网扫描与 Tailcat 组网</span><span lang="en">No Cloud Account, LAN Scan &amp; Tailcat</span></h3>
+            <p>
+              <span lang="zh">无需注册第三方云账号，使用 5 分钟有效的 6 位一次性配对码或管理员密码接入设备。Android 原生支持局域网自动发现 Host；没有公网 IP 时开启内置 Tailcat 加密组网，无需 Tailscale 账号即可外网直连。</span>
+              <span lang="en">No cloud registration required. Pair devices via 5-minute 6-digit codes or admin password, discover LAN Hosts directly from Android, or turn on built-in Tailcat encrypted networking for remote access without a Tailscale account.</span>
+            </p>
+            <ul class="step-bullets">
+              <li>6-Digit Pairing</li>
+              <li>Android LAN Scan</li>
+              <li>Built-in Tailcat</li>
+              <li>Write-Only Keys</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="sticky-visual-col">
+          <div class="sticky-stage">
+            <!-- Slide 1 -->
+            <div class="sticky-slide is-active" data-slide="1">
+              <div class="browser-frame">
+                <div class="win-bar">
+                  <span class="win-dots"><i></i><i></i><i></i></span>
+                  <span class="win-title mono">RokBot Desktop · Live VNC</span>
+                </div>
+                <img src="/img/desktop-live-vnc.webp" width="1400" height="875" loading="lazy" alt="桌面端对话与 Bot 共享云电脑实时画面">
+              </div>
+              <div class="sticky-slide-caption">
+                <span><span lang="zh">右侧窗格实时预览 Linux 桌面，点击即可全屏接管</span><span lang="en">Live Linux desktop preview alongside chat — click to take over</span></span>
+                <span class="mono">rokbot-box</span>
+              </div>
+            </div>
+
+            <!-- Slide 2 -->
+            <div class="sticky-slide" data-slide="2">
+              <div class="dual-phones">
+                <div class="phone-bezel">
+                  <img src="/img/android-bot-list.webp" width="540" height="1200" loading="lazy" alt="Android 原生会话列表分组">
+                </div>
+                <div class="phone-bezel">
+                  <img src="/img/android-question-card.webp" width="540" height="1200" loading="lazy" alt="Android 对话中的原生选项问题卡片">
+                </div>
+              </div>
+              <div class="sticky-slide-caption">
+                <span><span lang="zh">Android 原生 React Native 界面：四组列表 + 原生问题卡片</span><span lang="en">Native Android UI: 4-group chat list + interactive question cards</span></span>
+                <span class="mono">arm64-v8a</span>
+              </div>
+            </div>
+
+            <!-- Slide 3 -->
+            <div class="sticky-slide" data-slide="3">
+              <div class="admin-stack">
+                <div class="browser-frame">
+                  <div class="win-bar">
+                    <span class="win-dots"><i></i><i></i><i></i></span>
+                    <span class="win-title mono">Host Admin · Models &amp; Fallback Routing</span>
+                  </div>
+                  <img src="/img/admin-models.webp" width="1400" height="875" loading="lazy" alt="管理页对话模型、服务商与备用链配置">
+                </div>
+                <div class="admin-mini-row">
+                  <div class="browser-frame">
+                    <img src="/img/admin-media.webp" width="1400" height="875" loading="lazy" alt="管理页图片与视频服务商配置">
+                  </div>
+                  <div class="browser-frame">
+                    <img src="/img/admin-voice.webp" width="1400" height="875" loading="lazy" alt="管理页语音识别与语音通话配置">
+                  </div>
+                </div>
+              </div>
+              <div class="sticky-slide-caption">
+                <span><span lang="zh">统一管理对话模型、生图生视频与语音服务</span><span lang="en">Unified console for chat models, media generation &amp; voice</span></span>
+                <span class="mono">/admin</span>
+              </div>
+            </div>
+
+            <!-- Slide 4 -->
+            <div class="sticky-slide" data-slide="4">
+              <div class="combo-stage">
+                <div class="browser-frame">
+                  <div class="win-bar">
+                    <span class="win-dots"><i></i><i></i><i></i></span>
+                    <span class="win-title mono">Host Admin · Overview &amp; Usage Ledger</span>
+                  </div>
+                  <img src="/img/admin-overview.webp" width="1400" height="875" loading="lazy" alt="管理页概览与按小时 Token 用量图表">
+                </div>
+                <div class="phone-bezel combo-phone">
+                  <img src="/img/android-usage.webp" width="540" height="1200" loading="lazy" alt="Android 客户端用量统计页面">
+                </div>
+              </div>
+              <div class="sticky-slide-caption">
+                <span><span lang="zh">管理后台与手机端同步展示按小时用量与缓存命中率</span><span lang="en">Hourly token usage &amp; cache hit rate synced across Admin and mobile</span></span>
+                <span class="mono">48% cache hit</span>
+              </div>
+            </div>
+
+            <!-- Slide 5 -->
+            <div class="sticky-slide" data-slide="5">
+              <div class="dual-phones">
+                <div class="phone-bezel">
+                  <img src="/img/android-pairing.webp" width="540" height="1200" loading="lazy" alt="Android 连接 Host 页面：Tailcat、局域网扫描与 6 位配对码">
+                </div>
+                <div class="phone-bezel">
+                  <img src="/img/android-connection.webp" width="540" height="1200" loading="lazy" alt="Android 连接与诊断页面">
+                </div>
+              </div>
+              <div class="sticky-slide-caption">
+                <span><span lang="zh">局域网扫描、6 位一次性配对码与内置 Tailcat 加密组网</span><span lang="en">LAN scan, 6-digit pairing &amp; built-in Tailcat encrypted tunnel</span></span>
+                <span class="mono">Zero Cloud</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== FULL GALLERY (ALL 18 NATIVE/DESKTOP/ADMIN SCREENSHOTS) ==================== -->
+  <section class="section" id="gallery" aria-labelledby="galleryHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">Real Native Screens</span>
+        <h2 id="galleryHeading"><span lang="zh">18 张真实原生界面，点开看高清大图</span><span lang="en">18 real native screenshots — click any to zoom</span></h2>
+        <p>
+          <span lang="zh">全部来自加载演示数据的 RokBot Host 与原生客户端（不含真实账号）。支持横向拖动或展开网格浏览，点击任意截图打开全屏灯箱。</span>
+          <span lang="en">Captured directly from a RokBot Host and native clients with demo data. Drag the phone carousel, toggle full grid, or click any frame for full-size inspection.</span>
+        </p>
+      </div>
+
+      <!-- Part A: ALL 12 Native Android Screenshots -->
+      <div class="gallery-subhead">
+        <h3>
+          <span lang="zh">Android 原生客户端</span><span lang="en">Android Native Client</span>
+          <span class="count-pill">12</span>
+        </h3>
+        <div class="gallery-controls">
+          <button class="icon-circle-btn" id="phonePrev" type="button" aria-label="向左滚动 Scroll left">←</button>
+          <button class="icon-circle-btn" id="phoneNext" type="button" aria-label="向右滚动 Scroll right">→</button>
+          <button class="pill-toggle" id="phoneGridToggle" type="button" aria-pressed="false">
+            <span lang="zh">切换网格平铺</span><span lang="en">Toggle Grid</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="phone-gallery-wrap">
+        <div class="phone-track" id="phoneTrack">
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-bot-list.webp" data-cap-zh="Android · 四组会话列表（待处理 / 进行中 / 未读 / 已读）" data-cap-en="Android · Grouped Bot List (Needs attention / In progress / Unread / Read)">
+              <img src="/img/android-bot-list.webp" width="540" height="1200" loading="lazy" alt="Android 原生会话列表：待处理、进行中、未读、已读四组">
+            </button>
+            <figcaption><span lang="zh">会话列表分组</span><span lang="en">Grouped chat list</span><small><span lang="zh">待处理 / 进行中 / 未读 / 已读</span><span lang="en">4 live status groups</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-approval-card.webp" data-cap-zh="Android · 高风险操作原生审批卡片" data-cap-en="Android · Native Action Approval Card">
+              <img src="/img/android-approval-card.webp" width="540" height="1200" loading="lazy" alt="Android 对话中的原生操作审批卡片">
+            </button>
+            <figcaption><span lang="zh">审批卡片</span><span lang="en">Approval card</span><small><span lang="zh">拦截高风险命令等待放行</span><span lang="en">Approve or deny commands</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-question-card.webp" data-cap-zh="Android · 对话中的多选项问题卡片" data-cap-en="Android · Multiple-Choice Question Card">
+              <img src="/img/android-question-card.webp" width="540" height="1200" loading="lazy" alt="Android 对话中的选项问题卡片">
+            </button>
+            <figcaption><span lang="zh">问题卡片</span><span lang="en">Question card</span><small><span lang="zh">快捷选项确认后续步骤</span><span lang="en">Quick-reply options in chat</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-image-generation.webp" data-cap-zh="Android · 设计助手生成 16:9 图片附件发回对话" data-cap-en="Android · Generated 16:9 Image Attachment in Chat">
+              <img src="/img/android-image-generation.webp" width="540" height="1200" loading="lazy" alt="Android 对话中生成的 16:9 海边日落图片">
+            </button>
+            <figcaption><span lang="zh">生成图片</span><span lang="en">Image generation</span><small><span lang="zh">16:9 结果直接回传对话</span><span lang="en">Generated media attachments</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-bot-details.webp" data-cap-zh="Android · Bot 详情页（例行任务、资料库、云电脑与说明）" data-cap-en="Android · Bot Details (Routines, Library, Computer &amp; Instructions)">
+              <img src="/img/android-bot-details.webp" width="540" height="1200" loading="lazy" alt="Android Bot 详情页：例行任务、资料库与电脑">
+            </button>
+            <figcaption><span lang="zh">Bot 详情</span><span lang="en">Bot details</span><small><span lang="zh">例行任务、资料库与电脑</span><span lang="en">Routines, library &amp; desktop</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-usage.webp" data-cap-zh="Android · Token 用量统计与缓存命中率" data-cap-en="Android · Token Usage &amp; Cache Hit Rate">
+              <img src="/img/android-usage.webp" width="540" height="1200" loading="lazy" alt="Android 用量统计页：按小时 Token 与缓存命中率">
+            </button>
+            <figcaption><span lang="zh">用量统计</span><span lang="en">Usage ledger</span><small><span lang="zh">今日 / 7 天 / 30 天图表</span><span lang="en">Hourly &amp; multi-day charts</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-models.webp" data-cap-zh="Android · 客户端模型服务与模型档案管理" data-cap-en="Android · Model Providers &amp; Profiles">
+              <img src="/img/android-models.webp" width="540" height="1200" loading="lazy" alt="Android 模型设置页：服务商与模型档案">
+            </button>
+            <figcaption><span lang="zh">模型设置</span><span lang="en">Model settings</span><small><span lang="zh">手机端直管模型档案</span><span lang="en">Providers &amp; model profiles</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-settings.webp" data-cap-zh="Android · 设置页（用量、时区、Bot 电脑与通知）" data-cap-en="Android · Settings (Usage, Timezone, Bot Computer &amp; Notifications)">
+              <img src="/img/android-settings.webp" width="540" height="1200" loading="lazy" alt="Android 设置页：用量、时区、Bot 电脑与通知">
+            </button>
+            <figcaption><span lang="zh">原生设置</span><span lang="en">Native settings</span><small><span lang="zh">通知、审查与电脑选项</span><span lang="en">Alerts, review &amp; computer</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-pairing.webp" data-cap-zh="Android · 连接 Host（Tailcat、局域网扫描与 6 位配对码）" data-cap-en="Android · Connect Host (Tailcat, LAN Scan &amp; 6-Digit Pairing)">
+              <img src="/img/android-pairing.webp" width="540" height="1200" loading="lazy" alt="Android 连接 Host 页面：局域网扫描与 6 位配对码">
+            </button>
+            <figcaption><span lang="zh">连接 Host</span><span lang="en">Host pairing</span><small><span lang="zh">局域网扫描与 6 位配对码</span><span lang="en">LAN scan &amp; 6-digit code</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-connection.webp" data-cap-zh="Android · 连接与诊断（当前 Host、历史记录与头像风格）" data-cap-en="Android · Connection &amp; Diagnostics">
+              <img src="/img/android-connection.webp" width="540" height="1200" loading="lazy" alt="Android 连接与诊断页面">
+            </button>
+            <figcaption><span lang="zh">连接与诊断</span><span lang="en">Connection log</span><small><span lang="zh">多 Host 切换与诊断</span><span lang="en">Host history &amp; diagnostics</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-share.webp" data-cap-zh="Android · 系统分享面板直接发给指定 Bot" data-cap-en="Android · Native System Share Sheet to Any Bot">
+              <img src="/img/android-share.webp" width="540" height="1200" loading="lazy" alt="Android 系统分享面板发送到指定 Bot">
+            </button>
+            <figcaption><span lang="zh">系统分享</span><span lang="en">System share</span><small><span lang="zh">任意应用内容直发 Bot</span><span lang="en">Share straight to a Bot</span></small></figcaption>
+          </figure>
+
+          <figure class="phone-card">
+            <button class="phone-card-btn" type="button" data-lightbox-src="/img/android-about.webp" data-cap-zh="Android · 应用版本与自建 Host 增量更新检查" data-cap-en="Android · App Version &amp; Self-Hosted Delta Updates">
+              <img src="/img/android-about.webp" width="540" height="1200" loading="lazy" alt="Android 关于与更新页面">
+            </button>
+            <figcaption><span lang="zh">关于与更新</span><span lang="en">About &amp; updates</span><small><span lang="zh">证书校验与 Host 增量更新</span><span lang="en">Verified delta updates</span></small></figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <!-- Part B: ALL 6 Desktop & Admin Console Screenshots -->
+      <div class="gallery-subhead">
+        <h3>
+          <span lang="zh">桌面客户端与 Host 管理后台</span><span lang="en">Desktop Client &amp; Host Admin Console</span>
+          <span class="count-pill">6</span>
+        </h3>
+        <div class="filter-pills" id="desktopFilters">
+          <button class="filter-pill is-active" type="button" data-filter="all"><span lang="zh">全部 6 张</span><span lang="en">All (6)</span></button>
+          <button class="filter-pill" type="button" data-filter="desktop"><span lang="zh">桌面端 (2)</span><span lang="en">Desktop (2)</span></button>
+          <button class="filter-pill" type="button" data-filter="admin"><span lang="zh">管理后台 (4)</span><span lang="en">Admin (4)</span></button>
+        </div>
+      </div>
+
+      <div class="desktop-grid" id="desktopGrid">
+        <figure class="desktop-card reveal" data-cat="desktop">
+          <button class="desktop-card-btn" type="button" data-lightbox-src="/img/desktop-chat.webp" data-cap-zh="桌面端 · 会话分组列表与运维巡检表格" data-cap-en="Desktop · Grouped Sidebar &amp; Structured Ops Table">
+            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title mono">RokBot Desktop · macOS / Windows</span></div>
+            <img src="/img/desktop-chat.webp" width="1400" height="875" loading="lazy" alt="RokBot 桌面端会话分组与运维助手巡检表格">
+          </button>
+          <figcaption><span><span lang="zh">桌面端 · 会话列表与对话</span><span lang="en">Desktop · Chats &amp; Tables</span></span><small>macOS · Windows · Web</small></figcaption>
+        </figure>
+
+        <figure class="desktop-card reveal" data-cat="desktop">
+          <button class="desktop-card-btn" type="button" data-lightbox-src="/img/desktop-live-vnc.webp" data-cap-zh="桌面端 · 对话旁实时显示 Bot 云电脑 VNC 画面" data-cap-en="Desktop · Live VNC Cloud Desktop Beside Chat">
+            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title mono">RokBot Desktop · Live VNC</span></div>
+            <img src="/img/desktop-live-vnc.webp" width="1400" height="875" loading="lazy" alt="RokBot 桌面端与 Bot 共享云电脑实时 VNC">
+          </button>
+          <figcaption><span><span lang="zh">Bot 的电脑 · 实时 VNC</span><span lang="en">Bot’s Computer · Live VNC</span></span><small>rokbot-box</small></figcaption>
+        </figure>
+
+        <figure class="desktop-card reveal" data-cat="admin">
+          <button class="desktop-card-btn" type="button" data-lightbox-src="/img/admin-overview.webp" data-cap-zh="Host 管理页 · 概览、活跃 Bot 与按小时 Token 用量" data-cap-en="Host Admin · Overview, Active Bots &amp; Hourly Token Usage">
+            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title mono">127.0.0.1:18080/admin</span></div>
+            <img src="/img/admin-overview.webp" width="1400" height="875" loading="lazy" alt="Host 管理页概览与按小时 Token 用量图">
+          </button>
+          <figcaption><span><span lang="zh">管理页 · 概览与用量</span><span lang="en">Admin · Overview &amp; Usage</span></span><small>:18080/admin</small></figcaption>
+        </figure>
+
+        <figure class="desktop-card reveal" data-cat="admin">
+          <button class="desktop-card-btn" type="button" data-lightbox-src="/img/admin-models.webp" data-cap-zh="Host 管理页 · 对话模型服务、档案与 8 级备用链" data-cap-en="Host Admin · Chat Models, Profiles &amp; Fallbacks">
+            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title mono">127.0.0.1:18080/admin?view=model</span></div>
+            <img src="/img/admin-models.webp" width="1400" height="875" loading="lazy" alt="Host 管理页对话模型与备用链">
+          </button>
+          <figcaption><span><span lang="zh">管理页 · 对话模型与路由</span><span lang="en">Admin · Models &amp; Routing</span></span><small>Chat · Responses · Anthropic</small></figcaption>
+        </figure>
+
+        <figure class="desktop-card reveal" data-cat="admin">
+          <button class="desktop-card-btn" type="button" data-lightbox-src="/img/admin-media.webp" data-cap-zh="Host 管理页 · 图片生成、视频生成与理解服务商配置" data-cap-en="Host Admin · Image &amp; Video Providers">
+            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title mono">127.0.0.1:18080/admin?view=media</span></div>
+            <img src="/img/admin-media.webp" width="1400" height="875" loading="lazy" alt="Host 管理页图片与视频生成配置">
+          </button>
+          <figcaption><span><span lang="zh">管理页 · 图片与视频生成</span><span lang="en">Admin · Image &amp; Video</span></span><small>OpenAI · WaveSpeed · HTTP</small></figcaption>
+        </figure>
+
+        <figure class="desktop-card reveal" data-cat="admin">
+          <button class="desktop-card-btn" type="button" data-lightbox-src="/img/admin-voice.webp" data-cap-zh="Host 管理页 · 语音识别（STT）与实时语音通话配置" data-cap-en="Host Admin · Speech Recognition &amp; Voice Call Settings">
+            <div class="win-bar"><span class="win-dots"><i></i><i></i><i></i></span><span class="win-title mono">127.0.0.1:18080/admin?view=voice</span></div>
+            <img src="/img/admin-voice.webp" width="1400" height="875" loading="lazy" alt="Host 管理页语音识别与语音通话配置">
+          </button>
+          <figcaption><span><span lang="zh">管理页 · 语音识别与通话</span><span lang="en">Admin · Voice &amp; STT/TTS</span></span><small>Fish Audio · OpenAI · Mac Local</small></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== PROMO VIDEO (CLICK-TO-LOAD MP4) ==================== -->
+  <section class="section" id="video" aria-labelledby="videoHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">Product Film</span>
+        <h2 id="videoHeading"><span lang="zh">80 秒完整演示宣传片</span><span lang="en">80-second product walkthrough</span></h2>
+        <p>
+          <span lang="zh">画面自动预览核心片段；点击播放按钮后才按需加载 720p MP4 视频流，不拖慢首屏加载速度。</span>
+          <span lang="en">Silently previews product highlights; the 720p MP4 only downloads when you press Play, keeping initial page load instant.</span>
+        </p>
+      </div>
+
+      <div class="video-stage reveal" id="videoStage" data-mp4="/media/rokbot-promo.mp4" data-poster="/img/video-poster.webp" data-teaser="/media/rokbot-promo-teaser.webp">
+        <img class="video-cover-img" id="videoCoverImg" src="/img/video-poster.webp" width="800" height="450" loading="lazy" alt="RokBot 产品宣传片动态预览">
+        <div class="video-overlay">
+          <button class="video-play-btn" id="videoPlayBtn" type="button" aria-label="播放 80 秒产品宣传片 Play 80s product video">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5L4 2.5z"/></svg>
+            <span lang="zh">播放完整宣传片（80 秒）</span>
+            <span lang="en">Play full video (80s)</span>
+          </button>
+          <span class="video-meta-badge">720p MP4 · 4.5 MB · <span lang="zh">点击后加载</span><span lang="en">Click to load</span></span>
+        </div>
+      </div>
+      <div class="video-foot">
+        <span><span lang="zh">包含云电脑实操、多端接力、生图、语音与模型路由演示（中文解说）。</span><span lang="en">Covers cloud desktop, multi-device handoff, image gen, voice &amp; routing (Chinese narration).</span></span>
+        <a href="/media/rokbot-promo.mp4"><span lang="zh">直接打开 MP4 ↗</span><span lang="en">Direct MP4 link ↗</span></a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== LIVE CAPABILITY TILES & PLATFORMS ==================== -->
+  <section class="section" id="platforms" aria-labelledby="platformsHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">Full Stack Capabilities</span>
+        <h2 id="platformsHeading"><span lang="zh">全栈能力与支持平台</span><span lang="en">Built-in capabilities &amp; supported platforms</span></h2>
+        <p>
+          <span lang="zh">覆盖五大客户端形态与双架构 Docker Host，所有补丁按仓库锁定清单逐字节哈希校验。</span>
+          <span lang="en">Covers five client platforms plus Docker Host &amp; execution desktop. Every patch verifies pinned baseline hashes strictly.</span>
+        </p>
+      </div>
+
+      <!-- 3 Strata-Style Animated Live Tiles -->
+      <div class="cap-tiles-grid" id="capTiles">
+        <div class="cap-tile reveal">
+          <div class="cap-tile-bar">
+            <span><span lang="zh">语音转写与实时通话</span><span lang="en">Voice STT &amp; Calls</span></span>
+            <span class="cap-live-dot"><i></i>24 kHz PCM</span>
+          </div>
+          <div class="cap-tile-body">
+            <div class="voice-bars" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <p class="cap-tile-desc">
+              <span lang="zh">支持 Fish Audio、OpenAI 兼容转写与 Mac 本地模型；实时通话（实验）复用当前 Bot 上下文与工具。</span>
+              <span lang="en">Fish Audio, OpenAI-compatible STT, or local Mac models. Experimental live voice calls reuse your Bot’s full context and tools.</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="cap-tile reveal">
+          <div class="cap-tile-bar">
+            <span><span lang="zh">生图 · 生视频 · 参考图修图</span><span lang="en">Image &amp; Video Gen</span></span>
+            <span class="cap-live-dot"><i></i>BYO Key</span>
+          </div>
+          <div class="cap-tile-body">
+            <div class="media-ratios">
+              <span class="ratio-chip is-on">16:9</span>
+              <span class="ratio-chip">1:1</span>
+              <span class="ratio-chip">9:16</span>
+            </div>
+            <p class="cap-tile-desc">
+              <span lang="zh">接入 OpenAI 兼容图片/视频接口、WaveSpeed 或自定义 HTTP JSON，生成结果直接作为对话附件返回。</span>
+              <span lang="en">Plug in OpenAI-compatible media APIs, WaveSpeed, or custom HTTP JSON endpoints with outputs returned directly in chat.</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="cap-tile reveal">
+          <div class="cap-tile-bar">
+            <span><span lang="zh">自托管客户端增量更新</span><span lang="en">Self-Hosted Delta Updates</span></span>
+            <span class="cap-live-dot"><i></i>ECDSA P-256</span>
+          </div>
+          <div class="cap-tile-body">
+            <ul class="sig-steps">
+              <li class="is-on"><span>SHA-256 &amp; Cert Match</span><span>✓</span></li>
+              <li class="is-on"><span>ECDSA P-256 Manifest</span><span>✓</span></li>
+              <li><span>Delta Patch / AltStore</span><span>✓</span></li>
+            </ul>
+            <p class="cap-tile-desc">
+              <span lang="zh">在管理页向自己 Host 的设备发布增量更新，Android 核验签名证书，iOS 支持 itms-services 与 AltStore。</span>
+              <span lang="en">Publish signed delta updates from your own Admin console; Android verifies certs, iOS supports itms-services &amp; AltStore.</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Supported Platforms Matrix -->
+      <div class="plat-table reveal">
+        <div class="plat-row">
+          <span class="plat-name">Android</span>
+          <span class="plat-form"><span lang="zh">原生 APK（arm64-v8a，16KB 对齐）</span><span lang="en">Native APK (arm64-v8a, 16KB aligned)</span></span>
+          <span class="plat-base mono">1.26.0 (build 3212)</span>
+          <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+        </div>
+        <div class="plat-row">
+          <span class="plat-name">iOS</span>
+          <span class="plat-form"><span lang="zh">IPA（自备解密原版 IPA + 自行签名）</span><span lang="en">IPA (bring decrypted IPA &amp; sign)</span></span>
+          <span class="plat-base mono">1.27.0 / 1.26.0 / 1.16.0</span>
+          <span class="plat-how"><span lang="zh">自行构建并签名 / Host 分发</span><span lang="en">Build &amp; sign / From your Host</span></span>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+        </div>
+        <div class="plat-row">
+          <span class="plat-name">macOS</span>
+          <span class="plat-form"><span lang="zh">Apple Silicon 原生桌面端（支持 GUI 控制）</span><span lang="en">Apple Silicon desktop (GUI + Shell)</span></span>
+          <span class="plat-base mono">1.2.3</span>
+          <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+        </div>
+        <div class="plat-row">
+          <span class="plat-name">Windows</span>
+          <span class="plat-form"><span lang="zh">x64 安装版与便携版（支持本机命令）</span><span lang="en">x64 installer &amp; portable (local shell)</span></span>
+          <span class="plat-base mono">1.2.3 / 0.71.2</span>
+          <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+        </div>
+        <div class="plat-row">
+          <span class="plat-name">Web</span>
+          <span class="plat-form"><span lang="zh">浏览器界面（由自己的 Host :18081 托管）</span><span lang="en">Browser UI (served by your Host :18081)</span></span>
+          <span class="plat-base mono">Win 1.2.3 / 0.71.2 UI</span>
+          <span class="plat-how"><span lang="zh">自行构建界面包并上传至 Host</span><span lang="en">Build UI bundle &amp; upload to Host</span></span>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+        </div>
+        <div class="plat-row">
+          <span class="plat-name"><span lang="zh">Linux 服务端</span><span lang="en">Linux Server</span></span>
+          <span class="plat-form"><span lang="zh">Docker：<code>host</code> (amd64/arm64) + <code>box</code> (amd64)</span><span lang="en">Docker: <code>host</code> (amd64/arm64) + <code>box</code> (amd64)</span></span>
+          <span class="plat-base mono">Host 2bb5e41</span>
+          <span class="plat-how"><span lang="zh">源码构建或 GHCR 预构建镜像</span><span lang="en">Build from source or GHCR images</span></span>
+          <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/host/README.md" rel="noopener"><span lang="zh">文档 →</span><span lang="en">Docs →</span></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== QUICK START ==================== -->
+  <section class="section" id="quickstart" aria-labelledby="qsHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">Quick Start</span>
+        <h2 id="qsHeading"><span lang="zh">三步部署你的私有 Host</span><span lang="en">Deploy your private Host in three steps</span></h2>
+        <p>
+          <span lang="zh">准备一台装好 Docker（含 Compose v2）的 Linux 或 macOS 服务器（建议 4 核 8 GB）。也可以直接把 <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener">AI 部署手册</a> 发给编程助手自动完成。</span>
+          <span lang="en">Requires any Linux or macOS machine with Docker &amp; Compose v2 (4C8G recommended), or hand the <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.en.md" rel="noopener">AI agent deployment guide</a> to your coding assistant.</span>
+        </p>
+      </div>
+
+      <ol class="timeline">
+        <li class="timeline-item reveal">
+          <div class="timeline-left">
+            <span class="step-tag">01</span>
+            <h3><span lang="zh">启动 Host 与云电脑容器</span><span lang="en">Launch Host &amp; box</span></h3>
+          </div>
+          <div class="timeline-right">
+            <p>
+              <span lang="zh">克隆仓库并在本地运行安装脚本（自动生成 <code>0600</code> 权限的 <code>.env</code> 随机密钥并启动 <code>host</code> 与 <code>box</code>）。支持 <code>--offline</code> 离线导入及 <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AI-INSTALL.md" rel="noopener">源码构建</a>。</span>
+              <span lang="en">Clone the repo and run the installer with <code>--local</code> to generate <code>.env</code> (mode 0600) with random secrets and start <code>host</code> &amp; <code>box</code>. Supports <code>--offline</code> and <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AI-INSTALL.en.md" rel="noopener">source builds</a>.</span>
+            </p>
+            <div class="code-wrap">
+              <pre><code>gh repo clone hongfaqiu/rokbot rokbot-src
 mkdir rokbot &amp;&amp; cd rokbot
 bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
-          <button class="copy-btn" type="button" aria-label="复制命令 Copy command"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
-        </div>
-        <p class="step-note">
-          <span lang="zh">脚本自动生成 <code>.env</code>（权限 0600）与随机密钥、拉取镜像、启动 <code>host</code> 与 <code>box</code> 容器并等待健康检查。离线部署可用 <code>--offline</code>，从源码构建详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AI-INSTALL.md" rel="noopener">docs/AI-INSTALL.md</a>。</span>
-          <span lang="en">The script creates <code>.env</code> (mode 0600) with random secrets, pulls images, starts <code>host</code> and <code>box</code>, and waits for health checks. Use <code>--offline</code> after <code>docker load</code>, or build from source via <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AI-INSTALL.en.md" rel="noopener">docs/AI-INSTALL.en.md</a>.</span>
-        </p>
-      </div>
-    </li>
+              <button class="copy-btn" type="button" aria-label="复制命令 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+            </div>
+          </div>
+        </li>
 
-    <li class="reveal">
-      <div class="step-label">
-        <span class="t num">02</span>
-        <span class="step-title"><span lang="zh">初始化并连接客户端</span><span lang="en">Initialize &amp; connect</span></span>
-      </div>
-      <div>
-        <p>
-          <span lang="zh">读取一次性初始化密钥，打开管理页 <code>http://127.0.0.1:18080/admin</code> 设置管理员密码（12–128 位）。随后在「设备与通知」生成 6 位配对码即可配对原生客户端，或上传网页版界面包后访问 <code>http://127.0.0.1:18081/web/</code>。</span>
-          <span lang="en">Read the one-time setup key, open <code>http://127.0.0.1:18080/admin</code>, and set an admin password (12–128 characters). Create a 6-digit pairing code under Devices &amp; notifications for native clients, or upload the web bundle to use <code>http://127.0.0.1:18081/web/</code>.</span>
-        </p>
-        <div class="code-wrap">
-          <pre><code>docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /data/setup-key</code></pre>
-          <button class="copy-btn" type="button" aria-label="复制命令 Copy command"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
-        </div>
-        <p class="step-note">
-          <span lang="zh">局域网访问请按需调整 <code>ROKBOT_LISTEN_ADDRESS</code>；无公网 IP 时可在管理页「远程访问」启用内置 Tailcat 加密组网。</span>
-          <span lang="en">Adjust <code>ROKBOT_LISTEN_ADDRESS</code> for LAN access, or turn on built-in Tailcat under Remote access when you don’t have a public IP.</span>
-        </p>
-      </div>
-    </li>
+        <li class="timeline-item reveal">
+          <div class="timeline-left">
+            <span class="step-tag">02</span>
+            <h3><span lang="zh">初始化管理密码与配对</span><span lang="en">Initialize &amp; pair</span></h3>
+          </div>
+          <div class="timeline-right">
+            <p>
+              <span lang="zh">读取一次性初始化密钥，打开管理页 <code>http://127.0.0.1:18080/admin</code> 设置管理员密码（12–128 位），并在「设备与通知」生成 6 位配对码连接客户端。</span>
+              <span lang="en">Read the one-time setup key, open <code>http://127.0.0.1:18080/admin</code> to set your admin password (12–128 chars), and generate a 6-digit pairing code for your clients.</span>
+            </p>
+            <div class="code-wrap">
+              <pre><code>docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /data/setup-key</code></pre>
+              <button class="copy-btn" type="button" aria-label="复制命令 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+            </div>
+          </div>
+        </li>
 
-    <li class="reveal">
-      <div class="step-label">
-        <span class="t num">03</span>
-        <span class="step-title"><span lang="zh">配置模型与路由</span><span lang="en">Configure models</span></span>
-      </div>
-      <div>
-        <p>
-          <span lang="zh">打开管理页「对话模型」（<code>/admin?view=model</code>）或用管理员密码配对的客户端设置：添加 OpenAI Chat、OpenAI Responses 或 Anthropic 模型服务并填入 Base URL 与 API Key，拉取模型列表、创建档案、测试连接并设置默认路由与备用链，保存后即可创建 Bot 开始对话。</span>
-          <span lang="en">Open Chat model in the admin console (<code>/admin?view=model</code>) or settings on an admin-paired client: add an OpenAI Chat, OpenAI Responses or Anthropic provider with your base URL and API key, fetch models, create profiles, test connections and set your default route and fallbacks. Save and start chatting.</span>
-        </p>
-      </div>
-    </li>
-  </ol>
-</section>
+        <li class="timeline-item reveal">
+          <div class="timeline-left">
+            <span class="step-tag">03</span>
+            <h3><span lang="zh">配置自选模型与备用链</span><span lang="en">Configure models</span></h3>
+          </div>
+          <div class="timeline-right">
+            <p>
+              <span lang="zh">在管理页「对话模型」（<code>/admin?view=model</code>）添加 OpenAI Chat、OpenAI Responses 或 Anthropic 服务商与 API Key，拉取模型列表、测试连接并设定主/备路由，即可创建 Bot 开始工作。</span>
+              <span lang="en">Open Chat Models (<code>/admin?view=model</code>), add your OpenAI Chat, OpenAI Responses, or Anthropic provider &amp; API key, test the connection, set your primary and fallback chain, and create your first Bot.</span>
+            </p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
 
-<section id="clients" class="clients">
-  <h2><span lang="zh">获取客户端</span><span lang="en">Getting the clients</span></h2>
-  <p class="notice-bar">
-    <span lang="zh">本官网和 GitHub 仓库<strong>不提供、不分发任何客户端安装包</strong>（APK / IPA / DMG / EXE）。各端客户端只有两种获取方式：用仓库里的补丁工具自行构建，或者从你自己部署的 Host 获取。</span>
-    <span lang="en">Neither this website nor the GitHub repository <strong>hosts or distributes any client installers</strong> (APK / IPA / DMG / EXE). There are only two ways to obtain clients: build them yourself with the patch tools, or get them from your own deployed Host.</span>
-  </p>
-
-  <div class="client-grid">
-    <div class="client-col reveal">
-      <h3><span class="num muted">01</span><span lang="zh">用补丁工具自行构建</span><span lang="en">Build yourself with patch tools</span></h3>
-      <p>
-        <span lang="zh">自备官方客户端安装包，在仓库根目录运行对应平台的补丁工具。工具会先按锁定配置校验文件大小和 SHA-256，只执行复制与新增字节，不反编译、不重写原版程序。桌面端和网页版省略 <code>--source</code> 时会按锁定配置拉取并校验官方包；Android 与 iOS 必须自备安装包。</span>
-        <span lang="en">Bring your own official installer and run the platform patch tool from the repository root. Tools verify size and SHA-256 against the pinned manifest and only copy/append bytes without decompiling or rewriting the binary. Desktop and web can fetch and verify pinned packages when <code>--source</code> is omitted; Android and iOS always require a package you supply.</span>
-      </p>
-
-      <div class="patch-tabs" id="patchTabs" role="tablist" aria-label="补丁命令平台 Patch tool platforms">
-        <button type="button" role="tab" data-tab="p-android" aria-selected="true">Android</button>
-        <button type="button" role="tab" data-tab="p-ios" aria-selected="false" tabindex="-1">iOS</button>
-        <button type="button" role="tab" data-tab="p-mac" aria-selected="false" tabindex="-1">macOS</button>
-        <button type="button" role="tab" data-tab="p-win" aria-selected="false" tabindex="-1">Windows</button>
-        <button type="button" role="tab" data-tab="p-web" aria-selected="false" tabindex="-1">Web</button>
+  <!-- ==================== GET CLIENTS (NO INSTALLER DOWNLOAD BUTTONS) ==================== -->
+  <section class="section" id="clients" aria-labelledby="clientsHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">Client Distribution</span>
+        <h2 id="clientsHeading"><span lang="zh">获取客户端</span><span lang="en">Getting the clients</span></h2>
       </div>
 
-      <div data-patch-panel="p-android">
-        <div class="code-wrap">
-          <pre><code>node android/release/patch-android.mjs \
+      <div class="notice-banner reveal">
+        <span lang="zh">本官网与 GitHub 仓库<strong>不提供任何客户端安装包下载</strong>（无 APK / IPA / DMG / EXE）。客户端只有两种获取方式：使用仓库内的补丁工具<strong>自行构建</strong>，或者<strong>从你自己部署的 Host 获取</strong>。</span>
+        <span lang="en">Neither this site nor the repository <strong>hosts or distributes client installers</strong> (no APK / IPA / DMG / EXE downloads). Obtain clients either by <strong>building them yourself</strong> with the patch tools, or <strong>directly from your own deployed Host</strong>.</span>
+      </div>
+
+      <div class="client-grid">
+        <div class="client-card reveal">
+          <h3><span class="mono">01</span><span lang="zh">使用补丁工具自行构建</span><span lang="en">Build yourself with patch tools</span></h3>
+          <p>
+            <span lang="zh">自备锁定的官方客户端安装包，在仓库根目录运行对应平台补丁脚本。工具会严格校验文件大小与 SHA-256，仅做字节复制与追加，不反编译、不重写原版程序。</span>
+            <span lang="en">Bring the pinned official installer and run the platform patcher from the repo root. Patchers verify size and SHA-256 strictly and apply copy/append-only patches without decompiling.</span>
+          </p>
+
+          <div class="patch-tabs" id="patchTabs" role="tablist" aria-label="补丁命令平台 Patch platforms">
+            <button type="button" role="tab" data-tab="p-android" aria-selected="true">Android</button>
+            <button type="button" role="tab" data-tab="p-ios" aria-selected="false" tabindex="-1">iOS</button>
+            <button type="button" role="tab" data-tab="p-mac" aria-selected="false" tabindex="-1">macOS</button>
+            <button type="button" role="tab" data-tab="p-win" aria-selected="false" tabindex="-1">Windows</button>
+            <button type="button" role="tab" data-tab="p-web" aria-selected="false" tabindex="-1">Web</button>
+          </div>
+
+          <div data-patch-panel="p-android">
+            <div class="code-wrap">
+              <pre><code>node android/release/patch-android.mjs \
   --input-apk /path/to/official-1.26.0.xapk \
   --output-apk android/output/rokbot-android-patched.apk</code></pre>
-          <button class="copy-btn" type="button" aria-label="复制命令 Copy command"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
-        </div>
-        <p class="patch-meta">
-          <span lang="zh">环境：Node.js 20+ · 输入：官方 1.26.0 (build 3212) 的 <code>.xapk/.apks/.apk</code> · 输出 16KB 对齐、v2/v3 签名 APK。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener">android/README.md</a>。</span>
-          <span lang="en">Requires Node.js 20+ · Input: official 1.26.0 (build 3212) <code>.xapk/.apks/.apk</code> · Outputs a 16 KB-aligned v2/v3-signed APK. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.en.md" rel="noopener">android/README.en.md</a>.</span>
-        </p>
-      </div>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+            </div>
+            <p><small><span lang="zh">Node.js 20+ · 输出 16KB 对齐、v2/v3 签名 APK。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener">android/README.md</a></span><span lang="en">Node.js 20+ · Outputs 16KB-aligned v2/v3 signed APK. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.en.md" rel="noopener">android/README.en.md</a></span></small></p>
+          </div>
 
-      <div data-patch-panel="p-ios" hidden>
-        <div class="code-wrap">
-          <pre><code>python3 ios/release/patch-ios.py \
+          <div data-patch-panel="p-ios" hidden>
+            <div class="code-wrap">
+              <pre><code>python3 ios/release/patch-ios.py \
   --input /path/to/decrypted.ipa \
   --output ios/output/RokBot-Patched \
   --bundle-id dev.rokbot.local</code></pre>
-          <button class="copy-btn" type="button" aria-label="复制命令 Copy command"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
-        </div>
-        <p class="patch-meta">
-          <span lang="zh">环境：Python 3.9+ · 输入：自备解密官方 IPA（1.27.0 / 1.26.0 / 1.16.0）· 输出未签名 IPA 后用你自己的证书签名安装。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.md" rel="noopener">ios/README.md</a>。</span>
-          <span lang="en">Requires Python 3.9+ · Input: your own decrypted official IPA (1.27.0 / 1.26.0 / 1.16.0) · Sign the output IPA with your own certificate. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.en.md" rel="noopener">ios/README.en.md</a>.</span>
-        </p>
-      </div>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+            </div>
+            <p><small><span lang="zh">Python 3.9+ · 输出未签名 IPA 后用你自己的证书签名安装。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.md" rel="noopener">ios/README.md</a></span><span lang="en">Python 3.9+ · Sign the output IPA with your own certificate. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/ios/README.en.md" rel="noopener">ios/README.en.md</a></span></small></p>
+          </div>
 
-      <div data-patch-panel="p-mac" hidden>
-        <div class="code-wrap">
-          <pre><code>node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"</code></pre>
-          <button class="copy-btn" type="button" aria-label="复制命令 Copy command"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
-        </div>
-        <p class="patch-meta">
-          <span lang="zh">环境：macOS + Node.js 22.12+ · 输入：官方 1.2.3 Apple Silicon <code>.dmg</code> 或 <code>.app</code> · 输出 <code>mac/output.noindex/RokBot.app</code>（控制本机 GUI 时加 <code>--identity auto</code>）。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener">mac/README.md</a>。</span>
-          <span lang="en">Requires macOS + Node.js 22.12+ · Input: official 1.2.3 Apple Silicon <code>.dmg</code> or <code>.app</code> · Outputs <code>mac/output.noindex/RokBot.app</code> (add <code>--identity auto</code> for Mac GUI control). See <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.en.md" rel="noopener">mac/README.en.md</a>.</span>
-        </p>
-      </div>
+          <div data-patch-panel="p-mac" hidden>
+            <div class="code-wrap">
+              <pre><code>node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"</code></pre>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+            </div>
+            <p><small><span lang="zh">macOS · Node.js 22.12+ · 生成 <code>mac/output.noindex/RokBot.app</code>。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener">mac/README.md</a></span><span lang="en">macOS · Node.js 22.12+ · Builds <code>mac/output.noindex/RokBot.app</code>. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.en.md" rel="noopener">mac/README.en.md</a></span></small></p>
+          </div>
 
-      <div data-patch-panel="p-win" hidden>
-        <div class="code-wrap">
-          <pre><code>node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe</code></pre>
-          <button class="copy-btn" type="button" aria-label="复制命令 Copy command"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
-        </div>
-        <p class="patch-meta">
-          <span lang="zh">环境：Windows 10/11 x64 + Node.js 22.12+ · 输入：官方 1.2.3（或 0.71.2）x64 安装包 · 输出到 <code>windows/output/</code>（含便携版与用户安装版）。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener">windows/README.md</a>。</span>
-          <span lang="en">Requires Windows 10/11 x64 + Node.js 22.12+ · Input: official 1.2.3 (or 0.71.2) x64 installer · Outputs portable and per-user builds in <code>windows/output/</code>. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.en.md" rel="noopener">windows/README.en.md</a>.</span>
-        </p>
-      </div>
+          <div data-patch-panel="p-win" hidden>
+            <div class="code-wrap">
+              <pre><code>node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe</code></pre>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+            </div>
+            <p><small><span lang="zh">Windows x64 · Node.js 22.12+ · 生成安装版与便携 ZIP。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener">windows/README.md</a></span><span lang="en">Windows x64 · Node.js 22.12+ · Builds installer &amp; portable ZIP. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.en.md" rel="noopener">windows/README.en.md</a></span></small></p>
+          </div>
 
-      <div data-patch-panel="p-web" hidden>
-        <div class="code-wrap">
-          <pre><code>node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe</code></pre>
-          <button class="copy-btn" type="button" aria-label="复制命令 Copy command"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+          <div data-patch-panel="p-web" hidden>
+            <div class="code-wrap">
+              <pre><code>node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe</code></pre>
+              <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
+            </div>
+            <p><small><span lang="zh">生成界面 ZIP 包后在 Host 管理页「网页版」上传，或加 <code>--upload &lt;Host&gt;</code> 直传。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener">web/README.md</a></span><span lang="en">Upload the generated UI bundle in Admin → Web, or pass <code>--upload &lt;Host&gt;</code>. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.en.md" rel="noopener">web/README.en.md</a></span></small></p>
+          </div>
         </div>
-        <p class="patch-meta">
-          <span lang="zh">环境：Windows/macOS/Linux + Node.js 22.12+ · 输出 <code>web/output/RokBotLocal-web-1.2.3.zip</code>，在管理页「网页版」上传，或加 <code>--upload &lt;Host 地址&gt;</code> 直接安装。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener">web/README.md</a>。</span>
-          <span lang="en">Requires Node.js 22.12+ on any OS · Outputs <code>web/output/RokBotLocal-web-1.2.3.zip</code> to upload on the Host’s Web client page (or pass <code>--upload &lt;Host URL&gt;</code>). See <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.en.md" rel="noopener">web/README.en.md</a>.</span>
-        </p>
+
+        <div class="client-card reveal">
+          <h3><span class="mono">02</span><span lang="zh">从你自己部署的 Host 获取</span><span lang="en">Get from your own deployed Host</span></h3>
+          <p>
+            <span lang="zh">Host 管理员可以把自行构建并签名的客户端上传到自己的服务器，直接向已配对设备分发和推送增量更新：</span>
+            <span lang="en">Host administrators can upload self-built, signed client packages to their own Host and distribute delta updates directly to paired devices:</span>
+          </p>
+          <ol class="host-steps">
+            <li><span lang="zh">管理员按左侧步骤构建并签名对应平台的客户端包。</span><span lang="en">Build and sign the client packages locally using the patch tools.</span></li>
+            <li><span lang="zh">在管理页「客户端更新」上传并发布，支持基于旧版本生成增量差分补丁。</span><span lang="en">Upload in Admin → Client updates and optionally generate delta patches from an older build.</span></li>
+            <li><span lang="zh">已配对的 Android 与桌面客户端自动从你的 Host 校验（SHA-256 / ECDSA P-256 / 证书一致）并升级；iOS 支持 <code>itms-services</code> 与 AltStore / SideStore 源。</span><span lang="en">Paired Android &amp; desktop clients verify SHA-256 / ECDSA P-256 / certs and update directly; iOS supports <code>itms-services</code> and AltStore / SideStore feeds.</span></li>
+          </ol>
+          <p><a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener"><span lang="zh">查看完整发布与分发手册 →</span><span lang="en">Read the full distribution guide →</span></a></p>
+        </div>
       </div>
     </div>
+  </section>
 
-    <div class="client-col reveal">
-      <h3><span class="num muted">02</span><span lang="zh">从自己部署的 Host 获取</span><span lang="en">Get from your own Host</span></h3>
-      <p>
-        <span lang="zh">Host 管理员可以把自行构建并签名的各端客户端发布到自己的 Host，供该 Host 下的设备安装与升级：</span>
-        <span lang="en">A Host administrator can publish the installers they built and signed to devices connected to that Host:</span>
-      </p>
-      <ol class="host-steps">
-        <li>
-          <span lang="zh">管理员按方式一在本机构建并签名所需平台的安装包。</span>
-          <span lang="en">Build and sign the installers locally using Option 1.</span>
-        </li>
-        <li>
-          <span lang="zh">在自己 Host 的管理页「客户端更新」选择平台（Android、iOS、macOS 或 Windows），上传并发布，可选基于旧版生成增量补丁。</span>
-          <span lang="en">On the Host admin console’s Client updates page, upload and publish for Android, iOS, macOS, or Windows (optionally generating delta patches).</span>
-        </li>
-        <li>
-          <span lang="zh">已配对设备直接从该 Host 检查更新：Android 核对大小、SHA-256、包名与签名证书；macOS 与 Windows 核验 ECDSA P-256 清单签名并支持增量补丁；iOS 通过 <code>itms-services</code>（需 HTTPS）、AltStore / SideStore 源或签名工具安装。</span>
-          <span lang="en">Paired devices update directly from that Host: Android verifies size, SHA-256, package name and signing cert; macOS &amp; Windows verify ECDSA P-256 manifests with delta patches; iOS installs via <code>itms-services</code> (HTTPS), AltStore / SideStore sources, or a signing tool.</span>
-        </li>
-      </ol>
-      <p class="patch-meta">
-        <span lang="zh">首次安装前客户端尚未与 Host 配对，分发途径和范围由各 Host 管理员自行决定并负责。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener">docs/AGENT_DEPLOY.md</a>。</span>
-        <span lang="en">For first-time installation before pairing, how installers reach users is decided by and is the responsibility of each Host’s administrator. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.en.md" rel="noopener">docs/AGENT_DEPLOY.en.md</a>.</span>
-      </p>
-    </div>
-  </div>
-</section>
+  <!-- ==================== FAQ & COMPLIANCE ==================== -->
+  <section class="section" id="compliance" aria-labelledby="faqHeading">
+    <div class="container">
+      <div class="section-head">
+        <span class="section-kicker">FAQ &amp; Compliance</span>
+        <h2 id="faqHeading"><span lang="zh">常见问题与合规说明</span><span lang="en">FAQ, License &amp; Compliance</span></h2>
+      </div>
 
-<section id="compliance" class="compliance">
-  <h2><span lang="zh">分发与合规说明、免责声明</span><span lang="en">Distribution, compliance &amp; disclaimer</span></h2>
-  <div class="compliance-grid">
-    <div class="compliance-block reveal">
-      <h3><span lang="zh">分发与合规说明</span><span lang="en">Distribution &amp; compliance</span></h3>
-      <ul>
-        <li>
-          <span lang="zh">本项目不分发任何第三方客户端二进制文件。仓库只包含本项目自己编写的 Host 源码、镜像构建脚本、补丁工具、构建脚本和文档；原版安装包需使用者自行取得。</span>
-          <span lang="en">This project does not distribute third-party client binaries. The repository contains only code and documentation written by this project (Host source, image scripts, patch tools and docs); users obtain official installers themselves.</span>
-        </li>
-        <li>
-          <span lang="zh">补丁工具仅供个人学习和自托管使用。许可证允许的非商业分发只适用于本项目自己的代码，不涵盖原版程序的任何内容。</span>
-          <span lang="en">The patch tools are provided for personal study and self-hosting only. Noncommercial redistribution under the license applies solely to this project’s own code, not any part of the original programs.</span>
-        </li>
-        <li>
-          <span lang="zh">使用原版客户端及补丁时请遵守原客户端的许可条款与相关服务条款。用补丁生成的客户端、网页版界面包及内置界面包的镜像只用于你自己的 Host，请勿公开传播。</span>
-          <span lang="en">Comply with the original client’s license and terms of service. Do not publicly redistribute patched clients, web bundles or images containing built-in bundles — use them only with your own Host.</span>
-        </li>
-        <li>
-          <span lang="zh">以上说明不构成法律意见，具体能否使用请以原客户端许可条款及你所在地区的法律为准。</span>
-          <span lang="en">This section is not legal advice; consult the original client’s license terms and local laws.</span>
-        </li>
-      </ul>
-    </div>
+      <div class="faq-grid">
+        <div class="faq-card reveal">
+          <h3><span lang="zh">没有公网 IP，如何在外面连接自己的 Host？</span><span lang="en">How do I connect remotely without a public IP?</span></h3>
+          <p><span lang="zh">在管理页「远程访问」开启内置的 Tailcat 加密组网（无需 Tailscale 账号），也可使用 Tailscale、VPN 或 HTTPS 反向代理。请勿将管理页端口直接裸露公网，详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/SECURITY.md" rel="noopener">SECURITY.md</a>。</span><span lang="en">Enable built-in Tailcat encrypted networking under Remote access (no Tailscale account required), or use Tailscale, VPN, or an HTTPS reverse proxy. Never expose the admin port directly to the public internet; see <a href="https://github.com/hongfaqiu/rokbot/blob/main/SECURITY.md" rel="noopener">SECURITY.md</a>.</span></p>
+        </div>
+        <div class="faq-card reveal">
+          <h3><span lang="zh">API Key 存在哪里？会被读出来吗？</span><span lang="en">Where are API keys stored?</span></h3>
+          <p><span lang="zh">全部保存在你自有服务器 Host 数据卷的 <code>/data/model.env</code> 中，采用只写不读策略。管理接口与各客户端只能看到「是否已设置」，永远不会回显明文 Key。</span><span lang="en">All keys are stored write-only inside your Host volume at <code>/data/model.env</code>. Neither the admin API nor any client can read plaintext keys back.</span></p>
+        </div>
+        <div class="faq-card reveal">
+          <h3><span lang="zh">ARM 服务器可以部署吗？</span><span lang="en">Can I deploy on an ARM server?</span></h3>
+          <p><span lang="zh">可以。Host 镜像原生支持 <code>linux/amd64</code> 与 <code>linux/arm64</code>；执行桌面 <code>box</code> 目前仅提供 <code>linux/amd64</code> 镜像，ARM 宿主机开启 binfmt/QEMU 或 Apple Silicon Rosetta 即可运行，或将 <code>box</code> 独立部署在 x86 节点上。</span><span lang="en">Yes. Host supports both <code>linux/amd64</code> and <code>linux/arm64</code>. The <code>box</code> desktop image is <code>linux/amd64</code> (runs via binfmt/QEMU or Rosetta, or deploy <code>box</code> on a separate x86 node).</span></p>
+        </div>
+        <div class="faq-card reveal">
+          <h3><span lang="zh">怎么备份与迁移数据？</span><span lang="en">How do I back up and restore data?</span></h3>
+          <p><span lang="zh">数据位于 <code>host-data</code>、<code>box-home</code> 与 <code>box-workspace</code> 三个 Docker 数据卷中，可使用 <code>python3 host/deploy.py backup</code> 打包备份。切勿运行 <code>docker compose down -v</code>，否则会清空数据卷。</span><span lang="en">All state lives in <code>host-data</code>, <code>box-home</code>, and <code>box-workspace</code> Docker volumes. Run <code>python3 host/deploy.py backup</code> to archive them, and avoid <code>docker compose down -v</code>.</span></p>
+        </div>
+      </div>
 
-    <div class="compliance-block reveal">
-      <h3><span lang="zh">免责声明</span><span lang="en">Disclaimer</span></h3>
-      <p>
-        <span lang="zh">RokBot 是独立的第三方开源项目，与 xAI、Grok Bot 及 Cursor / Anysphere 没有任何关联，也未获得其认可。Grok、Grok Bot 及相关名称和标志归各自的权利人所有。安全问题请按 <a href="https://github.com/hongfaqiu/rokbot/blob/main/SECURITY.md" rel="noopener">SECURITY.md</a> 私下报告。</span>
-        <span lang="en">RokBot is an independent third-party open-source project. It is not affiliated with or endorsed by xAI, Grok Bot, or Cursor / Anysphere. Grok, Grok Bot and related names and marks belong to their respective owners. Report security issues privately per <a href="https://github.com/hongfaqiu/rokbot/blob/main/SECURITY.md" rel="noopener">SECURITY.md</a>.</span>
-      </p>
-
-      <div class="disclaimer-box">
-        <h3><span lang="zh">许可证与致谢</span><span lang="en">License &amp; acknowledgments</span></h3>
-        <p>
-          <span lang="zh">RokBot 使用 <a href="https://github.com/hongfaqiu/rokbot/blob/main/LICENSE" rel="noopener">ProkBot Noncommercial License 1.0</a>。允许个人使用、自托管、学习、修改与非商业分发；禁止任何商业用途（出售、付费托管、商业集成、企业内部运营或广告变现）。完整条款以仓库 LICENSE 与 NOTICE 为准。</span>
-          <span lang="en">RokBot is licensed under <a href="https://github.com/hongfaqiu/rokbot/blob/main/LICENSE" rel="noopener">ProkBot Noncommercial License 1.0</a>. Personal use, self-hosting, study, modification and noncommercial redistribution are permitted; all commercial use is prohibited. See LICENSE and NOTICE for authoritative terms.</span>
-        </p>
-        <p>
-          <span lang="zh">基于 <a href="https://gitee.com/ahaduoduoduo/ProkBot" rel="noopener">ProkBot</a> 与 <a href="https://github.com/ferretgeek/prokbot-plus" rel="noopener">prokbot-plus</a> 开发，并受 <code>rakazo</code> 在自托管部署方面工作的启发。</span>
-          <span lang="en">Builds on <a href="https://gitee.com/ahaduoduoduo/ProkBot" rel="noopener">ProkBot</a> and <a href="https://github.com/ferretgeek/prokbot-plus" rel="noopener">prokbot-plus</a>, inspired by <code>rakazo</code>’s self-hosting work.</span>
-        </p>
+      <div class="compliance-box reveal">
+        <p><strong><span lang="zh">非商业许可：</span><span lang="en">License: </span></strong><span lang="zh">RokBot 采用 <a href="https://github.com/hongfaqiu/rokbot/blob/main/LICENSE" rel="noopener">ProkBot Noncommercial License 1.0</a>，允许个人使用、自托管、学习、修改和非商业分发，禁止任何商业用途。</span><span lang="en">RokBot is licensed under <a href="https://github.com/hongfaqiu/rokbot/blob/main/LICENSE" rel="noopener">ProkBot Noncommercial License 1.0</a> — personal self-hosting, study, and noncommercial distribution only; commercial use is prohibited.</span></p>
+        <p><strong><span lang="zh">免责声明：</span><span lang="en">Disclaimer: </span></strong><span lang="zh">RokBot 是独立的开源项目，与 xAI、Grok Bot 及 Cursor / Anysphere 没有任何关联，也未获得其认可。本仓库不包含也不分发任何第三方原版二进制文件或客户端安装包。</span><span lang="en">RokBot is an independent open-source project not affiliated with or endorsed by xAI, Grok Bot, or Cursor / Anysphere. This repository neither contains nor distributes third-party binaries or client installers.</span></p>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 </main>
 
-<footer>
-  <span>© 2026 RokBot · <a href="https://github.com/hongfaqiu/rokbot/blob/main/LICENSE" rel="noopener">ProkBot Noncommercial License 1.0</a></span>
-  <span>
-    <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub</a> ·
-    <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/ARCHITECTURE.md" rel="noopener"><span lang="zh">架构</span><span lang="en">Architecture</span></a> ·
-    <a href="https://github.com/hongfaqiu/rokbot/blob/main/SECURITY.md" rel="noopener"><span lang="zh">安全</span><span lang="en">Security</span></a> ·
-    <a href="https://github.com/hongfaqiu/rokbot/issues" rel="noopener"><span lang="zh">反馈</span><span lang="en">Issues</span></a>
-  </span>
-</footer>
-
-<dialog class="lightbox" id="lightbox" aria-label="截图预览 Screenshot preview">
-  <div class="lb-head">
-    <span id="lbCap"></span>
-    <div class="lb-actions">
-      <button type="button" id="lbPrev" aria-label="上一张 Previous">←</button>
-      <button type="button" id="lbNext" aria-label="下一张 Next">→</button>
-      <button type="button" id="lbClose" aria-label="关闭 Close"><span lang="zh">关闭</span><span lang="en">Close</span></button>
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <span>© 2026 RokBot · <span lang="zh">自托管私有部署方案</span><span lang="en">Private Self-Hosted Deployment</span></span>
+    <div class="footer-links">
+      <a href="https://github.com/hongfaqiu/rokbot" rel="noopener">GitHub</a>
+      <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/ARCHITECTURE.md" rel="noopener"><span lang="zh">架构文档</span><span lang="en">Architecture</span></a>
+      <a href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener"><span lang="zh">AI 部署手册</span><span lang="en">Agent Deploy</span></a>
+      <a href="https://github.com/hongfaqiu/rokbot/blob/main/SECURITY.md" rel="noopener"><span lang="zh">安全</span><span lang="en">Security</span></a>
+      <a href="https://github.com/hongfaqiu/rokbot/blob/main/LICENSE" rel="noopener">License</a>
     </div>
   </div>
-  <div class="lb-body">
-    <img id="lbImg" alt="">
+</footer>
+
+<!-- Fullscreen Lightbox Modal -->
+<div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="截图预览 Screenshot preview">
+  <button class="lightbox-close" id="lightboxClose" type="button" aria-label="关闭 Close">✕</button>
+  <button class="lightbox-nav lightbox-prev" id="lightboxPrev" type="button" aria-label="上一张 Previous">‹</button>
+  <div class="lightbox-inner">
+    <img class="lightbox-img" id="lightboxImg" src="/img/desktop-live-vnc.webp" alt="">
+    <div class="lightbox-bar">
+      <span id="lightboxCaption"></span>
+      <span class="mono" id="lightboxCounter">1 / 18</span>
+    </div>
   </div>
-</dialog>
+  <button class="lightbox-nav lightbox-next" id="lightboxNext" type="button" aria-label="下一张 Next">›</button>
+</div>
+
 </body>
 </html>
