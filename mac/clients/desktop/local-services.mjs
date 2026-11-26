@@ -15,8 +15,8 @@ export const auth = {
   freshness: 0,
 };
 export const theme = {
-  preference: "dark",
-  resolved: "dark",
+  preference: "system",
+  resolved: "light",
   systemAccentColor: null,
 };
 export const language = { preference: "en", resolved: "en" };

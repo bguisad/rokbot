@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 
-const defaults = { theme: 'dark', language: 'system', spellCheck: true, hardwareAcceleration: true, botColor: false, timeZone: null, realtimeVoice: false };
+const defaults = { theme: 'system', language: 'system', spellCheck: true, hardwareAcceleration: true, botColor: false, timeZone: null, realtimeVoice: false };
 export function loadSettings(profile) {
   try { return { ...defaults, ...JSON.parse(readFileSync(path.join(profile, 'settings.json'), 'utf8')) }; }
   catch { return { ...defaults }; }

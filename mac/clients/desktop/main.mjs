@@ -130,8 +130,10 @@ async function openExternal(value) {
 async function showConnection() {
   if (!app.isReady()) return;
   if (connectWindow && !connectWindow.isDestroyed()) { connectWindow.show(); connectWindow.focus(); return; }
+  nativeTheme.themeSource = ['dark', 'light', 'system'].includes(clientSettings.theme) ? clientSettings.theme : 'system';
+  const connectBg = nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff';
   connectWindow = new BrowserWindow({ width: 510, height: 550, resizable: false, maximizable: false,
-    title: localText('连接 RokBot', 'Connect RokBot'), backgroundColor: '#111111', ...connectWindowChrome(),
+    title: localText('连接 RokBot', 'Connect RokBot'), backgroundColor: connectBg, ...connectWindowChrome(),
     webPreferences: { preload: path.join(clientRoot, 'connect-preload.cjs'), sandbox: true, nodeIntegration: false, contextIsolation: true } });
   connectWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   connectWindow.webContents.on('will-navigate', event => event.preventDefault());
@@ -158,8 +160,8 @@ async function showWorkspace() {
   // The Host lists unnamed desktop clients as Macs; Windows reports itself once per session.
   if (isWindows) void gateway.request('/local/device', { kind: 'desktop', clientKind: 'windows', appVersion: app.getVersion() },
     AbortSignal.timeout(15000), 'PUT').catch(() => {});
-  // Apply the saved theme (dark by default) before the first paint; createSettings applies it again.
-  if (['dark', 'light', 'system'].includes(clientSettings.theme)) nativeTheme.themeSource = clientSettings.theme;
+  // Apply the saved theme (system by default) before the first paint; createSettings applies it again.
+  nativeTheme.themeSource = ['dark', 'light', 'system'].includes(clientSettings.theme) ? clientSettings.theme : 'system';
   const background = nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff';
   const win = new BrowserWindow({ width: 1200, height: 850, minWidth: 720, minHeight: 500,
     title: 'RokBot', backgroundColor: background, ...windowChrome(background),

@@ -17,6 +17,8 @@ import {
   verifyRokBotIcons,
 } from '../patchers/desktop/brand-assets.mjs';
 import { grokText, rokText, setLocaleSource } from '../clients/desktop/i18n.mjs';
+import { theme } from '../clients/desktop/local-services.mjs';
+import { loadSettings } from '../clients/desktop/settings.mjs';
 import {
   APP_USER_MODEL_ID,
   SHORTCUT_NAME,
@@ -216,4 +218,14 @@ test('arm64 Mac builds pass --pagesize 16384 when signing binaries and the app b
   assert.match(patcher, /const signPageSize = supported\.architecture === 'arm64' \? \['--pagesize', '16384'\] : \[\];/);
   const codesignCalls = patcher.match(/run\('codesign',[^\n]+\.\.\.signPageSize/g) ?? [];
   assert.equal(codesignCalls.length, 2);
+});
+
+test('desktop defaults theme to follow system and pairing window supports light mode', async () => {
+  const defaults = loadSettings(path.join(os.tmpdir(), `rokbot-missing-${Date.now()}`));
+  assert.equal(defaults.theme, 'system');
+  assert.equal(theme.preference, 'system');
+
+  const connectCss = await readFile(path.join(macRoot, 'clients/desktop/connect.css'), 'utf8');
+  assert.match(connectCss, /color-scheme:\s*light dark/);
+  assert.match(connectCss, /@media\s*\(prefers-color-scheme:\s*light\)/);
 });
