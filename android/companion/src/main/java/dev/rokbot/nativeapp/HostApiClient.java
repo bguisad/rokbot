@@ -373,6 +373,42 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    public static JSONObject createGroup(Context context, String name, String description, List<String> memberAgentIds) throws Exception {
+        JSONObject req = new JSONObject();
+        if (name != null && !name.trim().isEmpty()) {
+            req.put("name", name.trim());
+        }
+        if (description != null && !description.trim().isEmpty()) {
+            req.put("description", description.trim());
+        }
+        JSONArray members = new JSONArray();
+        if (memberAgentIds != null) {
+            for (String id : memberAgentIds) {
+                if (id != null && !id.trim().isEmpty()) {
+                    members.put(id.trim());
+                }
+            }
+        }
+        req.put("memberAgentIds", members);
+        HttpResult res = authedPost(context, "/api/createGroup", req);
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject getSuggestions(Context context, String agentId, String lastEntryId, String locale) throws Exception {
+        JSONObject req = new JSONObject();
+        if (agentId != null && !agentId.trim().isEmpty()) {
+            req.put("agentId", agentId.trim());
+        }
+        if (lastEntryId != null && !lastEntryId.trim().isEmpty()) {
+            req.put("lastEntryId", lastEntryId.trim());
+        }
+        if (locale != null && !locale.trim().isEmpty()) {
+            req.put("locale", locale.trim());
+        }
+        HttpResult res = authedRequest(context, "POST", "/local/suggestions", req, 7000, null);
+        return requireJsonObject(res);
+    }
+
     public static String uploadAttachmentChunked(Context context, String agentId, String filename,
                                                InputStream in, long totalSize, ProgressListener progress) throws Exception {
         String lower = filename != null ? filename.toLowerCase(Locale.US) : "";
