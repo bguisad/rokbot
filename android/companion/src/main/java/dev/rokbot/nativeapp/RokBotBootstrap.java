@@ -252,7 +252,13 @@ public class RokBotBootstrap {
 
     public static File ensureUnpairedBundleFile(Context context) {
         if (context == null || Storage.isPaired(context)) return null;
-        return HermesPatcher.ensureUnpairedBundleFile(context);
+        return withAssets(context, HermesPatcher.ensureUnpairedBundleFile(context));
+    }
+
+    /** React Native loads packaged images / SVGs / sounds from next to a file bundle (BundleAssets). */
+    private static File withAssets(Context context, File bundle) {
+        if (bundle != null && bundle.isFile()) BundleAssets.ensure(context, bundle.getParentFile());
+        return bundle;
     }
 
     public static synchronized void clearPairedBundle(Context context) {
@@ -269,6 +275,10 @@ public class RokBotBootstrap {
     }
 
     public static synchronized File ensurePairedBundleFile(Context context, boolean force) {
+        return withAssets(context, ensurePairedBundleFileOnly(context, force));
+    }
+
+    private static File ensurePairedBundleFileOnly(Context context, boolean force) {
         if (context == null || !Storage.isPaired(context)) return null;
         File dir = new File(context.getFilesDir(), "RokBotPaired");
         File pairedBundle = new File(dir, "index.android.bundle");

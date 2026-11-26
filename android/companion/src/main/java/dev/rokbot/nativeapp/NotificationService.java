@@ -377,6 +377,7 @@ public class NotificationService extends Service {
             : new Notification.Builder(context);
 
         applySmallIcon(context, builder);
+        applyBotLargeIcon(context, builder, agentId);
         builder.setContentTitle(title)
             .setContentText(body)
             .setStyle(new Notification.BigTextStyle().bigText(body))
@@ -410,6 +411,18 @@ public class NotificationService extends Service {
             NotificationManager nm = context.getSystemService(NotificationManager.class);
             if (nm != null) nm.notify(ID_EXPIRED, builder.build());
         } catch (SecurityException ignored) {}
+    }
+
+    /** The Bot's own avatar (RokBot avatar style, its shape and color) as the notification large icon. */
+    private static void applyBotLargeIcon(Context context, Notification.Builder builder, String agentId) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || agentId == null || agentId.isEmpty()) return;
+        try {
+            RokBotAvatars.Look look = RokBotAvatars.lookForAgent(context, agentId);
+            if (look == null) return;
+            int size = Math.max(96, context.getResources().getDimensionPixelSize(android.R.dimen.notification_large_icon_width));
+            Bitmap bmp = RokBotAvatars.render(context, look, size);
+            if (bmp != null) builder.setLargeIcon(Icon.createWithBitmap(bmp));
+        } catch (Throwable ignored) {}
     }
 
     private static volatile Object sCachedSmallIcon;
@@ -457,20 +470,11 @@ public class NotificationService extends Service {
         fillPaint.setColor(Color.WHITE);
         fillPaint.setStyle(Paint.Style.FILL);
 
-        // RokBot silhouette matching assets/logo/rokbot-logo.svg
-        Path head = new Path();
-        head.moveTo(340f * s, 148f * s);
-        head.cubicTo(408f * s, 148f * s, 476f * s, 144f * s, 540f * s, 144f * s);
-        head.cubicTo(618f * s, 144f * s, 664f * s, 60f * s, 756f * s, 56f * s);
-        head.cubicTo(836f * s, 52f * s, 892f * s, 104f * s, 884f * s, 176f * s);
-        head.cubicTo(878f * s, 214f * s, 932f * s, 272f * s, 956f * s, 368f * s);
-        head.cubicTo(964f * s, 464f * s, 960f * s, 564f * s, 948f * s, 656f * s);
-        head.cubicTo(928f * s, 816f * s, 820f * s, 924f * s, 636f * s, 944f * s);
-        head.cubicTo(532f * s, 956f * s, 424f * s, 960f * s, 324f * s, 952f * s);
-        head.cubicTo(156f * s, 938f * s, 76f * s, 836f * s, 68f * s, 668f * s);
-        head.cubicTo(62f * s, 548f * s, 64f * s, 424f * s, 72f * s, 336f * s);
-        head.cubicTo(84f * s, 200f * s, 184f * s, 148f * s, 340f * s, 148f * s);
-        head.close();
+        // RokBot silhouette of assets/logo/rokbot-logo.svg (RokBotLogo), eyes and status node cut out.
+        Path head = RokBotLogo.chassisPath();
+        android.graphics.Matrix toIcon = new android.graphics.Matrix();
+        toIcon.setScale(s, s);
+        head.transform(toIcon);
         canvas.drawPath(head, fillPaint);
 
         Paint clearPaint = new Paint(Paint.ANTI_ALIAS_FLAG);

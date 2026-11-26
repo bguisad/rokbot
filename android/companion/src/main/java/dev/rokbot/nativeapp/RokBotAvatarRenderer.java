@@ -85,7 +85,6 @@ final class RokBotAvatarRenderer {
         }
     }
 
-    private static final int MASK_DIM = 64;
     private static final Path PATH_BLOB = buildBlobPath();
     private static final Path PATH_CLOUD = buildCloudPath();
     private static final Path PATH_HEX = buildHexPath();
@@ -208,101 +207,178 @@ final class RokBotAvatarRenderer {
                 mixRgb(argb, 0xFF0F172A, 0.20f));
     }
 
-    /**
-     * Captures BOTH the dominant body color and the exact 64x64 solid silhouette mask mapped to
-     * the SVG's parent container bounds, preserving all 26 official Bot shapes accurately.
-     */
-    static SvgSample extractSvgSample(View svgView, int fallbackColor) {
-        if (svgView == null || svgView.getWidth() <= 0 || svgView.getHeight() <= 0) {
-            return new SvgSample(fallbackColor, null, 0);
-        }
-        int pw = (svgView.getParent() instanceof ViewGroup) ? ((ViewGroup) svgView.getParent()).getWidth() : svgView.getWidth();
-        int ph = (svgView.getParent() instanceof ViewGroup) ? ((ViewGroup) svgView.getParent()).getHeight() : svgView.getHeight();
-        if (pw <= 0 || ph <= 0) return new SvgSample(fallbackColor, null, 0);
+    /** Share of the selected picker cell (inside its outline ring) taken by the shape itself. */
+    static final float SELECTED_INNER_SCALE = 0.74f;
 
-        float prevAlpha = svgView.getAlpha();
+    /**
+     * Samples one official react-native-svg Bot mark: draws {@code svg} into an n x n bitmap over the
+     * square {@code box} region (box coordinates, cropped by {@code inset} on each side), then keeps the
+     * pixels of the dominant body color as an anti-aliased silhouette. Holes inside the silhouette
+     * (eye cut-outs, white eyes of the animated mark) are filled, so every theme gets the solid shape;
+     * the unselected picker ring and white eyes never count as body. Returns {@code previous} when the
+     * drawn pixels did not change.
+     */
+    static SvgSample sampleSvg(View svg, View box, float inset, int n, SvgSample previous) {
+        if (svg == null || box == null || n <= 0) return null;
+        int bw = box.getWidth();
+        int bh = box.getHeight();
+        if (bw <= 0 || bh <= 0 || svg.getWidth() <= 0 || svg.getHeight() <= 0) return null;
+        float dx = 0f, dy = 0f;
+        View cur = svg;
+        while (cur != null && cur != box) {
+            dx += cur.getLeft();
+            dy += cur.getTop();
+            if (!(cur.getParent() instanceof View)) return null;
+            cur = (View) cur.getParent();
+        }
+        if (cur != box) return null;
+        float rl = bw * inset, rt = bh * inset;
+        float rw = bw * (1f - 2f * inset), rh = bh * (1f - 2f * inset);
         Bitmap raw = null;
         try {
-            raw = Bitmap.createBitmap(MASK_DIM, MASK_DIM, Bitmap.Config.ARGB_8888);
+            raw = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(raw);
-            float sx = MASK_DIM / (float) pw;
-            float sy = MASK_DIM / (float) ph;
-            c.save();
-            c.translate(svgView.getLeft() * sx, svgView.getTop() * sy);
-            c.scale(sx, sy);
-            if (prevAlpha < 0.99f) svgView.setAlpha(1f);
-            svgView.draw(c);
-            c.restore();
-
-            int[] pixels = new int[MASK_DIM * MASK_DIM];
-            raw.getPixels(pixels, 0, MASK_DIM, 0, 0, MASK_DIM, MASK_DIM);
-
-            long sumR = 0, sumG = 0, sumB = 0;
-            int colorCount = 0;
-            int maskCount = 0;
-            int bestSatPixel = fallbackColor;
-            int bestScore = -1;
-            int sig = 17;
-
-            int[] maskPixels = new int[MASK_DIM * MASK_DIM];
-            for (int i = 0; i < pixels.length; i++) {
-                int px = pixels[i];
-                int a = Color.alpha(px);
-                if (a >= 96) {
-                    maskPixels[i] = 0xFFFFFFFF;
-                    maskCount++;
-                } else {
-                    maskPixels[i] = 0;
-                }
-                if ((i & 31) == 0) sig = sig * 31 + (a >= 96 ? (px | 0xFF000000) : 0);
-                if (a < 180) continue;
-                int r = Color.red(px);
-                int g = Color.green(px);
-                int b = Color.blue(px);
-                if (r > 236 && g > 236 && b > 236) continue;
-                int maxC = Math.max(r, Math.max(g, b));
-                int minC = Math.min(r, Math.min(g, b));
-                int sat = maxC - minC;
-                sumR += r;
-                sumG += g;
-                sumB += b;
-                colorCount++;
-                int score = sat * 3 + a;
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestSatPixel = Color.rgb(r, g, b);
-                }
+            c.scale(n / rw, n / rh);
+            c.translate(dx - rl, dy - rt);
+            svg.draw(c);
+            int[] px = new int[n * n];
+            raw.getPixels(px, 0, n, 0, 0, n, n);
+            int sig = n;
+            for (int i = 0; i < px.length; i += 3) sig = sig * 31 + px[i];
+            if (previous != null && previous.signature == sig && previous.mask != null && !previous.mask.isRecycled()
+                    && previous.mask.getWidth() == n) {
+                return previous;
             }
-
-            int color = fallbackColor;
-            if (colorCount > 0) {
-                int avg = Color.rgb((int) (sumR / colorCount), (int) (sumG / colorCount), (int) (sumB / colorCount));
-                int maxAvg = Math.max(Color.red(avg), Math.max(Color.green(avg), Color.blue(avg)));
-                int minAvg = Math.min(Color.red(avg), Math.min(Color.green(avg), Color.blue(avg)));
-                color = (maxAvg - minAvg >= 20) ? avg : bestSatPixel;
-            }
-
-            if (maskCount < 32) {
-                return new SvgSample(color, null, sig);
-            }
-            Bitmap mask = Bitmap.createBitmap(MASK_DIM, MASK_DIM, Bitmap.Config.ARGB_8888);
-            mask.setPixels(maskPixels, 0, MASK_DIM, 0, 0, MASK_DIM, MASK_DIM);
-            return new SvgSample(color, mask, sig);
-        } catch (Throwable ignored) {
-            return new SvgSample(fallbackColor, null, 0);
+            return buildSample(px, n, sig);
+        } catch (Throwable t) {
+            return null;
         } finally {
-            if (prevAlpha < 0.99f) {
-                try { svgView.setAlpha(prevAlpha); } catch (Throwable ignored) {}
-            }
             if (raw != null) raw.recycle();
         }
+    }
+
+    private static boolean nearWhite(int c) {
+        return Color.red(c) > 232 && Color.green(c) > 232 && Color.blue(c) > 232;
+    }
+
+    private static SvgSample buildSample(int[] px, int n, int sig) {
+        // Dominant color: most frequent 4-bit-per-channel bucket among opaque, non-white pixels.
+        int[] counts = new int[4096];
+        int best = -1, bestCount = 0;
+        for (int c : px) {
+            if ((c >>> 24) < 200 || nearWhite(c)) continue;
+            int key = ((Color.red(c) >> 4) << 8) | ((Color.green(c) >> 4) << 4) | (Color.blue(c) >> 4);
+            if (++counts[key] > bestCount) { bestCount = counts[key]; best = key; }
+        }
+        if (best < 0 || bestCount < 8) return new SvgSample(0xFF1E86FC, null, sig);
+        long sr = 0, sg = 0, sb = 0; int cnt = 0;
+        for (int c : px) {
+            if ((c >>> 24) < 200 || nearWhite(c)) continue;
+            int key = ((Color.red(c) >> 4) << 8) | ((Color.green(c) >> 4) << 4) | (Color.blue(c) >> 4);
+            if (key != best) continue;
+            sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); cnt++;
+        }
+        int color = Color.rgb((int) (sr / cnt), (int) (sg / cnt), (int) (sb / cnt));
+        int[] alpha = new int[n * n];
+        boolean[] body = new boolean[n * n];
+        int bodyCount = 0;
+        for (int i = 0; i < px.length; i++) {
+            int c = px[i];
+            int a = c >>> 24;
+            if (a < 40) continue;
+            int d = Math.abs(Color.red(c) - Color.red(color)) + Math.abs(Color.green(c) - Color.green(color))
+                    + Math.abs(Color.blue(c) - Color.blue(color));
+            if (d <= 96) {
+                body[i] = true;
+                alpha[i] = a;
+                bodyCount++;
+            }
+        }
+        if (bodyCount < 24) return new SvgSample(color, null, sig);
+        // Fill holes: everything not reachable from the border through non-body pixels is inside.
+        boolean[] outside = new boolean[n * n];
+        int[] stack = new int[n * n];
+        int sp = 0;
+        for (int i = 0; i < n; i++) {
+            int[] edge = { i, (n - 1) * n + i, i * n, i * n + n - 1 };
+            for (int e : edge) {
+                if (!body[e] && !outside[e]) { outside[e] = true; stack[sp++] = e; }
+            }
+        }
+        while (sp > 0) {
+            int i = stack[--sp];
+            int x = i % n, y = i / n;
+            if (x > 0) { int j = i - 1; if (!body[j] && !outside[j]) { outside[j] = true; stack[sp++] = j; } }
+            if (x < n - 1) { int j = i + 1; if (!body[j] && !outside[j]) { outside[j] = true; stack[sp++] = j; } }
+            if (y > 0) { int j = i - n; if (!body[j] && !outside[j]) { outside[j] = true; stack[sp++] = j; } }
+            if (y < n - 1) { int j = i + n; if (!body[j] && !outside[j]) { outside[j] = true; stack[sp++] = j; } }
+        }
+        int[] out = new int[n * n];
+        for (int i = 0; i < out.length; i++) {
+            int a;
+            if (outside[i]) a = 0;
+            else if (!body[i]) a = 255;
+            else {
+                // Only the outer silhouette keeps its anti-aliased edge; hole rims are interior.
+                int x = i % n, y = i / n;
+                boolean outerEdge = (x > 0 && outside[i - 1]) || (x < n - 1 && outside[i + 1])
+                        || (y > 0 && outside[i - n]) || (y < n - 1 && outside[i + n])
+                        || x == 0 || y == 0 || x == n - 1 || y == n - 1;
+                a = outerEdge ? alpha[i] : 255;
+            }
+            out[i] = (a << 24) | 0xFFFFFF;
+        }
+        Bitmap mask = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888);
+        mask.setPixels(out, 0, n, 0, 0, n, n);
+        return new SvgSample(color, mask, sig);
+    }
+
+    /** The official picker's outline around the selected shape, following the shape itself. */
+    static void drawSelectionRing(Canvas canvas, Bitmap mask, float size, int ringColor) {
+        if (size <= 0f) return;
+        float inner = size * SELECTED_INNER_SCALE;
+        RectF dst = centered(size, inner);
+        int layer = canvas.saveLayer(new RectF(0f, 0f, size, size), null);
+        Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        ring.setColorFilter(new PorterDuffColorFilter(ringColor, PorterDuff.Mode.SRC_IN));
+        Paint cut = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        cut.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
+        // Dilate the silhouette (stamps around a circle): outer edge minus a smaller dilation = outline.
+        float outer = inner * 0.115f;
+        float gap = inner * 0.065f;
+        if (mask != null && !mask.isRecycled()) {
+            Rect src = new Rect(0, 0, mask.getWidth(), mask.getHeight());
+            for (int pass = 0; pass < 2; pass++) {
+                float r = pass == 0 ? outer : gap;
+                Paint paint = pass == 0 ? ring : cut;
+                for (int k = 0; k < 24; k++) {
+                    double ang = k * Math.PI / 12.0;
+                    RectF d = new RectF(dst);
+                    d.offset((float) (Math.cos(ang) * r), (float) (Math.sin(ang) * r));
+                    canvas.drawBitmap(mask, src, d, paint);
+                }
+                if (pass == 1) canvas.drawBitmap(mask, src, dst, cut);
+            }
+        } else {
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setColor(ringColor);
+            canvas.drawCircle(size / 2f, size / 2f, inner / 2f + outer, p);
+            canvas.drawCircle(size / 2f, size / 2f, inner / 2f + gap, cut);
+        }
+        canvas.restoreToCount(layer);
+    }
+
+    private static RectF centered(float size, float extent) {
+        float o = (size - extent) / 2f;
+        return new RectF(o, o, o + extent, o + extent);
     }
 
     static void draw(Canvas canvas, String styleId, Bitmap shapeMask, String previewShape,
                      float size, double t, float blink, boolean isActive, int baseColor, boolean isDark) {
         if (size <= 0f) return;
         if (STYLE_OFFICIAL.equals(styleId)) {
-            drawOfficialPreview(canvas, size);
+            if (shapeMask != null && !shapeMask.isRecycled()) drawOfficialStill(canvas, shapeMask, size, baseColor);
+            else drawOfficialPreview(canvas, size);
             return;
         }
         Palette pal = paletteForColor(baseColor, isDark);
@@ -629,6 +705,20 @@ final class RokBotAvatarRenderer {
         sat.setColor(pal.accent);
         canvas.drawCircle(50f + (float) (Math.cos(satA) * satDist),
                 50f + (float) (Math.sin(satA) * satDist * 0.88), 4.6f, sat);
+        canvas.restore();
+    }
+
+    /** Native stand-in for the official still mark: flat Bot color and the two slanted eyes. */
+    static void drawOfficialStill(Canvas canvas, Bitmap mask, float s, int color) {
+        canvas.save();
+        canvas.scale(s / 100f, s / 100f);
+        Paint body = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        body.setColorFilter(new PorterDuffColorFilter(color | 0xFF000000, PorterDuff.Mode.SRC_IN));
+        canvas.drawBitmap(mask, new Rect(0, 0, mask.getWidth(), mask.getHeight()), new RectF(0f, 0f, 100f, 100f), body);
+        Paint eye = new Paint(Paint.ANTI_ALIAS_FLAG);
+        eye.setColor(Color.WHITE);
+        drawTiltedCapsule(canvas, eye, 54.5f, 35f, 8.4f, 21f, -30f, 1f);
+        drawTiltedCapsule(canvas, eye, 75.5f, 25f, 8.4f, 20f, -30f, 1f);
         canvas.restore();
     }
 

@@ -2,34 +2,82 @@ package dev.rokbot.nativeapp;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.os.SystemClock;
+import android.provider.Settings;
+import android.util.Base64;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
- * Manages the user's chosen dynamic Bot avatar style ({@code Storage.getStringPref("avatarStyle")})
- * and replaces official {@code com.horcrux.svg.SvgView} GrokBotMark instances across the React
- * Native view hierarchy while preserving every Bot's individual color and live interactions.
+ * Applies the user's RokBot avatar style ({@code Storage.getStringPref("avatarStyle")}) to every
+ * official Bot mark React Native draws, wherever it is:
+ *
+ * <ul>
+ *   <li>still marks (Bot list rows, chat title, Bot details, Edit Bot, avatar preview, search and
+ *       switcher rows): the container holding the {@code still-avatar-body} and
+ *       {@code still-avatar-eyes} test ids;</li>
+ *   <li>the animated mark (running Bots, the Create New Bot preview): a square
+ *       {@code com.horcrux.svg.SvgView} bleeding its halo outside its square parent;</li>
+ *   <li>shape picker cells (Create New Bot, Edit Bot &gt; Avatar &gt; Shape): buttons labelled
+ *       "&lt;shape&gt; character shape".</li>
+ * </ul>
+ *
+ * The official views are made INVISIBLE (never removed) and a {@link RokBotAvatarDrawable} drawn in
+ * the host view's {@link android.view.ViewGroupOverlay} takes their place, with the Bot's own color
+ * and exact silhouette sampled from the official SVG. "official" restores everything.
  */
 final class RokBotAvatarManager {
     static final String PREF_KEY = "avatarStyle";
     static final String DEFAULT_STYLE = RokBotAvatarRenderer.STYLE_CHASSIS;
+    private static final String TAG = "RokBotAvatar";
+    private static final String HARVEST_TAG = "RokBotAvatarHarvest";
+
+    static final String TEST_ID_BODY = "still-avatar-body";
+    static final String TEST_ID_EYES = "still-avatar-eyes";
+    static final String SHAPE_CELL_SUFFIX = " character shape";
+    /** Official app marks (the black Grok Bot blob): replaced by the RokBot logo in every style. */
+    static final Set<String> APP_MARK_TEST_IDS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "about-mark", "launch-mark", "signed-out-cover-mark", "tour-mark", "blocked-mark", "bundle-override-mark"));
+    private static final String SVG_VIEW_CLASS = "com.horcrux.svg.SvgView";
 
     private static final int TAG_HOOK_INSTALLED = 0x0e0a7a00;
-    private static final int TAG_OVERLAY_VIEW = 0x0e0a7a01;
-    private static final int TAG_COLOR_CACHE = 0x0e0a7a02;
-    private static final int TAG_STYLE_CACHE = 0x0e0a7a03;
-    private static final int TAG_SAMPLE_META = 0x0e0a7a04;
 
     private static final Set<Runnable> LISTENERS = Collections.newSetFromMap(new WeakHashMap<>());
     private static WeakReference<Activity> sReactActivity = new WeakReference<>(null);
     private static final android.os.Handler sMain = new android.os.Handler(android.os.Looper.getMainLooper());
     private static boolean sScanScheduled = false;
+    private static int sTestIdKey = -1;
+    private static int sGeneration = 0;
+    private static final Map<View, Entry> ENTRIES = new WeakHashMap<>();
+    private static final Map<View, LogoEntry> LOGOS = new WeakHashMap<>();
+
+    private static final class LogoEntry {
+        final RokBotLogo.LogoDrawable drawable = new RokBotLogo.LogoDrawable();
+        final List<WeakReference<View>> hidden = new ArrayList<>();
+        int generation;
+    }
+    private static final Set<String> HARVESTED = Collections.synchronizedSet(new java.util.HashSet<>());
+
+    /** One host view carrying a RokBot overlay, plus the official views it hides. */
+    private static final class Entry {
+        final RokBotAvatarDrawable drawable = new RokBotAvatarDrawable();
+        final List<WeakReference<View>> hidden = new ArrayList<>();
+        RokBotAvatarRenderer.SvgSample sample;
+        int generation;
+    }
 
     private static final Runnable SCAN_RUNNABLE = () -> {
         sScanScheduled = false;
@@ -68,13 +116,21 @@ final class RokBotAvatarManager {
     static void onReactResumed(Activity activity) {
         if (activity == null) return;
         sReactActivity = new WeakReference<>(activity);
+        boolean reduced = false;
+        try {
+            reduced = Settings.Global.getFloat(activity.getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) <= 0f;
+        } catch (Throwable ignored) {}
         RokBotAvatarView.setAppForeground(true);
-        ViewGroup content = activity.findViewById(android.R.id.content);
-        if (content != null && content.getTag(TAG_HOOK_INSTALLED) == null) {
-            content.setTag(TAG_HOOK_INSTALLED, Boolean.TRUE);
-            ViewTreeObserver vto = content.getViewTreeObserver();
+        RokBotAvatarDrawable.setForeground(true, reduced);
+        View decor = activity.getWindow() != null ? activity.getWindow().getDecorView() : null;
+        if (decor != null && decor.getTag(TAG_HOOK_INSTALLED) == null) {
+            decor.setTag(TAG_HOOK_INSTALLED, Boolean.TRUE);
+            // Fabric mounts and moves React views without a layout traversal, so global-layout alone
+            // misses most changes; every drawn frame asks for a (throttled) scan instead.
+            ViewTreeObserver vto = decor.getViewTreeObserver();
             vto.addOnGlobalLayoutListener(() -> scheduleScan(40L));
             vto.addOnScrollChangedListener(() -> scheduleScan(60L));
+            vto.addOnDrawListener(() -> scheduleScan(0L));
         }
         scheduleScan(0L);
     }
@@ -83,30 +139,246 @@ final class RokBotAvatarManager {
         sMain.removeCallbacks(SCAN_RUNNABLE);
         sScanScheduled = false;
         RokBotAvatarView.setAppForeground(false);
+        RokBotAvatarDrawable.setForeground(false, false);
     }
+
+    private static final long MIN_SCAN_INTERVAL_MS = 250L;
+    private static long sLastScanAt = 0L;
 
     private static void scheduleScan(long delayMs) {
         if (sScanScheduled) return;
         sScanScheduled = true;
-        sMain.postDelayed(SCAN_RUNNABLE, delayMs);
+        long sinceLast = SystemClock.uptimeMillis() - sLastScanAt;
+        sMain.postDelayed(SCAN_RUNNABLE, Math.max(delayMs, MIN_SCAN_INTERVAL_MS - sinceLast));
     }
 
     static void applyToActivity(Activity activity) {
-        if (activity == null) return;
-        ViewGroup content = activity.findViewById(android.R.id.content);
-        if (content == null) return;
+        if (activity == null || activity.getWindow() == null) return;
+        View root = activity.getWindow().getDecorView();
+        if (root == null) return;
+        long started = SystemClock.uptimeMillis();
+        sLastScanAt = started;
         String style = getStyle(activity);
         boolean official = RokBotAvatarRenderer.STYLE_OFFICIAL.equals(style);
-        scanTree(activity, content, style, official, 0);
+        int gen = ++sGeneration;
+        int found = scanAppMarks(activity, root, gen, 0);
+        if (!official) {
+            boolean dark = (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                    == Configuration.UI_MODE_NIGHT_YES;
+            found = scanTree(activity, root, style, dark, gen, 0);
+        }
+        Iterator<Map.Entry<View, LogoEntry>> lt = LOGOS.entrySet().iterator();
+        while (lt.hasNext()) {
+            Map.Entry<View, LogoEntry> e = lt.next();
+            if (e.getValue().generation != gen) {
+                try { e.getKey().getOverlay().remove(e.getValue().drawable); } catch (Throwable ignored) {}
+                for (WeakReference<View> ref : e.getValue().hidden) {
+                    View hv = ref.get();
+                    if (hv != null && hv.getVisibility() == View.INVISIBLE) hv.setVisibility(View.VISIBLE);
+                }
+                lt.remove();
+            }
+        }
+        // Drop overlays whose host no longer shows a Bot mark (recycled rows, closed screens, "official").
+        Iterator<Map.Entry<View, Entry>> it = ENTRIES.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<View, Entry> e = it.next();
+            if (e.getValue().generation != gen) {
+                release(e.getKey(), e.getValue());
+                it.remove();
+            }
+        }
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "scan " + activity.getClass().getSimpleName() + " views=" + countViews(root) + " style=" + style + " marks=" + found + " in " + (SystemClock.uptimeMillis() - started) + "ms");
+        }
     }
 
-    /**
-     * Identifies official `pele` GrokBotMark `com.horcrux.svg.SvgView` nodes strictly by their
-     * square geometry + negative halo bleed inside their wrapper container, leaving UI glyphs intact.
-     */
-    private static boolean isGrokBotMarkSvg(View v) {
-        if (v == null) return false;
-        if (!"com.horcrux.svg.SvgView".equals(v.getClass().getName())) return false;
+    private static int countViews(View v) {
+        if (!(v instanceof ViewGroup)) return 1;
+        int c = 1;
+        ViewGroup g = (ViewGroup) v;
+        for (int i = 0; i < g.getChildCount(); i++) c += countViews(g.getChildAt(i));
+        return c;
+    }
+
+    private static void release(View host, Entry entry) {
+        entry.drawable.detach();
+        if (host != null) {
+            try { host.getOverlay().remove(entry.drawable); } catch (Throwable ignored) {}
+        }
+        for (WeakReference<View> ref : entry.hidden) {
+            View v = ref.get();
+            if (v != null && v.getVisibility() == View.INVISIBLE) v.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private static int scanTree(Activity act, View v, String style, boolean dark, int gen, int depth) {
+        if (v == null || depth > 96 || v.getVisibility() == View.GONE) return 0;
+        if (isSvg(v)) {
+            // SvgView is a ViewGroup of virtual SVG nodes: never descend into it.
+            if (isAnimatedMarkSvg(v)) {
+                applyAnimated((ViewGroup) v.getParent(), v, style, dark, gen);
+                return 1;
+            }
+            return 0;
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            CharSequence desc = g.getContentDescription();
+            if (desc != null && desc.toString().endsWith(SHAPE_CELL_SUFFIX)) {
+                View svg = singleSvgChild(g);
+                if (svg != null) {
+                    applyShapeCell(g, svg, desc.toString(), style, dark, gen);
+                    return 1;
+                }
+            }
+            int n = g.getChildCount();
+            int found = 0;
+            for (int i = 0; i < n; i++) {
+                View child = g.getChildAt(i);
+                if (TEST_ID_EYES.equals(testIdOf(act, child))) {
+                    View body = findStillBody(act, g, child);
+                    if (body != null) {
+                        applyStill(g, body, child, style, dark, gen);
+                        return found + 1;
+                    }
+                    // testID sitting on the eyes SvgView itself, inside its own wrapper.
+                    if (n == 1 && g.getParent() instanceof ViewGroup) {
+                        ViewGroup container = (ViewGroup) g.getParent();
+                        body = findStillBody(act, container, g);
+                        if (body != null) {
+                            applyStill(container, body, g, style, dark, gen);
+                            return 1;
+                        }
+                    }
+                }
+            }
+            for (int i = 0; i < n; i++) {
+                found += scanTree(act, g.getChildAt(i), style, dark, gen, depth + 1);
+            }
+            return found;
+        }
+        return 0;
+    }
+
+    /** Official app-logo marks (About footer, launch / signed-out / tour screens) become the RokBot logo. */
+    private static int scanAppMarks(Activity act, View v, int gen, int depth) {
+        if (v == null || depth > 96 || v.getVisibility() == View.GONE || isSvg(v)) return 0;
+        String id = testIdOf(act, v);
+        if (id != null && APP_MARK_TEST_IDS.contains(id) && v instanceof ViewGroup) {
+            List<View> svgs = new ArrayList<>();
+            collectSvgs(v, svgs, 0);
+            if (!svgs.isEmpty()) {
+                LogoEntry e = LOGOS.get(v);
+                if (e == null) {
+                    e = new LogoEntry();
+                    LOGOS.put(v, e);
+                    v.getOverlay().add(e.drawable);
+                }
+                e.generation = gen;
+                View first = svgs.get(0);
+                int[] off = offsetWithin(first, v);
+                e.drawable.setBounds(off[0], off[1], off[0] + first.getWidth(), off[1] + first.getHeight());
+                for (View sv : svgs) {
+                    boolean known = false;
+                    for (WeakReference<View> ref : e.hidden) if (ref.get() == sv) { known = true; break; }
+                    if (!known) e.hidden.add(new WeakReference<>(sv));
+                    if (sv.getVisibility() == View.VISIBLE) sv.setVisibility(View.INVISIBLE);
+                }
+                return 1;
+            }
+        }
+        int found = 0;
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) found += scanAppMarks(act, g.getChildAt(i), gen, depth + 1);
+        }
+        return found;
+    }
+
+    private static void collectSvgs(View v, List<View> out, int depth) {
+        if (v == null || depth > 8) return;
+        if (isSvg(v)) { out.add(v); return; }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) collectSvgs(g.getChildAt(i), out, depth + 1);
+        }
+    }
+
+    private static int[] offsetWithin(View v, View ancestor) {
+        int x = 0, y = 0;
+        View cur = v;
+        while (cur != null && cur != ancestor) {
+            x += cur.getLeft();
+            y += cur.getTop();
+            cur = cur.getParent() instanceof View ? (View) cur.getParent() : null;
+        }
+        return new int[] { x, y };
+    }
+
+    private static boolean isSvg(View v) {
+        return v != null && SVG_VIEW_CLASS.equals(v.getClass().getName());
+    }
+
+    private static View singleSvgChild(ViewGroup g) {
+        View only = null;
+        for (int i = 0; i < g.getChildCount(); i++) {
+            View c = g.getChildAt(i);
+            if (isSvg(c)) {
+                if (only != null) return null;
+                only = c;
+            }
+        }
+        return only;
+    }
+
+    /** The body SvgView next to the eyes view: a direct SvgView sibling or one wrapped alone in a view. */
+    private static View findStillBody(Activity act, ViewGroup container, View eyes) {
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View c = container.getChildAt(i);
+            if (c == eyes) continue;
+            View svg = null;
+            if (isSvg(c)) svg = c;
+            else if (c instanceof ViewGroup && ((ViewGroup) c).getChildCount() == 1 && isSvg(((ViewGroup) c).getChildAt(0))) {
+                svg = ((ViewGroup) c).getChildAt(0);
+            }
+            if (svg != null && containsTestId(act, svg, TEST_ID_BODY, 0)) return svg;
+        }
+        return null;
+    }
+
+    private static boolean containsTestId(Activity act, View v, String id, int depth) {
+        if (v == null || depth > 6) return false;
+        if (id.equals(testIdOf(act, v))) return true;
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                if (containsTestId(act, g.getChildAt(i), id, depth + 1)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** React Native keeps testID in the view tag R.id.react_test_id of the official package. */
+    private static String testIdOf(Context ctx, View v) {
+        if (sTestIdKey == -1) {
+            int key = 0;
+            for (String pkg : new String[] { ctx.getPackageName(), "ai.x.grok.bot", "co.anysphere.sand" }) {
+                try {
+                    key = ctx.getResources().getIdentifier("react_test_id", "id", pkg);
+                } catch (Throwable ignored) {}
+                if (key != 0) break;
+            }
+            sTestIdKey = key;
+        }
+        if (sTestIdKey == 0) return null;
+        Object tag = v.getTag(sTestIdKey);
+        return tag instanceof String ? (String) tag : null;
+    }
+
+    /** Official animated mark: square SvgView whose halo bleeds outside its square parent. */
+    private static boolean isAnimatedMarkSvg(View v) {
+        if (!isSvg(v)) return false;
         int w = v.getWidth();
         int h = v.getHeight();
         if (w < 24 || h < 24) return false;
@@ -116,70 +388,101 @@ final class RokBotAvatarManager {
         ViewGroup pg = (ViewGroup) parent;
         int pw = pg.getWidth();
         int ph = pg.getHeight();
-        if (pw <= 0 || ph <= 0) return false;
+        if (pw <= 0 || ph <= 0 || Math.abs(pw - ph) > Math.max(4, pw / 8)) return false;
         int left = v.getLeft();
         int top = v.getTop();
-        // Matches pele's negative halo padding (-26.6% margin on each side around the square avatar).
         return left < -1 && top < -1 && Math.abs(left - top) <= 5 && w > pw * 1.25f;
     }
 
-    private static void scanTree(Context ctx, View v, String style, boolean official, int depth) {
-        if (v == null || depth > 42 || v instanceof RokBotAvatarView) return;
-        if (isGrokBotMarkSvg(v)) {
-            ViewGroup parent = (ViewGroup) v.getParent();
-            if (official) {
-                if (v.getAlpha() < 0.99f) v.setAlpha(1f);
-                Object existing = parent.getTag(TAG_OVERLAY_VIEW);
-                if (existing instanceof RokBotAvatarView) {
-                    RokBotAvatarView ov = (RokBotAvatarView) existing;
-                    if (ov.getVisibility() != View.GONE) ov.setVisibility(View.GONE);
-                }
-            } else {
-                int pw = parent.getWidth();
-                int ph = parent.getHeight();
-                long nowMs = android.os.SystemClock.uptimeMillis();
-                long[] meta = (v.getTag(TAG_SAMPLE_META) instanceof long[]) ? (long[]) v.getTag(TAG_SAMPLE_META) : null;
-                RokBotAvatarRenderer.SvgSample cached = (v.getTag(TAG_COLOR_CACHE) instanceof RokBotAvatarRenderer.SvgSample)
-                        ? (RokBotAvatarRenderer.SvgSample) v.getTag(TAG_COLOR_CACHE)
-                        : null;
-                boolean needResample = cached == null || cached.mask == null || cached.mask.isRecycled()
-                        || meta == null || meta[0] != pw || meta[1] != ph
-                        || (Math.max(pw, ph) >= 140 && nowMs - meta[2] > 250L);
-                if (needResample) {
-                    cached = RokBotAvatarRenderer.extractSvgSample(v, 0xFF06B6D4);
-                    v.setTag(TAG_COLOR_CACHE, cached);
-                    v.setTag(TAG_SAMPLE_META, new long[] { pw, ph, nowMs });
-                }
-                if (v.getAlpha() > 0.01f) v.setAlpha(0f);
+    private static Entry entryFor(View host, int gen) {
+        Entry e = ENTRIES.get(host);
+        if (e == null) {
+            e = new Entry();
+            ENTRIES.put(host, e);
+            host.getOverlay().add(e.drawable);
+        }
+        e.generation = gen;
+        return e;
+    }
 
-                RokBotAvatarView ov = parent.getTag(TAG_OVERLAY_VIEW) instanceof RokBotAvatarView
-                        ? (RokBotAvatarView) parent.getTag(TAG_OVERLAY_VIEW)
-                        : null;
-                if (ov == null || ov.getParent() != parent) {
-                    ov = new RokBotAvatarView(ctx);
-                    parent.setTag(TAG_OVERLAY_VIEW, ov);
-                    parent.addView(ov);
-                }
-                if (ov.getVisibility() != View.VISIBLE) ov.setVisibility(View.VISIBLE);
-                if (ov.getLeft() != 0 || ov.getTop() != 0 || ov.getRight() != pw || ov.getBottom() != ph) {
-                    ov.measure(
-                            View.MeasureSpec.makeMeasureSpec(pw, View.MeasureSpec.EXACTLY),
-                            View.MeasureSpec.makeMeasureSpec(ph, View.MeasureSpec.EXACTLY));
-                    ov.layout(0, 0, pw, ph);
-                }
-                ov.setBaseColor(cached.color);
-                ov.setShapeMask(cached.mask);
-                ov.setStyleId(style);
-                v.setTag(TAG_STYLE_CACHE, style);
-            }
-            return;
+    private static void hide(Entry e, View v) {
+        if (v == null) return;
+        boolean known = false;
+        for (WeakReference<View> ref : e.hidden) if (ref.get() == v) { known = true; break; }
+        if (!known) e.hidden.add(new WeakReference<>(v));
+        if (v.getVisibility() == View.VISIBLE) v.setVisibility(View.INVISIBLE);
+    }
+
+    private static final float ANIMATED_MARGIN = 0.12f;
+
+    private static int sampleSize(View box, float inset) {
+        int px = Math.round(Math.max(box.getWidth(), box.getHeight()) * (1f - 2f * inset));
+        return Math.max(48, Math.min(224, px));
+    }
+
+    private static void applyStill(ViewGroup container, View bodySvg, View eyes, String style, boolean dark, int gen) {
+        Entry e = entryFor(container, gen);
+        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(bodySvg, container, 0f,
+                sampleSize(container, 0f), e.sample);
+        if (s != null) e.sample = s;
+        if (e.sample == null) return;
+        e.drawable.setBounds(0, 0, container.getWidth(), container.getHeight());
+        e.drawable.update(style, e.sample.mask, e.sample.color, false, false, 0, dark);
+        hide(e, bodySvg);
+        hide(e, eyes);
+    }
+
+    private static void applyAnimated(ViewGroup parent, View svg, String style, boolean dark, int gen) {
+        Entry e = entryFor(parent, gen);
+        // The animated mark wobbles, scales and rotates past its square container (React Native
+        // does not clip it there), so sample and draw a margin around the container too.
+        float inset = -ANIMATED_MARGIN;
+        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(svg, parent, inset,
+                sampleSize(parent, inset), e.sample);
+        if (s != null) e.sample = s;
+        if (e.sample == null) return;
+        int mx = Math.round(parent.getWidth() * ANIMATED_MARGIN);
+        int my = Math.round(parent.getHeight() * ANIMATED_MARGIN);
+        e.drawable.setBounds(-mx, -my, parent.getWidth() + mx, parent.getHeight() + my);
+        e.drawable.update(style, e.sample.mask, e.sample.color, true, false, 0, dark);
+        hide(e, svg);
+    }
+
+    private static void applyShapeCell(ViewGroup cell, View svg, String desc, String style, boolean dark, int gen) {
+        boolean selected = cell.isSelected();
+        Entry e = entryFor(cell, gen);
+        // The selected cell's SvgView also holds the outline ring; sample only the shape inside it.
+        float inset = selected ? (1f - RokBotAvatarRenderer.SELECTED_INNER_SCALE) / 2f : 0f;
+        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(svg, svg, inset,
+                sampleSize(svg, inset), e.sample);
+        if (s != null) e.sample = s;
+        if (e.sample == null) return;
+        e.drawable.setBounds(svg.getLeft(), svg.getTop(), svg.getRight(), svg.getBottom());
+        int ring = dark ? 0xFF5A5A5E : 0xFFC7C7CC;
+        e.drawable.update(style, e.sample.mask, e.sample.color, false, selected, ring, dark);
+        hide(e, svg);
+        if (!selected && e.sample.mask != null && Log.isLoggable(HARVEST_TAG, Log.DEBUG)) {
+            harvest(svg, desc.substring(0, desc.length() - SHAPE_CELL_SUFFIX.length()).trim());
         }
-        if (v instanceof ViewGroup) {
-            ViewGroup g = (ViewGroup) v;
-            int n = g.getChildCount();
-            for (int i = 0; i < n; i++) {
-                scanTree(ctx, g.getChildAt(i), style, official, depth + 1);
-            }
+    }
+
+    /**
+     * Development aid (adb shell setprop log.tag.RokBotAvatarHarvest DEBUG): logs a 128 px 1-bit mask
+     * of each official shape, the source of RokBotAvatarShapes.
+     */
+    private static void harvest(View svg, String shape) {
+        if (!HARVESTED.add(shape)) return;
+        RokBotAvatarRenderer.SvgSample s = RokBotAvatarRenderer.sampleSvg(svg, svg, 0f, 128, null);
+        if (s == null || s.mask == null) return;
+        Bitmap m = s.mask;
+        int n = m.getWidth();
+        int[] px = new int[n * n];
+        m.getPixels(px, 0, n, 0, 0, n, n);
+        byte[] bits = new byte[(n * n + 7) / 8];
+        for (int i = 0; i < px.length; i++) {
+            if ((px[i] >>> 24) >= 128) bits[i >> 3] |= (byte) (0x80 >>> (i & 7));
         }
+        Log.d(HARVEST_TAG, "shape=" + shape + " n=" + n + " color=" + Integer.toHexString(s.color)
+                + " bits=" + Base64.encodeToString(bits, Base64.NO_WRAP));
     }
 }

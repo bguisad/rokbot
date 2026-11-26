@@ -381,7 +381,7 @@ public class HermesPatcher {
         return sb.toString();
     }
 
-    private static byte[] readAllBytes(InputStream is) throws Exception {
+    static byte[] readAllBytes(InputStream is) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;

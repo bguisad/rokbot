@@ -40,6 +40,9 @@ const ICON_KINDS = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'
 const MIPMAP_ICON_RE = /^res\/mipmap-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi)(?:-v\d+)?\/(ic_launcher(?:_round|_foreground)?)\.(?:png|webp)$/i;
 const ADAPTIVE_ICON_XML_RE = /^res\/mipmap-anydpi(?:-v\d+)?\/ic_launcher(?:_round)?\.xml$/i;
 const SPLASH_DRAWABLE_RE = /^res\/drawable(?:-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|nodpi))?(?:-v\d+)?\/(splashscreen_logo|bootsplash_logo|splash_logo|ic_splash|splash_icon)\.(?:png|webp)$/i;
+// React Native's own app icon asset (assets/appIcon/assets/dark.svg), shown in-app (notification prompt).
+const RN_APP_ICON_RE = /^res\/raw\/assets_appicon_[a-z0-9_]+\.svg$/i;
+const LOGO_SVG_PATH = path.resolve(ROOT_DIR, 'assets/logo/rokbot-app-icon.svg');
 const NOTIF_DRAWABLE_RE = /^res\/drawable(?:-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|nodpi))?(?:-v\d+)?\/(notification_icon|ic_notification|ic_stat_onesignal_default)\.(?:png|webp)$/i;
 function getDrawableAttr(node) {
   return (node.attributes || []).find(
@@ -147,6 +150,11 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
         brandDrawablesReplaced++;
         return createEntry(entry.name, pngBuf, { store: false });
       }
+    }
+
+    if (RN_APP_ICON_RE.test(entry.name) && fs.existsSync(LOGO_SVG_PATH)) {
+      brandDrawablesReplaced++;
+      return createEntry(entry.name, fs.readFileSync(LOGO_SVG_PATH), { store: false });
     }
 
     const notifMatch = NOTIF_DRAWABLE_RE.exec(entry.name);
