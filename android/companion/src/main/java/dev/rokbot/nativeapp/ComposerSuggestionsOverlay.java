@@ -156,6 +156,10 @@ final class ComposerSuggestionsOverlay {
         if (sBar != null && (sBar.activity != act || !sBar.isAttachedToWindow())) {
             sBar = null;
         }
+        if (BotProfileModelOverlay.isShowing()) {
+            hideBar();
+            return;
+        }
 
         EditText composer = findChatComposerInput(act, decor);
         if (composer == null) {

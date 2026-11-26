@@ -337,10 +337,12 @@ public class CreateGroupActivity extends Activity {
                     if (mDestroyed) return;
                     mProgress.setVisibility(View.GONE);
                     Toast.makeText(this, Localize.t(this, "群组已创建", "Group created"), Toast.LENGTH_SHORT).show();
-                    if (!newId.isEmpty()) {
-                        RokBotBootstrap.openAgentFromDeepLink(this, Uri.parse("grokbot://app/v1/chat?id=" + newId));
-                    }
+                    final android.content.Context appCtx = getApplicationContext();
                     finish();
+                    if (!newId.isEmpty()) {
+                        new Handler(Looper.getMainLooper()).postDelayed(() ->
+                                RokBotBootstrap.openAgentFromDeepLink(appCtx, Uri.parse("grokbot://app/v1/chat?id=" + newId)), 550L);
+                    }
                 });
             } catch (Throwable t) {
                 if (mDestroyed) return;

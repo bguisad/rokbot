@@ -614,13 +614,39 @@ public class ModelsActivity extends Activity {
     }
 
     private void maybeOpenInitialBotDialog() {
-        if (mInitialBotDialogOpened || mTargetAgentId.isEmpty() || mProfiles.length() == 0) return;
+        if (mInitialBotDialogOpened || (mTargetAgentId.isEmpty() && mTargetAgentName.isEmpty()) || mProfiles.length() == 0) return;
         mInitialBotDialogOpened = true;
+        // Prefer exact visible Bot name match from the Bot Profile screen (works even when RN opens a cached chat).
+        if (!mTargetAgentName.isEmpty() && mAgents != null) {
+            String matchedId = findAgentIdByName(mTargetAgentName);
+            if (!matchedId.isEmpty()) {
+                mTargetAgentId = matchedId;
+            }
+        }
+        if (mTargetAgentId.isEmpty()) return;
         String resolvedName = mTargetAgentName;
         if (resolvedName.isEmpty()) {
             resolvedName = findAgentName(mTargetAgentId);
         }
         showBotRouteDialog(mTargetAgentId, resolvedName, true);
+    }
+
+    private String findAgentIdByName(String name) {
+        if (mAgents == null || name == null || name.isEmpty()) return "";
+        String firstMatch = "";
+        int matchCount = 0;
+        for (int i = 0; i < mAgents.length(); i++) {
+            JSONObject a = mAgents.optJSONObject(i);
+            if (a == null || a.optBoolean("isGroup", false)) continue;
+            if (name.equals(UiChrome.jsonStr(a, "name"))) {
+                String id = UiChrome.jsonStr(a, "id");
+                if (!id.isEmpty()) {
+                    firstMatch = id;
+                    matchCount++;
+                }
+            }
+        }
+        return matchCount == 1 ? firstMatch : "";
     }
 
     private String findAgentName(String agentId) {

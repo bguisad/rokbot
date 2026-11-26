@@ -100,51 +100,76 @@ final class BotProfileModelOverlay {
 
         String agentId = RokBotBootstrap.getLastAgentId();
         if (agentId == null || agentId.isEmpty()) agentId = RokBotBootstrap.getViewingAgentId();
-        if (agentId == null || agentId.isEmpty() || !isBotProfileScreenVisible(decor)) {
+        String[] visibleBotName = new String[] { "" };
+        if (!isBotProfileScreenVisible(act, decor, visibleBotName)) {
+            hideCard();
+            return;
+        }
+        if ((agentId == null || agentId.isEmpty()) && visibleBotName[0].isEmpty()) {
             hideCard();
             return;
         }
 
-        showCard(act, (ViewGroup) decor, agentId);
+        showCard(act, (ViewGroup) decor, agentId != null ? agentId : "", visibleBotName[0]);
     }
 
     /**
      * Detects the official RN Bot Profile / Settings screen (`ProfileIndexScreen`):
-     * has visible "Library"/"资料库" or "Routines"/"定时任务" rows, and does NOT show the main
-     * app SettingsSheet ("Model Settings"/"模型配置" or "Connection & Diagnostics"/"连接与诊断").
+     * has at least 2 on-screen Bot profile rows (Library / Routines / Instructions / Computer),
+     * and does NOT show the main app SettingsSheet ("Model Settings" or "Connection & Diagnostics").
+     * Also captures the visible Bot title rendered above the Edit button so ModelsActivity always
+     * resolves the exact Bot even when RN opens a cached chat without making a network request.
      */
-    private static boolean isBotProfileScreenVisible(View root) {
-        boolean[] flags = new boolean[3]; // [0]=hasLibraryOrRoutines, [1]=hasGlobalSettings, [2]=hasEditText
-        inspectTree(root, flags, 0);
-        return flags[0] && !flags[1] && !flags[2];
+    private static boolean isBotProfileScreenVisible(Activity act, View root, String[] outBotName) {
+        int screenW = act.getResources().getDisplayMetrics().widthPixels;
+        int screenH = act.getResources().getDisplayMetrics().heightPixels;
+        int[] counts = new int[2]; // [0]=botProfileMarkers, [1]=globalSettingsMarkers
+        float[] bestTitleSize = new float[] { 0f };
+        int[] loc = new int[2];
+        inspectTree(root, counts, bestTitleSize, outBotName, loc, screenW, screenH, 0);
+        return counts[0] >= 2 && counts[1] == 0;
     }
 
-    private static void inspectTree(View v, boolean[] flags, int depth) {
-        if (v == null || depth > 24 || v.getVisibility() != View.VISIBLE || !v.isShown()) return;
+    private static void inspectTree(View v, int[] counts, float[] bestTitleSize, String[] outBotName,
+                                    int[] loc, int screenW, int screenH, int depth) {
+        if (v == null || depth > 96 || v.getVisibility() != View.VISIBLE || !v.isShown()) return;
         if (v == sCard) return;
-        if (v instanceof android.widget.EditText) {
-            flags[2] = true;
-            return;
-        }
-        CharSequence txt = (v instanceof TextView) ? ((TextView) v).getText() : v.getContentDescription();
-        if (txt != null && txt.length() > 0 && txt.length() <= 64) {
-            String s = txt.toString().trim();
-            if (s.equals("资料库") || s.equals("資料庫") || s.equalsIgnoreCase("Library")
-                    || s.equals("定时任务") || s.equals("定時任務") || s.equalsIgnoreCase("Routines")
-                    || s.equals("自动化") || s.equalsIgnoreCase("Automations")) {
-                flags[0] = true;
-            } else if (RokBotBootstrap.isConnectionEntryLabel(s)
-                    || RokBotBootstrap.matchesModelSettingsLabel(s)
-                    || RokBotBootstrap.matchesAvatarStyleLabel(s)) {
-                flags[1] = true;
+        if (v instanceof TextView && !(v instanceof android.widget.EditText)) {
+            TextView tv = (TextView) v;
+            CharSequence txt = tv.getText();
+            if (txt != null && txt.length() > 0 && txt.length() <= 64 && v.getWidth() > 0 && v.getHeight() > 0) {
+                v.getLocationOnScreen(loc);
+                if (loc[0] >= -16 && loc[0] < screenW) {
+                    String s = txt.toString().trim();
+                    if (s.equals("资料库") || s.equals("資料庫") || s.equalsIgnoreCase("Library")
+                            || s.equals("定时任务") || s.equals("定時任務") || s.equalsIgnoreCase("Routines")
+                            || s.equals("自动化") || s.equalsIgnoreCase("Automations")
+                            || s.equals("指令") || s.equals("说明") || s.equalsIgnoreCase("Instructions")
+                            || s.equals("电脑") || s.equals("電腦") || s.equalsIgnoreCase("Computer")) {
+                        counts[0]++;
+                    } else if (RokBotBootstrap.isConnectionEntryLabel(s)
+                            || RokBotBootstrap.matchesModelSettingsLabel(s)
+                            || RokBotBootstrap.matchesAvatarStyleLabel(s)) {
+                        counts[1]++;
+                    } else if (loc[1] > screenH * 0.14f && loc[1] < screenH * 0.42f
+                            && !s.equalsIgnoreCase("Edit") && !s.equals("编辑") && !s.equals("編輯")
+                            && s.length() >= 2 && tv.getTextSize() > bestTitleSize[0]) {
+                        bestTitleSize[0] = tv.getTextSize();
+                        outBotName[0] = s;
+                    }
+                }
             }
         }
         if (v instanceof ViewGroup) {
             ViewGroup vg = (ViewGroup) v;
             for (int i = 0; i < vg.getChildCount(); i++) {
-                inspectTree(vg.getChildAt(i), flags, depth + 1);
+                inspectTree(vg.getChildAt(i), counts, bestTitleSize, outBotName, loc, screenW, screenH, depth + 1);
             }
         }
+    }
+
+    static boolean isShowing() {
+        return sCard != null && sCard.getVisibility() == View.VISIBLE && sCard.isAttachedToWindow();
     }
 
     private static void hideCard() {
@@ -153,7 +178,7 @@ final class BotProfileModelOverlay {
         }
     }
 
-    private static void showCard(Activity act, ViewGroup decor, String agentId) {
+    private static void showCard(Activity act, ViewGroup decor, String agentId, String botName) {
         if (sCard == null) {
             sCard = new OverlayCard(act);
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -176,7 +201,7 @@ final class BotProfileModelOverlay {
             lp.bottomMargin = navBottom;
             sCard.setLayoutParams(lp);
         }
-        sCard.bind(agentId);
+        sCard.bind(agentId, botName);
         sCard.setVisibility(View.VISIBLE);
     }
 
@@ -187,6 +212,7 @@ final class BotProfileModelOverlay {
         private final TextView subtitleTv;
         private final ChevronIconView chevronView;
         private String currentAgentId = "";
+        private String currentBotName = "";
         private Boolean lastDark = null;
 
         OverlayCard(Activity act) {
@@ -223,15 +249,22 @@ final class BotProfileModelOverlay {
             addView(chevronView, new LayoutParams(chevSz, chevSz));
 
             setOnClickListener(v -> {
-                if (currentAgentId == null || currentAgentId.isEmpty()) return;
+                if ((currentAgentId == null || currentAgentId.isEmpty())
+                        && (currentBotName == null || currentBotName.isEmpty())) return;
                 Intent intent = new Intent(activity, ModelsActivity.class);
-                intent.putExtra(ModelsActivity.EXTRA_AGENT_ID, currentAgentId);
+                if (currentAgentId != null && !currentAgentId.isEmpty()) {
+                    intent.putExtra(ModelsActivity.EXTRA_AGENT_ID, currentAgentId);
+                }
+                if (currentBotName != null && !currentBotName.isEmpty()) {
+                    intent.putExtra(ModelsActivity.EXTRA_AGENT_NAME, currentBotName);
+                }
                 activity.startActivity(intent);
             });
         }
 
-        void bind(String agentId) {
+        void bind(String agentId, String botName) {
             this.currentAgentId = agentId;
+            this.currentBotName = botName != null ? botName : "";
             UiChrome.Palette p = UiChrome.palette(activity);
             if (lastDark == null || lastDark != p.dark) {
                 lastDark = p.dark;

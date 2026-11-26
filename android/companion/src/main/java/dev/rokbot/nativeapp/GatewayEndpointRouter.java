@@ -57,12 +57,16 @@ public final class GatewayEndpointRouter {
         return "/api/openAgentWindowed".equals(path)
                 || "/api/getAgentTranscriptTail".equals(path)
                 || "/api/getAgentTranscript".equals(path)
+                || "/api/getAgentTranscriptWindow".equals(path)
                 || "/api/sendPrompt".equals(path)
                 || "/api/getAgent".equals(path)
                 || "/api/updateAgent".equals(path)
                 || "/api/getAgentAutomations".equals(path)
                 || "/api/getAgentWorkflows".equals(path)
-                || "/api/setAgentNotifyOnUpdates".equals(path);
+                || "/api/setAgentNotifyOnUpdates".equals(path)
+                || "/api/markAgentRead".equals(path)
+                || "/api/markAgentViewed".equals(path)
+                || "/api/getForeverBoxStatus".equals(path);
     }
 
     public static void observeAgentIdFromJson(byte[] raw) {
