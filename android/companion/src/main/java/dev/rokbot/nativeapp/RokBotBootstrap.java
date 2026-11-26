@@ -70,6 +70,8 @@ public class RokBotBootstrap {
         sInitialized = true;
 
         Storage.init(app);
+        // The Bot avatar style is read once, here, before any Activity draws its first frame.
+        RokBotAvatarManager.preload(app);
         clearExpoCache(app);
         // Paint the cached Host profile on cold start, repaint whenever a fresh one arrives.
         HostProfile.setListener(RokBotBootstrap::rescanCurrentActivityIdentity);

@@ -21,12 +21,12 @@ import java.util.Map;
  * LED squares are snapped to whole device pixels so every square keeps hard edges.
  */
 final class RokBotAvatarRenderer {
-    static final String STYLE_CHASSIS = "chassis";
-    static final String STYLE_ANTENNA = "antenna";
-    static final String STYLE_VISOR = "visor";
-    static final String STYLE_PIXEL = "pixel";
-    static final String STYLE_ORB = "orb";
-    static final String STYLE_OFFICIAL = "official";
+    static final String STYLE_CHASSIS = RokBotAvatarStyle.CHASSIS;
+    static final String STYLE_ANTENNA = RokBotAvatarStyle.ANTENNA;
+    static final String STYLE_VISOR = RokBotAvatarStyle.VISOR;
+    static final String STYLE_PIXEL = RokBotAvatarStyle.PIXEL;
+    static final String STYLE_ORB = RokBotAvatarStyle.ORB;
+    static final String STYLE_OFFICIAL = RokBotAvatarStyle.OFFICIAL;
 
     static final class StyleInfo {
         final String id;
@@ -83,11 +83,7 @@ final class RokBotAvatarRenderer {
     private RokBotAvatarRenderer() {}
 
     static boolean isValidStyle(String style) {
-        if (style == null) return false;
-        for (StyleInfo info : STYLES) {
-            if (info.id.equals(style)) return true;
-        }
-        return false;
+        return RokBotAvatarStyle.isValid(style);
     }
 
     // ---- caches: palettes (with their gradient) per color, and per-thread paints -----------------

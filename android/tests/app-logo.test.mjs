@@ -65,7 +65,10 @@ test('native pages and the React Native Settings footer mark use the RokBot logo
   assert.match(marks, /addOnDrawListener/);
   assert.doesNotMatch(marks, /\.addView\(/, 'never adds children to React Native view groups');
   // App marks are scanned before (and independently of) the paired-only Bot avatar styles.
-  assert.match(marks, /int found = scanAppMarks\(activity, root, gen, 0\);\s*\/\/[^\n]*\n\s*if \(!official && Storage\.isPaired\(activity\)\)/);
+  // (Paired = stored credentials, see avatar-style.test.mjs; the per-frame pass keeps the same order.)
+  assert.match(marks, /int found = scanAppMarks\(activity, root, gen, 0, false\);\s*\/\/[^\n]*\n\s*if \(on\)/);
+  assert.match(marks, /boolean on = stylesOn\(activity, style\);/);
+  assert.match(marks, /scanAppMarks\(activity, root, gen, 0, true\);\s*if \(stylesOn\(activity, style\)\)/);
 
   const boot = read('RokBotBootstrap.java');
   // Launch / signed-out / tour screens show while unpaired: the scanner resumes on every React screen.

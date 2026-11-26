@@ -149,6 +149,17 @@ public class Storage {
         return token != null && !token.isEmpty() && gateway != null && !gateway.isEmpty();
     }
 
+    /**
+     * Paired as far as stored credentials go, without decrypting the token: for per-frame UI
+     * decisions (Bot avatar styles) that must not flip when one Keystore read fails.
+     */
+    public static boolean hasStoredCredentials(Context context) {
+        SharedPreferences sp = prefs(context);
+        String token = sp.getString("token", null);
+        String gateway = sp.getString("gatewayUrl", null);
+        return token != null && !token.isEmpty() && gateway != null && !gateway.isEmpty();
+    }
+
     public static synchronized String getToken(Context context) {
         String raw = prefs(context).getString("token", null);
         if (raw == null || raw.isEmpty()) {
