@@ -1,132 +1,168 @@
 <p align="center">
-  <img src="assets/logo/rokbot-icon-256.png" width="116" alt="RokBot Logo" />
+  <img src="assets/logo/rokbot-logo.svg" width="112" alt="RokBot" />
 </p>
 
 <h1 align="center">RokBot</h1>
 
 <p align="center">
-  <strong>Your private, cross-platform AI assistant — 3-minute self-hosting, bring any model, real sandbox &amp; multi-machine execution, native apps everywhere.</strong>
+  A private AI assistant that runs on your own server, with the models you choose, your data kept on your machine, and access from desktop, mobile and the browser.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms" />
-  <img src="https://img.shields.io/badge/Docker-Multi--Arch%20(amd64%20%2F%20arm64)-0ea5e4?style=flat-square" alt="Docker Multi-Arch" />
-  <img src="https://img.shields.io/badge/E2E%20Suite-199%20Tests-16a34a?style=flat-square" alt="199 E2E Tests" />
-  <img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="ProkBot Noncommercial License 1.0" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
+  <a href="#supported-platforms"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, iOS, Android, Web" /></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
 
 <p align="center">
   <a href="README.md">简体中文</a> ·
   <strong>English</strong> ·
-  <a href="#video-introduction">Video Intro</a> ·
-  <a href="#live-screenshots">Screenshots</a> ·
-  <a href="#3-minute-quick-start">Quick Start</a> ·
-  <a href="docs/AGENT_DEPLOY.en.md">AI Agent Deploy Runbook</a> ·
-  <a href="docs/ARCHITECTURE.en.md">Architecture</a>
+  <a href="#features">Features</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#documentation">Documentation</a> ·
+  <a href="#faq">FAQ</a>
 </p>
 
-> RokBot is an independent open-source product for personal self-hosting (inspired by ProkBot, prokbot-plus, and rakazo), built so anyone can run a fast, private, action-capable AI assistant across every device they own.
-
----
-
-## Video Introduction
-
-A 36-second real screen recording captured directly from a live `rokbot-host` + `rokbot-box` Linux sandbox + `1.2.3` Web Client stack: one-click bell chat sorting, Linux sandbox shell execution, Live VNC desktop takeover, 6 switchable dynamic Bot avatar styles, multi-model Token charts & latency probes, native dark mode, and the self-hosted Admin Console:
-
 <p align="center">
-  <a href="docs/media/rokbot-intro.mp4">
-    <img src="docs/images/rokbot-intro-preview.gif" width="760" alt="RokBot 36-second real screen recording: bell sorting, Linux sandbox, Live VNC, 6 avatar styles, model testing & Admin Console" />
+  <a href="docs/media/rokbot-promo.mp4">
+    <img src="docs/images/rokbot-promo-cover.jpg" width="820" alt="RokBot product video cover" />
   </a>
+  <br />
+  <sub>Click the cover to watch the product video (MP4, 720p, about 80 seconds; the narration and on-screen text are in Chinese)</sub>
 </p>
+
+## Overview
+
+RokBot is a self-hosted AI assistant for personal use. The agent server (the Host) and the Bot's desktop (`box`) run in Docker on your own machine, and model calls go to the OpenAI- or Anthropic-compatible endpoints you configure. The macOS, Windows, Android and iOS clients and the web client connect only to your Host.
+
+Conversations, files, settings and API keys stay on the Host's data volumes. You build the clients on your own machine with the patch tools in this repository: they use the official installers, check file hashes first and then apply the patches. This repository does not contain or distribute any original program files.
+
+## Features
+
+### The Bot's computer and live takeover
+
+- The Host ships with a Linux desktop container (`box`). Bots use its browser, terminal and files to do their work. Home and workspace directories live on their own data volumes.
+- Clients can open a live VNC view of the Bot's computer and take over with mouse, keyboard or touch.
+- Bots can also work on your own computer through the Host: on a Mac they can run commands and control the GUI, and on Windows they can run local commands. The client connects out to the Host, so the computer does not need any open ports.
+- You can replace the built-in `box` with a remote Linux execution node, configured on the Execution page of the admin console.
+
+### Continuity across devices and notifications
+
+- Conversations and settings live on the Host, and every client connects to the same Host. You can start a task on your computer and follow up on your phone or in the browser.
+- The chat list can be sorted by last message and split into three groups: Pending, Unread and Read.
+- Notification channels:
+  - iOS can use APNs or Bark.
+  - The Android client keeps its own connection to the Host and can also use ntfy, UnifiedPush, FCM or a webhook.
+  - The web client uses browser notifications while the page is open.
+- Notifications can be sent on every reply or only when a task completes.
+
+### Bring your own models
+
+- Three API formats are supported: OpenAI Chat Completions, OpenAI Responses and Anthropic Messages. Any service that speaks one of these formats can be connected.
+- Model services and model profiles organize several providers and models.
+- The default route and per-Bot routes each set the model, the reasoning effort and a fallback order, with up to 8 fallbacks per route.
+- If the primary model fails with 402, 408, 429, 5xx or a network error before producing any output, the next fallback takes over. Once output has started there is no switch, so output and tool calls are never repeated.
+- You can fetch model lists and test connections in the admin console or in the clients. Changing the model configuration from a client requires a device paired with the admin password.
+- Optional JEV routing picks a model profile by task difficulty. It requires an API key for the JEV service and is off by default.
+
+### Image and video generation
+
+- The Images & video page of the admin console connects providers: OpenAI-compatible image and video APIs, WaveSpeed, or a custom HTTP JSON endpoint.
+- Image generation, video generation, video understanding and video review each have their own default model. Results come back to the conversation as attachments.
+- You need to supply an API key for each provider.
+
+### Voice
+
+- Speech recognition uses Fish Audio or an OpenAI-compatible transcription service; a Mac can also use a local model.
+- Voice calls use the current Bot's model, context and tools, with recognition and speech synthesis handled by the services you configure.
+- Real-time calls are experimental.
+
+### Scheduled tasks
+
+- A local scheduler in the Host runs Bot routines on cron schedules, with no external scheduling service.
+- Each routine has at most one run in progress, and missed slots are merged into a single catch-up run.
+
+### Webhooks
+
+- The Webhook page of the admin console creates a trigger for a chosen Bot. You set a task template, an optional event-type filter and a per-minute limit.
+- Requests are verified with HMAC-SHA256 signatures and a ±5-minute window. The request URL and signing secret are shown once at creation and can be reset later.
+- Every delivery is recorded in a run log.
+
+### Auto-review and approval cards
+
+- Before a Bot performs a risky action, the model you configured decides whether to allow it, using the original classification rules. This covers shell commands, MCP calls, computer use, writes to scheduled tasks and sub-agent launches. You can write your own allow and block rules.
+- A blocked action appears as a native approval card where you deny or allow it.
+- Cards expire after 30 minutes by default; `ROKBOT_AUTO_REVIEW_APPROVAL_TTL_MS` sets the timeout.
+- Auto-review is turned on in the client settings.
+
+### Usage statistics
+
+- Input, output, cache read/write and reasoning tokens are recorded per model.
+- The admin Overview page and the client settings chart usage for today (hourly) and for the last 7 or 30 days (daily). They also show each model's share, a detail table and the cache hit rate.
+
+### Self-hosted deployment and networking
+
+- **Images:** prebuilt images are published on GitHub Container Registry (GHCR). One script configures, pulls and starts everything. Offline installs and building the images from source are also supported.
+- **Architectures:** the Host image supports `linux/amd64` and `linux/arm64`. The `box` desktop image is `linux/amd64` only, so ARM hosts need binfmt/QEMU or Rosetta.
+- **Ports:** the admin console (`18080`) and the web client (`18081`) listen on `127.0.0.1` by default. `ROKBOT_LISTEN_ADDRESS` changes the listen address.
+- **Sign-in:** no cloud account is needed. Devices sign in with a single-use 6-digit pairing code that is valid for 5 minutes, or with the admin password.
+- **LAN:** clients can connect directly by IP address, and the Android client can scan the local network for Hosts.
+- **Remote access:** the built-in Tailcat encrypted network needs no Tailscale account. Tailscale and HTTPS reverse proxies also work.
+- **Client updates:**
+  - You publish installers for each platform on the Client updates page.
+  - Android and desktop clients receive delta patches, and desktop update manifests are signed with ECDSA P-256.
+  - iOS installs through `itms-services` (HTTPS required) or an AltStore / SideStore source.
+- **Privacy:**
+  - API keys are write-only. The admin API only reports whether a key is set, and keys are stored in `/data/model.env` on the Host data volume.
+  - Telemetry and crash reporting are disabled in the Host and in every client.
+
+## Screenshots
+
+These screenshots were taken from a RokBot Host and clients loaded with demo data. They contain no real accounts.
 
 <p align="center">
-  <a href="docs/media/rokbot-intro.mp4"><strong>▶ Watch / Download 720p HD MP4 Video (rokbot-intro.mp4)</strong></a> ·
-  <a href="https://raw.githubusercontent.com/hongfaqiu/rokbot/main/docs/media/rokbot-intro.mp4">Direct Raw Stream</a>
+  <img src="docs/images/rokbot-web-desktop.png" width="860" alt="Web client: chats grouped into Pending, Unread and Read, with an operations Bot's check report" />
+  <br /><sub>Web client (desktop layout) with chats grouped by last message</sub>
 </p>
 
----
-
-## Why RokBot?
-
-Most self-hosted AI tools are either sluggish web wrappers locked to a single vendor or chat-only interfaces that cannot actually operate a computer. RokBot brings the complete agent workspace home to your own hardware:
-
-| Dimension | Typical Self-Hosted Wrappers / Cloud Lock-In | RokBot |
-| --- | --- | --- |
-| **Client Experience** | Browser-only or laggy WebView shells, inconsistent mobile UX | **Native apps for macOS, Windows, Android, and iOS + default Web PWA (`:18081`)**, fast and consistent everywhere |
-| **Execution Power** | Text-only chat or rigid plugins with no real workspace | **Isolated Linux desktop sandbox (live VNC takeover) + direct local coding tools on your PCs + watchdog turn continuity** |
-| **Model Freedom** | Edit YAML & restart, or locked into one provider | **In-app config for OpenAI / Responses / Anthropic, per-Bot routing, fallback chains, JEV adaptive routing & token charts** |
-| **Networking & Updates** | Manual port forwarding, reverse proxy gymnastics, manual reinstalls | **6-digit pairing / LAN mDNS / built-in Tailcat encrypted tunnel (no public IP needed) + 4-platform signed delta updates** |
-| **Privacy & Control** | Hosted on third-party clouds or opaque telemetry | **100% self-hosted, write-only API keys, zero cloud telemetry, deterministic byte-level patching with SHA-256 checks** |
-
----
-
-## Key Capabilities
-
-- **5-Platform Native Clients & Ready-to-Use Web PWA**
-  - Covers **macOS (`1.2.3`), Windows (`1.2.3`), Android (`1.26.0`), iOS (`1.27.0` / `1.26.0`), and Web (`1.2.3`)**; the Web client runs by default on isolated port `18081` (separate from the Admin Console on `18080`) and can be bundled right inside your Host image.
-  - Includes **6 switchable animated Bot avatar styles** (Mecha Doll, Antenna Pop, Cyber Visor, Pixel Sprite, Liquid Orb, Official Default) and a **one-click bell toggle** across desktop, web, and Android to sort conversations by last message into foldable **Needs Attention**, **Unread**, and **Read** sections.
-- **In-App Model Hub, Adaptive Routing & Usage Analytics**
-  - Supports **OpenAI Chat, OpenAI Responses, and Anthropic** compatible APIs; add providers, fetch model catalogs, test live latency, and hot-reload directly inside any mobile or desktop app.
-  - Configure per-Bot models and reasoning effort, multi-provider fallback chains, **JEV adaptive model routing**, and upstream context window auto-sync — plus **hourly, daily, and per-model token usage charts** across clients and Admin.
-- **Hands-On Sandbox & Multi-Machine Local Execution**
-  - Includes an isolated Linux desktop sandbox (`box`) where Bots search the web, write/run code, and manage files — with **live interactive VNC takeover** and optional read-only memory mounts.
-  - Connect your own macOS and Windows desktops for **direct local coding tools (no Codex MCP required)**, multi-machine routing, and a pinned default execution machine.
-  - Background subagents stay visible to their Bot while a **watchdog auto-wakes Bots** for finished, stalled, or restart-interrupted tasks; supports reply threading, multi-Bot teammate handoff, native image/audio/video playback, auto voice, and Chinese skills localization.
-- **3-Minute Docker Deploy & Built-In Tailcat Tunnel**
-  - Ships multi-arch (`linux/amd64` + `linux/arm64`) GHCR images and a one-line installer, alongside [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md) so an AI coding agent can deploy and verify the stack for you end-to-end.
-  - No cloud account required: pair via **6-digit code**, **admin password**, **LAN mDNS auto-discovery**, or the built-in **Tailcat encrypted tunnel** without exposing a public IP.
-- **Self-Hosted Signed Incremental Updates**
-  - Upload signed packages once in the Admin Console to auto-generate **ECDSA P-256 signed `RBDELTA1` delta patches**.
-  - **Android / macOS / Windows** clients check, verify, and upgrade in one click (desktop supports automatic idle updates); **iOS** supports `itms-services` OTA (HTTPS), AltStore / SideStore feeds, and IPA share installation.
-- **Privacy-First & Verifiable Engineering**
-  - All conversations, files, and configs live strictly on your own server; API keys are write-only and cloud telemetry is disabled.
-  - Client and Host adaptations use deterministic byte-copy/add patching with full SHA-256 verification (zero decompilation), backed by a **199-test opaque-box E2E suite**.
-
----
-
-## Live Screenshots
-
-All 14 screenshots below are real, crisp, unredacted captures taken directly from a running RokBot stack (`rokbot-host` + `rokbot-box` Linux sandbox + `1.2.3` client — zero mockups, zero synthetic renders):
-
-### Real Client Workflows & Signature Features
-
-<p align="center">
-  <img src="docs/images/rokbot-client-desktop-overview.png" width="880" alt="RokBot Desktop: one-click bell chat sorting + live Linux sandbox execution and Markdown summary" />
-</p>
-
-| Bot Computer (Live VNC Desktop Takeover) | 6 Switchable Dynamic Bot Avatar Styles |
+| Generated image returned to the chat | The Bot's computer: live desktop view |
 | --- | --- |
-| <img src="docs/images/rokbot-client-live-vnc.png" width="440" alt="RokBot Bot Computer with Live VNC desktop takeover" /> | <img src="docs/images/rokbot-client-avatar-styles.png" width="440" alt="RokBot 6 switchable dynamic Bot avatar styles" /> |
+| <img src="docs/images/rokbot-web-image-generation.png" width="420" alt="A 16:9 image generated by a design Bot returned as an attachment" /> | <img src="docs/images/rokbot-client-live-vnc.png" width="420" alt="Live view of the Bot's computer beside the conversation" /> |
 
-| Follow-System Native Dark Mode & Sandbox Output | Mobile Web PWA: Bell Grouping & Live Sandbox Chat |
+| Admin console: overview and usage | Admin console: chat models and routing |
 | --- | --- |
-| <img src="docs/images/rokbot-client-desktop-dark.png" width="440" alt="RokBot Desktop follow-system native dark mode with live sandbox output" /> | <img src="docs/images/rokbot-client-mobile-pwa.png" width="440" alt="RokBot Mobile Web PWA with bell grouping and live sandbox conversation" /> |
+| <img src="docs/images/rokbot-admin-overview.png" width="420" alt="Admin overview with today's hourly token usage by model" /> | <img src="docs/images/rokbot-admin-models.png" width="420" alt="Chat model page with model services, profiles, the default route and a fallback" /> |
 
-| Live Multi-Model Token Usage & Cache Hit Charts | In-App Model Config, Routing & Live Endpoint Probe |
+| Admin console: images and video | Admin console: voice |
 | --- | --- |
-| <img src="docs/images/rokbot-client-settings-usage.png" width="440" alt="RokBot client settings with live multi-model Token usage and cache hit charts" /> | <img src="docs/images/rokbot-client-settings-models.png" width="440" alt="RokBot in-app multi-model config, routing, and live endpoint probe" /> |
+| <img src="docs/images/rokbot-admin-media.png" width="420" alt="Images and video page with default models, providers and models" /> | <img src="docs/images/rokbot-admin-voice.png" width="420" alt="Voice page with speech recognition and voice call settings" /> |
 
-### Self-Hosted Admin Console (Crisp & Unredacted)
+| Android: Bot list | Android: question card | Android: approval card | Android: Bot details |
+| --- | --- | --- | --- |
+| <img src="docs/images/rokbot-android-bot-list.png" width="190" alt="Android Bot list" /> | <img src="docs/images/rokbot-android-conversation.png" width="190" alt="Android conversation with a multiple-choice question card" /> | <img src="docs/images/rokbot-android-approval.png" width="190" alt="Android conversation with an approval card awaiting confirmation" /> | <img src="docs/images/rokbot-android-bot-details.png" width="190" alt="Android Bot details with routines, library and the Bot's computer" /> |
 
-<p align="center">
-  <img src="docs/images/rokbot-host-admin-overview.png" width="880" alt="RokBot Admin Overview: Host ready state, concurrent Bot crew, and stacked hourly multi-model Token usage chart" />
-</p>
+The admin and web client screenshots use the Chinese interface; both also offer English.
 
-| Model Hub · Providers & Routing | Paired Devices & Push Notifications | Isolated `:18081` Web Client Bundle |
-| --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-model.png" width="290" alt="Model hub and routing config" /> | <img src="docs/images/rokbot-host-admin-devices.png" width="290" alt="Paired devices and push notifications" /> | <img src="docs/images/rokbot-host-admin-web-client.png" width="290" alt="Web client bundle management" /> |
+## Supported Platforms
 
-| Built-In Tailcat Encrypted Tunnel | 4-Platform ECDSA Delta Updates | Modular Agent Skills |
-| --- | --- | --- |
-| <img src="docs/images/rokbot-host-admin-network.png" width="290" alt="Tailcat encrypted remote access" /> | <img src="docs/images/rokbot-host-admin-updates.png" width="290" alt="4-platform update publisher" /> | <img src="docs/images/rokbot-host-admin-skills.png" width="290" alt="Modular agent skills management" /> |
+You build each client on your own machine with the patch tools, and the patches accept only the official versions below. The versions come from the configuration files pinned in the repository.
 
----
+| Platform | Form | Official version required | Guide |
+| --- | --- | --- | --- |
+| macOS | Apple Silicon client | 1.2.3 | [`mac/README.en.md`](mac/README.en.md) |
+| Windows | x64 installer and portable build | 1.2.3 (recommended); 0.71.2 also accepted | [`windows/README.en.md`](windows/README.en.md) |
+| Web | Browser; can be added to the home screen | Interface from Windows 1.2.3 (recommended) or 0.71.2 | [`web/README.en.md`](web/README.en.md) |
+| Android | Native APK (arm64-v8a) | 1.26.0 (build 3212) | [`android/README.en.md`](android/README.en.md) |
+| iOS | IPA; bring your own decrypted official IPA | 1.27.0 (29519); 1.26.0 and 1.16.0 also accepted | [`ios/README.en.md`](ios/README.en.md) |
+| Linux server | Docker: `host` (amd64 / arm64) and `box` (amd64) | Host baseline `2bb5e41` | [`host/README.en.md`](host/README.en.md) |
 
-## 3-Minute Quick Start
+The pinned versions come from these files: `mac/patchers/desktop/supported.json`, `windows/patchers/desktop/supported.json`, `web/patchers/supported.json`, `android/recipes/manifest.json`, `ios/recipes/ios/manifest.json` and `host/recipes/host/manifest.json`.
 
-### 1. Deploy the Server (Host + Sandbox)
+## Quick Start
 
-On any Linux or macOS machine with Docker (Compose v2):
+### 1. Deploy the Host and the execution container
+
+On a Linux or macOS server with Docker (including Compose v2), run:
 
 ```bash
 mkdir rokbot && cd rokbot
@@ -134,106 +170,128 @@ curl -fsSL https://raw.githubusercontent.com/hongfaqiu/rokbot/main/host/release/
 bash install-images.sh
 ```
 
-The script generates `.env`, pulls the multi-arch images, starts the Host and sandbox containers, and waits until health checks pass.
+The script does the following, in order:
+
+1. Creates `.env` (mode 0600) with random secrets.
+2. Pulls the images.
+3. Starts the Host and `box` containers.
+4. Waits for the health checks to pass, if your Compose version supports it.
+5. Prints the admin console and web client addresses.
 
 > [!TIP]
-> - **Want an AI agent to deploy it for you?** Point Claude Code, Cursor, Codex, or Antigravity to [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md) for a step-by-step automated runbook.
-> - **Useful flags**: `--local` (use a local repo clone), `--prepare-only` (generate `.env` to edit before starting), `--offline` (air-gapped hosts). Configure `ROKBOT_HOST_IMAGE` / `ROKBOT_BOX_IMAGE` or `HTTP_PROXY` / `HTTPS_PROXY` in `.env` for mirrors or proxies.
+> - **Let an AI agent deploy it:** give [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md) to an AI coding assistant such as Claude Code, Cursor or Codex. It will run the environment checks, the deployment and the acceptance steps from the runbook.
+> - **Common options:**
+>   - If you already have a local clone, use `bash install-images.sh --local`.
+>   - To edit the configuration before starting, use `--prepare-only`.
+>   - For an offline install, import the images with `docker load` first and then use `--offline`.
+> - **Mirrors and proxies:** set `ROKBOT_HOST_IMAGE` / `ROKBOT_BOX_IMAGE` in `.env` to use a mirror, or set `HTTP_PROXY` / `HTTPS_PROXY`.
 
-### 2. Initialize & Connect
+### 2. Initialize the Host and connect a client
 
-1. Read your one-time setup key:
+1. Get the one-time setup key:
    ```bash
    docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /data/setup-key
    ```
-2. Open the Admin Console at `http://127.0.0.1:18080/admin`, enter the setup key, and create your admin password.
-3. Connect from any surface:
-   - **Web Client**: Enabled by default on `http://127.0.0.1:18081` (origin-isolated from Admin) — open it right in your browser.
-   - **Native Clients**: Generate a 6-character pairing code under **Devices** (or sign in with the admin password), and connect via direct URL, LAN mDNS discovery, or the built-in Tailcat tunnel.
+2. Open the admin console at `http://127.0.0.1:18080/admin`, enter the setup key and set an admin password (12–128 characters).
+3. Connect a client:
+   - **Native clients:** create a 6-digit pairing code under Devices & notifications in the admin console. Then enter the Host address and the code in the macOS, Windows, Android or iOS client. You can also sign in with the admin password.
+   - **Web client:** enabled by default at `http://127.0.0.1:18081/web/`. The public prebuilt images do not include the web client bundle. Before first use, build the bundle as described in [`web/README.en.md`](web/README.en.md) and upload it on the Web client page of the admin console.
 
-### 3. Configure a Model In-App & Start Chatting
+### 3. Configure models
 
-On first connection, the client guides you straight to **Model Config**:
-1. Pick a protocol (OpenAI Chat / OpenAI Responses / Anthropic, etc.) and enter your Base URL and API key.
-2. Tap **Fetch Models** to load available models, then **Test Connection** to verify reachability and latency.
-3. Tap **Save & Apply** — once the status shows active, create a Bot and start chatting or running tasks.
+Open the Chat model page of the admin console (`/admin?view=model`), or the settings of a client paired with the admin password:
 
----
+1. Add a model service: choose the API format (OpenAI Chat, OpenAI Responses or Anthropic), then enter the base URL and API key.
+2. Fetch the model list, create a model profile and test the connection.
+3. Set the default route. If needed, give individual Bots their own routes and fallbacks.
 
-## Architecture at a Glance
+Once saved, you can create Bots and start chatting.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Clients["Cross-Platform Clients"]
-    Desktop["macOS / Windows Native"]
-    Mobile["iOS / Android Native"]
-    Web["Web PWA (:18081 Isolated Port)"]
+  subgraph Clients["Clients"]
+    Desktop["macOS / Windows clients"]
+    Mobile["iOS / Android clients"]
+    Web["Web client (:18081)"]
   end
 
-  subgraph Server["Self-Hosted RokBot Host (:18080)"]
-    Admin["Admin Console / Pairing / Usage / Delta Updates"]
-    Router["Core Scheduler / Watchdog / JEV Adaptive Model Router"]
-    Admin --> Router
+  subgraph HostC["host container"]
+    Admin["Admin service (:18080)<br/>sign-in / pairing / settings / push / updates"]
+    Core["Original Host<br/>agents / tools / context / schedules"]
+    Adapter["Model adapter<br/>routing / fallbacks / auto-review"]
+    Admin --> Core --> Adapter
   end
-
-  subgraph Execution["Models & Execution"]
-    Models["Your LLM Providers (OpenAI / Responses / Anthropic)"]
-    Box["Linux Desktop Sandbox + Live VNC"]
-    LocalPC["Your macOS / Windows Local Execution"]
-  end
-
-  Tunnel["Tailcat Tunnel / mDNS / APNs & Bark Push"]
 
   Desktop --> Admin
   Mobile --> Admin
   Web --> Admin
-  Clients <--> Tunnel
-  Tunnel <--> Server
-  Router --> Models
-  Router --> Box
-  Router -.Reverse Client Tunnel.-> LocalPC
+  Adapter --> Models["Your model endpoints<br/>Chat / Responses / Anthropic"]
+  Core --> Box["box container<br/>Linux desktop + VNC"]
+  Core -.reverse connection via client.-> PC["Your Mac / Windows computer"]
+  Admin --> Push["APNs / Bark / ntfy and other push"]
+  Admin <--> Tailcat["Tailcat encrypted network"]
 ```
 
----
+- **Host:** the original Node.js program. Only the parts tied to official services are replaced (authentication, agent identity, model calls and MCP configuration), and an admin service sits in front of it.
+- **Execution computer:** the official Linux desktop image, running unchanged in Docker. Agents can also work on your own computer.
+- **Clients:** the original interface is kept, and the patches make it connect only to your Host. Patches only copy and add bytes, and every segment checks the original file's hash first. Nothing is decompiled or rewritten.
 
-## Clients & Auto-Updates
-
-### Getting the Clients
-
-This repository does not redistribute proprietary third-party binaries; each client is assembled locally from verified official packages:
-
-| Platform | Baseline | Build & Usage Guide |
-| --- | --- | --- |
-| **macOS** (Apple Silicon) | `1.2.3` | [`mac/README.en.md`](mac/README.en.md) |
-| **Windows** (x64 Setup / Portable) | `1.2.3` | [`windows/README.en.md`](windows/README.en.md) |
-| **Web** (Browser / Mobile PWA, `:18081`) | `1.2.3` | [`web/README.en.md`](web/README.en.md) |
-| **Android** (Native APK) | `1.26.0` | [`android/README.en.md`](android/README.en.md) |
-| **iOS** (Native IPA, decrypted IPA required) | `1.27.0` / `1.26.0` | [`ios/README.en.md`](ios/README.en.md) |
-
-### One-Click Incremental Updates
-
-- **Publishing (Admin)**: Open `/admin?view=updates`, choose a platform, upload your signed package, and optionally select a previous version so the Host automatically builds a signed delta patch.
-- **Updating (Users)**:
-  - **Android / macOS / Windows**: Tap **Check for Updates** in the app (desktop also supports automatic idle updates) to download the lightweight delta, verify its signature, and install.
-  - **iOS**: Check for updates in-app to install via `itms-services` OTA (requires HTTPS `ROKBOT_PUBLIC_URL`), AltStore / SideStore, or IPA share sheet.
-
----
+See [`docs/ARCHITECTURE.en.md`](docs/ARCHITECTURE.en.md) for the full design.
 
 ## Documentation
 
-| Guide | Topics |
+| Document | Contents |
 | --- | --- |
-| [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md) | Step-by-step deployment, health verification, model config, and update publishing runbook for AI agents |
-| [`docs/PATCHING_WORKFLOW.en.md`](docs/PATCHING_WORKFLOW.en.md) | Technical deep dive into self-hosting adaptation and per-platform patching |
-| [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md) | Offline source builds, split execution nodes, and volume backup/restore |
-| [`docs/ARCHITECTURE.en.md`](docs/ARCHITECTURE.en.md) | System architecture, module boundaries, and runtime extensions |
-| [`docs/REBRAND_COMPAT.md`](docs/REBRAND_COMPAT.md) | Environment variables, headers, and legacy migration compatibility |
-| [`tests/e2e/README.md`](tests/e2e/README.md) | Running the 199-test opaque-box E2E test suite |
+| [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md) | Runbook for AI coding agents: preflight checks, prebuilt-image and source deployments, first boot, model setup, releases and troubleshooting |
+| [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md) | Deploying with `host/deploy.py`: choosing machines, split deployment, operations, and volume backup and recovery |
+| [`docs/ARCHITECTURE.en.md`](docs/ARCHITECTURE.en.md) | How it works, the feature comparison, each component, the directory layout, tests and known limitations |
+| [`docs/PATCHING_WORKFLOW.en.md`](docs/PATCHING_WORKFLOW.en.md) | Per-platform patch baselines and the maintenance workflow |
+| [`docs/REBRAND_COMPAT.md`](docs/REBRAND_COMPAT.md) | Rename registry: environment variables, interface identifiers and migration from older setups |
+| [`tests/e2e/README.md`](tests/e2e/README.md) | How to run the black-box end-to-end test suite |
+| [`SECURITY.md`](SECURITY.md) | How to report vulnerabilities, and deployment security advice |
 
----
+## FAQ
 
-## Credits & License
+**How do I reach the Host without a public IP?**
 
-- **Credits**: Inspired by the pioneering self-hosting and deployment work of [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot), [ferretgeek/prokbot-plus](https://github.com/ferretgeek/prokbot-plus), and `rakazo`.
-- **License**: Released under the [ProkBot Noncommercial License 1.0](LICENSE) — personal use, study, modification, and noncommercial distribution only; commercial use is prohibited. See [NOTICE](NOTICE).
-- **Disclaimer**: RokBot is an independent open-source project and is not affiliated with xAI, Grok Bot, or Cursor/Anysphere. See [SECURITY.md](SECURITY.md) for security reporting.
+Turn on the built-in Tailcat on the Remote access page; no Tailscale account is needed. Tailscale, a VPN or an HTTPS reverse proxy also work. The web client does not support Tailcat, so use a VPN or an HTTPS domain to reach it remotely. Do not expose the admin console directly to the internet; see [`SECURITY.md`](SECURITY.md).
+
+**Why can't my phone reach the Host on the LAN?**
+
+`ROKBOT_LISTEN_ADDRESS` defaults to `127.0.0.1`, which only allows connections from the server itself. For LAN use, set it to the server's LAN IP, or to `0.0.0.0` behind a firewall. Note that ports published by Docker bypass host firewalls such as ufw.
+
+**Can I deploy on an ARM server?**
+
+Yes. The Host image supports `linux/arm64`. The `box` desktop image is `linux/amd64` only, so enable binfmt/QEMU on the host, or Rosetta on Apple Silicon.
+
+**Why are there no client installers in the repository?**
+
+This repository does not contain or distribute original program files. The patch tools download the official installers on your machine, verify their hashes and patch them there. The resulting clients and web client bundles are not distributed. See the README in each platform directory for the steps.
+
+**Where are API keys stored, and can they be read back?**
+
+API keys are stored in `/data/model.env` on the Host data volume. The admin API and the clients only see whether a key is set, never the key itself.
+
+**How do I back up my data?**
+
+Data lives in three volumes: `host-data` (mounted at `/data`), `box-home` and `box-workspace`. With a `host/deploy.py` deployment, run `python3 host/deploy.py backup`. For recovery, see [`docs/AI-INSTALL.en.md`](docs/AI-INSTALL.en.md#volume-recovery). Backups contain conversations and keys, so keep them safe. Do not run `docker compose down -v`, which deletes the volumes.
+
+## License
+
+RokBot is licensed under the [ProkBot Noncommercial License 1.0](LICENSE). It permits personal use, self-hosting, study, modification and noncommercial redistribution. All commercial use is prohibited, including:
+
+- selling or licensing it for payment;
+- paid hosting or paid services;
+- incorporating it into commercial products;
+- a business's internal operations;
+- monetizing it through advertising or similar means.
+
+The [LICENSE](LICENSE) file is authoritative. See [NOTICE](NOTICE) for derivation and third-party components.
+
+RokBot builds on [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot) and [ferretgeek/prokbot-plus](https://github.com/ferretgeek/prokbot-plus), and drew on `rakazo`'s work on self-hosted deployment. We thank all of them.
+
+## Disclaimer
+
+RokBot is an independent open-source project. It is not affiliated with or endorsed by xAI, Grok Bot or Cursor / Anysphere. Grok, Grok Bot and related names and marks belong to their respective owners. Please report security issues privately as described in [SECURITY.md](SECURITY.md).
