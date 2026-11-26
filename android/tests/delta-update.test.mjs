@@ -367,6 +367,7 @@ public class JSONObject {
   public JSONObject put(String k, long v) { map.put(k, v); return this; }
   public JSONObject put(String k, boolean v) { map.put(k, v); return this; }
   public boolean has(String k) { return map.containsKey(k); }
+  public int length() { return map.size(); }
   public boolean isNull(String k) { return !map.containsKey(k) || map.get(k) == null || map.get(k) == NULL; }
   public String optString(String k, String d) {
     Object v = map.get(k);
@@ -1247,6 +1248,7 @@ public class JSONObject {
   public JSONObject put(String k, long v) { map.put(k, v); return this; }
   public JSONObject put(String k, boolean v) { map.put(k, v); return this; }
   public boolean has(String k) { return map.containsKey(k); }
+  public int length() { return map.size(); }
   public boolean isNull(String k) { return !map.containsKey(k) || map.get(k) == null || map.get(k) == NULL; }
   public String optString(String k, String d) { Object v = map.get(k); return v == null ? d : String.valueOf(v); }
   public String optString(String k) { return optString(k, ""); }

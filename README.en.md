@@ -66,6 +66,8 @@ Conversations, files, settings and API keys stay on the Host's data volumes. Thi
 
 - Conversations and settings live on the Host, and every client connects to the same Host. You can start a task on your computer and follow up on your phone or in the browser.
 - The chat list can be sorted by last message and grouped: Needs attention, Unread and Read on desktop and web, with an additional In progress group on Android.
+- On Android, tapping the `+` button in the top-right corner of the chat list opens a native bottom sheet to create either a new Bot or a new group chat with multiple Bots collaborating together.
+- Web and Android show contextual input suggestions above the chat composer; tap any suggestion to fill the input box. Suggestions use the dedicated Input suggestions scenario model and fall back to built-in Chinese/English presets when no model is configured or the request fails.
 - Notification channels:
   - iOS can use APNs or Bark.
   - The Android client keeps its own connection to the Host and can also use ntfy, UnifiedPush, FCM or a webhook.
@@ -77,15 +79,16 @@ Conversations, files, settings and API keys stay on the Host's data volumes. Thi
 - Three API formats are supported: OpenAI Chat Completions, OpenAI Responses and Anthropic Messages. Any service that speaks one of these formats can be connected.
 - Model services and model profiles organize several providers and models.
 - The default route and per-Bot routes each set the model, the reasoning effort and a fallback order, with up to 8 fallbacks per route.
+- Per-scenario model routing: on the Chat model page of the admin console and in Android Model Settings, you can assign a dedicated model profile and reasoning effort to each of 6 scenarios — Input suggestions, Context summarization, Memory extraction, Auto-review, Subagents and Automations. Any unset scenario follows the default route.
+- You can fetch model lists and test connections in the admin console or in the clients. On Android, you can also assign a dedicated model directly from an individual Bot's details screen. Changing the model configuration from a client requires a device paired with the admin password.
 - If the primary model fails with 402, 408, 429, 5xx or a network error before producing any output, the next fallback takes over. Once output has started there is no switch, so output and tool calls are never repeated.
-- You can fetch model lists and test connections in the admin console or in the clients. Changing the model configuration from a client requires a device paired with the admin password.
 - Optional JEV routing picks a model profile by task difficulty. It requires an API key for the JEV service and is off by default.
 
 ### Image and video generation
 
 - The Images & video page of the admin console connects providers: OpenAI-compatible image and video APIs, WaveSpeed, or a custom HTTP JSON endpoint.
 - Image generation, video generation, video understanding and video review each have their own default model. Results come back to the conversation as attachments.
-- **Batch image download**: select multiple images in a conversation or the media viewer and download them at once — save to a folder or ZIP on Desktop (macOS/Windows/Linux), download as ZIP on Web, or save directly to the gallery (`Pictures/RokBot`) on Android.
+- Batch image download: select multiple images in a conversation or the media viewer and download them at once — save to a folder or ZIP on Desktop (macOS, Windows, Linux), download as ZIP on Web, or save directly to the gallery (`Pictures/RokBot`) on Android.
 - You need to supply an API key for each provider.
 
 ### Voice
@@ -154,11 +157,17 @@ The chat list, a conversation, Bot details and the approval card are shown at th
     <td align="center"><img src="docs/images/rokbot-android-share.png" width="190" alt="Sending shared content to a chosen Bot from the system share sheet" /><br /><sub>System share sheet</sub></td>
     <td align="center"><img src="docs/images/rokbot-android-about.png" width="190" alt="App version and update status at the bottom of Settings" /><br /><sub>About and updates</sub></td>
   </tr>
+  <tr>
+    <td align="center"><img src="docs/images/rokbot-android-suggestions.png" width="190" alt="Composer input suggestions above the group chat input box" /><br /><sub>Input suggestions</sub></td>
+    <td align="center"><img src="docs/images/rokbot-android-scenario-models.png" width="190" alt="Scenario models section in Model Settings" /><br /><sub>Scenario models</sub></td>
+    <td></td>
+    <td></td>
+  </tr>
 </table>
 
 ### Desktop
 
-The desktop clients (macOS and Windows) share their interface with the web client. Both screenshots below use the desktop layout.
+The desktop clients (macOS, Windows and Linux) share their interface with the web client. Both screenshots below use the desktop layout.
 
 | Chat list and conversation | The Bot's computer: live desktop view |
 | --- | --- |
@@ -239,7 +248,7 @@ The script does the following, in order:
    ```
 2. Open the admin console at `http://127.0.0.1:18080/admin`, enter the setup key and set an admin password (12–128 characters).
 3. Connect a client:
-   - **Native clients:** first get a client as described in [Getting the clients](#getting-the-clients). Create a 6-digit pairing code under Devices & notifications in the admin console. Then enter the Host address and the code in the macOS, Windows, Android or iOS client. You can also sign in with the admin password.
+   - **Native clients:** first get a client as described in [Getting the clients](#getting-the-clients). Create a 6-digit pairing code under Devices & notifications in the admin console. Then enter the Host address and the code in the macOS, Windows, Linux, Android or iOS client. You can also sign in with the admin password.
    - **Web client:** enabled by default at `http://127.0.0.1:18081/web/`. The prebuilt images do not include the web client bundle. Before first use, build the bundle as described in [`web/README.en.md`](web/README.en.md) and upload it on the Web client page of the admin console.
 
 ### 3. Configure models
@@ -294,10 +303,18 @@ node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.3.0_Setup
 #### Linux
 
 ```bash
-node linux/patchers/desktop/patch.mjs --arch x64   # or --arch arm64, optionally pass --source <official .deb>
+# Install the shared dependency before the first build
+npm install --prefix mac/patchers/desktop
+
+# Download the pinned official 1.3.0 .deb and build (builds .deb and .tar.gz on Linux or macOS)
+node linux/patchers/desktop/patch.mjs --arch x64   # or --arch arm64
+
+# Or use a local official .deb (architecture detected by SHA-256), or pass --verify-only
+node linux/patchers/desktop/patch.mjs --source /path/to/grok-bot_1.3.0_amd64.deb
 ```
 
-- Produces, in `linux/output/`, the portable directory `RokBotLocal-1.3.0-linux-<arch>/`, portable archive `RokBotLocal-1.3.0-linux-<arch>.tar.gz`, rebranded Debian/Ubuntu package `RokBotLocal-1.3.0-linux-<arch>.deb` (upstream apt repo stripped, installs to `/opt/RokBot/rokbot`), and `.patch.json`. See [`linux/README.en.md`](linux/README.en.md).
+- Produces, in `linux/output/`, the portable directory `RokBotLocal-1.3.0-linux-<arch>/`, portable archive `RokBotLocal-1.3.0-linux-<arch>.tar.gz`, rebranded Debian/Ubuntu package `RokBotLocal-1.3.0-linux-<arch>.deb` (upstream apt repo stripped, installs to `/opt/RokBot/rokbot`), and patch record `RokBotLocal-1.3.0-linux-<arch>.patch.json`.
+- Works on both Linux and macOS without requiring `dpkg-deb`. See [`linux/README.en.md`](linux/README.en.md).
 
 #### Web client
 
@@ -337,10 +354,10 @@ python3 ios/release/patch-ios.py \
 The administrator of a Host can publish the installers they built to the devices on that Host:
 
 1. The administrator builds and signs the installers as in Option 1.
-2. On the Client updates page of the admin console, they choose a platform (Android, iOS, macOS or Windows), upload the installer and publish it. They can optionally pick an older release to generate a delta patch from.
+2. On the Client updates page of the admin console, they choose a platform (Android, iOS, macOS, Windows or Linux), upload the installer and publish it. They can optionally pick an older release to generate a delta patch from.
 3. Paired clients check for and download updates from that Host:
    - Android checks the download's size, SHA-256, package name and signing certificate, and the certificate must match the installed app.
-   - macOS and Windows receive delta patches, and their update manifests are signed with ECDSA P-256. By default the clients check the Host they are paired with. To pin the manifest signing key shown on the Client updates page into the client, build it with `--update-url <Host HTTPS address>/local/updates` and `--update-public-key-file <key file>`.
+   - macOS, Windows and Linux receive delta patches, and their update manifests are signed with ECDSA P-256. By default the clients check the Host they are paired with. To pin the manifest signing key shown on the Client updates page into the client, build it with `--update-url <Host HTTPS address>/local/updates` and `--update-public-key-file <key file>`.
    - iOS apps cannot replace themselves, so iOS installs through `itms-services` (HTTPS required), an AltStore / SideStore source, or by downloading the IPA and handing it to a signing tool.
 
 For the first install the client is not yet paired with the Host. How the installer reaches users is decided by, and is the responsibility of, the administrator of each Host. Publishing and API details are in [`docs/AGENT_DEPLOY.en.md`](docs/AGENT_DEPLOY.en.md#5-publishing-signed-4-platform-releases--incremental-updates).
@@ -350,7 +367,7 @@ For the first install the client is not yet paired with the Host. How the instal
 ```mermaid
 flowchart LR
   subgraph Clients["Clients"]
-    Desktop["macOS / Windows clients"]
+    Desktop["macOS / Windows / Linux clients"]
     Mobile["iOS / Android clients"]
     Web["Web client (:18081)"]
   end
