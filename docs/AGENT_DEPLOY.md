@@ -51,12 +51,14 @@ docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
 
 适用于已有预构建镜像（默认 `ghcr.io/hongfaqiu/rokbot/host:latest` 与 `ghcr.io/hongfaqiu/rokbot/box:2bb5e41`，支持替换为自建镜像源）。
 
-#### A1. 在线一键部署（无需克隆仓库）
+#### A1. 克隆仓库后一键部署
+
+仓库是私有的，匿名访问 `raw.githubusercontent.com` 会失败。先 clone 仓库（需要访问权限），再用 `--local` 运行仓库里的脚本，脚本会把 Compose 和 `.env` 模板复制到当前目录。预构建镜像同样需要访问权限，拉取前先用带 `read:packages` 权限的令牌执行 `docker login ghcr.io`。
 
 ```bash
 mkdir -p "$HOME/rokbot" && cd "$HOME/rokbot"
-curl -fsSL https://raw.githubusercontent.com/hongfaqiu/rokbot/main/host/release/install-images.sh -o install-images.sh
-bash install-images.sh --prepare-only
+gh repo clone hongfaqiu/rokbot src < /dev/null   # 没有 gh 时：git clone https://github.com/hongfaqiu/rokbot.git src
+bash src/host/release/install-images.sh --local --prepare-only
 ```
 
 按需编辑生成的 `.env`（权限 `0600`），常用核心字段：
@@ -76,14 +78,14 @@ bash install-images.sh --prepare-only
 编辑完成后启动并等待健康检查：
 
 ```bash
-bash install-images.sh
+bash src/host/release/install-images.sh --local
 ```
 
 #### A2. 已克隆私有仓库 / 离线环境参数
 
 | 场景 | 命令 |
 | --- | --- |
-| 已在本地克隆仓库（位于 `host/release/`） | `bash install-images.sh --local` |
+| 使用本地克隆里的模板（私有仓库必须加） | `bash install-images.sh --local` |
 | 仅生成并校验 Compose + `.env`，不启动容器 | `bash install-images.sh --prepare-only` |
 | 镜像已通过 `docker load` 导入本地，禁止联网拉取 | `bash install-images.sh --offline` |
 | 镜像已存在本机，跳过 `docker compose pull` | `bash install-images.sh --pull-never` |
@@ -144,7 +146,7 @@ RokBot 支持**直接在客户端 App 内配置模型**（Android `ModelsActivit
 
 ## 5. 发布四端签名安装包与增量自动更新
 
-由管理员提前打包并签名好 Android（`.apk`）、iOS（`.ipa`）、macOS（`.dmg`/`.zip`/`.asar`）或 Windows（`.exe`/`.zip`/`.asar`）产物，通过自托管 Host 发布，终端用户即可在 App 内一键增量更新：
+这是「从自己部署的 Host 获取客户端」的方式：安装包由管理员按各平台 README 自行构建，仓库不提供。由管理员提前打包并签名好 Android（`.apk`）、iOS（`.ipa`）、macOS（`.dmg`/`.zip`/`.asar`）或 Windows（`.exe`/`.zip`/`.asar`）产物，通过自托管 Host 发布，终端用户即可在 App 内一键增量更新：
 
 1. **后台界面发布（推荐）**：登录 `/admin` → 左侧「客户端更新」→ 选择目标平台（`Android` / `iOS` / `macOS` / `Windows`）→ 上传签名包 → 勾选「基于旧版本生成增量补丁」（自动生成 Android `RBDELTA1` 或桌面 `RBD1` 增量，并对桌面清单做 ECDSA P-256 签名）→ 点击「发布更新」。
 2. **API 自动化发布**（需管理员 Cookie + `x-rokbot-csrf: 1`）：

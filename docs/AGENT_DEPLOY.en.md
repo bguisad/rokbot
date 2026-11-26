@@ -51,12 +51,14 @@ Confirm these 4 items once with the user (unless already answered in context):
 
 Uses prebuilt images (`ghcr.io/hongfaqiu/rokbot/host:latest` and `ghcr.io/hongfaqiu/rokbot/box:2bb5e41` by default, or any user-configured mirror).
 
-#### A1. Online One-Click Setup (No Repo Clone Required)
+#### A1. One-Click Setup From a Clone
+
+The repository is private, so anonymous requests to `raw.githubusercontent.com` fail. Clone the repository first (access required), then run its script with `--local`, which copies the Compose and `.env` templates into the current directory. The prebuilt images also require access: before pulling, run `docker login ghcr.io` with a token that has the `read:packages` scope.
 
 ```bash
 mkdir -p "$HOME/rokbot" && cd "$HOME/rokbot"
-curl -fsSL https://raw.githubusercontent.com/hongfaqiu/rokbot/main/host/release/install-images.sh -o install-images.sh
-bash install-images.sh --prepare-only
+gh repo clone hongfaqiu/rokbot src < /dev/null   # without gh: git clone https://github.com/hongfaqiu/rokbot.git src
+bash src/host/release/install-images.sh --local --prepare-only
 ```
 
 Review and edit `.env` (created with mode `0600`). Key variables:
@@ -76,14 +78,14 @@ Review and edit `.env` (created with mode `0600`). Key variables:
 Start the stack and wait for health checks:
 
 ```bash
-bash install-images.sh
+bash src/host/release/install-images.sh --local
 ```
 
 #### A2. Local Clone & Air-Gapped Flags
 
 | Scenario | Command |
 | --- | --- |
-| Already inside cloned repo (`host/release/`) | `bash install-images.sh --local` |
+| Use the templates from a local clone (required for the private repository) | `bash install-images.sh --local` |
 | Generate and validate Compose + `.env` only | `bash install-images.sh --prepare-only` |
 | Images preloaded via `docker load`, no network allowed | `bash install-images.sh --offline` |
 | Images already present locally, skip `docker compose pull` | `bash install-images.sh --pull-never` |
@@ -143,7 +145,7 @@ Models can be configured directly inside any client app (Android `ModelsActivity
 
 ## 5. Publishing Signed 4-Platform Releases & Incremental Updates
 
-Admins upload their own pre-signed packages (`.apk`, `.ipa`, `.dmg`/`.zip`/`.asar`, `.exe`/`.zip`/`.asar`) to the self-hosted Host so end users get one-click incremental updates:
+This is the "get the clients from your own Host" method: administrators build the packages themselves following each platform README; the repository does not provide them. Admins upload their own pre-signed packages (`.apk`, `.ipa`, `.dmg`/`.zip`/`.asar`, `.exe`/`.zip`/`.asar`) to the self-hosted Host so end users get one-click incremental updates:
 
 1. **Admin UI (Recommended)**: Open `/admin` → **Client Updates** → pick platform (`Android` / `iOS` / `macOS` / `Windows`) → upload signed package → optionally select a prior release to auto-generate deltas (`RBDELTA1` for Android, `RBD1` + ECDSA P-256 signed manifest for macOS/Windows) → **Publish**.
 2. **Admin API** (admin cookie + `x-rokbot-csrf: 1`):
