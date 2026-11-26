@@ -6,22 +6,37 @@ import { discover, main } from './official-channels.mjs';
 const urls = {
   windows: 'https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand',
   mac: 'https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand',
+  linuxX64: 'https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand',
+  linuxArm64: 'https://api2.cursor.sh/updates/api/download/stable/linux-arm64/sand',
   ios: 'https://itunes.apple.com/lookup?id=6794501026&country=us',
 };
 const pin = async path => JSON.parse(await readFile(new URL(`../${path}`, import.meta.url), 'utf8'));
-const [win, mac, ios, android] = await Promise.all([
+const [win, mac, linuxX64, linuxArm64, ios, android] = await Promise.all([
   'windows/patchers/desktop/supported.json', 'mac/patchers/desktop/supported.json',
+  'linux/patchers/desktop/x64/supported.json', 'linux/patchers/desktop/arm64/supported.json',
   'ios/recipes/ios/manifest.json', 'android/recipes/manifest.json',
 ].map(pin));
-const buildId = 'abc1'.repeat(10);
+const buildId = /\/stable\/([0-9a-f]{40})\//.exec(linuxX64.archive.url)?.[1] ?? 'abc1'.repeat(10);
 const listing = 'https://apps.apple.com/us/app/grok-bot/id6794501026';
 const json = (value, type = 'application/json') => new Response(JSON.stringify(value),
   { headers: { 'content-type': `${type}; charset=utf-8` } });
 
-function desktop(channel, release = (channel === 'windows' ? win : mac).version) {
-  const path = channel === 'windows' ? `win32-x64/${release}/Grok_Bot_${release}_Setup.exe`
-    : `darwin-arm64/${release}/Grok_Bot_${release}.dmg`;
-  return { version: release, downloadUrl: `https://downloads.cursor.com/grokbot/stable/${path}`,
+function desktop(channel, release) {
+  const local = { windows: win, mac, linuxX64, linuxArm64 }[channel];
+  const ver = release ?? local.version;
+  if (channel === 'linuxX64' || channel === 'linuxArm64') {
+    const arch = channel === 'linuxX64' ? 'x64' : 'arm64';
+    const debArch = channel === 'linuxX64' ? 'amd64' : 'arm64';
+    return {
+      version: ver,
+      downloadUrl: `https://downloads.cursor.com/grokbot/stable/${buildId}/linux/${arch}/Grok_Bot_${ver}_${arch}.AppImage`,
+      debUrl: `https://downloads.cursor.com/grokbot/stable/${buildId}/linux/${arch}/grok-bot_${ver}_${debArch}.deb`,
+      commitSha: buildId,
+    };
+  }
+  const path = channel === 'windows' ? `win32-x64/${ver}/Grok_Bot_${ver}_Setup.exe`
+    : `darwin-arm64/${ver}/Grok_Bot_${ver}.dmg`;
+  return { version: ver, downloadUrl: `https://downloads.cursor.com/grokbot/stable/${path}`,
     commitSha: buildId, rehUrl: 'https://example.invalid/ignored-archive.tar.gz' };
 }
 
@@ -73,7 +88,7 @@ test('both release checks produce timestamped JSON from only three anonymous met
     assert.equal(label, phase);
     assert.equal(ok, true);
     assert.equal(artifactsVerified, false);
-    for (const [key, local] of [['windows', win], ['mac', mac]]) {
+    for (const [key, local] of [['windows', win], ['mac', mac], ['linuxX64', linuxX64], ['linuxArm64', linuxArm64]]) {
       const item = channels[key];
       assert.equal(item.source, urls[key]);
       assert.equal(item.pinned.version, local.version);
@@ -101,9 +116,9 @@ test('both release checks produce timestamped JSON from only three anonymous met
       assert.equal(channels[key].comparison, null);
       assert.ok(channels[key].pinned);
     }
-    assert.deepEqual(fixtures.calls.slice(-3).map(x => x.url).sort(), Object.values(urls).sort());
+    assert.deepEqual(fixtures.calls.slice(-5).map(x => x.url).sort(), Object.values(urls).sort());
   }
-  assert.equal(fixtures.calls.length, 6);
+  assert.equal(fixtures.calls.length, 10);
   for (const { options } of fixtures.calls) {
     assert.equal(options.method, 'GET');
     assert.equal(options.redirect, 'error');
@@ -200,7 +215,7 @@ test('failed or malformed responses retain the other evidence and exit nonzero w
     const fixtures = fakeFeeds({ mac: response });
     const out = await cli(['--online'], fixtures);
     assert.equal(out.code, 1);
-    assert.equal(fixtures.calls.length, 3);
+    assert.equal(fixtures.calls.length, 5);
     const { ok, channels } = JSON.parse(out.stdout);
     assert.equal(ok, false);
     assert.equal(channels.mac.status, 'error');

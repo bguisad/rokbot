@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rokText as localText, setLocaleSource } from './i18n.mjs';
 import { credentialStore, credentialUnavailableText, finishPairingWindow, pair, verifyDevice, openTransport, restoreConnection, savedConnectionMatches } from './connection.mjs';
-import { APP_USER_MODEL_ID, canRegisterDesktopIntegration, connectWindowChrome, createTray, ensureStartMenuShortcut, initialLink, isWindows,
+import { APP_USER_MODEL_ID, canRegisterDesktopIntegration, connectWindowChrome, createTray, ensureStartMenuShortcut, initialLink, isLinux, isWindows,
   normalizeDesktopWindowTitle, resolveDesktopProfile, windowChrome, windowHandlers } from './platform.mjs';
 import { createGateway } from './gateway.mjs';
 import { createClientPersistence } from './client-persistence.mjs';
@@ -141,12 +141,14 @@ async function showConnection() {
   await connectWindow.loadFile(path.join(clientRoot, 'connect.html'));
 }
 function updateMenu() {
-  // Windows windows are frameless with native caption buttons; the menu only supplies shortcuts.
+  // Windows windows are frameless with native caption buttons; Linux uses standard File/Edit/View/Window menus.
   Menu.setApplicationMenu(Menu.buildFromTemplate(isWindows
     ? [{ role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
-    : [{ label: 'RokBot', submenu: [{ role: 'about' }, { type: 'separator' },
-      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
-    { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
+    : isLinux
+      ? [{ role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
+      : [{ label: 'RokBot', submenu: [{ role: 'about' }, { type: 'separator' },
+        { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
 }
 async function showWorkspace() {
   const pairingWindow = connectWindow;
@@ -157,8 +159,8 @@ async function showWorkspace() {
     if (mainWindow?.isFocused()) void accountProfile?.refresh().catch(() => {});
   };
   gateway = createGateway(activeConfig, unauthorized, reportFocus, reportConnection);
-  // The Host lists unnamed desktop clients as Macs; Windows reports itself once per session.
-  if (isWindows) void gateway.request('/local/device', { kind: 'desktop', clientKind: 'windows', appVersion: app.getVersion() },
+  // The Host lists unnamed desktop clients as Macs; Windows and Linux report themselves once per session.
+  if (isWindows || isLinux) void gateway.request('/local/device', { kind: 'desktop', clientKind: isWindows ? 'windows' : 'linux', appVersion: app.getVersion() },
     AbortSignal.timeout(15000), 'PUT').catch(() => {});
   // Apply the saved theme (system by default) before the first paint; createSettings applies it again.
   nativeTheme.themeSource = ['dark', 'light', 'system'].includes(clientSettings.theme) ? clientSettings.theme : 'system';
@@ -183,7 +185,9 @@ async function showWorkspace() {
     win.on(event, () => send('window-visibility', { visible: win.isVisible() && !win.isMinimized() }));
   win.on('focus', () => send('window-focus', {}));
   win.on('close', event => {
-    if (!quitting) { event.preventDefault(); win.hide(); }
+    const keepInBackground = !isLinux || Boolean(tray);
+    if (!quitting && keepInBackground) { event.preventDefault(); win.hide(); }
+    else if (!quitting && isLinux) { quitting = true; app.quit(); }
     if (debugPort) console.log('[notification-window]', JSON.stringify({visible:win.isVisible(),focused:win.isFocused(),quitting}));
     void gateway.command('setWindowFocused', { isFocused: false }).catch(() => {});
   });
@@ -445,6 +449,10 @@ if (isWindows) {
   try { if (registerIntegration) ensureStartMenuShortcut({ app, shell }); }
   catch (error) { console.warn('[shortcut]', error.message); }
   tray = createTray({ Tray, Menu, nativeImage, clientRoot, show: () => void showApp(), quit: () => app.quit(), text: localText });
+} else if (isLinux) {
+  try {
+    tray = createTray({ Tray, Menu, nativeImage, clientRoot, show: () => void showApp(), quit: () => app.quit(), text: localText });
+  } catch (error) { console.warn('[tray]', error.message); }
 }
 app.on('before-quit', () => { quitting = true; stopConnection(); void transport?.close(); });
 // Activate the app for any Keychain prompt, then choose the first window from

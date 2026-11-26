@@ -233,7 +233,7 @@ test('win32 layout edge cases: split paths, symlinks into managed root, missing 
   assert.equal(await canApplyAsarUpdate(), false);
   assert.equal(await canApplyAsarUpdate({ resourcesDir: '   ', execPath: unmanaged.execPath, platform: 'win32' }), false);
   assert.equal(await canApplyAsarUpdate({ resourcesDir: unmanaged.resourcesDir, execPath: '', platform: 'win32' }), false);
-  assert.equal(await canApplyAsarUpdate({ resourcesDir: unmanaged.resourcesDir, execPath: unmanaged.execPath, platform: 'linux' }), false);
+  assert.equal(await canApplyAsarUpdate({ resourcesDir: unmanaged.resourcesDir, execPath: unmanaged.execPath, platform: 'freebsd' }), false);
 
   // Non-ENOENT error (unreadable parent directory chmod 0o000 when non-root) -> fail closed
   if (typeof process.getuid === 'function' && process.getuid() !== 0) {
@@ -349,9 +349,9 @@ test('applyAsarUpdateAndRestart defense-in-depth refuses installer-managed Windo
       asarFile: stagedAsar,
       version: '1.2.4',
       quitApp: () => {},
-      platform: 'linux',
+      platform: 'freebsd',
     }),
-    /unsupported on linux/i,
+    /unsupported on freebsd/i,
   );
   assert.equal((await readdir(stagedDir)).some(name => name.startsWith('apply-')), false);
 

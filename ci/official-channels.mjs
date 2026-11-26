@@ -10,12 +10,15 @@ const desktopDocs = 'https://docs.x.ai/grok-bot/deployment';
 const feeds = {
   windows: 'https://api2.cursor.sh/updates/api/download/stable/win32-x64-user/sand',
   mac: 'https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand',
+  linuxX64: 'https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand',
+  linuxArm64: 'https://api2.cursor.sh/updates/api/download/stable/linux-arm64/sand',
   ios: `https://itunes.apple.com/lookup?id=${iosId}&country=us`,
 };
 const maxBytes = 128 * 1024;
 const timeoutMs = 10_000;
 const pins = {
   windows: 'windows/patchers/desktop/supported.json', mac: 'mac/patchers/desktop/supported.json',
+  linuxX64: 'linux/patchers/desktop/x64/supported.json', linuxArm64: 'linux/patchers/desktop/arm64/supported.json',
   ios: 'ios/recipes/ios/manifest.json', android: 'android/recipes/manifest.json',
   cloud: 'host/recipes/host/manifest.json',
 };
@@ -44,7 +47,16 @@ function sha256(value) {
   return value.toLowerCase();
 }
 
-function artifactUrl(channel, release, url) {
+function artifactUrl(channel, release, url, commitSha = null) {
+  if (channel === 'linuxX64' || channel === 'linuxArm64') {
+    const arch = channel === 'linuxX64' ? 'x64' : 'arm64';
+    const debArch = channel === 'linuxX64' ? 'amd64' : 'arm64';
+    const expectedRe = commitSha
+      ? new RegExp(`^https://downloads\\.cursor\\.com/grokbot/stable/${commitSha}/linux/${arch}/grok-bot_${release.replaceAll('.', '\\.')}_${debArch}\\.deb$`)
+      : new RegExp(`^https://downloads\\.cursor\\.com/grokbot/stable/[0-9a-f]{40}/linux/${arch}/grok-bot_${release.replaceAll('.', '\\.')}_${debArch}\\.deb$`);
+    check(typeof url === 'string' && expectedRe.test(url), 'Unexpected Grok Bot Linux artifact URL for this platform and version');
+    return url;
+  }
   const suffix = channel === 'windows' ? `win32-x64/${release}/Grok_Bot_${release}_Setup.exe`
     : `darwin-arm64/${release}/Grok_Bot_${release}.dmg`;
   check(url === `https://downloads.cursor.com/grokbot/stable/${suffix}`,
@@ -54,9 +66,10 @@ function artifactUrl(channel, release, url) {
 
 function desktopObservation(channel, data) {
   const release = version(data?.version);
-  const downloadUrl = artifactUrl(channel, release, data.downloadUrl);
-  check(typeof data.commitSha === 'string' && /^[0-9a-f]{40}$/i.test(data.commitSha),
+  check(typeof data?.commitSha === 'string' && /^[0-9a-f]{40}$/i.test(data.commitSha),
     'Expected commitSha (a build ID, not the installer SHA-256)');
+  const rawUrl = (channel === 'linuxX64' || channel === 'linuxArm64') ? data.debUrl : data.downloadUrl;
+  const downloadUrl = artifactUrl(channel, release, rawUrl, data.commitSha);
   return { version: release, downloadUrl, buildId: data.commitSha, buildIdField: 'commitSha',
     publishedArchiveSha256: Object.hasOwn(data, 'sha256') ? sha256(data.sha256) : null };
 }
@@ -86,8 +99,9 @@ async function readPin(channel) {
   } catch {
     throw new Error(`Cannot read local pin: ${pins[channel]}`);
   }
-  if (channel === 'windows' || channel === 'mac') {
-    check(data.architecture === (channel === 'windows' ? 'x64' : 'arm64'), 'Unexpected pinned architecture');
+  if (channel === 'windows' || channel === 'mac' || channel === 'linuxX64' || channel === 'linuxArm64') {
+    const expectedArch = channel === 'windows' || channel === 'linuxX64' ? 'x64' : 'arm64';
+    check(data.architecture === expectedArch, 'Unexpected pinned architecture');
     const release = version(data.version);
     return { version: release, archiveUrl: artifactUrl(channel, release, data.archive?.url),
       archiveSha256: sha256(data.archive?.sha256) };
@@ -180,8 +194,8 @@ async function observe(channel, fetchImpl, deadline) {
 export async function discover({ phase = 'manual', fetchImpl = globalThis.fetch, deadline = timeoutMs } = {}) {
   check(Number.isSafeInteger(deadline) && deadline > 0 && deadline <= timeoutMs, 'Invalid request deadline');
   const checkedAt = new Date().toISOString();
-  const [windows, mac, ios] = await Promise.all(Object.keys(feeds).map(k => observe(k, fetchImpl, deadline)));
-  const channels = { windows, mac, ios };
+  const [windows, mac, linuxX64, linuxArm64, ios] = await Promise.all(Object.keys(feeds).map(k => observe(k, fetchImpl, deadline)));
+  const channels = { windows, mac, linuxX64, linuxArm64, ios };
   const android = { source: null, pinFile: pins.android, observed: null, comparison: null };
   try {
     channels.android = { ...android, status: 'not-discovered',

@@ -67,6 +67,12 @@ for (const name of ['mac', 'windows']) {
   desktopPins[`${name}/patchers/desktop`] = { original, pins };
   versions[name] = original.version;
 }
+for (const arch of ['x64', 'arm64']) {
+  const dir = `linux/patchers/desktop/${arch}`;
+  const { original, pins } = await checkDesktop(dir);
+  desktopPins[dir] = { original, pins };
+  versions[`linux-${arch}`] = original.version;
+}
 // Older Windows and macOS releases the patchers still build (fallbacks), each in a directory named after its version.
 const windowsFallback = [];
 for (const { directory, supported } of (await windowsReleases()).slice(1)) {
