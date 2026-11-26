@@ -427,6 +427,10 @@ The [LICENSE](LICENSE) file is authoritative. See [NOTICE](NOTICE) for derivatio
 
 RokBot builds on [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot) and [ferretgeek/prokbot-plus](https://github.com/ferretgeek/prokbot-plus), and drew on `rakazo`'s work on self-hosted deployment. We thank all of them.
 
+## Friends
+
+- [LINUX DO](https://linux.do)
+
 ## Disclaimer
 
 RokBot is an independent open-source project. It is not affiliated with or endorsed by xAI, Grok Bot or Cursor / Anysphere. Grok, Grok Bot and related names and marks belong to their respective owners. Please report security issues privately as described in [SECURITY.md](SECURITY.md).
