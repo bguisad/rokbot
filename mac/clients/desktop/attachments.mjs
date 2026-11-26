@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { rokText } from './i18n.mjs';
+import { buildZipStore, uniqueEntryName } from './zip-store.mjs';
 
 const CHUNK_BYTES = 4 * 1024 * 1024;
 const PREVIEW_BYTES = 25 * 1024 * 1024;
@@ -149,7 +150,7 @@ async function localChunk(file, offset, length) {
   return bytes;
 }
 
-export function createAttachmentHandlers({ command, chooseDestination, showDownloadError, withStaged = async () => null }) {
+export function createAttachmentHandlers({ command, chooseDestination, chooseDirectory, showDownloadError, withStaged = async () => null }) {
   const request = (method, args) => command(method, args, AbortSignal.timeout(30000));
   const scope = ({ path: source, agentId }) => {
     const value = remoteAttachmentPath(source);
@@ -165,9 +166,7 @@ export function createAttachmentHandlers({ command, chooseDestination, showDownl
       throw new Error(rokText('附件读取不完整，请重试。', 'Incomplete attachment. Try again.'));
     return bytes;
   }
-  async function saveDownload(size, name, read) {
-    const destination = await chooseDestination(path.basename(name));
-    if (!destination) return false;
+  async function writeAtomic(destination, size, read) {
     const temporary = path.join(path.dirname(destination), `.rokbot-download-${randomUUID()}.tmp`);
     const file = await open(temporary, 'wx', 0o600);
     try {
@@ -183,6 +182,39 @@ export function createAttachmentHandlers({ command, chooseDestination, showDownl
       await rename(temporary, destination);
       return true;
     } finally { await rm(temporary, { force: true }).catch(() => {}); }
+  }
+  async function saveDownload(size, name, read) {
+    const destination = await chooseDestination(path.basename(name));
+    if (!destination) return false;
+    return await writeAtomic(destination, size, read);
+  }
+  async function prepareRemoteItem(item) {
+    const args = scope(item);
+    if (args === null) throw new Error('Invalid attachment path');
+    const info = await request('readAttachmentChunk', { ...args, offset: 0, length: 0 });
+    if (info === null) throw new Error('Attachment not found');
+    const size = totalSize(info);
+    return {
+      args,
+      size,
+      name: item.suggestedName || info.resolvedName || args.path,
+    };
+  }
+  async function readAllBytes(item) {
+    const staged = await withStaged(item.path, async (file, size) => ({
+      name: item.suggestedName || path.basename(item.path),
+      data: await localChunk(file, 0, size),
+    }));
+    if (staged !== null) return staged;
+    const prepared = await prepareRemoteItem(item);
+    const out = Buffer.alloc(prepared.size);
+    for (let offset = 0; offset < prepared.size;) {
+      const chunk = await readChunk(prepared.args, offset, Math.min(CHUNK_BYTES, prepared.size - offset), prepared.size);
+      if (chunk === null) throw new Error('Attachment not found');
+      chunk.copy(out, offset);
+      offset += chunk.length;
+    }
+    return { name: prepared.name, data: out };
   }
   return {
     async readAttachmentText(input) {
@@ -234,6 +266,61 @@ export function createAttachmentHandlers({ command, chooseDestination, showDownl
           (offset, length) => readChunk(args, offset, length, size));
       } catch (error) {
         console.error('[attachment-download]', error.message);
+        await showDownloadError();
+        return false;
+      }
+    },
+    async downloadAttachments(input) {
+      const downloads = Array.isArray(input?.downloads) ? input.downloads : [];
+      if (downloads.length === 0) return false;
+      if (downloads.length === 1) return await this.downloadAttachment(downloads[0]);
+      if (typeof chooseDirectory !== 'function') return await this.downloadAttachmentsZip(input);
+      try {
+        const folder = await chooseDirectory();
+        if (!folder) return false;
+        const existing = new Set((await readdir(folder).catch(() => [])).map(name => name.toLowerCase()));
+        let failures = 0;
+        for (const item of downloads) {
+          try {
+            const localSaved = await withStaged(item.path, async (file, size) => {
+              const filename = uniqueEntryName(item.suggestedName || item.path, existing, 'attachment');
+              return await writeAtomic(path.join(folder, filename), size, (offset, length) => localChunk(file, offset, length));
+            });
+            if (localSaved !== null) continue;
+            const prepared = await prepareRemoteItem(item);
+            const filename = uniqueEntryName(prepared.name, existing, 'attachment');
+            await writeAtomic(path.join(folder, filename), prepared.size, (offset, length) => readChunk(prepared.args, offset, length, prepared.size));
+          } catch (error) {
+            failures += 1;
+            console.error('[attachment-download-batch]', error.message);
+          }
+        }
+        if (failures > 0) {
+          await showDownloadError();
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.error('[attachment-download-batch]', error.message);
+        await showDownloadError();
+        return false;
+      }
+    },
+    async downloadAttachmentsZip(input) {
+      const downloads = Array.isArray(input?.downloads) ? input.downloads : [];
+      if (downloads.length === 0) return false;
+      try {
+        const suggested = input?.suggestedName || `rokbot-images-${new Date().toISOString().slice(0, 10)}.zip`;
+        const destination = await chooseDestination(path.basename(suggested));
+        if (!destination) return false;
+        const entries = [];
+        for (const item of downloads) {
+          entries.push(await readAllBytes(item));
+        }
+        const zipBytes = Buffer.from(buildZipStore(entries));
+        return await writeAtomic(destination, zipBytes.length, async (offset, length) => zipBytes.subarray(offset, offset + length));
+      } catch (error) {
+        console.error('[attachment-download-zip]', error.message);
         await showDownloadError();
         return false;
       }

@@ -1,6 +1,6 @@
 
-// Appended to the original 1.2.3 General settings module. $, Q, q, gn, Ft, gr,
-// Vn and X are its JSX runtime, React, button, toggle, dialog parts, account
+// Appended to the original 1.3.0 General settings module. $, Q, K, He, L, vr,
+// Wn and X are its JSX runtime, React, button, toggle, dialog parts, account
 // card styles, section and row. The dialogs reuse the original modal parts.
 function GrokAccountHost() {
   const [host, setHost] = Q.useState('RokBot Host');
@@ -105,11 +105,11 @@ function GrokAccountName({ className, name, onCommit }) {
       'aria-label': grokText('修改账户名称', 'Edit account name'), children: [$.jsx('span', { children: name }),
         $.jsx('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, 'aria-hidden': true,
           children: $.jsx('path', { d: 'm16 3 5 5L8 21H3v-5L16 3Zm-2 2 5 5' }) })] }),
-    open ? $.jsxs(Ft.Root, { open: true, onOpenChange: setOpen, size: 'sm',
+    open ? $.jsxs(L.Root, { open: true, onOpenChange: setOpen, size: 'sm',
       className: 'grok-host-dialog', 'aria-label': grokText('修改账户名称', 'Edit account name'), initialFocus: input, children: [
-      $.jsx(Ft.CloseButton, {}),
+      $.jsx(L.CloseButton, {}),
       $.jsxs('form', { className: 'grok-host-content', onSubmit: save, children: [
-        $.jsx('header', { children: $.jsx(Ft.Title, { children: grokText('修改账户名称', 'Edit account name') }) }),
+        $.jsx('header', { children: $.jsx(L.Title, { children: grokText('修改账户名称', 'Edit account name') }) }),
         $.jsx('div', { className: 'grok-host-fields', children:
           $.jsxs('label', { children: [grokText('账户名称', 'Account name'), $.jsx('input', { ref: input, className: grokInputClass,
             value, maxLength: 80, required: true, disabled: busy, 'aria-label': grokText('账户名称', 'Account name'),
@@ -118,8 +118,8 @@ function GrokAccountName({ className, name, onCommit }) {
             onKeyDown: grokBlockComposedEnter(composing) })] }) }),
         error ? $.jsx('p', { className: 'grok-host-error', role: 'alert', children: error }) : null,
         $.jsxs('div', { className: 'grok-host-actions', children: [
-          $.jsx(Ft.Action, { type: 'button', variant: 'secondary', onClick: () => setOpen(false), disabled: busy, children: grokText('取消', 'Cancel') }),
-          $.jsx(Ft.Action, { type: 'submit', variant: 'primary', disabled: busy || !value.trim(), pending: busy, children: grokText('保存', 'Save') })] })] })] }) : null,
+          $.jsx(L.Action, { type: 'button', variant: 'secondary', onClick: () => setOpen(false), disabled: busy, children: grokText('取消', 'Cancel') }),
+          $.jsx(L.Action, { type: 'submit', variant: 'primary', disabled: busy || !value.trim(), pending: busy, children: grokText('保存', 'Save') })] })] })] }) : null,
   ] });
 }
 function GrokRealtimeVoiceSettings() {
@@ -138,9 +138,9 @@ function GrokRealtimeVoiceSettings() {
     finally { setBusy(false); }
   };
   const label = grokText('实时语音（实验性）', 'Realtime voice (Experimental)');
-  return $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('语音', 'Voice'), children: $.jsx(X, {
+  return $.jsx(Wn, { anchorId: 'outside-settings', title: grokText('语音', 'Voice'), children: $.jsx(X, {
     anchorId: null, label, description: error || null, variant: 'card',
-    children: $.jsx(gn, { isChecked: enabled, isDisabled: busy, label, onToggle: toggle, size: 'md' }),
+    children: $.jsx(He, { isChecked: enabled, isDisabled: busy, label, onToggle: toggle, size: 'md' }),
   }) });
 }
 
@@ -156,9 +156,9 @@ function RokListArrangementSettings() {
   const label = grokText('按最后消息时间排列', 'Sort by last message');
   const description = grokText('最新消息在前，分为「待处理」「未读」「已读」三组；关闭后恢复默认排列。',
     'Newest message first, grouped into Needs attention, Unread and Read. Turn off for the default order.');
-  return $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('会话列表', 'Chat list'), children: $.jsx(X, {
+  return $.jsx(Wn, { anchorId: 'outside-settings', title: grokText('会话列表', 'Chat list'), children: $.jsx(X, {
     anchorId: null, label, description, variant: 'card',
-    children: $.jsx(gn, { isChecked: state.mode === 'activity', isDisabled: store === rokListNoStore, label,
+    children: $.jsx(He, { isChecked: state.mode === 'activity', isDisabled: store === rokListNoStore, label,
       onToggle: () => store.setMode?.(state.mode === 'activity' ? 'default' : 'activity'), size: 'md' }),
   }) });
 }
@@ -256,7 +256,7 @@ function RokAvatarStyleSettings() {
     'Every theme renders all 26 Bot shapes and colors across Quick-Add and appearance settings, or switch back to the official orb.');
   return $.jsxs($.Fragment, { children: [
     $.jsx('style', { children: grokConnectionStyles }),
-    $.jsx(Vn, {
+    $.jsx(Wn, {
       anchorId: 'outside-settings',
       title,
       children: $.jsxs('div', {
@@ -968,7 +968,7 @@ function RokModelConfigModal({ open, onOpenChange, onSaved }) {
     ? config.profiles.filter(p => p.id !== config.defaultRoute.profileId && !config.defaultRoute.fallbacks.some(f => f.profileId === p.id))
     : [];
 
-  return $.jsxs(Ft.Root, {
+  return $.jsxs(L.Root, {
     open: true,
     onOpenChange: onOpenChange,
     size: 'lg',
@@ -976,13 +976,13 @@ function RokModelConfigModal({ open, onOpenChange, onSaved }) {
     'aria-label': grokText('模型配置', 'Model configuration'),
     children: [
       $.jsx('style', { children: grokConnectionStyles }),
-      $.jsx(Ft.CloseButton, {}),
+      $.jsx(L.CloseButton, {}),
       $.jsxs('section', {
         className: 'grok-host-content',
         children: [
           $.jsxs('header', {
             children: [
-              $.jsx(Ft.Title, { children: grokText('对话模型配置', 'Model configuration') }),
+              $.jsx(L.Title, { children: grokText('对话模型配置', 'Model configuration') }),
               legacyRouting ? $.jsx('p', {
                 className: 'grok-host-hint',
                 role: 'status',
@@ -1662,7 +1662,7 @@ function RokModelSettings() {
 
   return $.jsxs($.Fragment, {
     children: [
-      $.jsx(Vn, {
+      $.jsx(Wn, {
         anchorId: 'model',
         title: grokText('对话模型', 'Chat models'),
         children: $.jsx(X, {
@@ -1670,10 +1670,10 @@ function RokModelSettings() {
           label: summary.loaded ? (summary.text || grokText('模型配置', 'Model configuration')) : grokText('正在读取…', 'Loading…'),
           description: statusHint || null,
           variant: 'card',
-          children: $.jsx(q, {
+          children: $.jsx(K, {
             onClick: openModal,
             size: 'md',
-            style: gr.actionWeakBorder,
+            style: vr.actionWeakBorder,
             variant: 'secondary',
             children: summary.canConfigureModel
               ? grokText('配置模型', 'Configure model')
@@ -1771,7 +1771,7 @@ function RokUsageSettings() {
     : [$.jsx(X, { anchorId: null, variant: 'card', label: failed ? grokText('无法读取用量', 'Could not load usage') : grokText('正在读取…', 'Loading…'), description: null }, 'state')];
   return $.jsxs($.Fragment, { children: [
     $.jsx('style', { children: rokUsageStyles + ROK_USAGE_CHART_CSS }),
-    $.jsx(Vn, { anchorId: 'outside-settings', title: grokText('用量', 'Usage'), titleAccessory: tabs, children: rows }),
+    $.jsx(Wn, { anchorId: 'outside-settings', title: grokText('用量', 'Usage'), titleAccessory: tabs, children: rows }),
   ] });
 }
 
@@ -1833,13 +1833,13 @@ function GrokHostConnection() {
   const title = paired ? grokText('连接设置', 'Connection settings') : grokText('连接你的 RokBot', 'Connect your RokBot');
   const stateLabel = status?.state === 'online' ? grokText('已连接', 'Connected') : status?.state === 'connecting' ? grokText('正在连接', 'Connecting') : grokText('正在重新连接', 'Reconnecting');
   return $.jsxs($.Fragment, { children: [
-    $.jsx(q, { onClick: request, size: 'md', style: gr.actionWeakBorder, variant: 'secondary', children: grokText('连接设置', 'Connection settings') }),
-    open ? $.jsxs(Ft.Root, { 'aria-label': title, open: true, onOpenChange: setOpen, size: 'sm',
+    $.jsx(K, { onClick: request, size: 'md', style: vr.actionWeakBorder, variant: 'secondary', children: grokText('连接设置', 'Connection settings') }),
+    open ? $.jsxs(L.Root, { 'aria-label': title, open: true, onOpenChange: setOpen, size: 'sm',
       className: 'grok-host-dialog', initialFocus: input, onKeyDown: retainFocus, children: [
-      $.jsx('style', { children: grokConnectionStyles }), $.jsx(Ft.CloseButton, {}),
+      $.jsx('style', { children: grokConnectionStyles }), $.jsx(L.CloseButton, {}),
       !status ? $.jsx('div', { className: 'grok-host-content', role: 'status', children: error || grokText('正在读取连接…', 'Loading connection…') }) : paired && !editing ?
       $.jsxs('section', { className: 'grok-host-content', children: [
-        $.jsx('header', { children: $.jsx(Ft.Title, { children: title }) }),
+        $.jsx('header', { children: $.jsx(L.Title, { children: title }) }),
         $.jsxs('div', { className: 'grok-host-identity', children: [
           person?.avatarDataUrl ? $.jsx('img', { className: 'grok-host-avatar', src: person.avatarDataUrl, alt: '' }) :
             $.jsx('span', { className: 'grok-host-avatar grok-host-avatar-fallback', 'aria-hidden': true, children: Array.from(person?.displayName || 'R')[0] }),
@@ -1853,9 +1853,9 @@ function GrokHostConnection() {
             $.jsx('span', { children: status.tailcat ? 'Tailcat' + (status.transportPath === 'relay' ? ' · ' + grokText('中继', 'Relay') : status.transportPath === 'direct' ? ' · ' + grokText('直连', 'Direct') : '') : grokText('直接连接', 'Direct') })] })] }),
         error ? $.jsx('p', { className: 'grok-host-error', role: 'alert', children: error }) : null,
         $.jsxs('div', { className: 'grok-host-actions grok-host-paired-actions', children: [
-          $.jsx(Ft.Action, { type: 'button', onClick: disconnect, disabled: busy, pending: busy, variant: 'secondary', children: busy ? grokText('正在退出…', 'Disconnecting…') : grokText('退出连接', 'Disconnect') }),
-          $.jsx(Ft.Action, { type: 'button', onClick: () => setEditing(true), variant: 'secondary', children: grokText('编辑连接', 'Edit connection') }),
-          $.jsx(Ft.Action, { type: 'button', onClick: () => setOpen(false), variant: 'primary', children: grokText('完成', 'Done') })] })] }) :
+          $.jsx(L.Action, { type: 'button', onClick: disconnect, disabled: busy, pending: busy, variant: 'secondary', children: busy ? grokText('正在退出…', 'Disconnecting…') : grokText('退出连接', 'Disconnect') }),
+          $.jsx(L.Action, { type: 'button', onClick: () => setEditing(true), variant: 'secondary', children: grokText('编辑连接', 'Edit connection') }),
+          $.jsx(L.Action, { type: 'button', onClick: () => setOpen(false), variant: 'primary', children: grokText('完成', 'Done') })] })] }) :
       $.jsxs('form', { className: 'grok-host-content', onSubmit: connect, children: [
         $.jsxs('header', { children: [
           $.jsx('div', { className: 'grok-host-brand', children: $.jsx('img', {
@@ -1863,15 +1863,15 @@ function GrokHostConnection() {
             alt: 'RokBot',
             onError: event => { event.currentTarget.style.display = 'none'; },
           }) }),
-          $.jsx(Ft.Title, { children: grokText('连接你的 RokBot', 'Connect your RokBot') })] }),
+          $.jsx(L.Title, { children: grokText('连接你的 RokBot', 'Connect your RokBot') })] }),
         $.jsxs('div', { className: 'grok-host-fields', children: [
-          $.jsxs('div', { className: 'grok-host-detail', children: [$.jsx('span', { children: 'Tailcat' }), $.jsx(gn, { isChecked: tailcat, isDisabled: busy, label: 'Tailcat', onToggle: () => setTailcat(!tailcat), size: 'md' })] }),
+          $.jsxs('div', { className: 'grok-host-detail', children: [$.jsx('span', { children: 'Tailcat' }), $.jsx(He, { isChecked: tailcat, isDisabled: busy, label: 'Tailcat', onToggle: () => setTailcat(!tailcat), size: 'md' })] }),
           field(tailcat ? grokText('连接链接', 'Connection link') : grokText('Host 地址', 'Host address'), server, setServer, 'url', tailcat ? 'tailcat://connect/…' : 'https://bot.example.com', input),
           !editing && field(grokText('配对码', 'Pairing code'), key, value => setKey(value.toUpperCase()), 'text', grokText('输入新的配对码', 'Pairing code')),
           error ? $.jsx('p', { className: 'grok-host-error', role: 'alert', children: error }) : null] }),
         $.jsxs('div', { className: 'grok-host-actions', children: [
-          $.jsx(Ft.Action, { type: 'button', onClick: () => setOpen(false), variant: 'secondary', children: grokText('取消', 'Cancel') }),
-          $.jsx(Ft.Action, { type: 'submit', disabled: busy || !server.trim() || (!editing && !key.trim()), pending: busy,
+          $.jsx(L.Action, { type: 'button', onClick: () => setOpen(false), variant: 'secondary', children: grokText('取消', 'Cancel') }),
+          $.jsx(L.Action, { type: 'submit', disabled: busy || !server.trim() || (!editing && !key.trim()), pending: busy,
             variant: 'primary', children: busy ? grokText('正在连接…', 'Connecting…') : editing ? grokText('保存', 'Save') : grokText('连接', 'Connect') })] })] })] }) : null,
   ] });
 }

@@ -41,7 +41,7 @@ export async function createLocalExec({ payload, profile, config, command, reque
   const standingGrantsPath = path.join(directory, 'standing-grants.json');
   let native, codex, closed = false;
   // The Host derives the platform from this prefix; macOS keeps its original form.
-  const machineId = `${process.platform === 'win32' ? 'win' : 'mac'}-${config.deviceId}`;
+  const machineId = `${process.platform === 'win32' ? 'win' : process.platform === 'linux' ? 'linux' : 'mac'}-${config.deviceId}`;
   let permission = 'ask', writes = Promise.resolve();
   try { const value = JSON.parse(await readFile(settingsPath, 'utf8')); if (['ask', 'never', 'always'].includes(value.permission)) permission = value.permission; } catch {}
   const serialize = task => { writes = writes.catch(() => {}).then(task); return writes; };

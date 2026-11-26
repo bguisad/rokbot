@@ -56,29 +56,29 @@ Key paths: `android/release/patch-android.mjs`, `android/patchers/`, `android/re
 
 ---
 
-## 4. macOS & Windows Desktop Adaptation (`mac/`, `windows/`, baseline `1.2.3`)
+## 4. macOS, Windows & Linux Desktop Adaptation (`mac/`, `windows/`, `linux/`, baseline `1.3.0`, fallbacks `1.2.3` / `0.71.2`)
 
-Key paths: `mac/patchers/desktop/`, `mac/clients/desktop/`, `windows/patchers/desktop/`, `windows/tools/desktop-recipes/`, `windows/installer/`.
+Key paths: `mac/patchers/desktop/`, `mac/clients/desktop/`, `windows/patchers/desktop/`, `linux/patchers/desktop/`, `windows/tools/desktop-recipes/`, `windows/installer/`.
 
-1. **Official Package Verification**: Downloads and verifies official `1.2.3` `.dmg` (macOS Apple Silicon) or `Setup.exe` (Windows x64) against `supported.json` SHA-256 pins.
+1. **Official Package Verification**: Downloads and verifies official `1.3.0` `.dmg` (macOS Apple Silicon), `Setup.exe` (Windows x64), or Linux x64/arm64 `.deb` against `supported.json` SHA-256 pins.
 2. **ASAR Unpack & Recipe Patching**:
-   - Unpacks Electron `app.asar` and applies the `1.2.3` desktop recipes (17 recipes each for macOS and Windows);
-   - Redirects API/update endpoints to the self-hosted Host, disables telemetry, registers `rokbot-local://`, and injects the `window.localBot` preload bridge, in-app Model Config UI, `needsModel` banner, and `clientDeviceId` dedup.
+   - Unpacks Electron `app.asar` and applies the `1.3.0` desktop recipes (19 recipes for each desktop target);
+   - Redirects API/update endpoints to the self-hosted Host, disables telemetry, registers `rokbot-local://`, and injects the `window.localBot` preload bridge, in-app Model Config UI, `needsModel` banner, multi-select batch image download (`batch-image-download.js`), and `clientDeviceId` dedup.
 3. **Embedded Proxy & Signed Delta Updates**:
-   - Embeds platform `rokbot-tailcat` binaries and RokBot icons (`.icns` / `.ico`);
-   - Integrates ECDSA P-256 manifest signature verification and `RBD1` ASAR incremental patching (`mac/clients/desktop/asar-install.mjs`) with full-installer fallback.
-4. **Repackaging**: Repacks `app.asar` into `RokBot.app` (macOS) and the Go-based Windows installer (`windows/installer/`).
+   - Embeds platform `rokbot-tailcat` binaries and RokBot icons (`.icns` / `.ico` / Linux hicolor PNGs);
+   - Integrates ECDSA P-256 manifest signature verification and `RBD1` ASAR incremental patching (`mac/clients/desktop/asar-install.mjs`, supporting macOS, portable Windows, and writable portable Linux) with full-installer fallback.
+4. **Repackaging**: Repacks `app.asar` into `RokBot.app` (macOS), the Go-based Windows installer/portable zip (`windows/installer/`), and Linux portable directory, `.tar.gz`, and clean `rokbot-local` `.deb` (with upstream apt repository registration stripped).
 
 ---
 
-## 5. Web Client Adaptation (`web/`, baseline `1.2.3`)
+## 5. Web Client Adaptation (`web/`, baseline `1.3.0`, fallbacks `1.2.3` / `0.71.2`)
 
 Key paths: `web/patchers/patch.mjs`, `web/client/`.
 
-1. **Renderer Extraction**: Extracts the renderer bundle from the verified Windows `1.2.3` installer and strips desktop-only shell hooks.
-2. **Browser Compatibility Bridge**: Bundles `web/client/` (`gateway.js`, `bridge.js`, `compat.js`, `native.js`) using browser `fetch` / `EventSource` / `WebSocket` with `rokbot_web` HttpOnly cookie sessions and `x-rokbot-web: 1`.
-3. **Branding & Model UI**: Integrates `/web/manifest.webmanifest`, `/rokbot-icon.png`, and the in-app Model Config UI.
-4. **Packaging**: Produces `web/output/RokBotLocal-web-1.2.3.zip` for upload via Host Admin or `PUT /admin/api/web-client`.
+1. **Renderer Extraction**: Extracts the renderer bundle from the verified Windows `1.3.0` installer and strips desktop-only shell hooks.
+2. **Browser Compatibility Bridge**: Bundles `web/client/` (`gateway.js`, `bridge.js`, `compat.js`, `native.js`) and `zip-store.mjs` using browser `fetch` / `EventSource` / `WebSocket` with `rokbot_web` HttpOnly cookie sessions, `x-rokbot-web: 1`, and browser ZIP batch downloads.
+3. **Branding & Model UI**: Integrates `/web/manifest.webmanifest`, `/rokbot-icon.png`, multi-select batch image download, and the in-app Model Config UI.
+4. **Packaging**: Produces `web/output/RokBotLocal-web-1.3.0.zip` for upload via Host Admin or `PUT /admin/api/web-client`.
 
 ---
 

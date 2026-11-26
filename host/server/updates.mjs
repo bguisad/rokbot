@@ -26,9 +26,9 @@ const LEGACY_MANIFEST_KEY_SCHEMA = 'grokbot-release-manifest-key/v1';
 const DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
 const DEFAULT_MAX_DELTA_BYTES = 512 * 1024 * 1024;
 
-const CANONICAL_PLATFORMS = ['android', 'ios', 'macos', 'windows'];
+const CANONICAL_PLATFORMS = ['android', 'ios', 'macos', 'windows', 'linux'];
 const TRACKS = new Set(['stable', 'nightly', 'dogfood']);
-const ALLOWED_EXTENSIONS = new Set(['.apk', '.ipa', '.dmg', '.zip', '.exe', '.asar', '.rbdelta', '.gbdelta']);
+const ALLOWED_EXTENSIONS = new Set(['.apk', '.ipa', '.dmg', '.zip', '.exe', '.deb', '.appimage', '.gz', '.asar', '.rbdelta', '.gbdelta']);
 const SAFE_NAME_RE = /^[A-Za-z0-9._-]{1,180}$/;
 const SHA256_RE = /^[a-f0-9]{64}$/i;
 
@@ -38,6 +38,9 @@ const MIME_TYPES = new Map([
   ['.ipa', 'application/octet-stream'],
   ['.dmg', 'application/x-apple-diskimage'],
   ['.exe', 'application/vnd.microsoft.portable-executable'],
+  ['.deb', 'application/vnd.debian.binary-package'],
+  ['.appimage', 'application/octet-stream'],
+  ['.gz', 'application/gzip'],
   ['.zip', 'application/zip'],
   ['.asar', 'application/octet-stream'],
   ['.rbdelta', 'application/octet-stream'],
@@ -53,6 +56,9 @@ const PLATFORM_MAP = new Map([
   ['darwin-x64', { platform: 'macos', defaultTarget: 'darwin-x64' }],
   ['windows', { platform: 'windows', defaultTarget: 'win32-x64' }],
   ['win32-x64', { platform: 'windows', defaultTarget: 'win32-x64' }],
+  ['linux', { platform: 'linux', defaultTarget: 'linux-x64' }],
+  ['linux-x64', { platform: 'linux', defaultTarget: 'linux-x64' }],
+  ['linux-arm64', { platform: 'linux', defaultTarget: 'linux-arm64' }],
 ]);
 
 const OP_END = 0x00;
@@ -1126,6 +1132,13 @@ export class UpdatesManager {
         } else if (/-x64\.(?:dmg|zip)$/i.test(filename)) {
           targetPlatform = 'darwin-x64';
         }
+      } else if (platform === 'linux') {
+        if (input.targetPlatform) {
+          check(['linux-x64', 'linux-arm64'].includes(input.targetPlatform), 400, 'Linux 架构目标无效');
+          targetPlatform = input.targetPlatform;
+        } else if (/(?:-|_)arm64\.(?:deb|appimage|tar\.gz)$/i.test(filename)) {
+          targetPlatform = 'linux-arm64';
+        }
       }
       let asarFilename = null;
       let asarSha256 = null;
@@ -1389,7 +1402,7 @@ export class UpdatesManager {
     const { platform } = resolvePlatformInfo(feedPlatform);
     const matching = this.store.value.releases.filter(r => r.platform === platform && r.track === track);
     if (!matching.length) return null;
-    if (feedPlatform === 'darwin-arm64' || feedPlatform === 'darwin-x64' || feedPlatform === 'win32-x64') {
+    if (['darwin-arm64', 'darwin-x64', 'win32-x64', 'linux-x64', 'linux-arm64'].includes(feedPlatform)) {
       return matching.find(r => r.targetPlatform === feedPlatform) ?? null;
     }
     return matching[0];
@@ -1462,9 +1475,9 @@ export class UpdatesManager {
       };
     }
 
-    const platformId = requestedFeedPlatform && ['darwin-arm64', 'darwin-x64', 'win32-x64'].includes(requestedFeedPlatform)
+    const platformId = requestedFeedPlatform && ['darwin-arm64', 'darwin-x64', 'win32-x64', 'linux-x64', 'linux-arm64'].includes(requestedFeedPlatform)
       ? requestedFeedPlatform
-      : (release.targetPlatform || (release.platform === 'macos' ? 'darwin-arm64' : 'win32-x64'));
+      : (release.targetPlatform || (release.platform === 'macos' ? 'darwin-arm64' : release.platform === 'linux' ? 'linux-x64' : 'win32-x64'));
     const fileUrl = `${origin}/local/updates/files/${platformId}/${encodeURIComponent(release.filename)}`;
     const deltas = (release.deltas ?? []).map(d => ({
       baseSha256: d.baseSha256,
@@ -1527,7 +1540,7 @@ export class UpdatesManager {
   }
 
   manifestFor(feedName, origin) {
-    const match = /^(android|ios|macos|windows|darwin-arm64|darwin-x64|win32-x64)(?:-(stable|nightly|dogfood))?\.json$/i.exec(feedName);
+    const match = /^(android|ios|macos|windows|linux|darwin-arm64|darwin-x64|win32-x64|linux-x64|linux-arm64)(?:-(stable|nightly|dogfood))?\.json$/i.exec(feedName);
     check(match, 404, '更新清单不存在');
     const feedPlatform = match[1].toLowerCase();
     const track = (match[2] ?? 'stable').toLowerCase();

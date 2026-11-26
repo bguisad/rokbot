@@ -47,10 +47,10 @@ function load({ storage = memoryStorage(), window = eventTarget(), extra = {} } 
       useEffect: () => {},
       useLayoutEffect: () => {},
     },
-    Io: (root, style) => ({ className: root?.className ?? '', style: style ?? {} }),
-    Ttt: { root: { className: 'sand-root' } },
-    NS: (...parts) => parts.filter(Boolean).join(' '),
-    Ott: (props, color, ink, eyeColor, style) => ({
+    mo: (root, style) => ({ className: root?.className ?? '', style: style ?? {} }),
+    kst: { root: { className: 'sand-root' } },
+    JS: (...parts) => parts.filter(Boolean).join(' '),
+    Mst: (props, color, ink, eyeColor, style) => ({
       ...style,
       width: props.sizePx ?? '100%',
       height: props.sizePx ?? '100%',
@@ -148,12 +148,12 @@ test('RokGrokBotMark and RokGrokBotMarkMirror preserve mirror DOM structure, sha
   const shapes = [];
   const { context } = load({
     extra: {
-      kt: ({ body }) => {
+      Ir: ({ body }) => {
         shapes.push(body);
         return `<path d="M 10 10 L 90 10 L 50 90 Z" fill="#000"/>`;
       },
-      yi: s => `shape:${s}`,
-      Mi: 0.84,
+      ki: s => `shape:${s}`,
+      Ui: 0.84,
     },
   });
   const markTree = context.RokGrokBotMark({ sizePx: 22, className: 'custom', color: undefined, shape: 'star' });
@@ -187,12 +187,12 @@ test('Settings > General renders all 6 avatar style radio options and switches l
       useRef: value => ({ current: value }),
       useEffect: () => {},
     },
-    Vn: 'Section',
+    Wn: 'Section',
     X: 'Row',
-    gn: 'Toggle',
-    q: 'Button',
-    Ft: {},
-    gr: {},
+    He: 'Toggle',
+    K: 'Button',
+    L: {},
+    vr: {},
   });
   context.globalThis = context;
   vm.runInContext(generalPane, context);

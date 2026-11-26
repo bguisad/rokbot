@@ -85,23 +85,23 @@ test('assets/logo RokBot icons match manifest.json and readWebIcons fails closed
   await assert.rejects(() => readWebIcons(badRoot), /Unexpected RokBot icon dimensions/);
 });
 
-test('supported.json pins 1.2.3 and rendererPatches validates 1.2.3 targets fail-closed', async () => {
+test('supported.json pins 1.3.0 and rendererPatches validates 1.3.0 targets fail-closed', async () => {
   const supported = JSON.parse(await readFile(path.join(repo, 'web/patchers/supported.json'), 'utf8'));
   assert.equal(supported.schema, 'rokbot-web-build/v1');
-  assert.equal(supported.desktopVersion, '1.2.3');
-  assert.equal(supported.rendererIndexSha256, 'c89a91707b4f52a8a0caeca184efcfa1dc01141ec7867f554765e3cae97ea91e');
-  assert.equal(supported.preloadSha256, '69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2');
-  assert.equal(supported.vncPreloadSha256, 'a2d9c610b7b11ae5cc99551f1e139c7b1e8632990793a7687fee40e88a6be24b');
-  assert.deepEqual((supported.fallback ?? []).map(item => item.desktopVersion), ['0.71.2']);
+  assert.equal(supported.desktopVersion, '1.3.0');
+  assert.equal(supported.rendererIndexSha256, '5ea1a0aa729a3a416b63c6f0aad62cabd0ab0986b5dba2750c8af72bd015961d');
+  assert.equal(supported.preloadSha256, 'e85046e06d5dc2834bd478af3f0b2e54d983c0ca847bd6e1636491a6252647d9');
+  assert.equal(supported.vncPreloadSha256, '4875cd8f20c2398f818b43674490bb23c223c9e06031159a57a0ce2f3e2a1487');
+  assert.deepEqual((supported.fallback ?? []).map(item => item.desktopVersion), ['1.2.3', '0.71.2']);
 
-  const patches = rendererPatches('1.2.3');
+  const patches = rendererPatches('1.3.0');
   assert.equal(patches.length, 3);
   assert.deepEqual(patches.map(p => p.file), [
-    'assets/index.eager-app-DodVIpEt.js',
-    'assets/chunk-computer-screen-preview-D0gd83rN.js',
-    'assets/chunk-view-xV8CbwrQ.js',
+    'assets/index.eager-app-B8R_eIgV.js',
+    'assets/chunk-computer-screen-preview-CROh3_te.js',
+    'assets/chunk-view-BwAtZhGc.js',
   ]);
-  assert.ok(RENDERER_PATCHES['1.1.0'] && RENDERER_PATCHES['0.71.2']);
+  assert.ok(RENDERER_PATCHES['1.2.3'] && RENDERER_PATCHES['1.1.0'] && RENDERER_PATCHES['0.71.2']);
 
   // applyPinnedRendererPatch fails closed on wrong sha256, missing anchor, duplicate anchor, noop edit, or empty edits.
   const viewPatch = patches[2];
@@ -115,7 +115,7 @@ test('supported.json pins 1.2.3 and rendererPatches validates 1.2.3 targets fail
   assert.throws(() => applyPinnedRendererPatch({ file: viewPatch.file, sha256: sha(valid), edits: [] }, valid), /没有修改/);
   const patched = applyPinnedRendererPatch({ file: viewPatch.file, sha256: sha(valid), edits: viewPatch.edits }, valid);
   assert.match(patched.toString('utf8'), /__rokbotAndroidBoot\?\.updateStatus\?\.delivery==="in-app"/);
-  assert.equal(patchRendererFile('assets/not-patched.js', Buffer.from('x'), '1.2.3'), null);
+  assert.equal(patchRendererFile('assets/not-patched.js', Buffer.from('x'), '1.3.0'), null);
 });
 
 test('the bundle carries the interface, the shared bridge and the browser layer, with a manifest of every file', async t => {
@@ -435,7 +435,15 @@ test('pinned installers verify as web client sources', { skip: !sources.length &
   const manifest = verifyBundle(entries);
   assert.equal(manifest.schema, 'rokbot-web-bundle/v1');
   assert.ok(entries.has('client/desktop/model-bridge.mjs'), 'model-bridge.mjs must be packaged');
-  if (built.rendererVersion === '1.2.3') {
+  if (built.rendererVersion === '1.3.0') {
+    const eager = entries.get('renderer/assets/index.eager-app-B8R_eIgV.js')?.toString('utf8') ?? '';
+    assert.ok(eager.includes('function jE(e){return!0}'));
+    assert.ok(eager.includes('rokbotActivityTime'));
+    const screen = entries.get('renderer/assets/chunk-computer-screen-preview-CROh3_te.js')?.toString('utf8') ?? '';
+    assert.ok(screen.includes('--rokbot-anchor-top'));
+    const view = entries.get('renderer/assets/chunk-view-BwAtZhGc.js')?.toString('utf8') ?? '';
+    assert.ok(view.includes('__rokbotAndroidBoot?.updateStatus?.delivery==="in-app"'));
+  } else if (built.rendererVersion === '1.2.3') {
     const eager = entries.get('renderer/assets/index.eager-app-DodVIpEt.js')?.toString('utf8') ?? '';
     assert.ok(eager.includes('function kE(e){return!0}'));
     assert.ok(eager.includes('rokbotActivityTime'));
@@ -450,7 +458,7 @@ test('pinned installers verify as web client sources', { skip: !sources.length &
 
   // Execute the real wrapped client/official-preload.js through client/bridge.js and
   // the real wrapped client/vnc-preload.js through client/vnc-bridge.js.
-  if (built.rendererVersion === '1.2.3') {
+  if (built.rendererVersion === '1.3.0' || built.rendererVersion === '1.2.3') {
     const clientStage = path.join(outDir, 'extracted-client');
     for (const [entryName, entryBytes] of entries) {
       if (!entryName.startsWith('client/')) continue;

@@ -24,7 +24,7 @@ import { uploadBundle, adminPassword } from './upload.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(here, '..');
 const repo = path.resolve(webRoot, '..');
-const sharedAssets = ['i18n.mjs', 'external-url.mjs', 'connectors.mjs', 'dictation.mjs', 'sand-machines.mjs', 'model-bridge.mjs', 'workspace.css', 'workspace-keys.cjs'];
+const sharedAssets = ['i18n.mjs', 'external-url.mjs', 'connectors.mjs', 'dictation.mjs', 'sand-machines.mjs', 'model-bridge.mjs', 'zip-store.mjs', 'workspace.css', 'workspace-keys.cjs'];
 export const BUNDLE_SCHEMA = 'rokbot-web-bundle/v1';
 const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');

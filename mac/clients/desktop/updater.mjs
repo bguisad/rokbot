@@ -81,7 +81,7 @@ export function validUpdateUrl(raw, { allowOrigin } = {}) {
   return parsed.href.replace(/\/+$/, '');
 }
 
-const DESKTOP_FEED_SUFFIX_RE = /\/((?:macos|windows|darwin-arm64|darwin-x64|win32-x64)(?:-[a-z0-9_-]+)?\.json)$/i;
+const DESKTOP_FEED_SUFFIX_RE = /\/((?:macos|windows|linux|darwin-arm64|darwin-x64|win32-x64|linux-x64|linux-arm64)(?:-[a-z0-9_-]+)?\.json)$/i;
 
 export function normalizeDesktopUpdateUrl(rawUrl, explicitFeedFile = null) {
   const clean = String(rawUrl ?? '').trim().replace(/\/+$/, '');
@@ -117,6 +117,7 @@ function platformMatches(manifestPlatform, platformId) {
   if (manifestPlatform === platformId) return true;
   if (platformId.startsWith('darwin-') && manifestPlatform === 'macos') return true;
   if (platformId.startsWith('win32-') && manifestPlatform === 'windows') return true;
+  if (platformId.startsWith('linux-') && manifestPlatform === 'linux') return true;
   return false;
 }
 
@@ -245,6 +246,7 @@ export async function resolveDesktopUpdateSource({
   profileDir,
   server,
   platform = process.platform,
+  arch = process.arch,
 } = {}) {
   const staticConfig = await loadDesktopUpdateConfig({ resourcesDir, profileDir });
   if (staticConfig) return staticConfig;
@@ -254,7 +256,11 @@ export async function resolveDesktopUpdateSource({
   if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) return null;
   const serverOrigin = parsed.origin;
   const updateUrl = `${parsed.href.replace(/\/+$/, '')}/local/updates`;
-  const feedFile = String(platform).startsWith('win32') ? 'windows.json' : 'macos.json';
+  const feedFile = String(platform).startsWith('win32')
+    ? 'windows.json'
+    : String(platform).startsWith('linux')
+      ? `linux-${arch === 'arm64' ? 'arm64' : 'x64'}.json`
+      : 'macos.json';
   return {
     updateUrl,
     feedFile,
@@ -645,7 +651,7 @@ export function createDesktopUpdater({
 
         const updatesDir = path.join(profileDir, 'updates');
         await mkdir(updatesDir, { recursive: true });
-        const ext = path.extname(new URL(manifest.url).pathname) || (process.platform === 'win32' ? '.exe' : '.dmg');
+        const ext = path.extname(new URL(manifest.url).pathname) || (process.platform === 'win32' ? '.exe' : process.platform === 'linux' ? '.deb' : '.dmg');
         const target = path.join(updatesDir, `ready-${activeTrack}-${manifest.version}${ext}`);
 
         // 1. Check already-staged full installer first.

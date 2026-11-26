@@ -346,28 +346,28 @@ test('patchDesktopUpdateSettingsUi supports 1.2.3 chunk-view-BuQdbmNp.js, preser
   await assert.rejects(patchDesktopUpdateSettingsUi(dir), /存在多个更新设置模块/);
 });
 
-test('macOS 1.2.3 supported.json & recipes/manifest.json match verified digests and fail closed on recipe tamper or destination collision', async t => {
+test('macOS 1.3.0 supported.json & recipes/manifest.json match verified digests and fail closed on recipe tamper or destination collision', async t => {
   const supported = JSON.parse(await readFile(path.join(macPatchDir, 'supported.json'), 'utf8'));
-  assert.equal(supported.version, '1.2.3');
+  assert.equal(supported.version, '1.3.0');
   assert.equal(supported.bundleId, 'com.anysphere.sand');
   assert.equal(supported.architecture, 'arm64');
-  assert.equal(supported.archive.url, 'https://downloads.cursor.com/grokbot/stable/darwin-arm64/1.2.3/Grok_Bot_1.2.3.dmg');
-  assert.equal(supported.archive.bytes, 159560653);
-  assert.equal(supported.archive.sha256, 'b7c6268d40bf92b43b6f2eddd733e4d5b5d36e229d2201d06298a19b0e62da08');
-  assert.equal(supported.asarSha256, '84d8cddca0676154a8cae13ca1f4ce8cae1703fdfa1b7b0175c4395d95f702cf');
-  assert.equal(supported.asarHeaderSha256, '2d298ecea742eb986effb570427fe7197506a83bc0248aef9ac43baa764128a9');
-  assert.equal(supported.frameworkSha256, 'dd6f9a73c7d5aa0dba937e5b02fd70b19c8deb85ce28c3ac79a83ab24488dcf6');
-  assert.equal(supported.preloadSha256, '69558bc987aae4dd9567770229bfbec01fcbeb4f0065731ac7f6ec60f4ebcda2');
-  assert.equal(supported.vncPreloadSha256, 'a2d9c610b7b11ae5cc99551f1e139c7b1e8632990793a7687fee40e88a6be24b');
+  assert.equal(supported.archive.url, 'https://downloads.cursor.com/grokbot/stable/darwin-arm64/1.3.0/Grok_Bot_1.3.0.dmg');
+  assert.equal(supported.archive.bytes, 160753982);
+  assert.equal(supported.archive.sha256, '85914908760b4503962ac9794622a16877657be77d5a2925ba99c2fc37d80a8c');
+  assert.equal(supported.asarSha256, 'e4ee91c221544516d2d774151eb6a10a76f100ac91b1293013221620cbb51a71');
+  assert.equal(supported.asarHeaderSha256, 'b7b40c35bd828e68787671a67bdb1e1e01e890112519e6196537efae2184314a');
+  assert.equal(supported.frameworkSha256, '2e13e33b1a95b44be5f7ebf19bb944b31b12bb90a5074a5e4ea1af6ea35680b6');
+  assert.equal(supported.preloadSha256, 'e85046e06d5dc2834bd478af3f0b2e54d983c0ca847bd6e1636491a6252647d9');
+  assert.equal(supported.vncPreloadSha256, '4875cd8f20c2398f818b43674490bb23c223c9e06031159a57a0ce2f3e2a1487');
 
   const recipesDir = path.join(macPatchDir, 'recipes');
   const manifest = JSON.parse(await readFile(path.join(recipesDir, 'manifest.json'), 'utf8'));
   assert.equal(manifest.files.length, 19);
-  const entry010 = manifest.files.find(entry => entry.recipe === '010.gbp.gz');
-  assert.ok(entry010);
-  assert.equal(entry010.path, 'dist/renderer/assets/chunk-view-BuQdbmNp.js');
-  const recipe010 = JSON.parse(gunzipSync(await readFile(path.join(recipesDir, '010.gbp.gz'))).toString('utf8'));
-  assert.equal(recipe010.targetSha256, '2e4240dac1e7fad237e6ac9930797efa3a43255ea820fd977827b7c1bc6a70ad');
+  const entry012 = manifest.files.find(entry => entry.recipe === '012.gbp.gz');
+  assert.ok(entry012);
+  assert.equal(entry012.path, 'dist/renderer/assets/chunk-view-vZqeG1gy.js');
+  const recipe012 = JSON.parse(gunzipSync(await readFile(path.join(recipesDir, '012.gbp.gz'))).toString('utf8'));
+  assert.equal(recipe012.targetSha256, '9101ae2562f95eefc473a8caaca15d6ac2c11d1e0a6253cffeae1469264d4e39');
 
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'rokbot-recipe-guard-'));
   t.after(() => rm(tmp, { recursive: true, force: true }));
@@ -391,14 +391,14 @@ test('macOS 1.2.3 supported.json & recipes/manifest.json match verified digests 
   await assert.rejects(applyReleaseRecipes(unpacked, badRecipeDir), /Patch destination already exists/);
 });
 
-test('native-helper.mjs enforces 1.2.3 CUGrokBotService digest/offsets and patches Team ID cleanly', async t => {
-  assert.equal(HELPER_DIGEST, '2fc251e6eed8979a34c3ac3a189cce4c9dac6f02bf89a268906148ff3673da03');
-  assert.deepEqual(TEAM_OFFSETS, [0x256f68, 0x6bdb18]);
+test('native-helper.mjs enforces 1.3.0 CUGrokBotService digest/offsets and patches Team ID cleanly', async t => {
+  assert.equal(HELPER_DIGEST, '62d2486a2ac6fd75a563ddc6cee9b1593a57ced8b05e83c4ca77d646c43c6fcb');
+  assert.deepEqual(TEAM_OFFSETS, [0x257f68, 0x6c1b18]);
 
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'rokbot-native-helper-'));
   t.after(() => rm(tmp, { recursive: true, force: true }));
   const binPath = path.join(tmp, 'CUGrokBotService');
-  const buf = Buffer.alloc(0x6bdb18 + 32, 0);
+  const buf = Buffer.alloc(0x6c1b18 + 32, 0);
   for (const offset of TEAM_OFFSETS) {
     buf.write('DCNK4UB866', offset, 'ascii');
     buf[offset + 15] = 0xea;
@@ -433,15 +433,15 @@ test('native-helper.mjs enforces 1.2.3 CUGrokBotService digest/offsets and patch
   );
 });
 
-test('notification-policy.json pins 1.2.3 kP export and extractNotificationPolicy fails closed on drift', async t => {
+test('notification-policy.json pins 1.3.0 SO export and extractNotificationPolicy fails closed on drift', async t => {
   const policy = JSON.parse(await readFile(path.join(macPatchDir, 'notification-policy.json'), 'utf8'));
   assert.deepEqual(policy, {
     source: 'dist/electron-main/main-app.cjs',
-    sourceSha256: 'd79a064301d2633495cba858901363c5c81a482808a5061c196663018814b0e3',
-    sha256: 'a6ab52f9a87cff580df62736a6ed6b8fbdfe22cedebd7aa25a3966cca3081852',
-    byteOffset: 2967236,
-    byteLength: 4522,
-    exportName: 'kP',
+    sourceSha256: 'b8b142c5328386306725acbfe68b9c851917068f3c1b02812f116cbefe4148ce',
+    sha256: '31dfb1354cacd135e4092a80c96e4a903373db6b99cc4b932dbeff2f249620d4',
+    byteOffset: 3191546,
+    byteLength: 4485,
+    exportName: 'SO',
   });
 
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'rokbot-policy-'));

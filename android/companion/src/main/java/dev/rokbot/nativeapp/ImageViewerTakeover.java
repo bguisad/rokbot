@@ -72,6 +72,7 @@ final class ImageViewerTakeover {
     private static long sSessionOpenedAt;
     private static String sPreparing;
     private static Overlay sOverlay;
+    private static CircleButton sBatchFab;
     private static boolean sScanScheduled;
     private static long sLastScanAt;
     private static int sTestIdKey = -1;
@@ -130,6 +131,7 @@ final class ImageViewerTakeover {
         boolean open = cover != null && cover.isShown();
         if (!open) {
             if (sOverlay != null) dismissOverlay(false);
+            dismissBatchFab();
             sSessionCover = new WeakReference<>(null);
             sSessionHandedBack = false;
             return;
@@ -139,9 +141,19 @@ final class ImageViewerTakeover {
             sSessionHandedBack = false;
             sSessionOpenedAt = SystemClock.uptimeMillis();
         }
+        View viewer = cover.getParent() instanceof View ? (View) cover.getParent() : null;
+        if (sOverlay == null) {
+            List<String> openGallery = galleryUris(act, viewer);
+            if (openGallery.size() >= 2) {
+                ensureBatchFab(act, (ViewGroup) root, openGallery);
+            } else {
+                dismissBatchFab();
+            }
+        } else {
+            dismissBatchFab();
+        }
         if (sOverlay != null || sSessionHandedBack) return;
 
-        View viewer = cover.getParent() instanceof View ? (View) cover.getParent() : null;
         View current = currentImage(act, viewer != null ? viewer : root);
         String uri = current == null ? null : sourceUri(current);
         if (uri == null) return;
@@ -464,7 +476,35 @@ final class ImageViewerTakeover {
 
     // ---- Overlay ----------------------------------------------------------------------------------------------
 
+    private static void ensureBatchFab(Activity act, ViewGroup decor, List<String> gallery) {
+        if (sBatchFab != null && sBatchFab.getParent() == decor) {
+            final List<String> copy = new ArrayList<>(gallery);
+            sBatchFab.setOnClickListener(v -> BatchImageSaver.showPicker(act, copy));
+            return;
+        }
+        dismissBatchFab();
+        CircleButton fab = new CircleButton(act, CircleButton.BATCH_DOWNLOAD);
+        fab.setContentDescription(Localize.t(act, "批量保存到相册", "Batch save to gallery"));
+        final List<String> copy = new ArrayList<>(gallery);
+        fab.setOnClickListener(v -> BatchImageSaver.showPicker(act, copy));
+        int size = Math.round(44 * act.getResources().getDisplayMetrics().density);
+        int margin = Math.round(18 * act.getResources().getDisplayMetrics().density);
+        int top = Overlay.topInset(act) + Math.round(12 * act.getResources().getDisplayMetrics().density);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size, Gravity.END | Gravity.TOP);
+        lp.rightMargin = margin + size + Math.round(10 * act.getResources().getDisplayMetrics().density);
+        lp.topMargin = top;
+        sBatchFab = fab;
+        decor.addView(fab, lp);
+    }
+
+    private static void dismissBatchFab() {
+        CircleButton fab = sBatchFab;
+        sBatchFab = null;
+        if (fab != null) removeFromParent(fab);
+    }
+
     private static void showOverlay(Activity act, ViewGroup decor, List<String> gallery, int index, ZoomImageView.Source first) {
+        dismissBatchFab();
         Overlay overlay = new Overlay(act, gallery, index);
         sOverlay = overlay;
         decor.addView(overlay, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -642,6 +682,16 @@ final class ImageViewerTakeover {
             ml.topMargin = top;
             bar.addView(more, ml);
 
+            if (gallery.size() >= 1) {
+                CircleButton batch = new CircleButton(act, CircleButton.BATCH_DOWNLOAD);
+                batch.setContentDescription(Localize.t(act, "批量保存到相册", "Batch save to gallery"));
+                batch.setOnClickListener(v -> BatchImageSaver.showPicker(activity, gallery));
+                LayoutParams bl = new LayoutParams(dp(44), dp(44), Gravity.END | Gravity.TOP);
+                bl.rightMargin = dp(18 + 44 + 10);
+                bl.topMargin = top;
+                bar.addView(batch, bl);
+            }
+
             counter = new TextView(act);
             counter.setTextColor(Color.WHITE);
             counter.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
@@ -734,6 +784,7 @@ final class ImageViewerTakeover {
     private static final class CircleButton extends View {
         static final int CLOSE = 0;
         static final int MORE = 1;
+        static final int BATCH_DOWNLOAD = 2;
         private final int kind;
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -744,6 +795,7 @@ final class ImageViewerTakeover {
             fill.setColor(0xE63A3A3C);
             stroke.setColor(Color.WHITE);
             stroke.setStrokeCap(Paint.Cap.ROUND);
+            stroke.setStrokeJoin(Paint.Join.ROUND);
             stroke.setStrokeWidth(2.2f * ctx.getResources().getDisplayMetrics().density);
             setClickable(true);
             setFocusable(true);
@@ -753,9 +805,20 @@ final class ImageViewerTakeover {
             float w = getWidth(), h = getHeight(), r = Math.min(w, h) / 2f, cx = w / 2f, cy = h / 2f;
             c.drawCircle(cx, cy, r, fill);
             if (kind == CLOSE) {
+                stroke.setStyle(Paint.Style.STROKE);
                 float a = r * 0.36f;
                 c.drawLine(cx - a, cy - a, cx + a, cy + a, stroke);
                 c.drawLine(cx + a, cy - a, cx - a, cy + a, stroke);
+            } else if (kind == BATCH_DOWNLOAD) {
+                stroke.setStyle(Paint.Style.STROKE);
+                float arrowTop = cy - r * 0.42f;
+                float arrowMid = cy + r * 0.14f;
+                float head = r * 0.24f;
+                c.drawLine(cx, arrowTop, cx, arrowMid, stroke);
+                c.drawLine(cx - head, arrowMid - head, cx, arrowMid, stroke);
+                c.drawLine(cx + head, arrowMid - head, cx, arrowMid, stroke);
+                float trayY = cy + r * 0.4f;
+                c.drawLine(cx - r * 0.38f, trayY, cx + r * 0.38f, trayY, stroke);
             } else {
                 float dot = r * 0.09f, gap = r * 0.34f;
                 stroke.setStyle(Paint.Style.FILL);

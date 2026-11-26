@@ -57,30 +57,30 @@
 
 ---
 
-## 四、macOS / Windows 桌面端改造流程（`mac/`、`windows/`，基线 `1.2.3`）
+## 四、macOS / Windows / Linux 桌面端改造流程（`mac/`、`windows/`、`linux/`，基线 `1.3.0`，保留 `1.2.3` / `0.71.2` 回退）
 
-核心目录：`mac/patchers/desktop/`、`mac/clients/desktop/`、`windows/patchers/desktop/`、`windows/tools/desktop-recipes/`、`windows/installer/`。
+核心目录：`mac/patchers/desktop/`、`mac/clients/desktop/`、`windows/patchers/desktop/`、`linux/patchers/desktop/`、`windows/tools/desktop-recipes/`、`windows/installer/`。
 
-1. **官方包下载与校验**：按 `supported.json` 固定版本与 SHA-256 拉取官方 `1.2.3` `.dmg`（macOS Apple Silicon）或 `Setup.exe`（Windows x64）。
+1. **官方包下载与校验**：按 `supported.json` 固定版本与 SHA-256 拉取官方 `1.3.0` `.dmg`（macOS Apple Silicon）、`Setup.exe`（Windows x64）或 Linux x64/arm64 `.deb`。
 2. **解包与 ASAR 配方补丁**：
-   - 解包 Electron 的 `app.asar`，运行 `1.2.3` 桌面补丁配方（macOS / Windows 各 17 项核心配方）；
+   - 解包 Electron 的 `app.asar`，运行 `1.3.0` 桌面补丁配方（四端各 19 项核心配方）；
    - 重定向远端 API 与更新地址至自托管 Host，禁用遥测，注册 `rokbot-local://` 自定义 URL Scheme；
-   - 注入 `preload` 桥接对象 `window.localBot`、应用内模型配置面板、`needsModel` 顶部引导横幅以及 `clientDeviceId` 去重。
+   - 注入 `preload` 桥接对象 `window.localBot`、应用内模型配置面板、`needsModel` 顶部引导横幅、多选批量下载图片（`batch-image-download.js`）以及 `clientDeviceId` 去重。
 3. **内置网络代理与签名增量更新**：
-   - 嵌入对应平台的 `rokbot-tailcat` 可执行文件与变形 RokBot 图标（`.icns` / `.ico`）；
-   - 接入 ECDSA P-256 公钥验签与 `RBD1` ASAR 增量更新引擎（`mac/clients/desktop/asar-install.mjs`），优先应用增量补丁，失败自动回退完整包。
-4. **封装产出**：重新打包 `app.asar`，macOS 生成 `RokBot.app`（及 `.dmg`/`.zip`），Windows 通过 Go 安装器（`windows/installer/`）打包原生安装程序。
+   - 嵌入对应平台的 `rokbot-tailcat` 可执行文件与 RokBot 图标（`.icns` / `.ico` / Linux hicolor PNG）；
+   - 接入 ECDSA P-256 公钥验签与 `RBD1` ASAR 增量更新引擎（`mac/clients/desktop/asar-install.mjs`，覆盖 macOS / Windows 便携版 / Linux 可写便携版），失败自动回退完整包。
+4. **封装产出**：重新打包 `app.asar`，macOS 生成 `RokBot.app`，Windows 通过 Go 安装器打包原生安装程序与便携包，Linux 生成便携目录、`.tar.gz` 与剥离上游 APT 源注册的 `rokbot-local` `.deb`。
 
 ---
 
-## 五、Web 网页版改造流程（`web/`，基线 `1.2.3`）
+## 五、Web 网页版改造流程（`web/`，基线 `1.3.0`，保留 `1.2.3` / `0.71.2` 回退）
 
 核心目录：`web/patchers/patch.mjs`、`web/client/`。
 
-1. **渲染层提取**：从校验通过的 Windows `1.2.3` 安装包提取 Electron 前端渲染资源，剥离桌面原生 IPC 依赖。
-2. **浏览器兼容桥接**：注入 `web/client/` 下的 `gateway.js`、`bridge.js`、`compat.js` 与 `native.js`，用浏览器 `fetch` / `EventSource` / `WebSocket` 承接原桌面端能力，接入 `rokbot_web` HttpOnly Cookie 会话认证与 `x-rokbot-web: 1` 头校验。
-3. **品牌与模型 UI 集成**：写入 RokBot PWA 清单（`/web/manifest.webmanifest`）、`/rokbot-icon.png` 图标以及应用内模型配置界面。
-4. **托管发布**：打包为 `web/output/RokBotLocal-web-1.2.3.zip`，通过 Host 管理后台或 `PUT /admin/api/web-client` 上传托管。
+1. **渲染层提取**：从校验通过的 Windows `1.3.0` 安装包提取 Electron 前端渲染资源，剥离桌面原生 IPC 依赖。
+2. **浏览器兼容桥接**：注入 `web/client/` 下的 `gateway.js`、`bridge.js`、`compat.js`、`native.js` 与 `zip-store.mjs`，用浏览器 `fetch` / `EventSource` / `WebSocket` 承接原桌面端能力与批量 ZIP 下载，接入 `rokbot_web` HttpOnly Cookie 会话认证与 `x-rokbot-web: 1` 头校验。
+3. **品牌与模型 UI 集成**：写入 RokBot PWA 清单（`/web/manifest.webmanifest`）、`/rokbot-icon.png` 图标、多选批量下载图片以及应用内模型配置界面。
+4. **托管发布**：打包为 `web/output/RokBotLocal-web-1.3.0.zip`，通过 Host 管理后台或 `PUT /admin/api/web-client` 上传托管。
 
 ---
 

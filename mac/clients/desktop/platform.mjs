@@ -7,6 +7,7 @@ import { linkSync, lstatSync, mkdtempSync, rmdirSync, unlinkSync } from 'node:fs
 import { lstat, readFile } from 'node:fs/promises';
 
 export const isWindows = process.platform === 'win32';
+export const isLinux = process.platform === 'linux';
 export const APP_USER_MODEL_ID = 'dev.rokbot.local';
 export const SHORTCUT_NAME = 'RokBot Local.lnk';
 
@@ -45,16 +46,16 @@ export function titleBarOverlay(background, tone = false) {
 }
 
 export function windowChrome(background, platform = process.platform) {
-  return platform === 'win32'
-    ? { frame: false, titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(background) }
-    : { frame: true, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
+  if (platform === 'win32') return { frame: false, titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(background) };
+  if (platform === 'linux') return { frame: true };
+  return { frame: true, titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
 }
 
-/** The pairing window keeps its 42 px drag strip on both platforms. */
+/** The pairing window keeps its 42 px drag strip on macOS/Windows and uses native chrome on Linux. */
 export function connectWindowChrome(platform = process.platform) {
-  return platform === 'win32'
-    ? { frame: false, titleBarStyle: 'hidden', titleBarOverlay: { color: '#111111', symbolColor: '#FFFFFF', height: 42 } }
-    : { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
+  if (platform === 'win32') return { frame: false, titleBarStyle: 'hidden', titleBarOverlay: { color: '#111111', symbolColor: '#FFFFFF', height: 42 } };
+  if (platform === 'linux') return {};
+  return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 15 } };
 }
 
 /** Original window RPCs used by the Windows renderer's title bar. */
@@ -128,8 +129,9 @@ export function ensureStartMenuShortcut({ app, shell, execPath = process.execPat
   }
 }
 
-export function createTray({ Tray, Menu, nativeImage, clientRoot, show, quit, text }) {
-  const tray = new Tray(nativeImage.createFromPath(path.join(clientRoot, 'icon.ico')));
+export function createTray({ Tray, Menu, nativeImage, clientRoot, show, quit, text, platform = process.platform }) {
+  const iconFile = platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const tray = new Tray(nativeImage.createFromPath(path.join(clientRoot, iconFile)));
   tray.setToolTip('RokBot');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: text('打开 RokBot', 'Open RokBot'), click: show },

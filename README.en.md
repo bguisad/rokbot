@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
-  <a href="#supported-platforms"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, iOS, Android, Web" /></a>
+  <a href="#supported-platforms"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, Linux, iOS, Android, Web" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
 
@@ -49,7 +49,7 @@
 
 ## Overview
 
-RokBot is a self-hosted AI assistant for personal use. The agent server (the Host) and the Bot's desktop (`box`) run in Docker on your own machine, and model calls go to the OpenAI- or Anthropic-compatible endpoints you configure. The macOS, Windows, Android and iOS clients and the web client connect only to your Host.
+RokBot is a self-hosted AI assistant for personal use. The agent server (the Host) and the Bot's desktop (`box`) run in Docker on your own machine, and model calls go to the OpenAI- or Anthropic-compatible endpoints you configure. The macOS, Windows, Linux, Android and iOS clients and the web client connect only to your Host.
 
 Conversations, files, settings and API keys stay on the Host's data volumes. This repository contains only what this project wrote itself: the Host source, the image build scripts, the per-platform patch tools and build scripts, and the documentation. It does not contain or distribute any original program files or client installers. You can build the clients yourself with the patch tools, or get them from a Host you deploy yourself; see [Getting the clients](#getting-the-clients).
 
@@ -85,6 +85,7 @@ Conversations, files, settings and API keys stay on the Host's data volumes. Thi
 
 - The Images & video page of the admin console connects providers: OpenAI-compatible image and video APIs, WaveSpeed, or a custom HTTP JSON endpoint.
 - Image generation, video generation, video understanding and video review each have their own default model. Results come back to the conversation as attachments.
+- **Batch image download**: select multiple images in a conversation or the media viewer and download them at once — save to a folder or ZIP on Desktop (macOS/Windows/Linux), download as ZIP on Web, or save directly to the gallery (`Pictures/RokBot`) on Android.
 - You need to supply an API key for each provider.
 
 ### Voice
@@ -179,16 +180,17 @@ This repository does not provide client installers. Each client is obtained as s
 
 | Platform | Form | Official version required | How to get it | Guide |
 | --- | --- | --- | --- | --- |
-| macOS | Apple Silicon client | 1.2.3 | Build it yourself / From your Host | [`mac/README.en.md`](mac/README.en.md) |
-| Windows | x64 installer and portable build | 1.2.3 (recommended); 0.71.2 also accepted | Build it yourself / From your Host | [`windows/README.en.md`](windows/README.en.md) |
-| Web | Browser; can be added to the home screen | Interface from Windows 1.2.3 (recommended) or 0.71.2 | Build the bundle yourself and upload it to your Host | [`web/README.en.md`](web/README.en.md) |
+| macOS | Apple Silicon client | 1.3.0 (recommended); 1.2.3 also accepted | Build it yourself / From your Host | [`mac/README.en.md`](mac/README.en.md) |
+| Windows | x64 installer and portable build | 1.3.0 (recommended); 1.2.3 and 0.71.2 also accepted | Build it yourself / From your Host | [`windows/README.en.md`](windows/README.en.md) |
+| Linux | x64 / arm64 `.deb`, `.tar.gz`, and portable build | 1.3.0 | Build it yourself / From your Host | [`linux/README.en.md`](linux/README.en.md) |
+| Web | Browser; can be added to the home screen | Interface from Windows 1.3.0 (recommended); 1.2.3 and 0.71.2 also accepted | Build the bundle yourself and upload it to your Host | [`web/README.en.md`](web/README.en.md) |
 | Android | Native APK (arm64-v8a) | 1.26.0 (build 3212) | Build it yourself / From your Host | [`android/README.en.md`](android/README.en.md) |
 | iOS | IPA; bring your own decrypted official IPA | 1.27.0 (29519); 1.26.0 and 1.16.0 also accepted | Build and sign it yourself / From your Host | [`ios/README.en.md`](ios/README.en.md) |
 | Linux server | Docker: `host` (amd64 / arm64) and `box` (amd64) | Host baseline `2bb5e41` | Build the images from source / Pull the prebuilt images (access required) | [`host/README.en.md`](host/README.en.md) |
 
 See [Getting the clients](#getting-the-clients) for both methods.
 
-The pinned versions come from these files: `mac/patchers/desktop/supported.json`, `windows/patchers/desktop/supported.json`, `web/patchers/supported.json`, `android/recipes/manifest.json`, `ios/recipes/ios/manifest.json` and `host/recipes/host/manifest.json`.
+The pinned versions come from these files: `mac/patchers/desktop/supported.json`, `windows/patchers/desktop/supported.json`, `linux/patchers/desktop/{x64,arm64}/supported.json`, `web/patchers/supported.json`, `android/recipes/manifest.json`, `ios/recipes/ios/manifest.json` and `host/recipes/host/manifest.json`.
 
 ## Quick Start
 
@@ -262,16 +264,17 @@ If you omit `--source` for the desktop clients or the web client, the tool fetch
 
 | Platform | Runs on | Input | Output |
 | --- | --- | --- | --- |
-| macOS | macOS, Node.js 22.12+ | Official 1.2.3 Apple Silicon `.dmg` or `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
-| Windows | Windows 10/11 x64, Node.js 22.12+ | Official 1.2.3 (or 0.71.2) x64 installer, `app-64.7z` or an installed original directory | `windows/output/` |
-| Web | Windows, macOS or Linux, Node.js 22.12+ | The same official installer as Windows | `web/output/RokBotLocal-web-1.2.3.zip` |
+| macOS | macOS, Node.js 22.12+ | Official 1.3.0 (or 1.2.3) Apple Silicon `.dmg` or `Grok Bot.app` | `mac/output.noindex/RokBot.app` |
+| Windows | Windows 10/11 x64, Node.js 22.12+ | Official 1.3.0 (or 1.2.3, 0.71.2) x64 installer, `app-64.7z` or an installed original directory | `windows/output/` |
+| Linux | Linux or macOS, Node.js 22.12+ | Official 1.3.0 Linux x64 / arm64 `.deb` or extracted directory | `linux/output/` (portable dir, `.tar.gz`, `.deb`) |
+| Web | Windows, macOS or Linux, Node.js 22.12+ | The same official installer as Windows | `web/output/RokBotLocal-web-1.3.0.zip` |
 | Android | Node.js 20+ | Official 1.26.0 (build 3212) `.xapk`, `.apks` or `.apk` | The APK given by `--output-apk` |
 | iOS | Python 3.9+ | An official IPA you decrypted yourself: 1.27.0 (29519), 1.26.0 (29388) or 1.16.0 (23152) | The new directory given by `--output` |
 
 #### macOS
 
 ```bash
-node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
+node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.3.0.dmg"
 ```
 
 - Produces `mac/output.noindex/RokBot.app` and keeps a copy of the original in `mac/backup.noindex/RokBot.app`. The tool does not overwrite an existing output.
@@ -281,21 +284,29 @@ node mac/patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
 #### Windows
 
 ```powershell
-node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.2.3_Setup.exe
+node windows/patchers/desktop/patch.mjs --source C:\path\to\Grok_Bot_1.3.0_Setup.exe
 ```
 
-- Produces, in `windows/output/`, the portable directory `RokBot Local/`, `RokBotLocal-1.2.3-x64-portable.zip`, the per-user installer `RokBotLocal-1.2.3-x64-Setup.exe` and the patch record `RokBotLocal-1.2.3-x64.patch.json`. Add `--no-installer` to build only the portable version.
-- If 1.2.3 does not work for you, use `--version 0.71.2 --output windows/output/0.71.2`; the version in the file names changes accordingly.
+- Produces, in `windows/output/`, the portable directory `RokBot Local/`, `RokBotLocal-1.3.0-x64-portable.zip`, the per-user installer `RokBotLocal-1.3.0-x64-Setup.exe` and the patch record `RokBotLocal-1.3.0-x64.patch.json`. Add `--no-installer` to build only the portable version.
+- If 1.3.0 does not work for you, use `--version 1.2.3` or `--version 0.71.2`; the version in the file names changes accordingly.
 - The patch removes the original signature, which no longer matches once the program is modified, so the generated program and installer are unsigned. See [`windows/README.en.md`](windows/README.en.md).
+
+#### Linux
+
+```bash
+node linux/patchers/desktop/patch.mjs --arch x64   # or --arch arm64, optionally pass --source <official .deb>
+```
+
+- Produces, in `linux/output/`, the portable directory `RokBotLocal-1.3.0-linux-<arch>/`, portable archive `RokBotLocal-1.3.0-linux-<arch>.tar.gz`, rebranded Debian/Ubuntu package `RokBotLocal-1.3.0-linux-<arch>.deb` (upstream apt repo stripped, installs to `/opt/RokBot/rokbot`), and `.patch.json`. See [`linux/README.en.md`](linux/README.en.md).
 
 #### Web client
 
 ```bash
-node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.2.3_Setup.exe
+node web/patchers/patch.mjs --source /path/to/Grok_Bot_1.3.0_Setup.exe
 ```
 
-- Produces `web/output/RokBotLocal-web-1.2.3.zip`, which you upload on the Web client page of the admin console. Alternatively, add `--upload <Host address>` to install it on the Host right after the build; the admin password is read from `ROKBOT_ADMIN_PASSWORD`, `--password-file` or the terminal.
-- If the 1.2.3 interface does not work for you, add `--version 0.71.2`. See [`web/README.en.md`](web/README.en.md).
+- Produces `web/output/RokBotLocal-web-1.3.0.zip`, which you upload on the Web client page of the admin console. Alternatively, add `--upload <Host address>` to install it on the Host right after the build; the admin password is read from `ROKBOT_ADMIN_PASSWORD`, `--password-file` or the terminal.
+- If the 1.3.0 interface does not work for you, add `--version 1.2.3` or `--version 0.71.2`. See [`web/README.en.md`](web/README.en.md).
 
 #### Android
 

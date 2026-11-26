@@ -1018,7 +1018,7 @@ export async function createSelfHostServer(options = {}) {
     }
     if (await handleUpdateProxy(request, response, path, url, { device, connections })) return;
     const localUpdateFeed = /^\/local\/updates\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
-    const legacyNestedUpdateFeed = /^\/local\/updates\/(?:macos|windows|darwin-arm64|darwin-x64|win32-x64)\.json\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
+    const legacyNestedUpdateFeed = /^\/local\/updates\/(?:macos|windows|linux|darwin-arm64|darwin-x64|win32-x64|linux-x64|linux-arm64)\.json\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
     const updateFeedMatch = localUpdateFeed ?? legacyNestedUpdateFeed;
     if (request.method === "GET" && updateFeedMatch) {
       device(request);

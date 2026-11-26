@@ -166,8 +166,8 @@ function RokUseArrangedSidebar(input) {
 // Settings reads the same store before the sidebar first renders.
 try { rokListStore(); } catch {}
 
-// Quick toggle in the list header, left of Search: the official round header button (ET) with
-// its selected state, the official tooltip (He) and the header button style (fA.newButton).
+// Quick toggle in the list header, left of Search: the official round header button (OT) with
+// its selected state, the official tooltip (le) and the header button style (qA.newButton).
 // It reads and writes the same store as Settings > General > Chat list.
 // Draws a bell glyph on the 16 px grid of the official icons with their ~1.3 px stroke;
 // the bell body fills in while the arrangement is on.
@@ -201,9 +201,9 @@ function RokListModeButton() {
   const store = rokListStore();
   const isOn = state.mode === 'activity';
   const { label, tooltip } = rokListToggleText(isOn, grokText);
-  return Z.jsx(He, { content: tooltip, children: Z.jsx(ET, {
+  return Z.jsx(le, { content: tooltip, children: Z.jsx(OT, {
     'aria-label': label, 'aria-pressed': isOn, isSelected: isOn, className: ROK_LIST_TOGGLE_CLASS,
     'data-rokbot-list-mode': state.mode, glyph: Z.jsx(RokBellGlyph, { isOn }), onClick: () => store.toggle(),
-    style: fA.newButton,
+    style: qA.newButton,
   }) });
 }

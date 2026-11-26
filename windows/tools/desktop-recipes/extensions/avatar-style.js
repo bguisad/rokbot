@@ -52,9 +52,9 @@ function rokResolveShapePathD(rawShape) {
   if (rokShapeDStringCache.has(key)) return rokShapeDStringCache.get(key);
   let d = null;
   try {
-    if (typeof kt === 'function' && typeof yi === 'function') {
-      const fillVal = typeof Mi === 'number' ? Mi : undefined;
-      const svgMarkup = kt(fillVal !== void 0 ? { body: yi(key), size: 100, fill: fillVal } : { body: yi(key), size: 100 });
+    if (typeof Ir === 'function' && typeof ki === 'function') {
+      const fillVal = typeof Ui === 'number' ? Ui : undefined;
+      const svgMarkup = Ir(fillVal !== void 0 ? { body: ki(key), size: 100, fill: fillVal } : { body: ki(key), size: 100 });
       const m = typeof svgMarkup === 'string' ? svgMarkup.match(/\bd="([^"]+)"/) : null;
       if (m?.[1]) d = m[1];
     }
@@ -932,10 +932,10 @@ function RokGrokBotMark(e) {
   const resolvedShape = rokNormalizeShapeName(shape);
   const resolvedState = state === void 0 ? 'idle' : state;
   const pausedFlag = Boolean(isPaused);
-  const rootMeta = Io(Ttt.root, style);
-  const fullClass = NS('sand-grok-bot-mark', rootMeta.className, className);
+  const rootMeta = mo(kst.root, style);
+  const fullClass = JS('sand-grok-bot-mark', rootMeta.className, className);
   const safeColor = color === void 0 && ink === void 0 ? 'cyan' : color;
-  const fullStyle = Ott(e, safeColor, ink, eyeColor, rootMeta.style);
+  const fullStyle = Mst(e, safeColor, ink, eyeColor, rootMeta.style);
   return Z.jsxs('span', {
     'aria-hidden': true,
     className: fullClass,
@@ -974,9 +974,9 @@ function RokGrokBotMarkMirror(e) {
   const safeColor = color ?? mirrorEntry?.color ?? ((ink ?? mirrorEntry?.ink) === void 0 ? 'cyan' : void 0);
   const safeInk = ink ?? mirrorEntry?.ink;
   const safeEye = eyeColor ?? mirrorEntry?.eyeColor;
-  const rootMeta = Io(Ttt.root, style);
-  const fullClass = NS('sand-grok-bot-mark', 'sand-grok-bot-mark--mirror', rootMeta.className, className);
-  const fullStyle = Ott(e, safeColor, safeInk, safeEye, rootMeta.style);
+  const rootMeta = mo(kst.root, style);
+  const fullClass = JS('sand-grok-bot-mark', 'sand-grok-bot-mark--mirror', rootMeta.className, className);
+  const fullStyle = Mst(e, safeColor, safeInk, safeEye, rootMeta.style);
   return Z.jsxs('span', {
     'aria-hidden': true,
     className: fullClass,

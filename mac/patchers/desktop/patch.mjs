@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { applyReleaseRecipes } from './release-recipes.mjs';
 import { extractNotificationPolicy } from './extract-policy.mjs';
 import { acquireDesktopSource } from './download-original.mjs';
+import { macReleases, selectMacRelease } from './inputs.mjs';
 import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from './update-config.mjs';
 import {
   PROFILE_DISPLAY_PATH,
@@ -55,19 +56,22 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const repo = path.resolve(root, '..');
 const { icnsPath, iconPngPath } = resolveRokBotLogoPaths(repo);
-const supported = JSON.parse(await readFile(path.join(here, 'supported.json')));
+const releases = (await macReleases()).map(({ supported: item }) => item.version);
 const startedAt = performance.now();
 const timings = {};
 const args = process.argv.slice(2);
 const arg = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
 if (args.includes('--help')) {
-  console.log(`node patchers/desktop/patch.mjs [--source <原版.app或.dmg>] [--output <新.app>] [--backup <原版备份.app>] [--identity <auto|证书名称或SHA1|->] [--update-url <URL> (--update-public-key <SPKI Base64|PEM> | --update-public-key-file <文件>)] [--verify-only]
-省略 --source 时自动下载指定版本原版。
+  const [recommended, ...older] = releases;
+  console.log(`node patchers/desktop/patch.mjs [--source <原版.app或.dmg>] [--version <${releases.join('|')}>] [--output <新.app>] [--backup <原版备份.app>] [--identity <auto|证书名称或SHA1|->] [--update-url <URL> (--update-public-key <SPKI Base64|PEM> | --update-public-key-file <文件>)] [--verify-only]
+推荐官方 ${recommended}；${older.length ? `${older.join('、')} 是回退版本，${recommended} 用不了时再用。` : ''}省略 --source 时自动下载指定版本原版。
 --update-url / --update-public-key / --update-public-key-file 为客户端启用签名验证的自动更新。`);
   process.exit(0);
 }
 const updateConfig = await resolveDesktopUpdateConfig(args);
 if (process.platform !== 'darwin') throw new Error('macOS App 构建与签名必须在 macOS 上进行。');
+const explicitSource = arg('--source');
+const { directory: releaseDir, supported } = await selectMacRelease({ source: explicitSource, version: arg('--version') });
 let source;
 const output = path.resolve(arg('--output') ?? path.join(root, 'output.noindex/RokBot.app'));
 const backup = path.resolve(arg('--backup') ?? path.join(root, 'backup.noindex/RokBot.app'));
@@ -132,15 +136,15 @@ try {
   const originalUnpacked = new Set(unpackedFiles(originalHeader.header));
   const unpacked = path.join(temporary, 'app');
   asar.extractAll(asarPath, unpacked);
-  const notificationPolicy = await extractNotificationPolicy(unpacked, here);
+  const notificationPolicy = await extractNotificationPolicy(unpacked, releaseDir);
   const pkgPath = path.join(unpacked, 'package.json');
   const pkg = JSON.parse(await readFile(pkgPath));
   if (pkg.version !== supported.version) throw new Error('ASAR 包版本不一致。');
   const patchStarted = performance.now();
-  await applyReleaseRecipes(unpacked, path.join(here, 'recipes'));
+  await applyReleaseRecipes(unpacked, path.join(releaseDir, 'recipes'));
   await patchDesktopUpdateSettingsUi(unpacked);
   timings.patchSeconds = Number(((performance.now() - patchStarted) / 1000).toFixed(3));
-  console.log(JSON.stringify({ verified: true, recipesVerified: true, version: supported.version, architecture: supported.architecture, asarSha256 }));
+  console.log(JSON.stringify({ verified: true, recipesVerified: true, version: supported.version, recommended: supported.version === releases[0], architecture: supported.architecture, asarSha256 }));
   if (!args.includes('--verify-only')) {
     if (await exists(output)) throw new Error(`输出已存在，不会覆盖：${output}`);
     if (output === backup || output.startsWith(`${backup}/`) || backup.startsWith(`${output}/`)) throw new Error('输出与备份路径必须独立。');
