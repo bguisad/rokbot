@@ -66,6 +66,7 @@ public class ComputersActivity extends Activity {
                 JSONArray arr = res.optJSONArray("computers");
                 try {
                     JSONArray agents = HostApiClient.listAgents(this);
+                    RokBotAvatars.remember(this, agents);
                     if (agents.length() > 0) {
                         String preferredId = RokBotBootstrap.getViewingAgentId();
                         if (preferredId == null || preferredId.isEmpty()) {

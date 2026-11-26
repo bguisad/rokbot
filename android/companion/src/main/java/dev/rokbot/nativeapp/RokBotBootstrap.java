@@ -252,7 +252,13 @@ public class RokBotBootstrap {
 
     public static File ensureUnpairedBundleFile(Context context) {
         if (context == null || Storage.isPaired(context)) return null;
-        return HermesPatcher.ensureUnpairedBundleFile(context);
+        return withAssets(context, HermesPatcher.ensureUnpairedBundleFile(context));
+    }
+
+    /** React Native loads packaged images / SVGs / sounds from next to a file bundle (BundleAssets). */
+    private static File withAssets(Context context, File bundle) {
+        if (bundle != null && bundle.isFile()) BundleAssets.ensure(context, bundle.getParentFile());
+        return bundle;
     }
 
     public static synchronized void clearPairedBundle(Context context) {
@@ -269,6 +275,10 @@ public class RokBotBootstrap {
     }
 
     public static synchronized File ensurePairedBundleFile(Context context, boolean force) {
+        return withAssets(context, ensurePairedBundleFileOnly(context, force));
+    }
+
+    private static File ensurePairedBundleFileOnly(Context context, boolean force) {
         if (context == null || !Storage.isPaired(context)) return null;
         File dir = new File(context.getFilesDir(), "RokBotPaired");
         File pairedBundle = new File(dir, "index.android.bundle");
@@ -1732,6 +1742,15 @@ public class RokBotBootstrap {
         return matchesLabelOrCommaPrefix(s, "用量", false) || matchesLabelOrCommaPrefix(s, "Usage", true);
     }
 
+    /** rokbot section rows (hermes-settings.mjs applySettingsMenu, MENU_LABELS). */
+    static boolean matchesModelSettingsLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "模型配置", false) || matchesLabelOrCommaPrefix(s, "Model Settings", true);
+    }
+
+    static boolean matchesSoftwareUpdateLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "检查更新", false) || matchesLabelOrCommaPrefix(s, "Software Update", true);
+    }
+
     private static boolean matchesComputersLabel(String s) {
         return matchesLabelOrCommaPrefix(s, "Bot 电脑", false)
                 || matchesLabelOrCommaPrefix(s, "Bot Computer", true)
@@ -1834,6 +1853,8 @@ public class RokBotBootstrap {
                     || matchesNotificationsLabel(s)
                     || matchesLibraryLabel(s)
                     || matchesUsageLabel(s)
+                    || matchesModelSettingsLabel(s)
+                    || matchesSoftwareUpdateLabel(s)
                     || matchesComputersLabel(s))) {
                 return null;
             }
@@ -1875,9 +1896,9 @@ public class RokBotBootstrap {
             return (!paired && isInteractiveTarget && effW > 100f && effH >= 32f && effH <= 140f) ? PairingActivity.class : null;
         }
         if (ListArrangement.isHeaderBellLabel(activity, s)) {
-            // rokbot.3b Bot list header bell (hermes-settings.mjs applyHomeBarBell): an RN bar button.
-            return (paired && isInteractiveTarget && ListArrangement.isHeaderBellGeometry(activity, view, effW, effH)
-                    && ListArrangement.isAvailable(activity)) ? ListArrangement.class : null;
+            // rokbot.5b: the Bot list header bell (hermes-settings.mjs applyHomeBarBell) switches the
+            // arrangement inside React Native; the tap is never taken over.
+            return null;
         }
         if (isConnectionEntryLabel(s)) {
             // rokbot.3 settings row (hermes-settings.mjs applyConnectionEntry): a full-width nav row.
@@ -1931,6 +1952,13 @@ public class RokBotBootstrap {
         if (matchesComputersLabel(s)) {
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? ComputersActivity.class : null;
         }
+        if (matchesModelSettingsLabel(s)) {
+            // rokbot.5 settings rows (hermes-settings.mjs applySettingsMenu): full-width nav rows.
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? ModelsActivity.class : null;
+        }
+        if (matchesSoftwareUpdateLabel(s)) {
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? UpdateActivity.class : null;
+        }
         if (matchesNotificationsLabel(s)) {
             if (!paired) return null;
             if (isInteractiveTarget && effW >= 300f && effH >= 40f && effH <= 140f
@@ -1947,11 +1975,6 @@ public class RokBotBootstrap {
 
     private static void launchNativeTarget(Activity activity, Class<?> target) {
         if (activity == null || target == null) return;
-        if (target == ListArrangement.class) {
-            // Not a page: the list-sort bell switches the order in place (bundle regenerated + RN reload).
-            ListArrangement.onHeaderBellTapped(activity);
-            return;
-        }
         Class<?> dest = Storage.isPaired(activity) ? target : PairingActivity.class;
         Intent i = new Intent(activity, dest);
         if (dest == LibraryActivity.class) {
@@ -2398,6 +2421,12 @@ public class RokBotBootstrap {
         }
         if (matchesUsageLabel(s)) {
             return UsageActivity.class;
+        }
+        if (matchesModelSettingsLabel(s)) {
+            return ModelsActivity.class;
+        }
+        if (matchesSoftwareUpdateLabel(s)) {
+            return UpdateActivity.class;
         }
         if (matchesComputersLabel(s)) {
             return ComputersActivity.class;

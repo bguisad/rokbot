@@ -25,23 +25,24 @@ test('List sort bell: no floating overlay; the RN header button is recognised an
   assert.equal(HOME_BELL.labelOff, 'sort');
   assert.equal(HOME_BELL.labelOn, 'sorted');
   assert.equal(HOME_BELL.colorOn, '#C27400');
-  // Header-sized, top of the screen only: never a list row or a banner.
-  assert.match(la, /effWdp > 72f \|\| effHdp > 72f/);
-  assert.match(la, /return loc\[1\] < screenH \/ 4;/);
-  assert.match(la, /setLastMessage\(activity, next, null\);/);
-  assert.match(la, /RokBotBootstrap\.ensurePairedBundleFile\(app, true\);\s*RokBotBootstrap\.reloadReactHost\(app\);/);
+  // rokbot.5b: the tap stays in React Native (in-place switch); the companion only labels the
+  // bell for TalkBack and confirms a flip it sees with a toast.
+  assert.doesNotMatch(la, /setLastMessage|reloadReactHost|ensurePairedBundleFile|onHeaderBellTapped/);
+  assert.match(la, /boolean changed = sSeenOn != null && sSeenOn != on;[\s\S]{0,240}if \(changed\) Toast\.makeText\(activity, switchedMessage\(activity, on\), Toast\.LENGTH_SHORT\)\.show\(\);/);
+  assert.match(la, /待处理 → 进行中 → 未读 → 已读/);
   // TalkBack gets a readable label instead of the raw bundle string.
   assert.match(la, /bell\.setContentDescription\(spokenLabel\(activity, on\)\);/);
   assert.match(la, /private static synchronized Handler main\(\)/, 'no Looper use in static init (JVM-safe)');
-
   const boot = read('RokBotBootstrap.java');
-  assert.match(boot, /if \(ListArrangement\.isHeaderBellLabel\(activity, s\)\) \{[\s\S]{0,400}ListArrangement\.isHeaderBellGeometry\(activity, view, effW, effH\)[\s\S]{0,120}\? ListArrangement\.class : null;/);
-  const launch = boot.slice(boot.indexOf('private static void launchNativeTarget(Activity activity, Class<?> target)'));
-  assert.match(launch.slice(0, 600), /if \(target == ListArrangement\.class\) \{\s*\/\/[^\n]*\n\s*ListArrangement\.onHeaderBellTapped\(activity\);\s*return;\s*\}/, 'the bell never starts an Activity');
-
+  assert.match(boot, /if \(ListArrangement\.isHeaderBellLabel\(activity, s\)\) \{[^}]*return null;\s*\}/, 'never intercepted');
+  assert.doesNotMatch(boot, /ListArrangement\.onHeaderBellTapped|target == ListArrangement\.class/, 'the bell never starts an Activity');
   const hp = read('HermesPatcher.java');
-  assert.match(hp, /if \(ListArrangement\.isLastMessage\(context\)\) \{\s*if \(!applyListSortEdits\(bundle, meta\.optJSONObject\("listSort"\)\)\)/);
-  assert.match(hp, /return ListArrangement\.isLastMessage\(context\) \? "\\nlistSort=" \+ ListArrangement\.MODE_LAST_MESSAGE : "";/);
+  assert.match(hp, /static int applyListArrangement\(byte\[\] bundle, JSONObject listSort, String titleLanguage\) \{[\s\S]{0,500}applyEditLists\(bundle, parseEdits\(listSort\.optJSONArray\("edits"\)\), named\) \? LIST_SORT_LIVE : LIST_SORT_NONE;/);
+  assert.match(hp, /"\\nlistSort=live:" \+ ListArrangement\.titleLanguage\(context\)/,
+    'the title language is part of .bundle-meta, so a language change regenerates the bundle');
+  // Title language: explicit companion language, else the RN UI language (remembered), else the system's.
+  const tl = la.slice(la.indexOf('static String titleLanguage(Context context) {'));
+  assert.match(tl, /Localize\.getPreferredLanguage\(context\)[\s\S]{0,200}Localize\.getObservedLanguage\(\)[\s\S]{0,260}Storage\.setStringPref\(context, PREF_TITLE_LANGUAGE, observed\)[\s\S]{0,260}Localize\.isChinese\(context\)/);
 });
 
 test('List sort bell: applyHomeBarBell fails closed on anything but the pinned bundle', () => {
@@ -118,6 +119,45 @@ public class RouteHarness {
         check(ListArrangement.isHeaderBellLabel(null, " sorted "), "on label");
         check(!ListArrangement.isHeaderBellLabel(null, "Sort"), "case sensitive (bundle strings)");
         check(!ListArrangement.isHeaderBellLabel(null, "New Bot"), "other header buttons");
+        // rokbot.4: list arrangement edits are all-or-nothing (anchors, overlap, footer).
+        byte[] b = new byte[64];
+        for (int i = 0; i < b.length; i++) b[i] = (byte) i;
+        HermesPatcher.Edit e1 = new HermesPatcher.Edit(4, new byte[] { 4, 5 }, new byte[] { 9, 9 });
+        HermesPatcher.Edit e2 = new HermesPatcher.Edit(10, new byte[] { 10 }, new byte[] { 7 });
+        HermesPatcher.Edit bad = new HermesPatcher.Edit(20, new byte[] { 99 }, new byte[] { 1 });
+        HermesPatcher.Edit overlap = new HermesPatcher.Edit(5, new byte[] { 5 }, new byte[] { 1 });
+        HermesPatcher.Edit footer = new HermesPatcher.Edit(44, new byte[] { 44 }, new byte[] { 1 });
+        check(!HermesPatcher.applyEditLists(b, new HermesPatcher.Edit[] { e1 }, new HermesPatcher.Edit[] { bad }), "anchor mismatch");
+        check(!HermesPatcher.applyEditLists(b, new HermesPatcher.Edit[] { e1, overlap }), "overlap");
+        check(!HermesPatcher.applyEditLists(b, new HermesPatcher.Edit[] { footer }), "footer");
+        check(!HermesPatcher.applyEditLists(b, new HermesPatcher.Edit[] { e1 }, null), "missing list (no titles)");
+        check(b[4] == 4 && b[5] == 5 && b[10] == 10, "nothing written on failure");
+        check(HermesPatcher.applyEditLists(b, new HermesPatcher.Edit[] { e1 }, new HermesPatcher.Edit[] { e2 }), "applies");
+        check(b[4] == 9 && b[5] == 9 && b[10] == 7, "written");
+        check(!HermesPatcher.applyEditLists(b, new HermesPatcher.Edit[] { e1 }), "not twice");
+        // Speed test helpers.
+        check(SpeedTest.median(new long[] { 30, 10, 20 }) == 20, "median odd");
+        check(SpeedTest.median(new long[] { 40, 10, 20, 30 }) == 25, "median even");
+        check(SpeedTest.median(new long[0]) == -1, "median empty");
+        check(Math.abs(SpeedTest.mbps(1_000_000, 1000) - 8.0) < 1e-9, "1 MB/s = 8 Mbps");
+        check(SpeedTest.mbps(0, 10) == 0 && SpeedTest.mbps(10, 0) == 0, "mbps guards");
+        eq(SpeedTest.formatMbps(123.4), "123 Mbps", "fmt big");
+        eq(SpeedTest.formatMbps(52.34), "52.3 Mbps", "fmt mid");
+        eq(SpeedTest.formatMbps(1.234), "1.23 Mbps", "fmt small");
+        eq(SpeedTest.formatMbps(-1), "—", "fmt none");
+        eq(SpeedTest.formatBytes(11 * 1024 * 1024 + 512 * 1024), "11.5 MB", "bytes");
+        eq(SpeedTest.trimSlash("https://a.example/ "), "https://a.example", "trim");
+        eq(SpeedTest.kindOfServer("https://prokbot.cosfoc.com"), "public", "public host");
+        eq(SpeedTest.kindOfServer("http://100.101.102.103:18080"), "tailscale", "tailnet IPv4");
+        eq(SpeedTest.kindOfServer("https://mini.tail1234.ts.net"), "tailscale", "MagicDNS");
+        eq(SpeedTest.kindOfServer("http://[fd7a:115c:a1e0::1]:18080"), "tailscale", "tailnet IPv6");
+        eq(SpeedTest.kindOfServer("http://192.168.31.20:18080"), "lan", "LAN");
+        eq(SpeedTest.kindOfServer("http://127.0.0.1:19291"), "lan", "loopback");
+        eq(SpeedTest.kindOfServer("http://118.178.254.45:18081"), "public", "public IPv4");
+        long cap = 0;
+        for (int s : SpeedTest.TRANSFER_STEPS) cap += s;
+        check(cap <= 11L * 1024 * 1024, "at most ~10.5 MiB per direction");
+        check(SpeedTest.PHASE_BUDGET_MS <= 10_000L && SpeedTest.PING_SAMPLES >= 5, "time cap and samples");
         System.out.println("ROUTE_OK");
     }
 }

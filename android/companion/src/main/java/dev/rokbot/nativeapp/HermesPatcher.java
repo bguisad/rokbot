@@ -236,12 +236,11 @@ public class HermesPatcher {
 
         ByteBuffer.wrap(bundle, bodyLengthOffset, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(bodyLen);
 
-        // Session list bell: "sort by last message" is a handful of verified in-place edits
-        // published by the build in gateway-template.json (hermes-settings.mjs listSortEdits).
-        if (ListArrangement.isLastMessage(context)) {
-            if (!applyListSortEdits(bundle, meta.optJSONObject("listSort"))) {
-                android.util.Log.w("RokBotHermes", "list sort edits unavailable; keeping the official order");
-            }
+        // Session list arrangement (hermes-settings.mjs listSortEdits): verified in-place edits that
+        // are always part of the paired bundle; the RN bell switches between the official list and
+        // the grouped one in place (no bundle change, no React Native reload).
+        if (applyListArrangement(bundle, meta.optJSONObject("listSort"), ListArrangement.titleLanguage(context)) == LIST_SORT_NONE) {
+            android.util.Log.w("RokBotHermes", "list arrangement edits unavailable; official list only");
         }
 
         MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
@@ -256,52 +255,99 @@ public class HermesPatcher {
         return outFile;
     }
 
-    /** True when gateway-template.json carries the list sort edits (rokbot.3+ builds). */
+    /** True when gateway-template.json carries the live list arrangement (rokbot.5b+ builds). */
     static boolean hasListSort(Context context) {
         try (InputStream is = context.getAssets().open("recipes/gateway-template.json")) {
             JSONObject meta = new JSONObject(new String(readAllBytes(is), StandardCharsets.UTF_8));
-            JSONObject sort = meta.optJSONObject("listSort");
-            return sort != null && sort.optJSONArray("edits") != null && sort.optJSONArray("edits").length() > 0;
+            return isLiveListSort(meta.optJSONObject("listSort"));
         } catch (Throwable t) {
             return false;
         }
     }
 
+    static boolean isLiveListSort(JSONObject sort) {
+        return sort != null && sort.optInt("live", 0) == 1 && sort.optJSONArray("edits") != null
+                && sort.optJSONArray("edits").length() > 0 && sort.optJSONObject("titles") != null;
+    }
+
+    static final int LIST_SORT_NONE = 0;
+    static final int LIST_SORT_LIVE = 3;
+
     /**
-     * Applies {"edits":[{offset, original, patched}]} in place after checking every original
-     * byte first; nothing is written unless all anchors match. Mirrors applyListSortEdits in
-     * android/patchers/hermes-settings.mjs. The caller recomputes the footer SHA-1.
+     * Applies the live list arrangement published in gateway-template.json "listSort":
+     * {"live":1, "edits":[...], "titles":{"zh":[...], "en":[...]}}. The edits and one titles set
+     * go in together (all anchors checked first, nothing written otherwise). Returns
+     * LIST_SORT_LIVE or LIST_SORT_NONE. The caller recomputes the footer SHA-1.
      */
-    static boolean applyListSortEdits(byte[] bundle, JSONObject listSort) {
-        if (bundle == null || listSort == null) return false;
-        org.json.JSONArray edits = listSort.optJSONArray("edits");
-        if (edits == null || edits.length() == 0) return false;
-        int n = edits.length();
-        int[] offsets = new int[n];
-        byte[][] patched = new byte[n][];
-        for (int i = 0; i < n; i++) {
+    static int applyListArrangement(byte[] bundle, JSONObject listSort, String titleLanguage) {
+        if (bundle == null || !isLiveListSort(listSort)) return LIST_SORT_NONE;
+        JSONObject titles = listSort.optJSONObject("titles");
+        Edit[] named = parseEdits(titles.optJSONArray(titles.has(titleLanguage) ? titleLanguage : "en"));
+        return applyEditLists(bundle, parseEdits(listSort.optJSONArray("edits")), named) ? LIST_SORT_LIVE : LIST_SORT_NONE;
+    }
+
+    /** One verified in-place edit: `original` must be at `offset`, `patched` (same length) replaces it. */
+    static final class Edit {
+        final int offset;
+        final byte[] original;
+        final byte[] patched;
+
+        Edit(int offset, byte[] original, byte[] patched) {
+            this.offset = offset;
+            this.original = original;
+            this.patched = patched;
+        }
+    }
+
+    /** [{offset, original, patched}] (hex) -> edits; null when missing, empty or malformed. */
+    static Edit[] parseEdits(org.json.JSONArray edits) {
+        if (edits == null || edits.length() == 0) return null;
+        Edit[] out = new Edit[edits.length()];
+        for (int i = 0; i < out.length; i++) {
             JSONObject e = edits.optJSONObject(i);
-            if (e == null) return false;
-            int off = e.optInt("offset", -1);
+            if (e == null) return null;
             byte[] orig = hexToBytes(e.optString("original", ""));
             byte[] next = hexToBytes(e.optString("patched", ""));
-            if (off < 0 || orig == null || next == null || orig.length == 0 || orig.length != next.length
-                    || off + orig.length > bundle.length - 20) {
-                return false;
-            }
-            for (int j = 0; j < orig.length; j++) {
-                if (bundle[off + j] != orig[j]) return false;
-            }
-            offsets[i] = off;
-            patched[i] = next;
+            if (orig == null || next == null) return null;
+            out[i] = new Edit(e.optInt("offset", -1), orig, next);
         }
-        for (int i = 0; i < n; i++) System.arraycopy(patched[i], 0, bundle, offsets[i], patched[i].length);
+        return out;
+    }
+
+    /**
+     * Applies edit lists in place after checking every original byte first; nothing is written
+     * unless every list is present, all anchors match, no two edits overlap and none touches the
+     * footer. Mirrors applyListSortEdits in android/patchers/hermes-settings.mjs.
+     */
+    static boolean applyEditLists(byte[] bundle, Edit[]... lists) {
+        if (bundle == null || lists == null || lists.length == 0) return false;
+        java.util.List<Edit> all = new java.util.ArrayList<>();
+        for (Edit[] list : lists) {
+            if (list == null || list.length == 0) return false;
+            for (Edit e : list) {
+                if (e == null || e.offset < 0 || e.original == null || e.patched == null || e.original.length == 0
+                        || e.original.length != e.patched.length || (long) e.offset + e.original.length > bundle.length - 20) {
+                    return false;
+                }
+                for (int j = 0; j < e.original.length; j++) {
+                    if (bundle[e.offset + j] != e.original[j]) return false;
+                }
+                for (Edit o : all) {
+                    if (e.offset < o.offset + o.original.length && o.offset < e.offset + e.original.length) return false;
+                }
+                all.add(e);
+            }
+        }
+        for (Edit e : all) System.arraycopy(e.patched, 0, bundle, e.offset, e.patched.length);
         return true;
     }
 
-    /** Extra .bundle-meta line so toggling the list bell regenerates the paired bundle. */
+    /**
+     * Extra .bundle-meta line: the live list arrangement and its title language are part of the
+     * paired bundle (a language change regenerates it; the bell itself never does).
+     */
     static String listSortMeta(Context context) {
-        return ListArrangement.isLastMessage(context) ? "\nlistSort=" + ListArrangement.MODE_LAST_MESSAGE : "";
+        return "\nlistSort=live:" + ListArrangement.titleLanguage(context);
     }
 
     static byte[] hexToBytes(String hex) {
@@ -335,7 +381,7 @@ public class HermesPatcher {
         return sb.toString();
     }
 
-    private static byte[] readAllBytes(InputStream is) throws Exception {
+    static byte[] readAllBytes(InputStream is) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;

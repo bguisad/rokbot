@@ -17,7 +17,10 @@ const read = name => fs.readFileSync(path.join(SRC, name), 'utf8');
 
 test('Bundle refresh wiring: paired and unpaired bundles are keyed on the install, pairing is kept', () => {
   const boot = read('RokBotBootstrap.java');
-  const body = boot.slice(boot.indexOf('public static synchronized File ensurePairedBundleFile(Context context, boolean force)'));
+  // rokbot.5c: the synchronized entry point adds the React Native assets (BundleAssets) around the
+  // keyed regeneration, which lives in ensurePairedBundleFileOnly.
+  assert.match(boot, /public static synchronized File ensurePairedBundleFile\(Context context, boolean force\) \{\s*return withAssets\(context, ensurePairedBundleFileOnly\(context, force\)\);/);
+  const body = boot.slice(boot.indexOf('private static File ensurePairedBundleFileOnly(Context context, boolean force)'));
   const fn = body.slice(0, body.indexOf('\n    }\n') + 6);
   // rokbot.3: the list sort mode is part of the key too (toggling it regenerates the bundle).
   assert.match(fn, /String expectedMeta = HermesPatcher\.pairedBundleMeta\(url, token, HermesPatcher\.installStamp\(context\)\)\s*\+ HermesPatcher\.listSortMeta\(context\);/);

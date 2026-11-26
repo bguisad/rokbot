@@ -71,21 +71,14 @@ public class PairingActivity extends Activity {
     private volatile boolean mDestroyed = false;
 
     private LinearLayout mNeedsModelBanner;
-    private LinearLayout mUpdateBannerCard;
-    private TextView mUpdateTitleText;
-    private TextView mUpdateNotesText;
-    private TextView mUpdateStatusText;
-    private ProgressBar mUpdateProgressBar;
-    private TextView mInstallUpdateBtn;
-    private TextView mCheckUpdatesBtn;
-    private UpdateManager.UpdateManifestInfo mAvailableUpdate = null;
-    private File mStagedUpdateApk = null;
-    private boolean mUpdateStaging = false;
-    private boolean mPendingInstallAfterPerm = false;
 
     // Connection & Diagnostics (rokbot.3)
     public static final String EXTRA_ADD_CONNECTION = "addConnection";
     private ConnectionProbe mProbe;
+    private SpeedTest mSpeedTest;
+    private LinearLayout mSpeedRows;
+    private TextView mSpeedButton;
+    private final java.util.Map<String, TextView> mSpeedResults = new java.util.HashMap<>();
     private ConnectionProbe.Status mLastStatus;
     private TextView mStatusLine;
     private TextView mStatusBadge;
@@ -126,16 +119,6 @@ public class PairingActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (mPendingInstallAfterPerm && mStagedUpdateApk != null && mStagedUpdateApk.isFile()) {
-            if (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls()) {
-                mPendingInstallAfterPerm = false;
-                try {
-                    UpdateManager.launchInstaller(this, mStagedUpdateApk);
-                } catch (Throwable t) {
-                    Toast.makeText(this, Localize.t(this, "拉起安装器失败：", "Installer error: ") + t.getMessage(), Toast.LENGTH_LONG).show();
-                }
-            }
-        }
         if (Storage.isPaired(this) && !mEditingConnection && mNeedsModelBanner != null) {
             refreshNeedsModelBanner();
         }
@@ -145,6 +128,7 @@ public class PairingActivity extends Activity {
     @Override
     protected void onPause() {
         stopProbe();
+        cancelSpeedTest();
         super.onPause();
     }
 
@@ -152,6 +136,7 @@ public class PairingActivity extends Activity {
     protected void onDestroy() {
         mDestroyed = true;
         stopProbe();
+        cancelSpeedTest();
         if (mBusyDialog != null) {
             try { mBusyDialog.dismiss(); } catch (Throwable ignored) {}
             mBusyDialog = null;
@@ -346,22 +331,15 @@ public class PairingActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(UiChrome.dp(this, 22), UiChrome.dp(this, 14), UiChrome.dp(this, 22), UiChrome.dp(this, 28));
+        root.setPadding(UiChrome.dp(this, 18), UiChrome.dp(this, 12), UiChrome.dp(this, 18), UiChrome.dp(this, 28));
         scroll.addView(root);
 
-        root.addView(makeTopBarRow(p, mFromRnModal || discoverOriginalReactActivity() != null));
-
-        root.addView(UiChrome.makeRokLogoView(this, 52, p));
-        addSpacing(root, 12);
-
-        TextView heading = new TextView(this);
-        heading.setText(Localize.t(this, "连接与诊断", "Connection & Diagnostics"));
-        heading.setContentDescription("connection_diagnostics_title");
-        heading.setTextColor(p.textPrimary);
-        heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 25);
-        heading.setTypeface(Typeface.DEFAULT_BOLD);
-        heading.setPadding(0, 0, 0, UiChrome.dp(this, 14));
-        root.addView(heading);
+        // Same header bar as the other native pages (UsageActivity, ComputersActivity). The settings row opens this
+        // page; back returns there (or to the app when opened from outside it).
+        LinearLayout header = UiChrome.makeHeaderBar(this, Localize.t(this, "连接与诊断", "Connection & Diagnostics"), p,
+                v -> { if (mFromRnModal || discoverOriginalReactActivity() == null) finish(); else returnToMainApp(); });
+        header.setContentDescription("connection_diagnostics_title");
+        root.addView(header);
 
         root.addView(buildCurrentConnectionCard(p));
 
@@ -398,72 +376,8 @@ public class PairingActivity extends Activity {
         mNeedsModelBanner.setVisibility(View.GONE);
         root.addView(mNeedsModelBanner);
 
-        // Update banner card (shown when update available or checking manually)
-        mUpdateBannerCard = UiChrome.makeCard(this, p);
-        mUpdateBannerCard.setContentDescription("update_banner_card");
-        LinearLayout.LayoutParams ubLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        ubLp.topMargin = UiChrome.dp(this, 10);
-        mUpdateBannerCard.setLayoutParams(ubLp);
-
-        mUpdateTitleText = new TextView(this);
-        mUpdateTitleText.setTextColor(p.textPrimary);
-        mUpdateTitleText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        mUpdateTitleText.setTypeface(Typeface.DEFAULT_BOLD);
-        mUpdateBannerCard.addView(mUpdateTitleText);
-
-        mUpdateNotesText = new TextView(this);
-        mUpdateNotesText.setTextColor(p.textSecondary);
-        mUpdateNotesText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        mUpdateNotesText.setPadding(0, UiChrome.dp(this, 4), 0, 0);
-        mUpdateNotesText.setVisibility(View.GONE);
-        mUpdateBannerCard.addView(mUpdateNotesText);
-
-        mUpdateStatusText = new TextView(this);
-        mUpdateStatusText.setContentDescription("update_status_text");
-        mUpdateStatusText.setTextColor(p.textSecondary);
-        mUpdateStatusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        mUpdateStatusText.setPadding(0, UiChrome.dp(this, 6), 0, UiChrome.dp(this, 8));
-        mUpdateBannerCard.addView(mUpdateStatusText);
-
-        mUpdateProgressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        mUpdateProgressBar.setContentDescription("update_progress_bar");
-        mUpdateProgressBar.setMax(100);
-        LinearLayout.LayoutParams pbLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pbLp.bottomMargin = UiChrome.dp(this, 8);
-        mUpdateProgressBar.setLayoutParams(pbLp);
-        mUpdateProgressBar.setVisibility(View.GONE);
-        mUpdateBannerCard.addView(mUpdateProgressBar);
-
-        mInstallUpdateBtn = UiChrome.makePillButton(this,
-                Localize.t(this, "下载并安装更新", "Download & Install"), true, p,
-                v -> onInstallUpdateButtonClicked());
-        mInstallUpdateBtn.setContentDescription("install_update_button");
-        mInstallUpdateBtn.setVisibility(View.GONE);
-        mUpdateBannerCard.addView(mInstallUpdateBtn);
-
-        mUpdateBannerCard.setVisibility(View.GONE);
-        root.addView(mUpdateBannerCard);
-
-        String originalReact = discoverOriginalReactActivity();
-        if (mFromRnModal || originalReact != null) {
-            addSpacing(root, 18);
-            TextView doneBtn = UiChrome.makePillButton(this,
-                    Localize.t(this, "回到 RokBot", "Return to RokBot"), true, p,
-                    v -> returnToMainApp());
-            doneBtn.setContentDescription("return_to_app_button");
-            root.addView(doneBtn);
-        }
-
-        addSpacing(root, 6);
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "连接历史", "Connection history"), p));
         root.addView(buildHistoryCard(p, true));
-
-        if (ListArrangement.isAvailable(this)) {
-            root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "会话列表", "Chat list"), p));
-            root.addView(buildListSortCard(p));
-        }
 
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "Bot 动态图标", "Bot avatar style"), p));
         root.addView(buildAvatarStyleCard(p));
@@ -471,106 +385,53 @@ public class PairingActivity extends Activity {
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "诊断", "Diagnostics"), p));
         root.addView(buildDiagnosticsCard(p));
 
-        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "更多", "More"), p));
-        LinearLayout quickGrid1 = new LinearLayout(this);
-        quickGrid1.setOrientation(LinearLayout.HORIZONTAL);
-        TextView pushBtn = UiChrome.makePillButton(this, Localize.t(this, "通知设置", "Notifications"), false, p,
-                v -> startActivity(new Intent(this, PushSettingsActivity.class)));
-        pushBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid1.addView(pushBtn);
-        View sp1 = new View(this);
-        sp1.setLayoutParams(new LinearLayout.LayoutParams(UiChrome.dp(this, 8), 1));
-        quickGrid1.addView(sp1);
-        TextView profBtn = UiChrome.makePillButton(this, Localize.t(this, "个人资料", "Profile"), false, p,
-                v -> startActivity(new Intent(this, ProfileActivity.class)));
-        profBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid1.addView(profBtn);
-        root.addView(quickGrid1);
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "测速", "Speed test"), p));
+        root.addView(buildSpeedTestCard(p));
 
-        addSpacing(root, 8);
-        LinearLayout quickGrid2 = new LinearLayout(this);
-        quickGrid2.setOrientation(LinearLayout.HORIZONTAL);
-        TextView libBtn = UiChrome.makePillButton(this, Localize.t(this, "资料库", "Library"), false, p,
-                v -> {
-                    Intent i = new Intent(this, LibraryActivity.class);
-                    String agentId = RokBotBootstrap.getLastAgentId();
-                    if (agentId != null && !agentId.isEmpty()) i.putExtra(LibraryActivity.EXTRA_AGENT_ID, agentId);
-                    startActivity(i);
-                });
-        libBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid2.addView(libBtn);
-        View sp2 = new View(this);
-        sp2.setLayoutParams(new LinearLayout.LayoutParams(UiChrome.dp(this, 8), 1));
-        quickGrid2.addView(sp2);
-        TextView compBtn = UiChrome.makePillButton(this, Localize.t(this, "Bot 电脑", "Bot Computers"), false, p,
-                v -> startActivity(new Intent(this, ComputersActivity.class)));
-        compBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid2.addView(compBtn);
-        root.addView(quickGrid2);
-
-        addSpacing(root, 8);
-        LinearLayout quickGrid3 = new LinearLayout(this);
-        quickGrid3.setOrientation(LinearLayout.HORIZONTAL);
-        TextView usageBtn = UiChrome.makePillButton(this, Localize.t(this, "用量", "Usage"), false, p,
-                v -> startActivity(new Intent(this, UsageActivity.class)));
-        usageBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid3.addView(usageBtn);
-        View sp3 = new View(this);
-        sp3.setLayoutParams(new LinearLayout.LayoutParams(UiChrome.dp(this, 8), 1));
-        quickGrid3.addView(sp3);
-        TextView modelsBtn = UiChrome.makePillButton(this, Localize.t(this, "模型设置", "Model Settings"), false, p,
-                v -> startActivity(new Intent(this, ModelsActivity.class)));
-        modelsBtn.setContentDescription("model_settings_button");
-        modelsBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid3.addView(modelsBtn);
-        root.addView(quickGrid3);
-
-        addSpacing(root, 8);
-        LinearLayout quickGrid4 = new LinearLayout(this);
-        quickGrid4.setOrientation(LinearLayout.HORIZONTAL);
-        mCheckUpdatesBtn = UiChrome.makePillButton(this, Localize.t(this, "检查更新", "Check for Updates"), false, p,
-                v -> startActivity(new Intent(this, UpdateActivity.class)));
-        mCheckUpdatesBtn.setContentDescription("check_for_updates_button");
-        mCheckUpdatesBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid4.addView(mCheckUpdatesBtn);
-        View sp4 = new View(this);
-        sp4.setLayoutParams(new LinearLayout.LayoutParams(UiChrome.dp(this, 8), 1));
-        quickGrid4.addView(sp4);
-        TextView editBtn = UiChrome.makePillButton(this, Localize.t(this, "修改连接", "Edit Connection"), false, p, v -> {
+        // Only what belongs to this connection. Model settings, software update, notifications,
+        // profile, usage, Bot computers and the library are first-level settings rows (or official
+        // RN rows) and are not repeated here; list arrangement is the bell on the Bot list.
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "当前连接", "This connection"), p));
+        LinearLayout actions = UiChrome.makeRowGroup(this, p);
+        actions.setContentDescription("connection_actions");
+        actions.addView(UiChrome.makeNavRow(this, Localize.t(this, "修改连接", "Edit Connection"), p.textPrimary, true, p, v -> {
             mEditingConnection = true;
             renderScreen();
-        });
-        editBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        quickGrid4.addView(editBtn);
-        root.addView(quickGrid4);
-
-        addSpacing(root, 16);
-        TextView unpairBtn = UiChrome.makePillButton(this,
-                Localize.t(this, "断开并解除配对", "Disconnect & Unpair"), false, p, v -> {
-                    ConnectionHistory.forgetCurrent(this);
-                    TailcatManager.get().clear();
-                    Storage.clearCredentials(this);
-                    RokBotBootstrap.clearPairedBundle(this);
-                    mAvailableUpdate = null;
-                    mStagedUpdateApk = null;
-                    mPendingInstallAfterPerm = false;
-                    PushManager.getInstance(this).onForegroundChanged(false);
-                    NotificationService.sync(this);
-                    RokBotBootstrap.reloadReactHost(this);
-                    Toast.makeText(this, Localize.t(this, "已解除配对", "Unpaired from Host"), Toast.LENGTH_SHORT).show();
-                    renderScreen();
-                });
-        unpairBtn.setTextColor(p.danger);
-        root.addView(unpairBtn);
+        }));
+        actions.addView(UiChrome.makeRowDivider(this, p));
+        TextView unpairRow = UiChrome.makeNavRow(this, Localize.t(this, "断开并解除配对", "Disconnect & Unpair"), p.danger, false, p,
+                v -> confirmUnpair());
+        unpairRow.setContentDescription("unpair_button");
+        actions.addView(unpairRow);
+        root.addView(actions);
 
         setContentView(scroll);
         UiChrome.applyRootInsets(this, scroll);
 
         refreshNeedsModelBanner();
-        // Automatic checks, prompts and installs live in AppUpdater / UpdateActivity.
-        if (mAvailableUpdate != null) {
-            renderAvailableUpdateBanner(mAvailableUpdate);
-        }
+    }
+
+    private void confirmUnpair() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(Localize.t(this, "断开并解除配对？", "Disconnect & unpair?"))
+                .setMessage(Localize.t(this,
+                        "将清除此设备上保存的 Host 凭证，之后需要重新配对。其他已保存的连接不受影响。",
+                        "The Host credentials saved on this device are removed; you will need to pair again. Other saved connections are kept."))
+                .setNegativeButton(Localize.t(this, "取消", "Cancel"), null)
+                .setPositiveButton(Localize.t(this, "解除配对", "Unpair"), (d, w) -> unpairNow())
+                .show();
+    }
+
+    private void unpairNow() {
+        ConnectionHistory.forgetCurrent(this);
+        TailcatManager.get().clear();
+        Storage.clearCredentials(this);
+        RokBotBootstrap.clearPairedBundle(this);
+        PushManager.getInstance(this).onForegroundChanged(false);
+        NotificationService.sync(this);
+        RokBotBootstrap.reloadReactHost(this);
+        Toast.makeText(this, Localize.t(this, "已解除配对", "Unpaired from Host"), Toast.LENGTH_SHORT).show();
+        renderScreen();
     }
 
     private void refreshNeedsModelBanner() {
@@ -587,228 +448,6 @@ public class PairingActivity extends Activity {
                 mNeedsModelBanner.setVisibility(show ? View.VISIBLE : View.GONE);
             });
         }, "RokBotConnectedModelCheck").start();
-    }
-
-    private void runUpdateCheck(final boolean userInitiated) {
-        if (mUpdateStaging) return;
-        String feedUrl = UpdateManager.resolveDefaultFeedUrl(this);
-        if (feedUrl.isEmpty()) {
-            if (userInitiated) {
-                Toast.makeText(this, Localize.t(this, "未配置更新源地址", "No update feed URL configured"), Toast.LENGTH_SHORT).show();
-            }
-            return;
-        }
-        if (userInitiated) {
-            UiChrome.Palette p = UiChrome.palette(this);
-            if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(false);
-            if (mUpdateBannerCard != null) mUpdateBannerCard.setVisibility(View.VISIBLE);
-            if (mUpdateTitleText != null) mUpdateTitleText.setText(Localize.t(this, "正在检查更新…", "Checking for updates…"));
-            if (mUpdateNotesText != null) mUpdateNotesText.setVisibility(View.GONE);
-            if (mUpdateStatusText != null) {
-                mUpdateStatusText.setTextColor(p.textSecondary);
-                mUpdateStatusText.setText(Localize.t(this, "当前版本: ", "Current: ") + UpdateManager.getCurrentVersionLabel(this));
-            }
-            if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
-            if (mInstallUpdateBtn != null) mInstallUpdateBtn.setVisibility(View.GONE);
-        }
-        UpdateManager.checkManifestAsync(this, feedUrl, new UpdateManager.CheckCallback() {
-            @Override
-            public void onUpToDate(String currentVersion, String shortSha) {
-                if (mDestroyed) return;
-                mMainHandler.post(() -> {
-                    if (mDestroyed) return;
-                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
-                    mAvailableUpdate = null;
-                    if (userInitiated && mUpdateBannerCard != null) {
-                        UiChrome.Palette p = UiChrome.palette(PairingActivity.this);
-                        mUpdateBannerCard.setVisibility(View.VISIBLE);
-                        mUpdateTitleText.setText(Localize.t(PairingActivity.this, "● 已是最新版本", "● Up to date"));
-                        mUpdateNotesText.setVisibility(View.GONE);
-                        mUpdateStatusText.setTextColor(p.success);
-                        mUpdateStatusText.setText(currentVersion + " [" + shortSha + "]");
-                        mUpdateProgressBar.setVisibility(View.GONE);
-                        mInstallUpdateBtn.setVisibility(View.GONE);
-                    }
-                });
-            }
-
-            @Override
-            public void onUpdateAvailable(UpdateManager.UpdateManifestInfo info) {
-                if (mDestroyed) return;
-                mMainHandler.post(() -> {
-                    if (mDestroyed) return;
-                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
-                    mAvailableUpdate = info;
-                    mStagedUpdateApk = info.alreadyStaged ? info.stagedFile : null;
-                    renderAvailableUpdateBanner(info);
-                });
-            }
-
-            @Override
-            public void onError(String message) {
-                if (mDestroyed) return;
-                mMainHandler.post(() -> {
-                    if (mDestroyed) return;
-                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
-                    if (userInitiated && mUpdateBannerCard != null) {
-                        UiChrome.Palette p = UiChrome.palette(PairingActivity.this);
-                        mUpdateBannerCard.setVisibility(View.VISIBLE);
-                        mUpdateTitleText.setText(Localize.t(PairingActivity.this, "检查更新失败", "Update check failed"));
-                        mUpdateNotesText.setVisibility(View.GONE);
-                        mUpdateStatusText.setTextColor(p.danger);
-                        mUpdateStatusText.setText(message);
-                        mUpdateProgressBar.setVisibility(View.GONE);
-                        mInstallUpdateBtn.setVisibility(View.GONE);
-                    }
-                });
-            }
-        });
-    }
-
-    private void renderAvailableUpdateBanner(UpdateManager.UpdateManifestInfo info) {
-        if (mUpdateBannerCard == null || info == null) return;
-        UiChrome.Palette p = UiChrome.palette(this);
-        mUpdateBannerCard.setVisibility(View.VISIBLE);
-        mUpdateTitleText.setText(Localize.t(this, "发现新版本: ", "Update Available: ")
-                + info.currentVersionLabel + " → " + info.versionLabel);
-        if (info.releaseNotes != null && !info.releaseNotes.isEmpty()) {
-            mUpdateNotesText.setText(info.releaseNotes);
-            mUpdateNotesText.setVisibility(View.VISIBLE);
-        } else {
-            mUpdateNotesText.setVisibility(View.GONE);
-        }
-        String sizeSummary;
-        if (mStagedUpdateApk != null && mStagedUpdateApk.isFile()) {
-            sizeSummary = Localize.t(this, "更新包已下载校验完成，点击立即安装。", "Update verified and ready to install.");
-            mInstallUpdateBtn.setText(Localize.t(this, "立即安装更新", "Install Now"));
-        } else if (info.hasDelta) {
-            int savedPct = (int) Math.max(0, Math.round((1.0 - (double) info.deltaSize / (double) Math.max(1L, info.fullSize)) * 100.0));
-            sizeSummary = Localize.t(this,
-                    "增量补丁: " + UpdateManager.formatBytes(info.deltaSize) + " / 完整包 "
-                            + UpdateManager.formatBytes(info.fullSize) + "（节省 " + savedPct + "%）",
-                    "Delta: " + UpdateManager.formatBytes(info.deltaSize) + " / Full: "
-                            + UpdateManager.formatBytes(info.fullSize) + " (saves " + savedPct + "%)");
-            mInstallUpdateBtn.setText(Localize.t(this, "下载并安装更新", "Download & Install"));
-        } else {
-            sizeSummary = Localize.t(this,
-                    "完整安装包: " + UpdateManager.formatBytes(info.fullSize),
-                    "Full APK: " + UpdateManager.formatBytes(info.fullSize));
-            mInstallUpdateBtn.setText(Localize.t(this, "下载并安装更新", "Download & Install"));
-        }
-        mUpdateStatusText.setTextColor(p.blueAccent);
-        mUpdateStatusText.setText(sizeSummary);
-        mUpdateProgressBar.setVisibility(View.GONE);
-        mInstallUpdateBtn.setVisibility(View.VISIBLE);
-        mInstallUpdateBtn.setEnabled(true);
-    }
-
-    private void onInstallUpdateButtonClicked() {
-        if (mUpdateStaging) return;
-        if (mStagedUpdateApk != null && mStagedUpdateApk.isFile()) {
-            launchStagedInstaller();
-            return;
-        }
-        if (mAvailableUpdate == null) {
-            runUpdateCheck(true);
-            return;
-        }
-        UiChrome.Palette p = UiChrome.palette(this);
-        mUpdateStaging = true;
-        if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(false);
-        if (mInstallUpdateBtn != null) mInstallUpdateBtn.setEnabled(false);
-        if (mUpdateProgressBar != null) {
-            mUpdateProgressBar.setVisibility(View.VISIBLE);
-            mUpdateProgressBar.setIndeterminate(false);
-            mUpdateProgressBar.setProgress(5);
-        }
-        UpdateManager.stageFromInfoAsync(this, mAvailableUpdate, new UpdateManager.Callback() {
-            @Override
-            public void onStage(String message, int progressPercent) {
-                if (mDestroyed) return;
-                mMainHandler.post(() -> {
-                    if (mDestroyed) return;
-                    if (mUpdateStatusText != null) {
-                        mUpdateStatusText.setTextColor(p.blueAccent);
-                        mUpdateStatusText.setText(message + " (" + progressPercent + "%)");
-                    }
-                    if (mUpdateProgressBar != null) {
-                        mUpdateProgressBar.setVisibility(View.VISIBLE);
-                        mUpdateProgressBar.setProgress(Math.max(0, Math.min(100, progressPercent)));
-                    }
-                });
-            }
-
-            @Override
-            public void onUpToDate(String currentVersion, String shortSha) {
-                if (mDestroyed) return;
-                mMainHandler.post(() -> {
-                    if (mDestroyed) return;
-                    mUpdateStaging = false;
-                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
-                    if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
-                    if (mUpdateStatusText != null) {
-                        mUpdateStatusText.setTextColor(p.success);
-                        mUpdateStatusText.setText(Localize.t(PairingActivity.this, "已是最新版本", "Already up to date"));
-                    }
-                });
-            }
-
-            @Override
-            public void onReady(File stagedApk, String versionLabel, boolean usedDelta, long downloadBytes, long fullBytes, String notes) {
-                if (mDestroyed) return;
-                mMainHandler.post(() -> {
-                    if (mDestroyed) return;
-                    mUpdateStaging = false;
-                    mStagedUpdateApk = stagedApk;
-                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
-                    if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
-                    if (mInstallUpdateBtn != null) {
-                        mInstallUpdateBtn.setEnabled(true);
-                        mInstallUpdateBtn.setText(Localize.t(PairingActivity.this, "立即安装更新", "Install Now"));
-                    }
-                    if (mUpdateStatusText != null) {
-                        mUpdateStatusText.setTextColor(p.success);
-                        mUpdateStatusText.setText(Localize.t(PairingActivity.this,
-                                "更新包已校验就绪，正在拉起安装器…",
-                                "Update verified. Launching installer…"));
-                    }
-                    launchStagedInstaller();
-                });
-            }
-
-            @Override
-            public void onError(String message) {
-                if (mDestroyed) return;
-                mMainHandler.post(() -> {
-                    if (mDestroyed) return;
-                    mUpdateStaging = false;
-                    if (mCheckUpdatesBtn != null) mCheckUpdatesBtn.setEnabled(true);
-                    if (mInstallUpdateBtn != null) mInstallUpdateBtn.setEnabled(true);
-                    if (mUpdateProgressBar != null) mUpdateProgressBar.setVisibility(View.GONE);
-                    if (mUpdateStatusText != null) {
-                        mUpdateStatusText.setTextColor(p.danger);
-                        mUpdateStatusText.setText(Localize.t(PairingActivity.this, "更新失败：", "Update failed: ") + message);
-                    }
-                });
-            }
-        });
-    }
-
-    private void launchStagedInstaller() {
-        if (mStagedUpdateApk == null || !mStagedUpdateApk.isFile()) return;
-        try {
-            boolean launched = UpdateManager.launchInstaller(this, mStagedUpdateApk);
-            if (!launched) {
-                mPendingInstallAfterPerm = true;
-                Toast.makeText(this, Localize.t(this,
-                        "请先授予“安装未知应用”权限，返回后将自动继续安装",
-                        "Allow installing unknown apps; installer will resume automatically on return"), Toast.LENGTH_LONG).show();
-            } else {
-                mPendingInstallAfterPerm = false;
-            }
-        } catch (Throwable t) {
-            Toast.makeText(this, Localize.t(this, "拉起安装器失败：", "Installer error: ") + t.getMessage(), Toast.LENGTH_LONG).show();
-        }
     }
 
     private void buildPairingUi() {
@@ -1687,40 +1326,6 @@ public class PairingActivity extends Activity {
         }
     }
 
-    private LinearLayout buildListSortCard(UiChrome.Palette p) {
-        LinearLayout card = UiChrome.makeCard(this, p);
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView t = new TextView(this);
-        t.setText(Localize.t(this, "按最后消息排序", "Sort by last message"));
-        t.setTextColor(p.textPrimary);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        texts.addView(t);
-        TextView d = new TextView(this);
-        d.setText(Localize.t(this,
-                "与会话列表右上角的铜铃相同。开启后 Bot 按最后一条消息的时间排列，切换时会重新加载界面。",
-                "Same as the bell on the chat list. Bots are ordered by their last message; switching reloads the app UI."));
-        d.setTextColor(p.textSecondary);
-        d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        d.setPadding(0, UiChrome.dp(this, 3), UiChrome.dp(this, 10), 0);
-        texts.addView(d);
-        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Switch sw = new Switch(this);
-        sw.setChecked(ListArrangement.isLastMessage(this));
-        sw.setContentDescription("list_sort_switch");
-        sw.setOnCheckedChangeListener((btn, checked) -> {
-            btn.setEnabled(false);
-            ListArrangement.setLastMessage(this, checked, () -> btn.setEnabled(true));
-        });
-        row.addView(sw);
-        card.addView(row);
-        return card;
-    }
-
     private LinearLayout buildAvatarStyleCard(UiChrome.Palette p) {
         LinearLayout card = UiChrome.makeCard(this, p);
         TextView hint = new TextView(this);
@@ -1759,7 +1364,7 @@ public class PairingActivity extends Activity {
 
                 RokBotAvatarView preview = new RokBotAvatarView(this);
                 preview.setStyleId(info.id);
-                preview.setPreviewShape(info.previewShape);
+                preview.setShape(info.previewShape);
                 preview.setBaseColor(info.previewColor);
                 preview.setActive(selectedRef[0].equals(info.id));
                 LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(UiChrome.dp(this, 42), UiChrome.dp(this, 42));
@@ -1815,6 +1420,111 @@ public class PairingActivity extends Activity {
         bg.setColor(selected ? ((p.accent & 0x00FFFFFF) | 0x1E000000) : p.bgSurface2);
         bg.setStroke(UiChrome.dp(this, selected ? 2 : 1), selected ? p.accent : p.border);
         cell.setBackground(bg);
+    }
+
+    // ---- speed test (SpeedTest.java; Host routes /local/speedtest/*) ----
+
+    private LinearLayout buildSpeedTestCard(UiChrome.Palette p) {
+        LinearLayout card = UiChrome.makeCard(this, p);
+        card.setContentDescription("speedtest_card");
+        TextView d = new TextView(this);
+        d.setText(Localize.t(this,
+                "对公网、Tailscale、Tailcat 连接分别测延迟（" + SpeedTest.PING_SAMPLES + " 次往返取中位数）和下载/上传速度。每个方向最多约 10.5 MB、10 秒，可随时取消；建议在 Wi-Fi 下测试。",
+                "Measures latency (median of " + SpeedTest.PING_SAMPLES + " round trips) and download/upload speed for the public, Tailscale and Tailcat connections. At most ~10.5 MB and 10 s per direction; cancel any time. Wi-Fi recommended."));
+        d.setTextColor(p.textSecondary);
+        d.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        card.addView(d);
+        mSpeedRows = new LinearLayout(this);
+        mSpeedRows.setOrientation(LinearLayout.VERTICAL);
+        card.addView(mSpeedRows);
+        renderSpeedTargets(p, SpeedTest.targets(this));
+        mSpeedButton = UiChrome.makePillButton(this, Localize.t(this, "开始测速", "Start speed test"), true, p, v -> toggleSpeedTest(p));
+        mSpeedButton.setContentDescription("speedtest_button");
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = UiChrome.dp(this, 10);
+        mSpeedButton.setLayoutParams(lp);
+        card.addView(mSpeedButton);
+        return card;
+    }
+
+    private void renderSpeedTargets(UiChrome.Palette p, java.util.List<SpeedTest.Target> targets) {
+        if (mSpeedRows == null) return;
+        mSpeedRows.removeAllViews();
+        mSpeedResults.clear();
+        if (targets.isEmpty()) {
+            TextView none = new TextView(this);
+            none.setText(Localize.t(this, "尚未配对任何连接。", "No connection paired yet."));
+            none.setTextColor(p.textSecondary);
+            none.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            none.setPadding(0, UiChrome.dp(this, 8), 0, 0);
+            mSpeedRows.addView(none);
+            return;
+        }
+        for (SpeedTest.Target t : targets) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(0, UiChrome.dp(this, 9), 0, 0);
+            TextView title = new TextView(this);
+            String name = SpeedTest.kindLabel(this, t.kind) + " · " + t.label
+                    + (t.current ? Localize.t(this, "（当前）", " (current)") : "");
+            title.setText(name);
+            title.setTextColor(p.textPrimary);
+            title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            title.setSingleLine(true);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            row.addView(title);
+            TextView result = new TextView(this);
+            result.setText(Localize.t(this, "未测试", "Not tested"));
+            result.setTextColor(p.textSecondary);
+            result.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            result.setContentDescription("speedtest_result_" + t.kind);
+            row.addView(result);
+            mSpeedRows.addView(row);
+            mSpeedResults.put(t.key, result);
+        }
+    }
+
+    private void toggleSpeedTest(UiChrome.Palette p) {
+        if (mSpeedTest != null && mSpeedTest.isRunning()) {
+            mSpeedTest.cancel();
+            if (mSpeedButton != null) mSpeedButton.setEnabled(false);
+            return;
+        }
+        java.util.List<SpeedTest.Target> targets = SpeedTest.targets(this);
+        renderSpeedTargets(p, targets);
+        if (targets.isEmpty()) return;
+        for (TextView v : mSpeedResults.values()) v.setText(Localize.t(this, "等待中…", "Waiting…"));
+        mSpeedTest = new SpeedTest(this, new SpeedTest.Listener() {
+            @Override
+            public void onUpdate(SpeedTest.Result r) {
+                TextView v = mSpeedResults.get(r.target.key);
+                if (v != null && !mDestroyed) v.setText(SpeedTest.summary(PairingActivity.this, r));
+            }
+
+            @Override
+            public void onFinished(boolean cancelled) {
+                if (mDestroyed) return;
+                if (cancelled) {
+                    for (TextView v : mSpeedResults.values()) {
+                        CharSequence t = v.getText();
+                        if (t != null && t.toString().startsWith(Localize.t(PairingActivity.this, "等待中", "Waiting"))) {
+                            v.setText(Localize.t(PairingActivity.this, "已取消", "Cancelled"));
+                        }
+                    }
+                }
+                if (mSpeedButton != null) {
+                    mSpeedButton.setEnabled(true);
+                    mSpeedButton.setText(Localize.t(PairingActivity.this, "重新测速", "Run again"));
+                }
+            }
+        });
+        mSpeedTest.start(targets);
+        if (mSpeedButton != null) mSpeedButton.setText(Localize.t(this, "取消测速", "Cancel"));
+    }
+
+    private void cancelSpeedTest() {
+        if (mSpeedTest != null && mSpeedTest.isRunning()) mSpeedTest.cancel();
     }
 
     private LinearLayout buildDiagnosticsCard(UiChrome.Palette p) {

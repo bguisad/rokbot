@@ -61,7 +61,7 @@ final class ConnectionHistory {
         /** Renamed label, else the Host's hostName, else the address. */
         String displayName() {
             if (customName != null && !customName.trim().isEmpty()) return customName.trim();
-            if (name != null && !name.trim().isEmpty()) return name.trim();
+            if (name != null && !name.trim().isEmpty()) return HostProfile.rebrandHostName(name.trim());
             return shortAddress(type, address);
         }
 

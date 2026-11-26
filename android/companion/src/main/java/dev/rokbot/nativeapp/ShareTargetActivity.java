@@ -152,6 +152,7 @@ public class ShareTargetActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONArray list = HostApiClient.listAgents(this);
+                RokBotAvatars.remember(this, list);
                 mBots.clear();
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject item = list.optJSONObject(i);
@@ -188,7 +189,8 @@ public class ShareTargetActivity extends Activity {
             rlp.bottomMargin = UiChrome.dp(this, 8);
             row.setLayoutParams(rlp);
 
-            row.addView(UiChrome.makeAvatarView(this, name, avatar, 38, p));
+            // Same Bot mark as everywhere else in the app (RokBot avatar style, Bot shape and color).
+            row.addView(RokBotAvatars.makeView(this, RokBotAvatars.lookOf(bot), 38, p));
             TextView tv = new TextView(this);
             tv.setText((selected ? "✓ " : "") + name);
             tv.setTextColor(p.textPrimary);

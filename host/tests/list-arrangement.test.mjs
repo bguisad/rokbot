@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   lastMessageAtOf, pendingActionOf, createListArrangement, withListArrangement, subscribeWithListArrangement, transcriptTailReader,
+  QUESTION_SUPERSEDED_MS, isCardEntry, rosterRefresher,
 } from '../runtime/list-arrangement.mjs';
 
 const user = (id, timestampMs, extra = {}) => ({ kind: 'message', id, role: 'user', content: 'hi', timestampMs, ...extra });
@@ -135,4 +136,68 @@ test('transcriptTailReader reads through the original transcript manager', () =>
   const read = transcriptTailReader({ transcript: { getAgentTranscriptTail: (...args) => { calls.push(args); return { entries: [] }; } } });
   assert.deepEqual(read('a', 48), { entries: [] });
   assert.deepEqual(calls, [['a', { limit: 48 }]]);
+});
+
+test('rokbot.5b: a question the Bot has moved past, or that cannot be rendered, is not pending', () => {
+  const min = 60 * 1000;
+  // A reply in the same turn keeps the question at the end of the chat.
+  assert.equal(pendingActionOf([widget('w', 10 * min), bot('t', 10 * min + 20 * 1000)]).entryId, 'w');
+  // A Bot message well after it (a later turn, a routine) buries it: the user cannot find it.
+  assert.equal(pendingActionOf([widget('w', 10 * min), bot('t', 10 * min + 20 * 1000), bot('later', 30 * min)]), null);
+  assert.ok(QUESTION_SUPERSEDED_MS >= 60 * 1000 && QUESTION_SUPERSEDED_MS <= 10 * 60 * 1000);
+  // A newer question replaces the older one; an answered newer widget settles the older ones.
+  assert.equal(pendingActionOf([widget('w1', 100), widget('w2', 200)]).entryId, 'w2');
+  assert.equal(pendingActionOf([widget('w1', 100), widget('w2', 200, { respondedValue: 'A' })]), null);
+  // The official clients only render a widget with a prompt.
+  assert.equal(pendingActionOf([bot('x', 100, { type: 'widget', widget: { options: [] } })]), null);
+  assert.equal(pendingActionOf([bot('x', 100, { type: 'widget' })]), null);
+});
+
+test('rokbot.5b: approvals count for the official card kinds and until their deadline', () => {
+  const now = 1_000_000;
+  const card = (id, message) => bot(id, 100, message);
+  assert.equal(pendingActionOf([card('s', { type: 'secret-request', secretRequest: { status: 'pending' } })], { now }), null,
+    'a payload the conversation does not render as an approval card');
+  assert.equal(pendingActionOf([card('u', { type: 'text', approval: { status: 'pending' } })], { now }), null);
+  assert.equal(pendingActionOf([card('g', { type: 'connector-grant', ask: { status: 'pending' } })], { now }).entryId, 'g');
+  assert.equal(pendingActionOf([card('m', { type: 'x-money-challenge', challenge: { status: 'pending' } })], { now }).entryId, 'm');
+  assert.equal(pendingActionOf([card('d', { type: 'publish-approval', approval: { status: 'pending', expiresAtMs: now - 1 } })], { now }), null,
+    'past its deadline');
+  assert.equal(pendingActionOf([card('d', { type: 'publish-approval', approval: { status: 'pending', expiresAtMs: now + 1 } })], { now }).entryId, 'd');
+  const cred = card('c', { type: 'credential-request', credentialRequest: { expiresAtMs: now + 5 } });
+  assert.equal(pendingActionOf([cred], { now }).kind, 'approval');
+  assert.equal(pendingActionOf([{ ...cred, credentialResolution: 'stored' }], { now }), null);
+  assert.equal(pendingActionOf([cred], { now: now + 10 }), null);
+});
+
+test('rokbot.5b: a card updated in place re-announces its Bot once, with fresh fields', async () => {
+  const tails = { a: [user('1', 100), widget('w', 200)] };
+  const { arrangement, reads } = arrangementWith(tails);
+  const agent = { id: 'a', newestEntryId: 'w' };
+  assert.equal(arrangement.decorateNow(agent).pendingAction.entryId, 'w');
+  const refreshed = [];
+  let handler;
+  const seen = [];
+  subscribeWithListArrangement(listener => { handler = listener; return () => {}; }, arrangement, id => refreshed.push(id))(e => seen.push(e));
+  tails.a = [user('1', 100), widget('w', 200, { widgetDismissed: true })];
+  const updated = { channel: 'transcript', payload: { type: 'updated', agentId: 'a', entry: tails.a[1] } };
+  handler(updated);
+  handler(updated);
+  handler({ channel: 'transcript', payload: { type: 'updated', agentId: 'a', entry: user('1', 100) } });
+  handler({ channel: 'transcript', payload: { type: 'appended', agentId: 'a', entry: tails.a[1] } });
+  assert.equal(seen.length, 4, 'events still reach the client unchanged');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(refreshed, ['a'], 'one refresh for the card update');
+  const before = reads.length;
+  assert.equal(arrangement.decorateNow(agent).pendingAction, null, 'the cached card is forgotten');
+  assert.equal(reads.length, before + 1);
+  assert.equal(isCardEntry(bot('t', 1)), false);
+  assert.equal(isCardEntry(bot('p', 1, { type: 'local-tool-permission', ask: {} })), true);
+});
+
+test('rosterRefresher asks the original roster for a fresh summary', () => {
+  const calls = [];
+  rosterRefresher({ transcript: { roster: { emitAgentUpdate: id => calls.push(id) } } })('a');
+  rosterRefresher({})('b');
+  assert.deepEqual(calls, ['a']);
 });

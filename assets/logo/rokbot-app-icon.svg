@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- RokBot mark for React Native's in-app app icon slot (res/raw/assets_appicon_*.svg). The app
+       draws this asset over its own dark rounded tile and may tint it, like the official artwork (a
+       light blob with cut-out eyes), so the dark chassis is left transparent: the tile shows through
+       as the chassis, framed by its rim, with the two eyes and the status node.
+       The slot shows this art zoomed about 1.74x and anchored so that only the window
+       x 278..867, y 48..636 is visible (measured on Android 14), so the mark sits in that window:
+       assets/logo/rokbot-logo.svg scaled 0.52 around (572, 342). -->
+  <g transform="translate(305.76 75.76) scale(0.52)">
+    <path d="M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z" fill="none" stroke="#8b95a8" stroke-width="30" stroke-linejoin="round"/>
+    <rect x="304" y="396" width="144" height="336" rx="72" fill="#f5f5f4" transform="rotate(-26 376 564)"/>
+    <rect x="576" y="370" width="144" height="268" rx="72" fill="#f5f5f4" transform="rotate(-26 648 504)"/>
+    <circle cx="768" cy="144" r="46" fill="#38bdf8"/>
+  </g>
+</svg>

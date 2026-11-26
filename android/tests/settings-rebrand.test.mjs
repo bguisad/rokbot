@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { patchHermesBundleSafely, synthesizeHermesBytecode } from '../patchers/hermes.mjs';
 import {
-  applyConnectionEntry, applyHomeBarBell, applyListSortEdits, applySettingsRebrand, listSortEdits, rebrandPinnedHermesResources,
+  applyConnectionEntry, applyHomeBarBell, applyListSortEdits, applySettingsMenu, applySettingsRebrand, listSortEdits,
+  rebrandPinnedHermesResources,
 } from '../patchers/hermes-settings.mjs';
 import { entryBytes, readZip } from '../patchers/signing.mjs';
 
@@ -78,8 +79,12 @@ test(
     // rokbot.3: the shipped unpaired bundle is the rebrand + the Connection & Diagnostics row.
     const withConnection = applyConnectionEntry(rebrandOnly.buffer);
     assert.equal(withConnection.applied, true, withConnection.reason);
-    assert.ok(unpaired.buffer.equals(withConnection.buffer), 'unpaired = rebrand + connection entry (no header bell)');
+    // rokbot.5: + the rokbot section (settings-menu.test.mjs).
+    const withMenu = applySettingsMenu(withConnection.buffer);
+    assert.equal(withMenu.applied, true, withMenu.reason);
+    assert.ok(unpaired.buffer.equals(withMenu.buffer), 'unpaired = rebrand + connection entry + rokbot section (no header bell)');
     assert.equal(unpaired.settingsRebrand.connectionEntry.applied, true);
+    assert.equal(unpaired.settingsRebrand.settingsMenu.applied, true);
     const footer = unpaired.buffer.length - 20;
     assert.deepEqual(diffRanges(plain.buffer, rebrandOnly.buffer), [
       [1556812, 3], // string table entry '6YgCQb' -> "rokbot" bytes
@@ -123,7 +128,7 @@ test(
     // rokbot.3b header bell: only the template carries it; exactly SearchButton + HomeScreen +7489 change.
     assert.equal(paired.settingsRebrand.homeBell.applied, true, paired.settingsRebrand.homeBell.reason);
     assert.equal(paired.settingsRebrand.homeBell.edits.length, 2);
-    const templateConn = applyConnectionEntry(applySettingsRebrand(plain.gatewayTemplateHbc).buffer).buffer;
+    const templateConn = applySettingsMenu(applyConnectionEntry(applySettingsRebrand(plain.gatewayTemplateHbc).buffer).buffer).buffer;
     const bellRanges = diffRanges(templateConn, paired.gatewayTemplateHbc);
     assert.equal(bellRanges.length, 3, JSON.stringify(bellRanges));
     assert.deepEqual(bellRanges[2], [paired.gatewayTemplateHbc.length - 20, 20]);
@@ -131,20 +136,21 @@ test(
     assert.ok(applyHomeBarBell(templateConn).buffer.equals(paired.gatewayTemplateHbc));
     assert.equal(applyHomeBarBell(paired.gatewayTemplateHbc).applied, false, 'not applied twice');
     assert.equal(applyHomeBarBell(rebrandOnly.buffer).applied, false, 'needs the connection entry no-op first');
-    // listSort in the JSON: 3 recencyOf edits + bell label + tone + copper colour, all verified on device.
-    assert.deepEqual(meta.listSort.edits.length, 6);
-    assert.deepEqual(listSortEdits(paired.gatewayTemplateHbc).map(e => e.label).slice(3), [
-      'home bell: label sort -> sorted', 'home bell: no theme tone', 'home bell: icon colour -> copper',
+    // listSort in the JSON (rokbot.5b): the live arrangement, always applied to the paired bundle
+    // with one titles set; behaviour is checked in list-groups.test.mjs.
+    assert.equal(meta.listSort.live, 1);
+    assert.equal(meta.listSort.edits.length, 4);
+    assert.deepEqual(listSortEdits(paired.gatewayTemplateHbc).edits.map(e => e.label), [
+      'recencyOf: global.sorted ? last message : official recency', 'SidebarSectionsView.resolve: sections <- FeedbackSheet.call(params)',
+      'toggleSectionCollapsed: fold any id', 'SearchButton: FeedbackSheet(props, 1)',
     ]);
-    const sorted = applyListSortEdits(paired.gatewayTemplateHbc, meta.listSort.edits);
+    const sorted = applyListSortEdits(paired.gatewayTemplateHbc, [...meta.listSort.edits, ...meta.listSort.titles.zh]);
     assert.ok(footerOk(sorted));
-    assert.equal(diffRanges(paired.gatewayTemplateHbc, sorted).length, 7);
-    const strAt = (buf, off) => buf.readUInt16LE(off + 2);
-    for (const e of meta.listSort.edits.slice(3)) {
-      assert.equal(sorted.subarray(e.offset, e.offset + 4).toString('hex'), e.patched);
-      assert.equal(paired.gatewayTemplateHbc.subarray(e.offset, e.offset + 4).toString('hex'), e.original);
+    const all = [...meta.listSort.edits, ...meta.listSort.titles.zh];
+    const inEdit = i => i >= sorted.length - 20 || all.some(e => i >= e.offset && i < e.offset + e.original.length / 2);
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i] !== paired.gatewayTemplateHbc[i]) assert.ok(inEdit(i), `stray change at ${i}`);
     }
-    assert.ok(strAt(sorted, meta.listSort.edits[3].offset) !== strAt(paired.gatewayTemplateHbc, meta.listSort.edits[3].offset));
 
     // Runtime pairing (HermesPatcher.java equivalent) still synthesizes from the rebranded template.
     const runtime = synthesizeHermesBytecode(paired.gatewayTemplateHbc, meta, 'http://10.0.2.2:18080', 'tok');

@@ -2,7 +2,7 @@ package dev.rokbot.nativeapp;
 
 import android.content.Context;
 import android.content.res.Configuration;
-import android.graphics.Bitmap;
+import android.graphics.Path;
 import android.graphics.Canvas;
 import android.os.Handler;
 import android.os.Looper;
@@ -16,6 +16,7 @@ import java.util.WeakHashMap;
 /**
  * Lightweight animated Canvas View rendering one RokBot custom avatar style. All attached visible
  * instances share a single 30 fps main-thread ticker to keep scrolling and battery usage smooth.
+ * The Bot shape is a cached vector {@link Path} drawn at the view's pixel size.
  */
 final class RokBotAvatarView extends View {
     private static final long FRAME_MS = 33L;
@@ -26,8 +27,7 @@ final class RokBotAvatarView extends View {
     private static boolean sResumed = true;
 
     private String mStyleId = RokBotAvatarRenderer.STYLE_CHASSIS;
-    private String mPreviewShape = "blob";
-    private Bitmap mShapeMask = null;
+    private Path mShape = RokBotAvatarShapes.path(null);
     private int mBaseColor = 0xFF06B6D4;
     private boolean mActive = false;
     private boolean mAttached = false;
@@ -115,17 +115,14 @@ final class RokBotAvatarView extends View {
         }
     }
 
-    void setShapeMask(Bitmap mask) {
-        if (mShapeMask != mask) {
-            mShapeMask = mask;
-            invalidate();
-        }
+    /** Official shape id (blob, cloud, ...); unknown ids draw the blob. */
+    void setShape(String shape) {
+        setShapePath(RokBotAvatarShapes.path(shape));
     }
 
-    void setPreviewShape(String shape) {
-        String next = (shape != null && !shape.isEmpty()) ? shape : "blob";
-        if (!next.equals(mPreviewShape)) {
-            mPreviewShape = next;
+    void setShapePath(Path shape) {
+        if (shape != null && mShape != shape) {
+            mShape = shape;
             invalidate();
         }
     }
@@ -178,8 +175,8 @@ final class RokBotAvatarView extends View {
         boolean isDark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                 == Configuration.UI_MODE_NIGHT_YES;
         canvas.save();
-        canvas.translate((w - size) / 2f, (h - size) / 2f);
-        RokBotAvatarRenderer.draw(canvas, mStyleId, mShapeMask, mPreviewShape, size, t, blink, mActive, mBaseColor, isDark);
+        canvas.translate(Math.round((w - size) / 2f), Math.round((h - size) / 2f));
+        RokBotAvatarRenderer.draw(canvas, mStyleId, mShape, size, t, blink, mActive, mBaseColor, isDark);
         canvas.restore();
     }
 }

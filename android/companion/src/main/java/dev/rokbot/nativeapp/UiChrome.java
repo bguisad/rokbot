@@ -335,32 +335,8 @@ public final class UiChrome {
                 float w = getBounds().width();
                 float h = getBounds().height();
                 if (w <= 0 || h <= 0) return;
-                Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-                bg.setColor(p.dark ? Color.parseColor("#1B202C") : Color.parseColor("#181C26"));
-                float rad = w * 0.26f;
-                canvas.drawRoundRect(new RectF(0, 0, w, h), rad, rad, bg);
-
-                Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
-                border.setStyle(Paint.Style.STROKE);
-                border.setStrokeWidth(Math.max(1.5f, w * 0.03f));
-                border.setColor(Color.parseColor("#4A556B"));
-                canvas.drawRoundRect(new RectF(w * 0.02f, h * 0.02f, w * 0.98f, h * 0.98f), rad, rad, border);
-
-                // RokBot tilted eyes + cyan status node
-                Paint eyes = new Paint(Paint.ANTI_ALIAS_FLAG);
-                eyes.setColor(Color.parseColor("#F5F5F4"));
-                canvas.save();
-                canvas.rotate(-26f, w * 0.37f, h * 0.56f);
-                canvas.drawRoundRect(new RectF(w * 0.30f, h * 0.40f, w * 0.44f, h * 0.72f), w * 0.07f, w * 0.07f, eyes);
-                canvas.restore();
-                canvas.save();
-                canvas.rotate(-26f, w * 0.63f, h * 0.50f);
-                canvas.drawRoundRect(new RectF(w * 0.56f, h * 0.37f, w * 0.70f, h * 0.63f), w * 0.07f, w * 0.07f, eyes);
-                canvas.restore();
-
-                Paint accent = new Paint(Paint.ANTI_ALIAS_FLAG);
-                accent.setColor(Color.parseColor("#38BDF8"));
-                canvas.drawCircle(w * 0.75f, h * 0.16f, w * 0.055f, accent);
+                // The same mark as assets/logo/rokbot-logo.svg (launcher, desktop and Web icons).
+                RokBotLogo.draw(canvas, Math.min(w, h));
             }
 
             @Override public void setAlpha(int alpha) {}
@@ -552,6 +528,77 @@ public final class UiChrome {
         et.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         et.setPadding(dp(ctx, 14), dp(ctx, 12), dp(ctx, 14), dp(ctx, 12));
         et.setBackground(roundRect(p.bgSurface2, dp(ctx, 14), p.border, dp(ctx, 1)));
+    }
+
+    /** Inset-group card for list rows (same surface as makeCard, rows supply their own padding). */
+    public static LinearLayout makeRowGroup(Context ctx, Palette p) {
+        LinearLayout group = new LinearLayout(ctx);
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setBackground(roundRect(p.bgCard, dp(ctx, 18), p.border, dp(ctx, 1)));
+        group.setClipToOutline(true);
+        return group;
+    }
+
+    /** Full-width list row: label on the left, optional chevron on the right, ripple on press. */
+    public static TextView makeNavRow(Context ctx, String label, int color, boolean chevron, Palette p, View.OnClickListener onClick) {
+        TextView row = new TextView(ctx);
+        row.setText(label);
+        row.setTextColor(color);
+        row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        row.setSingleLine(true);
+        row.setEllipsize(TextUtils.TruncateAt.END);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinHeight(dp(ctx, 52));
+        row.setPadding(dp(ctx, 16), dp(ctx, 12), dp(ctx, 14), dp(ctx, 12));
+        if (chevron) {
+            Drawable d = new ChevronDrawable(p.textMuted, dp(ctx, 1.6f));
+            d.setBounds(0, 0, dp(ctx, 16), dp(ctx, 16));
+            row.setCompoundDrawables(null, null, d, null);
+            row.setCompoundDrawablePadding(dp(ctx, 8));
+        }
+        row.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf((p.textPrimary & 0x00FFFFFF) | 0x1F000000), null,
+                new android.graphics.drawable.ColorDrawable(0xFFFFFFFF)));
+        row.setClickable(true);
+        row.setOnClickListener(onClick);
+        row.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return row;
+    }
+
+    /** Hairline between rows of a makeRowGroup, inset like the label. */
+    public static View makeRowDivider(Context ctx, Palette p) {
+        View d = new View(ctx);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(ctx, 0.7f)));
+        lp.leftMargin = dp(ctx, 16);
+        d.setLayoutParams(lp);
+        d.setBackgroundColor(p.border);
+        return d;
+    }
+
+    private static final class ChevronDrawable extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        ChevronDrawable(int color, float strokePx) {
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(strokePx);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            float cx = b.exactCenterX(), cy = b.exactCenterY(), r = Math.min(b.width(), b.height()) * 0.5f;
+            Path path = new Path();
+            path.moveTo(cx - r * 0.25f, cy - r * 0.6f);
+            path.lineTo(cx + r * 0.35f, cy);
+            path.lineTo(cx - r * 0.25f, cy + r * 0.6f);
+            canvas.drawPath(path, paint);
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
     }
 
     public static TextView makeSectionLabel(Context ctx, String text, Palette p) {
