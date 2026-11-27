@@ -1,5 +1,6 @@
 import { combineRecoveryPlans, constructRecoveredModules } from './recovered-modules.mjs';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
+import { wrapPublishTranscriptMutation } from './content-search.mjs';
 import {
   wrapResolveNamedActivityHold,
   wrapRunLifecycle,
@@ -27,6 +28,9 @@ export async function installRecoveredHostExecutionAndSession(library, directory
       original.resolveNamedActivityHold,
       original.INITIAL_NAMED_ACTIVITY_HOLD_STATE,
     );
+  }
+  if (typeof original.publishTranscriptMutation === 'function') {
+    original.publishTranscriptMutation = wrapPublishTranscriptMutation(original.publishTranscriptMutation);
   }
 
   const overrides = {
