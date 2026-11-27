@@ -1,5 +1,5 @@
 import { t, html, localizedText } from './i18n.js';
-import { $, node, item, badge, menu, empty, button, confirmAction, dialog } from './ui.js';
+import { $, node, item, badge, menu, empty, button, confirmAction, dialog, dropdown } from './ui.js';
 import { icon } from './icons.js';
 
 export function createSharingEditor({ api, toast, act }) {
@@ -31,7 +31,7 @@ export function createSharingEditor({ api, toast, act }) {
     content.replaceChildren(); $('#sharing-title').textContent = value.name;
     const pkg = value.package, data = pkg.content;
     if (!importing && value.versions?.length > 1) {
-      const label = node('label', 'field', t('版本')), select = document.createElement('select');
+      const label = node('label', 'field', t('版本')), select = dropdown();
       for (const version of [...value.versions].reverse()) select.add(new Option(`v${version.version} · ${new Date(version.at).toLocaleString()}`, version.version));
       select.value = value.version;
       select.onchange = () => act(select, async () => show(await api(`/admin/api/sharing/${value.id}?version=${select.value}`)));
