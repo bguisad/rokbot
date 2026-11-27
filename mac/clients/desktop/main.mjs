@@ -506,6 +506,37 @@ ipcMain.on('rokbot-local:suggestions-cancel', (event, requestId) => {
   suggestionCalls.get(requestId)?.abort();
   suggestionCalls.delete(requestId);
 });
+ipcMain.handle('rokbot-local:group-list-agents', async event => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const reply = await gateway.command('listAgents', {}, AbortSignal.timeout(15000));
+  return Array.isArray(reply) ? reply : (Array.isArray(reply?.agents) ? reply.agents : []);
+});
+ipcMain.handle('rokbot-local:group-create', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  if (payload?.name !== undefined && typeof payload.name !== 'string') throw new Error('Invalid group name');
+  const rawName = typeof payload?.name === 'string' ? payload.name.replace(/\s+/g, ' ').trim() : '';
+  const name = rawName.length <= 72 ? rawName : rawName.slice(0, 72).trim();
+  if (!Array.isArray(payload?.memberAgentIds)) throw new Error('Invalid group members');
+  const seen = new Set();
+  const memberAgentIds = [];
+  for (const item of payload.memberAgentIds) {
+    if (typeof item !== 'string') throw new Error('Invalid group member id');
+    const id = item.trim();
+    if (!id || id.length > 128) throw new Error('Invalid group member id');
+    if (!seen.has(id)) {
+      seen.add(id);
+      memberAgentIds.push(id);
+    }
+  }
+  if (memberAgentIds.length < 1 || memberAgentIds.length > 6) throw new Error('A group must have 1 to 6 Bots');
+  return gateway.command('createGroup', { name, description: '', memberAgentIds }, AbortSignal.timeout(30000));
+});
+ipcMain.on('rokbot-local:open-agent', (event, id) => {
+  if (!trusted(event, mainWindow) || typeof id !== 'string') return;
+  const trimmed = id.trim();
+  if (!trimmed || trimmed.length > 128) return;
+  openAgent(trimmed);
+});
 ipcMain.handle('rokbot-local:download-attachments-zip', async (event, payload) => {
   if (!trusted(event, mainWindow) || !methodCall) throw new Error('Unexpected renderer');
   return methodCall('downloadAttachmentsZip', payload);

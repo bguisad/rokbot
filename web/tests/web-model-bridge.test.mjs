@@ -21,6 +21,7 @@ async function stageClientDir(t) {
   await cp(path.join(repo, 'mac/clients/desktop'), path.join(clientStage, 'desktop'), { recursive: true });
   // The bundle serves shared .cjs scripts as .js (web/patchers/patch.mjs bundleFiles).
   await cp(path.join(repo, 'mac/clients/desktop/composer-assist.cjs'), path.join(clientStage, 'desktop/composer-assist.js'));
+  await cp(path.join(repo, 'mac/clients/desktop/group-create.cjs'), path.join(clientStage, 'desktop/group-create.js'));
   return { stageDir, clientStage };
 }
 
@@ -346,6 +347,7 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   await cp(path.join(repo, 'mac/clients/desktop'), path.join(clientStage, 'desktop'), { recursive: true });
   // The bundle serves shared .cjs scripts as .js (web/patchers/patch.mjs bundleFiles).
   await cp(path.join(repo, 'mac/clients/desktop/composer-assist.cjs'), path.join(clientStage, 'desktop/composer-assist.js'));
+  await cp(path.join(repo, 'mac/clients/desktop/group-create.cjs'), path.join(clientStage, 'desktop/group-create.js'));
   await writeFile(path.join(clientStage, 'official-preload.js'), [
     'export const methods = ["listAgents"];',
     'export const edges = { "desktop-mount": ["mountPanel"] };',

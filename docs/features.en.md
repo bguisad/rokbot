@@ -14,6 +14,7 @@
 - Conversations and settings live on the Host, and every client connects to the same Host. You can start a task on your computer and follow up on your phone or in the browser.
 - The chat list can be sorted by last message and grouped: Needs attention, Unread and Read on desktop and web, with an additional In progress group on Android.
 - On Android, tapping the `+` button in the top-right corner of the chat list opens a native bottom sheet to create either a new Bot or a new group chat with multiple Bots collaborating together.
+- Desktop (macOS, Windows, Linux) and Web clients also include a "New group" button next to the sidebar "New Bot" button, letting you pick up to 6 Bots and jump straight into the created group chat.
 - Web and Android show contextual input suggestions above the chat composer; tap any suggestion to fill the input box. Suggestions use the dedicated Input suggestions scenario model and fall back to built-in Chinese/English presets when no model is configured or the request fails.
 - Notification channels:
   - iOS can use APNs or Bark.
@@ -35,7 +36,7 @@
 
 - The Images & video page of the admin console connects providers: OpenAI-compatible image and video APIs, WaveSpeed, or a custom HTTP JSON endpoint.
 - Image generation, video generation, video understanding and video review each have their own default model. Results come back to the conversation as attachments.
-- Batch image download: select multiple images in a conversation or the media viewer and download them at once — save to a folder or ZIP on Desktop (macOS, Windows, Linux), download as ZIP on Web, or save directly to the gallery (`Pictures/RokBot`) on Android.
+- Batch image download: select multiple images in a conversation or the media viewer and download them at once — save to a folder or ZIP on Desktop (macOS, Windows, Linux), download as ZIP on Web, or save directly to the gallery (`Pictures/RokBot`) on Android. On Desktop and Web the entry sits in the chat header and media viewer and only appears when the conversation has 2+ images (no always-on floating button).
 - You need to supply an API key for each provider.
 
 ## Voice

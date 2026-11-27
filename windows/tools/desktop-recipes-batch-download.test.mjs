@@ -9,6 +9,7 @@ import { createAttachmentHandlers } from '../../mac/clients/desktop/attachments.
 import { readZip, entryBytes } from '../../android/patchers/signing.mjs';
 
 const extSource = await readFile(new URL('./desktop-recipes/extensions/batch-image-download.js', import.meta.url), 'utf8');
+const specSource = await readFile(new URL('./desktop-recipes/spec.mjs', import.meta.url), 'utf8');
 
 test('zip-store builds valid ZIP STORE archives with UTF-8 names and deduplication', () => {
   const taken = new Set();
@@ -108,6 +109,8 @@ test('batch-image-download.js tracks images per conversation and renders Media V
     },
     BS: {},
     Yt: () => null,
+    IC: 'IconButton',
+    le: 'Tooltip',
   });
   ctx.globalThis = ctx;
   vm.runInContext(extSource, ctx);
@@ -130,6 +133,23 @@ test('batch-image-download.js tracks images per conversation and renders Media V
   const mvBtn = ctx.RokMediaViewerBatchButton({ sources: ['/a/1.png', '/a/2.jpg', '/a/video.mp4'], captions: ['One', 'Two'], embedded: false });
   assert.equal(mvBtn.type, 'button');
   assert.equal(mvBtn.props['data-rokbot-batch-download'], 'media-viewer');
+
+  // Chat header entry: hidden below 2 images or for another conversation, otherwise an icon button with tooltip
+  ctx.rokSetActiveAgentId('bot-2');
+  assert.equal(ctx.RokChatHeaderBatchButton({ agentId: 'bot-1' }), null);
+  assert.equal(ctx.RokChatHeaderBatchButton({ agentId: 'bot-2' }), null);
+  ctx.rokSetActiveAgentId('bot-1');
+  assert.equal(ctx.RokChatHeaderBatchButton({ agentId: 'bot-2' }), null);
+  const header = ctx.RokChatHeaderBatchButton({ agentId: 'bot-1' });
+  assert.equal(header.type, 'Tooltip');
+  assert.equal(header.props.content, '批量下载图片（2）');
+  assert.equal(header.props.children.type, 'IconButton');
+  assert.equal(header.props.children.props['data-rokbot-batch-download'], 'chat-header');
+  assert.equal(typeof header.props.children.props.onClick, 'function');
+
+  // No always-visible floating button any more; the header control is wired into the chat header
+  assert.doesNotMatch(extSource, /rok-batch-fab/);
+  assert.match(specSource, /\(0,Z\.jsx\)\(RokChatHeaderBatchButton,\{agentId:n\.id\}\)/);
 
   // Verify no emoji characters anywhere in the extension UI
   assert.doesNotMatch(extSource, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
