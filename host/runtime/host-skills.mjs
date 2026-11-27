@@ -46,6 +46,7 @@ export function withSkillDependencies(store, { data, host } = roots()) {
       .map(skill => paths.has(skill.id) && skill.source === 'managed' ? { ...skill, filePath: paths.get(skill.id).path } : skill);
   }
   return new Proxy(store, { get(target, key) {
+    if (key === 'virtualSkillFiles') return true;
     if (key === 'setAvailableTools') return names => { tools = new Set(names); };
     if (key === 'setExecutionPaths') return value => { paths = value; };
     if (key === 'list') return () => visible(target.list());
