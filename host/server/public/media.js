@@ -1,5 +1,5 @@
 import { t, html } from './i18n.js';
-import { $, node, empty } from './ui.js';
+import { $, node, empty, dropdown } from './ui.js';
 import { labels, field, select, modal, modelOptions, uid, providerDialog, serviceRow, sectionHead } from './media-editor-ui.js';
 
 export function createMediaEditor({ api, act }) {
@@ -20,7 +20,7 @@ export function createMediaEditor({ api, act }) {
   const editor = modal(panel, '生成模型'), form = editor.form;
   editor.dialog.id = 'media-model-editor';
   const provider = select(editor.body, 'providerId', '供应商', []);
-  const catalogRow = node('div', 'inline-field'), catalogSelect = document.createElement('select');
+  const catalogRow = node('div', 'inline-field'), catalogSelect = dropdown();
   catalogSelect.setAttribute('aria-label', t('供应商模型'));
   const refresh = node('button', 'btn', t('读取模型')); refresh.type = 'button';
   refresh.onclick = () => act(refresh, async () => {
@@ -68,7 +68,7 @@ export function createMediaEditor({ api, act }) {
   function render() {
     const rows = $('#media-default-rows'); rows.replaceChildren();
     for (const key of Object.keys(config.defaults)) {
-      const line = node('label', 'row'), copy = node('span', 'row-copy'), input = document.createElement('select');
+      const line = node('label', 'row'), copy = node('span', 'row-copy'), input = dropdown();
       copy.append(node('span', 'row-title', t(labels[key])));
       input.name = key;
       for (const [value, title] of modelOptions(config, key)) input.add(new Option(title, value));

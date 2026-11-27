@@ -1,5 +1,5 @@
 import { t, html, locale } from './i18n.js';
-import { $, node, copyText, item, badge, toggle, menu, empty, iconButton } from './ui.js';
+import { $, node, copyText, item, badge, toggle, menu, empty, iconButton, dropdown } from './ui.js';
 import { icon } from './icons.js';
 
 const time = value => value ? new Date(value).toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : t('尚未同步');
@@ -59,7 +59,7 @@ export function createFederationEditor({ api, toast, act }) {
     return () => [...section.querySelectorAll('input:checked')].map(input => input.value);
   }
   function networkField(value = false) {
-    const label = node('label', 'field', t('连接方式')), select = document.createElement('select');
+    const label = node('label', 'field', t('连接方式')), select = dropdown();
     select.name = 'network';
     for (const [key, title] of [['public', 'HTTPS'], ['tailcat', 'Tailcat'], ['private', t('私有网络 / Tailscale')]]) select.add(new Option(title, key));
     select.value = value ? 'private' : 'public';

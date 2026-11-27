@@ -12,6 +12,7 @@ import { installDefaultMachineRouting, observeHostComputers } from './host-compu
 import { loadExecutionNode, connectExecutionNode } from '../server/execution-node.mjs';
 import { writePrivate } from '../server/storage.mjs';
 import { decorateLocalSharingApi } from './sharing-import.mjs';
+import { decorateLocalMigrationApi } from './migrate-import.mjs';
 import { installLocalPromptPolicy } from './prompt-runtime.mjs';
 import { summarizeAgent } from './host-summarize.mjs';
 import { installModelRejectionGuard } from './model-rejection-guard.mjs';
@@ -124,7 +125,7 @@ try {
   // Session list fields (last message time, pending cards) for every client.
   const listArrangement = createListArrangement({ readTail: transcriptTailReader(host) });
   gateway = await library.startGatewayServer({
-    api: decorateLocalSharingApi({ api: { ...withListArrangement(preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), listArrangement), localApplicationRpc }, host }),
+    api: decorateLocalMigrationApi({ api: decorateLocalSharingApi({ api: { ...withListArrangement(preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), listArrangement), localApplicationRpc }, host }), host }),
     subscribe: subscribeWithListArrangement(listener => host.subscribe(listener), listArrangement, rosterRefresher(host)),
     getHealth: () => host.getHealth(), startedAt: host.startedAt,
     host: process.env.ROKBOT_HOST_BIND ?? process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.ROKBOT_HOST_PORT ?? process.env.GROKBOT_HOST_PORT ?? 1340),

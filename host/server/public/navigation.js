@@ -1,29 +1,48 @@
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { node } from './ui.js';
+import { pages, routeHash } from './admin-routes.js';
 
-// One source for sidebar order, page titles and icons.
-export const groups = [
-  { items: [['overview', '概览', 'overview']] },
-  { title: '模型服务', items: [['model', '对话模型', 'model'], ['speech', '语音', 'voice'], ['media', '图片与视频', 'image'], ['web-services', '联网工具', 'globe']] },
-  { title: 'Agent', items: [['harness', '内置能力', 'toggles'], ['skills', '技能', 'book'], ['apps', '应用', 'plug'], ['prompts', '提示词', 'text']] },
-  { title: '设备与网络', items: [['devices', '设备与通知', 'devices'], ['web-client', '网页版', 'external'], ['updates', '客户端更新', 'package'], ['network', '远程访问', 'link'], ['execution', '执行环境', 'monitor']] },
-  { title: '协作与集成', items: [['federation', 'Host 协作', 'swap'], ['webhooks', 'Webhook', 'bolt'], ['sharing', '分享', 'share']] },
-];
-
-export const titles = Object.fromEntries([...groups.flatMap(group => group.items), ['general', '通用']]
-  .map(([view, label]) => [view, t(label)]));
-
+// The sidebar and the page tabs both come from the registry in admin-routes.js.
 export function renderNavigation(root) {
   root.replaceChildren();
-  for (const group of groups) {
-    if (group.title) root.append(node('p', 'nav-group', t(group.title)));
-    for (const [view, label, glyph] of group.items) {
-      const button = node('button', 'nav-item');
-      button.type = 'button'; button.dataset.view = view;
-      button.innerHTML = icon(glyph);
-      button.append(node('span', '', t(label)));
-      root.append(button);
-    }
+  for (const page of pages) {
+    const link = node('a', 'nav-item');
+    link.href = routeHash(page); link.dataset.route = page.id;
+    link.innerHTML = icon(page.icon);
+    link.append(node('span', '', t(page.label)));
+    root.append(link);
   }
 }
+
+export function markNavigation(root, page) {
+  for (const link of root.querySelectorAll('.nav-item[data-route]')) {
+    const active = link.dataset.route === page.id;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+  }
+}
+
+/** Fills the page head: title, description and (for pages with more than one) the tab bar. */
+export function renderPageHead(root, page, tab) {
+  const head = node('header', 'route-head'), copy = node('div', 'route-copy');
+  const title = node('h1', 'route-title', t(page.label));
+  title.id = 'route-title';
+  copy.append(title, node('p', 'route-description', t(page.description)));
+  head.append(copy);
+  if (page.tabs.length > 1) {
+    const bar = node('nav', 'route-tabs');
+    bar.setAttribute('aria-label', t('{0}分页', t(page.label)));
+    for (const item of page.tabs) {
+      const link = node('a', 'route-tab', t(item.label));
+      link.href = routeHash(page, item); link.dataset.tab = item.id;
+      if (item === tab) link.setAttribute('aria-current', 'page');
+      bar.append(link);
+    }
+    head.append(bar);
+  }
+  root.replaceChildren(head);
+  root.querySelector('[aria-current=page]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+}
+
+export const pageTitle = (page, tab) => page.tabs.length > 1 ? `${t(tab.label)} · ${t(page.label)}` : t(page.label);

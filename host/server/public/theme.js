@@ -10,6 +10,8 @@
   apply();
   media.addEventListener("change", apply);
   document.addEventListener("DOMContentLoaded", apply);
+  // Pages are built after start-up (app.js), so new pickers ask for the current choice.
+  document.addEventListener("rokbot:pages-ready", apply);
   document.addEventListener("change", (event) => {
     if (!event.target.matches?.("[data-theme-picker]")) return;
     preference = event.target.value;

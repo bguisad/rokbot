@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import * as webSuggestions from '../client/suggestions.js';
 import {
   extractComposerText,
@@ -11,6 +12,9 @@ import {
   mergeSuggestionItems,
   sendSuggestionText,
 } from '../client/suggestions.js';
+
+// bridge.js loads the shared module first in the browser; do the same here.
+createRequire(import.meta.url)('../../mac/clients/desktop/composer-assist.cjs');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '../..');
@@ -39,9 +43,11 @@ test('web suggestions removes static presets, merges phrases before AI, and cont
   assert.doesNotMatch(src, forbiddenBrand, 'suggestions.js must not mention legacy brand');
   assert.doesNotMatch(src, /[\u{1F300}-\u{1FAFF}]/u, 'suggestions.js must not contain emoji');
 
-  const desktopSrc = fs.readFileSync(path.join(REPO, 'mac/clients/desktop/suggestions-settings.cjs'), 'utf8');
-  assert.doesNotMatch(desktopSrc, forbiddenBrand, 'desktop suggestions-settings.cjs must not mention legacy brand');
-  assert.doesNotMatch(desktopSrc, /[\u{1F300}-\u{1FAFF}]/u, 'desktop suggestions-settings.cjs must not contain emoji');
+  for (const name of ['composer-assist.cjs', 'suggestions-composer.cjs']) {
+    const desktopSrc = fs.readFileSync(path.join(REPO, 'mac/clients/desktop', name), 'utf8');
+    assert.doesNotMatch(desktopSrc, forbiddenBrand, `desktop ${name} must not mention legacy brand`);
+    assert.doesNotMatch(desktopSrc, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u, `desktop ${name} must not contain emoji`);
+  }
 });
 
 test('extractComposerText, insertSuggestionText, and sendSuggestionText send immediately on click', () => {

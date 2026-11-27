@@ -1,32 +1,14 @@
 import { t, localize } from './i18n.js';
-import { $, all, busy, copyText } from './ui.js';
+import { $, all, busy, copyText, node } from './ui.js';
 import { icon } from './icons.js';
-import { renderNavigation, titles } from './navigation.js';
+import { renderNavigation, markNavigation, renderPageHead, pageTitle } from './navigation.js';
+import { modules, resolve, viewsOf } from './admin-routes.js';
 import { setupPrivacy } from './privacy.js';
 import { createLoginStage } from './login.js';
-import { createOverview } from './overview.js';
-import { createGeneral } from './general.js';
-import { createModelPage } from './model.js';
-import { createSpeechPage } from './speech.js';
-import { createMediaEditor } from './media.js';
-import { createWebServicesEditor } from './media-web.js';
-import { createHarnessEditor } from './harness.js';
-import { createSkillsEditor } from './skills.js';
-import { createApps } from './apps.js';
-import { createPromptEditor } from './prompts.js';
-import { createDevices } from './devices.js';
-import { createWebClientPage } from './web-client.js';
-import { createUpdatesPage } from './updates.js';
-import { createNetworkEditor } from './network.js';
-import { createExecutionEditor } from './execution.js';
-import { createFederationEditor } from './federation.js';
-import { createWebhookEditor } from './webhooks.js';
-import { createSharingEditor } from './sharing.js';
 
-const aliases = { profile: 'general', notifications: 'devices', plugins: 'apps', connectors: 'apps' };
 const sessionPaths = new Set(['/admin/api/session', '/admin/api/login', '/admin/api/setup']);
 const expiredSession = () => new Error(t('会话已过期，请重新登录。'));
-let initialized = false, state = null, activeView = 'overview', poll = null, toastTimer;
+let initialized = false, state = null, route = null, poll = null, toastTimer;
 let consoleSession = null, statusPending = null;
 
 function toast(message, error = false) {
@@ -80,17 +62,32 @@ async function copy(value) {
   catch { toast(t('浏览器未允许复制，请选择文字后复制'), true); }
 }
 
-const context = { api, toast, busy, act, copy, refresh: () => refresh(), navigate: view => showView(view), status: () => state };
+const context = { api, toast, busy, act, copy, refresh: () => refresh(), navigate: target => navigate(target), status: () => state };
 renderNavigation($('#nav'));
-const views = {
-  overview: createOverview(context), general: createGeneral(context), model: createModelPage(context),
-  speech: createSpeechPage(context), media: createMediaEditor(context), 'web-services': createWebServicesEditor(context),
-  harness: createHarnessEditor(context), skills: createSkillsEditor(context), apps: createApps(context), prompts: createPromptEditor(context), devices: createDevices(context),
-  'web-client': createWebClientPage(context),
-  updates: createUpdatesPage(context),
-  network: createNetworkEditor(context), execution: createExecutionEditor(context), federation: createFederationEditor(context),
-  webhooks: createWebhookEditor(context), sharing: createSharingEditor(context),
+// Every module gets its own panel inside the page body; a route shows the panels its tab lists.
+const views = {}, loading = {};
+const panelFor = id => {
+  let panel = $(`[data-panel="${id}"]`);
+  if (!panel) {
+    panel = node('section', 'module'); panel.dataset.panel = id; panel.hidden = true;
+    $('#page-body').append(panel);
+  }
+  return panel;
 };
+async function createView(id) {
+  if (views[id]) return views[id];
+  const [file, factory] = modules[id];
+  panelFor(id);
+  return loading[id] ??= import(`./${file}`).then(module => {
+    views[id] = module[factory](context);
+    localize($(`[data-panel="${id}"]`));
+    if (state) views[id].status?.(state, isActive(id));
+    document.dispatchEvent(new Event('rokbot:pages-ready'));
+    return views[id];
+  });
+}
+for (const id of Object.keys(modules)) panelFor(id);
+await Promise.all(Object.entries(modules).filter(([, [, , options]]) => !options?.lazy).map(([id]) => createView(id)));
 setupPrivacy();
 const loginStage = createLoginStage();
 localize(document.body);
@@ -121,29 +118,78 @@ async function showConsole() {
   $('#auth-screen').hidden = true; $('#loading').hidden = true; $('#console').hidden = false;
   $('#auth-form').reset();
   const checking = t('正在检查');
-  setHealth(checking, ''); views.overview.statusUnavailable(checking);
+  setHealth(checking, '');
+  for (const view of Object.values(views)) view.statusUnavailable?.(checking);
   await refresh(true);
   if (session !== consoleSession) return;
-  showView(activeView);
+  showRoute();
   clearInterval(poll);
   poll = setInterval(() => { if (!document.hidden) refresh(); }, 5000);
 }
 
-function showView(view) {
-  activeView = views[aliases[view] ?? view] ? aliases[view] ?? view : 'overview';
-  for (const panel of all('[data-panel]')) panel.hidden = panel.dataset.panel !== activeView;
-  for (const element of all('.nav-item')) {
-    const active = element.dataset.view === activeView;
-    element.classList.toggle('active', active);
-    if (active) element.setAttribute('aria-current', 'page'); else element.removeAttribute('aria-current');
+const isActive = id => Boolean(route && viewsOf(route.tab).includes(id));
+
+// Shows or hides the parts of a module panel for one block of the current tab (see admin-routes.js).
+function applyBlock(panel, block) {
+  const parts = [...panel.children].flatMap(child => child.matches('form.sections, .sections') ? [child, ...child.children] : [child]);
+  const keep = part => block.only.some(selector => part.matches(selector) || part.querySelector(selector));
+  for (const part of parts) {
+    let hide = false;
+    if (part.matches('dialog') || part.querySelector(':scope > dialog')) hide = false;
+    else if (part.matches('.page-header')) hide = block.actions === false || (block.only && !block.actions) || !part.querySelector('.page-actions');
+    else if (block.only) hide = !part.matches('form.sections, .sections') && !keep(part);
+    else if (block.except) hide = block.except.some(selector => part.matches(selector));
+    part.toggleAttribute('data-route-hidden', hide);
   }
-  document.title = `${titles[activeView]} · RokBot Host`;
-  $('#sidebar').classList.remove('open'); $('#nav-toggle').setAttribute('aria-expanded', 'false');
-  window.scrollTo(0, 0);
-  const params = new URLSearchParams(location.search); params.set('view', activeView);
-  history.replaceState(null, '', `${location.pathname}?${params}`);
-  views[activeView].load?.().catch(error => toast(error.message, true));
+  // A section group with nothing left to show goes too (it would otherwise keep its spacing).
+  for (const group of panel.querySelectorAll(':scope > form.sections, :scope > .sections')) {
+    const children = [...group.children];
+    group.toggleAttribute('data-route-hidden', children.length > 0 && children.every(child => child.hasAttribute('data-route-hidden')));
+  }
 }
+
+function showRoute(scrollTo = null) {
+  const next = resolve(location.hash, location.search);
+  if (next.hash !== location.hash || new URLSearchParams(location.search).has('view')) {
+    const params = new URLSearchParams(location.search); params.delete('view');
+    const search = params.size ? `?${params}` : '';
+    history.replaceState(history.state, '', `${location.pathname}${search}${next.hash}`);
+  }
+  const changed = route?.page !== next.page || route?.tab !== next.tab;
+  route = next;
+  if (!consoleSession) return;
+  const { page, tab } = route;
+  markNavigation($('#sidebar'), page);
+  renderPageHead($('#page-head'), page, tab);
+  const shown = viewsOf(tab);
+  $('#page').className = `page ${tab.layout ?? page.layout ?? ''}`.trim();
+  $('#page').dataset.route = `${page.id}/${tab.id}`;
+  for (const panel of all('#page-body > [data-panel]')) {
+    const index = shown.indexOf(panel.dataset.panel);
+    panel.hidden = index < 0; panel.style.order = index < 0 ? '' : String(index);
+  }
+  for (const block of tab.blocks) applyBlock(panelFor(block.view), block);
+  document.title = `${pageTitle(page, tab)} · RokBot Host`;
+  closeMenu();
+  if (changed) window.scrollTo(0, 0);
+  for (const id of shown) {
+    createView(id).then(view => {
+      if (route !== next) return;
+      for (const block of tab.blocks.filter(block => block.view === id)) applyBlock(panelFor(id), block);
+      return view.load?.();
+    }).catch(error => toast(error.message, true));
+  }
+  const target = scrollTo ?? next.scrollTo;
+  if (target) requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ block: 'start' }));
+}
+
+// `target` is a page/tab path ('devices/notify'), a canonical hash, or a former view id ('model').
+function navigate(target) {
+  const next = resolve(String(target).startsWith('#') ? target : `#/${target}`);
+  if (location.hash === next.hash) showRoute(next.scrollTo); else location.hash = next.hash;
+}
+
+function closeMenu() { $('#sidebar').classList.remove('open'); $('#nav-toggle').setAttribute('aria-expanded', 'false'); }
 
 function hostTitle() {
   if (state.host.connected) return state.host.busy ? [t('任务运行中'), 'accent'] : [t('Host 就绪'), 'success'];
@@ -159,7 +205,8 @@ function setHealth(title, tone) {
 function statusUnavailable(detail) {
   state = null;
   const title = t('状态不可用');
-  setHealth(title, 'warn'); views.overview.statusUnavailable(title, detail);
+  setHealth(title, 'warn');
+  for (const view of Object.values(views)) view.statusUnavailable?.(title, detail);
 }
 
 async function refresh(showError = false) {
@@ -172,7 +219,7 @@ async function refresh(showError = false) {
     if (request !== statusPending) return;
     state = next;
     setHealth(...hostTitle());
-    for (const view of Object.values(views)) view.status?.(state, view === views[activeView]);
+    for (const [id, view] of Object.entries(views)) view.status?.(state, isActive(id));
   } catch (error) {
     if (request !== statusPending) return;
     statusUnavailable(error.message);
@@ -205,12 +252,15 @@ $('#auth-form').addEventListener('submit', event => {
     }
   });
 });
+// Former in-page buttons still carry data-view="<old view id>"; they open the page that holds it now.
 document.addEventListener('click', event => {
   const target = event.target.closest('[data-view]');
   if (!target || !$('#console').contains(target)) return;
   event.preventDefault();
-  showView(target.dataset.view);
+  navigate(target.dataset.view);
 });
+addEventListener('hashchange', () => showRoute());
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && $('#sidebar').classList.contains('open')) closeMenu(); });
 $('#nav-toggle').addEventListener('click', () => {
   const open = $('#sidebar').classList.toggle('open');
   $('#nav-toggle').setAttribute('aria-expanded', String(open));
@@ -221,13 +271,12 @@ try {
   const session = await api('/admin/api/session');
   initialized = session.initialized;
   const params = new URLSearchParams(location.search);
-  const requested = params.get('view');
-  if (requested) activeView = views[aliases[requested] ?? requested] ? aliases[requested] ?? requested : 'overview';
+  showRoute();
   if (params.has('authorization')) {
     const success = params.get('authorization') === 'success';
     toast(success ? t('应用授权已完成') : t('应用授权未完成，请在应用详情查看状态'), !success);
     params.delete('authorization');
-    history.replaceState(null, '', `${location.pathname}?${params}`);
+    history.replaceState(null, '', `${location.pathname}${params.size ? `?${params}` : ''}${location.hash}`);
   }
   if (session.authenticated) await showConsole(); else showAuth();
 } catch (error) {

@@ -1,7 +1,7 @@
 #import "RBSuggestions.h"
 #import <TargetConditionals.h>
 
-static const NSUInteger RBSuggestionsMaxAI = 4;
+static const NSUInteger RBSuggestionsMaxAI = 3;
 static const NSUInteger RBSuggestionsMaxPhraseChars = 120;
 static const NSUInteger RBSuggestionsMaxPhrases = 50;
 
@@ -98,19 +98,42 @@ NSDictionary *RBSuggestionsSendBody(NSString *agentId, NSString *text, NSString 
   };
 }
 
-NSString *RBSuggestionsAgentFromRequest(NSString *path, NSData *body, BOOL *turnOut) {
-  if (turnOut) *turnOut = NO;
-  if (![path hasPrefix:@"/api/"] || !body.length || body.length > 512 * 1024) return nil;
-  static NSSet<NSString *> *observed;
+static BOOL RBSuggestionsValidAgentId(id agent) {
+  if (![agent isKindOfClass:NSString.class]) return NO;
+  NSString *value = agent;
+  if (value.length == 0 || value.length > 128) return NO;
+  static NSCharacterSet *invalid;
   static dispatch_once_t once;
   dispatch_once(&once, ^{
-    observed = [NSSet setWithArray:@[
-      @"openAgentWindowed", @"getAgentTranscriptTail", @"getAgentTranscript", @"getAgentTranscriptWindow",
-      @"sendPrompt", @"getAgent", @"markAgentRead", @"markAgentViewed", @"getForeverBoxStatus",
-    ]];
+    invalid = [[NSCharacterSet characterSetWithCharactersInString:
+        @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"] invertedSet];
+  });
+  return [value rangeOfCharacterFromSet:invalid].location == NSNotFound;
+}
+
+NSString *RBSuggestionsAgentFromRequest(NSString *path, NSData *body, RBSuggestionsSignal *signalOut) {
+  if (signalOut) *signalOut = RBSuggestionsSignalNone;
+  if (![path hasPrefix:@"/api/"] || !body.length || body.length > 512 * 1024) return nil;
+  // Only navigation (and sending) decides which bot is on screen. Everything else is a
+  // read RN also performs for bots working in the background.
+  static NSDictionary<NSString *, NSNumber *> *signals;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    signals = @{
+      @"openAgentWindowed" : @(RBSuggestionsSignalActivate),
+      @"markAgentViewed" : @(RBSuggestionsSignalActivate),
+      @"sendPrompt" : @(RBSuggestionsSignalTurn),
+      @"getAgentTranscriptTail" : @(RBSuggestionsSignalWeak),
+      @"getAgentTranscript" : @(RBSuggestionsSignalWeak),
+      @"getAgentTranscriptWindow" : @(RBSuggestionsSignalWeak),
+      @"getAgent" : @(RBSuggestionsSignalWeak),
+      @"markAgentRead" : @(RBSuggestionsSignalWeak),
+      @"getForeverBoxStatus" : @(RBSuggestionsSignalWeak),
+    };
   });
   NSString *method = path.lastPathComponent;
-  if (![observed containsObject:method]) return nil;
+  NSNumber *signal = signals[method];
+  if (!signal) return nil;
   id json = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
   if (![json isKindOfClass:NSDictionary.class]) return nil;
   NSString *agent = nil;
@@ -120,12 +143,43 @@ NSString *RBSuggestionsAgentFromRequest(NSString *path, NSData *body, BOOL *turn
       break;
     }
   }
-  if (agent.length == 0 || agent.length > 128) return nil;
-  NSCharacterSet *invalid = [[NSCharacterSet characterSetWithCharactersInString:
-      @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"] invertedSet];
-  if ([agent rangeOfCharacterFromSet:invalid].location != NSNotFound) return nil;
-  if (turnOut) *turnOut = [method isEqualToString:@"sendPrompt"] || [method isEqualToString:@"openAgentWindowed"];
+  if (!RBSuggestionsValidAgentId(agent)) return nil;
+  if (signalOut) *signalOut = (RBSuggestionsSignal)signal.integerValue;
   return agent;
+}
+
+NSString *RBSuggestionsResolveAgent(NSString *current, NSString *observed, RBSuggestionsSignal signal) {
+  if ((signal == RBSuggestionsSignalActivate || signal == RBSuggestionsSignalTurn) && RBSuggestionsValidAgentId(observed))
+    return observed;
+  return current;
+}
+
+NSString *RBSuggestionsCacheKey(NSString *agentId, NSUInteger generation, NSString *locale) {
+  return [NSString stringWithFormat:@"%@:%lu:%@", agentId ?: @"", (unsigned long)generation, locale ?: @""];
+}
+
+BOOL RBSuggestionsAcceptResponse(id response, NSString *requestAgent, NSString *requestId, NSString *currentAgent,
+                                 NSUInteger requestSeq, NSUInteger latestSeq) {
+  if (requestSeq != latestSeq) return NO;
+  if (!requestAgent.length || ![requestAgent isEqualToString:currentAgent ?: @""]) return NO;
+  if (![response isKindOfClass:NSDictionary.class]) return YES; // Nothing to show; caller handles errors.
+  id echoedAgent = response[@"agentId"];
+  if (echoedAgent && echoedAgent != NSNull.null &&
+      (![echoedAgent isKindOfClass:NSString.class] || ![echoedAgent isEqualToString:requestAgent]))
+    return NO;
+  id echoedRequest = response[@"requestId"];
+  if (requestId.length && echoedRequest && echoedRequest != NSNull.null &&
+      (![echoedRequest isKindOfClass:NSString.class] || ![echoedRequest isEqualToString:requestId]))
+    return NO;
+  return YES;
+}
+
+NSDictionary *RBSuggestionsRequestBody(NSString *agentId, NSString *locale, NSString *requestId, BOOL prefetch) {
+  NSMutableDictionary *body = [NSMutableDictionary dictionaryWithObject:agentId ?: @"" forKey:@"agentId"];
+  if (locale.length) body[@"locale"] = locale;
+  if (requestId.length) body[@"requestId"] = requestId.length > 64 ? [requestId substringToIndex:64] : requestId;
+  if (prefetch) body[@"prefetch"] = @YES;
+  return body;
 }
 
 NSString *RBSuggestionsValidatePhrase(NSString *text, NSArray<NSDictionary *> *existing, NSString *editingId, BOOL chinese) {
@@ -172,10 +226,40 @@ NSArray<NSString *> *RBSuggestionsMovedIds(NSArray<NSDictionary *> *phrases, NSU
 #import "RBTheme.h"
 #import <UIKit/UIKit.h>
 
+// The bot on screen. Only navigation signals (openAgentWindowed, markAgentViewed, sendPrompt,
+// notification / deep-link opens) change it; background reads never do. Main queue only.
 static NSString *RBActiveAgent;
-static NSUInteger RBTurnGeneration = 1;
+// Per-bot turn generation: bumped only by that bot's sendPrompt or a new reply from it.
+static NSMutableDictionary<NSString *, NSNumber *> *RBAgentGenerations;
+static const NSTimeInterval RBSuggestionsTimeout = 9;
+static const NSTimeInterval RBSuggestionsCacheTTL = 90;
+static const NSTimeInterval RBSuggestionsFailureBackoff = 10;
+static const NSTimeInterval RBSuggestionsPrefetchThrottle = 20;
+static const NSTimeInterval RBSuggestionsReplyThrottle = 4;
 
 NSString *RBSuggestionsCurrentAgent(void) { return RBActiveAgent; }
+
+static NSUInteger RBSuggestionsGeneration(NSString *agent) {
+  if (!agent.length) return 0;
+  return [RBAgentGenerations[agent] unsignedIntegerValue] + 1;
+}
+
+static void RBSuggestionsBumpGeneration(NSString *agent) {
+  if (!agent.length) return;
+  if (!RBAgentGenerations) RBAgentGenerations = [NSMutableDictionary dictionary];
+  if (RBAgentGenerations.count > 200 && !RBAgentGenerations[agent]) [RBAgentGenerations removeAllObjects];
+  RBAgentGenerations[agent] = @([RBAgentGenerations[agent] unsignedIntegerValue] + 1);
+}
+
+static NSString *RBSuggestionsLocaleTag(void) { return RBIsChinese() ? @"zh" : @"en"; }
+
+static NSString *RBSuggestionsLocale(void) {
+  return RBIsChinese() ? @"zh-CN" : (NSLocale.preferredLanguages.firstObject ?: @"en");
+}
+
+static NSString *RBSuggestionsKeyFor(NSString *agent) {
+  return RBSuggestionsCacheKey(agent, RBSuggestionsGeneration(agent), RBSuggestionsLocaleTag());
+}
 
 @interface RBSuggestionsBar : UIView
 @property(nonatomic, strong) UIScrollView *scroll;
@@ -197,12 +281,25 @@ NSString *RBSuggestionsCurrentAgent(void) { return RBActiveAgent; }
 @property(nonatomic, assign) BOOL settingsLoading;
 @property(nonatomic, strong) NSCache<NSString *, NSDictionary *> *aiCache;
 @property(nonatomic, copy) NSArray<NSString *> *currentAI;
+// Cache key currentAI belongs to; AI chips are shown only while it equals the current key.
+@property(nonatomic, copy) NSString *currentAIKey;
 @property(nonatomic, copy) NSString *fetchingKey;
+// Monotonic request sequence; only the latest request's response may update the bar.
+@property(nonatomic, assign) NSUInteger fetchSeq;
+@property(nonatomic, strong) NSDate *fetchingAt;
+@property(nonatomic, copy) NSString *failedKey;
+@property(nonatomic, strong) NSDate *failedAt;
+@property(nonatomic, copy) NSString *prefetchKey;
+@property(nonatomic, strong) NSDate *prefetchAt;
+@property(nonatomic, copy) NSString *replyAgent;
+@property(nonatomic, strong) NSDate *replyAt;
 @property(nonatomic, copy) NSString *dismissedKey;
 @property(nonatomic, assign) BOOL sending;
 + (instancetype)shared;
 - (void)refresh;
 - (void)invalidate;
+- (void)activateAgent:(NSString *)agent turn:(BOOL)turn;
+- (void)noteReply:(NSString *)agent;
 @end
 
 static NSString *RBSuggestionsInputText(UIView *input) {
@@ -273,6 +370,16 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
   return [best convertRect:best.bounds toView:window];
 }
 
+// Compact chip font: 12.5pt, Dynamic Type capped at 15pt so the row stays ~26-28pt tall.
+static UIFont *RBSuggestionsChipFont(void) {
+  return [[UIFontMetrics defaultMetrics] scaledFontForFont:[UIFont systemFontOfSize:12.5 weight:UIFontWeightMedium]
+                                          maximumPointSize:15];
+}
+
+static CGFloat RBSuggestionsChipHeight(void) {
+  return MIN(28, MAX(26, ceil(RBSuggestionsChipFont().lineHeight) + 9));
+}
+
 @implementation RBSuggestionsBar
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -284,21 +391,21 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
   self.scroll = [UIScrollView new];
   self.scroll.showsHorizontalScrollIndicator = NO;
   self.scroll.alwaysBounceHorizontal = YES;
-  self.scroll.contentInset = UIEdgeInsetsMake(0, 12, 0, 8);
+  self.scroll.contentInset = UIEdgeInsetsMake(0, 10, 0, 6);
   self.scroll.translatesAutoresizingMaskIntoConstraints = NO;
   [self addSubview:self.scroll];
   self.chips = [UIStackView new];
   self.chips.axis = UILayoutConstraintAxisHorizontal;
-  self.chips.spacing = 8;
+  self.chips.spacing = 6;
   self.chips.alignment = UIStackViewAlignmentCenter;
   self.chips.translatesAutoresizingMaskIntoConstraints = NO;
   [self.scroll addSubview:self.chips];
   UIButton *close = [UIButton buttonWithType:UIButtonTypeCustom];
   close.translatesAutoresizingMaskIntoConstraints = NO;
-  [close setImage:RBGlyphImage(RBGlyphClose, 16, 1.8) forState:UIControlStateNormal];
+  [close setImage:RBGlyphImage(RBGlyphClose, 12, 1.8) forState:UIControlStateNormal];
   close.tintColor = RBThemeTextSecondary();
   close.backgroundColor = RBThemeElevated();
-  close.layer.cornerRadius = 15;
+  close.layer.cornerRadius = 12;
   close.layer.borderWidth = 1.0 / UIScreen.mainScreen.scale;
   close.layer.borderColor = RBThemeBorder().CGColor;
   close.accessibilityLabel = RBL(@"隐藏输入建议", @"Hide suggestions");
@@ -310,10 +417,10 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
     [self.scroll.topAnchor constraintEqualToAnchor:self.topAnchor],
     [self.scroll.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
     [self.scroll.trailingAnchor constraintEqualToAnchor:close.leadingAnchor constant:-4],
-    [close.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
+    [close.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
     [close.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
-    [close.widthAnchor constraintEqualToConstant:30],
-    [close.heightAnchor constraintEqualToConstant:30],
+    [close.widthAnchor constraintEqualToConstant:24],
+    [close.heightAnchor constraintEqualToConstant:24],
     [self.chips.leadingAnchor constraintEqualToAnchor:self.scroll.contentLayoutGuide.leadingAnchor],
     [self.chips.trailingAnchor constraintEqualToAnchor:self.scroll.contentLayoutGuide.trailingAnchor],
     [self.chips.topAnchor constraintEqualToAnchor:self.scroll.contentLayoutGuide.topAnchor],
@@ -354,26 +461,27 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
     UIButton *chip = [UIButton buttonWithType:UIButtonTypeCustom];
     UIButtonConfiguration *config = UIButtonConfiguration.plainButtonConfiguration;
     config.title = item[@"text"];
-    config.image = RBGlyphImage(phrase ? RBGlyphBolt : RBGlyphSparkle, 14, 0);
-    config.imagePadding = 6;
+    config.image = RBGlyphImage(phrase ? RBGlyphBolt : RBGlyphSparkle, 11, 0);
+    config.imagePadding = 4;
     config.imageColorTransformer = ^UIColor *(UIColor *c) { return phrase ? RBThemeAccent() : RBThemeTextSecondary(); };
     config.baseForegroundColor = RBThemeTextPrimary();
-    config.contentInsets = NSDirectionalEdgeInsetsMake(7, 12, 7, 13);
+    config.contentInsets = NSDirectionalEdgeInsetsMake(4, 9, 4, 10);
     config.titleLineBreakMode = NSLineBreakByTruncatingTail;
     config.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *attributes) {
       NSMutableDictionary *next = [attributes mutableCopy];
-      next[NSFontAttributeName] = RBThemeFont(13, UIFontWeightMedium);
+      next[NSFontAttributeName] = RBSuggestionsChipFont();
       return next;
     };
     config.background.backgroundColor = RBThemeElevated();
-    config.background.cornerRadius = 16;
+    config.background.cornerRadius = 13;
     config.background.strokeColor = RBThemeBorder();
     config.background.strokeWidth = 1.0 / UIScreen.mainScreen.scale;
     chip.configuration = config;
     chip.accessibilityLabel = [NSString stringWithFormat:@"%@%@", phrase ? RBL(@"常用语：", @"Quick phrase: ") : RBL(@"建议：", @"Suggestion: "), item[@"text"]];
     chip.accessibilityHint = RBL(@"点击直接发送", @"Sends immediately");
     chip.accessibilityIdentifier = phrase ? @"rokbot.suggestions.phrase" : @"rokbot.suggestions.ai";
-    [chip.widthAnchor constraintLessThanOrEqualToConstant:220].active = YES;
+    [chip.widthAnchor constraintLessThanOrEqualToConstant:200].active = YES;
+    [chip.heightAnchor constraintEqualToConstant:RBSuggestionsChipHeight()].active = YES;
     __weak typeof(self) weak = self;
     NSDictionary *captured = [item copy];
     [chip addAction:[UIAction actionWithHandler:^(UIAction *action) {
@@ -411,7 +519,8 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
       if (![input isKindOfClass:UIView.class]) return;
       if (RBSuggestionsIsComposer(input)) {
         self.input = input;
-        self.fetchingKey = nil;
+        // Allow a fresh attempt per focus, but never orphan a request that is still in flight.
+        if (!self.fetchingAt || -self.fetchingAt.timeIntervalSinceNow > RBSuggestionsTimeout) self.fetchingKey = nil;
         [self syncSettings:NO];
         [self refresh];
       } else if (self.input == input || !self.input) {
@@ -465,13 +574,24 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
 - (void)invalidate {
   self.settingsAt = nil;
   self.fetchingKey = nil;
+  self.fetchSeq++;
   self.dismissedKey = nil;
+  self.failedKey = nil;
+  self.prefetchKey = nil;
+  self.currentAI = @[];
+  self.currentAIKey = nil;
   [self.aiCache removeAllObjects];
   [self syncSettings:YES];
 }
 
 - (NSString *)currentKey {
-  return [NSString stringWithFormat:@"%@:%lu:%@", RBActiveAgent ?: @"", (unsigned long)RBTurnGeneration, RBIsChinese() ? @"zh" : @"en"];
+  return RBSuggestionsKeyFor(RBActiveAgent);
+}
+
+- (NSArray<NSString *> *)cachedForKey:(NSString *)key {
+  NSDictionary *cached = [self.aiCache objectForKey:key];
+  if (cached && -[cached[@"at"] timeIntervalSinceNow] < RBSuggestionsCacheTTL) return cached[@"items"];
+  return nil;
 }
 
 - (void)refresh {
@@ -493,18 +613,20 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
     [self hide];
     return;
   }
+  NSArray<NSString *> *ai = @[];
   if (self.aiEnabled && RBActiveAgent.length) {
-    NSDictionary *cached = [self.aiCache objectForKey:key];
-    if (cached && -[cached[@"at"] timeIntervalSinceNow] < 90) {
-      self.currentAI = cached[@"items"];
-    } else if (![key isEqualToString:self.fetchingKey ?: @""]) {
-      self.currentAI = @[];
+    NSArray<NSString *> *cached = [self cachedForKey:key];
+    if (cached) {
+      self.currentAI = cached;
+      self.currentAIKey = key;
+    } else if (![key isEqualToString:self.fetchingKey ?: @""] &&
+               !([key isEqualToString:self.failedKey ?: @""] && -self.failedAt.timeIntervalSinceNow < RBSuggestionsFailureBackoff)) {
       [self fetchForKey:key agent:RBActiveAgent];
     }
-  } else {
-    self.currentAI = @[];
+    // Never show suggestions that belong to another bot or an earlier turn.
+    if ([self.currentAIKey isEqualToString:key]) ai = self.currentAI ?: @[];
   }
-  NSArray<NSDictionary *> *items = RBSuggestionsMergeItems(self.phrases, self.aiEnabled ? self.currentAI : @[]);
+  NSArray<NSDictionary *> *items = RBSuggestionsMergeItems(self.phrases, ai);
   if (!items.count) {
     [self hide];
     return;
@@ -512,19 +634,91 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
   [self showItems:items];
 }
 
+- (NSString *)newRequestId:(NSString *)kind seq:(NSUInteger)seq {
+  NSString *nonce = [NSUUID.UUID.UUIDString.lowercaseString substringToIndex:8];
+  return [NSString stringWithFormat:@"ios-%@-%lu-%@", kind, (unsigned long)seq, nonce];
+}
+
 - (void)fetchForKey:(NSString *)key agent:(NSString *)agent {
+  NSUInteger seq = ++self.fetchSeq;
   self.fetchingKey = key;
-  NSString *locale = RBIsChinese() ? @"zh-CN" : (NSLocale.preferredLanguages.firstObject ?: @"en");
-  RBHostRequest(@"POST", @"/local/suggestions", @{ @"agentId" : agent, @"locale" : locale }, 18,
-                ^(NSInteger status, id json, NSError *error) {
-                  if (![key isEqualToString:self.fetchingKey ?: @""]) return;
+  self.fetchingAt = NSDate.date;
+  NSString *requestId = [self newRequestId:@"f" seq:seq];
+  RBHostRequest(@"POST", @"/local/suggestions", RBSuggestionsRequestBody(agent, RBSuggestionsLocale(), requestId, NO),
+                RBSuggestionsTimeout, ^(NSInteger status, id json, NSError *error) {
+                  // Late or foreign responses (bot switched, newer request, echo mismatch) are dropped.
+                  if (seq != self.fetchSeq) return;
+                  if (!RBSuggestionsAcceptResponse(json, agent, requestId, RBActiveAgent, seq, self.fetchSeq)) {
+                    self.fetchingKey = nil;
+                    self.fetchingAt = nil;
+                    self.failedKey = key;
+                    self.failedAt = NSDate.date;
+                    return;
+                  }
+                  self.fetchingAt = nil;
                   NSArray<NSString *> *ai = status == 200 ? RBSuggestionsAIFromResponse(json) : @[];
                   if (status == 200 && [json isKindOfClass:NSDictionary.class]) [self applySettings:json];
-                  // Never cache failures or empty results; the next focus retries.
+                  // Never cache failures or empty results; a later focus retries (after a short backoff on errors).
                   if (ai.count) [self.aiCache setObject:@{ @"items" : ai, @"at" : NSDate.date } forKey:key];
+                  if (status != 200) {
+                    self.failedKey = key;
+                    self.failedAt = NSDate.date;
+                  }
                   self.currentAI = ai;
+                  self.currentAIKey = key;
                   [self refresh];
                 });
+}
+
+// Background warm-up when entering a chat or after a new reply. New Hosts answer 202 and
+// generate into their own cache; older Hosts answer 200 with suggestions, which we cache here.
+// Failures are not retried.
+- (void)prefetchAgent:(NSString *)agent {
+  if (!agent.length || !self.enabled || !self.aiEnabled || !RBConnection.shared.isPaired) return;
+  NSString *key = RBSuggestionsKeyFor(agent);
+  if ([self cachedForKey:key]) return;
+  if ([key isEqualToString:self.prefetchKey ?: @""] && -self.prefetchAt.timeIntervalSinceNow < RBSuggestionsPrefetchThrottle) return;
+  self.prefetchKey = key;
+  self.prefetchAt = NSDate.date;
+  NSString *requestId = [self newRequestId:@"p" seq:self.fetchSeq];
+  RBHostRequest(@"POST", @"/local/suggestions", RBSuggestionsRequestBody(agent, RBSuggestionsLocale(), requestId, YES),
+                RBSuggestionsTimeout, ^(NSInteger status, id json, NSError *error) {
+                  if (status != 200) return;
+                  // Echo check only; prefetch results are keyed by bot + generation and never shown directly.
+                  if (!RBSuggestionsAcceptResponse(json, agent, requestId, agent, 0, 0)) return;
+                  NSArray<NSString *> *ai = RBSuggestionsAIFromResponse(json);
+                  if (!ai.count) return;
+                  [self.aiCache setObject:@{ @"items" : ai, @"at" : NSDate.date } forKey:key];
+                  if ([key isEqualToString:[self currentKey]] && self.input) [self refresh];
+                });
+}
+
+- (void)activateAgent:(NSString *)agent turn:(BOOL)turn {
+  if (!agent.length) return;
+  BOOL changed = ![agent isEqualToString:RBActiveAgent ?: @""];
+  RBActiveAgent = RBSuggestionsResolveAgent(RBActiveAgent, agent, turn ? RBSuggestionsSignalTurn : RBSuggestionsSignalActivate);
+  if (turn) RBSuggestionsBumpGeneration(agent);
+  if (changed) {
+    // Switching bots clears the old bot's suggestions immediately and orphans its in-flight request.
+    self.currentAI = @[];
+    self.currentAIKey = nil;
+    self.fetchingKey = nil;
+    self.fetchSeq++;
+    [self hide];
+  }
+  if (!turn) [self prefetchAgent:agent];
+  if (changed || turn) [self refresh];
+}
+
+- (void)noteReply:(NSString *)agent {
+  if (!agent.length) return;
+  if ([agent isEqualToString:self.replyAgent ?: @""] && -self.replyAt.timeIntervalSinceNow < RBSuggestionsReplyThrottle) return;
+  self.replyAgent = agent;
+  self.replyAt = NSDate.date;
+  RBSuggestionsBumpGeneration(agent);
+  if (![agent isEqualToString:RBActiveAgent ?: @""]) return;
+  [self prefetchAgent:agent];
+  [self refresh];
 }
 
 - (void)showItems:(NSArray<NSDictionary *> *)items {
@@ -560,8 +754,9 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
     return;
   }
   CGRect anchor = RBSuggestionsAnchorRect(input);
-  CGFloat height = 44;
-  CGFloat y = MAX(input.window.safeAreaInsets.top + 4, CGRectGetMinY(anchor) - height - 6);
+  // Compact single row (26pt chips) hugging the composer so it covers as little of the last message as possible.
+  CGFloat height = RBSuggestionsChipHeight() + 4;
+  CGFloat y = MAX(input.window.safeAreaInsets.top + 4, CGRectGetMinY(anchor) - height - 2);
   CGRect frame = CGRectMake(0, y, input.window.bounds.size.width, height);
   if (!CGRectEqualToRect(self.bar.frame, frame)) self.bar.frame = frame;
   [self.bar.superview bringSubviewToFront:self.bar];
@@ -592,8 +787,9 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
                 ^(NSInteger status, id json, NSError *error) {
                   self.sending = NO;
                   if (status >= 200 && status < 300) {
-                    RBTurnGeneration++;
+                    RBSuggestionsBumpGeneration(agent);
                     self.currentAI = @[];
+                    self.currentAIKey = nil;
                     return;
                   }
                   // Keep the user's intent: put the text in the composer so they can send it manually.
@@ -621,17 +817,31 @@ void RBInstallSuggestions(void) {
 }
 
 void RBSuggestionsNoteRequest(NSString *path, NSData *body) {
-  BOOL turn = NO;
-  NSString *agent = RBSuggestionsAgentFromRequest(path, body, &turn);
-  if (!agent) return;
+  RBSuggestionsSignal signal = RBSuggestionsSignalNone;
+  NSString *agent = RBSuggestionsAgentFromRequest(path, body, &signal);
+  if (!agent || signal == RBSuggestionsSignalNone) return;
+  BOOL read = [path.lastPathComponent isEqualToString:@"markAgentRead"];
   dispatch_async(dispatch_get_main_queue(), ^{
-    BOOL changed = ![agent isEqualToString:RBActiveAgent ?: @""];
-    RBActiveAgent = agent;
-    if (turn || changed) {
-      RBTurnGeneration++;
-      [[RBSuggestionsRuntime shared] refresh];
+    RBSuggestionsRuntime *runtime = [RBSuggestionsRuntime shared];
+    if (signal == RBSuggestionsSignalActivate || signal == RBSuggestionsSignalTurn) {
+      [runtime activateAgent:agent turn:signal == RBSuggestionsSignalTurn];
+    } else if (read && [agent isEqualToString:RBActiveAgent ?: @""]) {
+      // RN marks the open chat read when a new reply lands; weak for any other bot.
+      [runtime noteReply:agent];
     }
   });
+}
+
+void RBSuggestionsNoteOpenedAgent(NSString *agentId) {
+  if (!RBSuggestionsValidAgentId(agentId)) return;
+  NSString *agent = [agentId copy];
+  dispatch_async(dispatch_get_main_queue(), ^{ [[RBSuggestionsRuntime shared] activateAgent:agent turn:NO]; });
+}
+
+void RBSuggestionsNoteReply(NSString *agentId) {
+  if (!RBSuggestionsValidAgentId(agentId)) return;
+  NSString *agent = [agentId copy];
+  dispatch_async(dispatch_get_main_queue(), ^{ [[RBSuggestionsRuntime shared] noteReply:agent]; });
 }
 
 void RBSuggestionsInvalidate(void) {

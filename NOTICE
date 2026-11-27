@@ -1,26 +1,39 @@
 RokBot
 Copyright (c) 2026 RokBot contributors
 Repository: https://github.com/hongfaqiu/rokbot
+License    : RokBot Noncommercial License 1.0
+             (SPDX: LicenseRef-RokBot-Noncommercial-1.0, see LICENSE)
 
-RokBot is a modified derivative of ProkBot and ProkBot Plus.
+RokBot is an independent project maintained by the RokBot contributors. Its
+own contributions are licensed under the RokBot Noncommercial License 1.0.
+
+Upstream projects and retained license
+--------------------------------------
+
+RokBot started from, and still contains code derived from, the following
+projects. RokBot thanks their authors. Those derived portions remain subject
+to the upstream license and notices below, in addition to the RokBot license.
 
   Upstream project 1 : ProkBot
   Upstream source    : https://gitee.com/ahaduoduoduo/ProkBot
   Based on           : release v2026.11.05, commit 3e9fe8c
-  Upstream license   : ProkBot Noncommercial License 1.0 (see LICENSE)
+  Upstream license   : ProkBot Noncommercial License 1.0
+                       (unchanged copy: LICENSES/ProkBot-Noncommercial-1.0.txt)
   Upstream notice    : Copyright (c) 2026 ProkBot contributors
 
   Upstream project 2 : ProkBot Plus
   Upstream source    : https://github.com/ferretgeek/prokbot-plus
   Referenced through : release 1.5.1 (modifications 2026-11-07 to 2026-11-19)
-  Upstream license   : ProkBot Noncommercial License 1.0 (see LICENSE)
+  Upstream license   : ProkBot Noncommercial License 1.0
+                       (unchanged copy: LICENSES/ProkBot-Noncommercial-1.0.txt)
   Upstream notice    : Copyright (c) 2026 ProkBot Plus contributors
 
-As the upstream license requires, RokBot keeps ProkBot Noncommercial
-License 1.0 unchanged, is distributed for noncommercial purposes only, and
-identifies its modifications below. The noncommercial conditions also apply to
-everything RokBot adds or inherits; none of it is offered under terms that
-allow commercial use.
+The Host, iOS and macOS trees (host/, ios/, mac/) were modified by RokBot
+contributors (2026) under the terms of the ProkBot Noncommercial License 1.0.
+As that license requires, RokBot keeps its text unchanged, is distributed for
+noncommercial purposes only, and identifies its modifications below. Nothing
+in RokBot, whether added or inherited, is offered under terms that allow
+commercial use.
 
 Modifications made in RokBot
 ----------------------------

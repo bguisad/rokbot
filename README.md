@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: RokBot Noncommercial License 1.0" /></a>
   <a href="docs/clients.md"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, Linux, iOS, Android, Web" /></a>
   <a href="#快速开始"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
@@ -45,6 +45,7 @@
 - **模型自己选**：兼容 OpenAI Chat Completions、OpenAI Responses 和 Anthropic Messages，接哪家服务、用哪个模型由你决定。
 - **场景模型路由**：输入建议、上下文压缩、记忆提取、自动审核、子 Agent、定时任务 6 个场景可以各用一个模型和思考强度，单个 Bot 也能单独指定。
 - **主模型挂了自动切备用**：每条路由最多 8 个备用模型，主模型出错时自动切换，已经开始输出的回复不会中途换模型。
+- **从 Grok Bot 迁移**：一键读取本机 Grok Bot 数据，或复制迁移 prompt 让 Grok Bot 导出记忆、技能和例程，预览后导入，可重复执行不产生重复，详见[迁移指南](docs/migrate-from-grokbot.md)。
 - **无需云端账号**：用 6 位一次性配对码接入，外网访问可用内置的 Tailcat 组网、Tailscale 或 HTTPS 反向代理。
 
 <br clear="right" />
@@ -194,7 +195,7 @@ docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /da
 
 ## 许可
 
-<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot 使用 [ProkBot Noncommercial License 1.0](LICENSE)：允许个人使用、自托管、学习、修改与非商业分发，禁止任何商业用途。衍生关系与第三方声明见 [NOTICE](NOTICE)，合规说明见 [docs/faq.md](docs/faq.md#分发与合规说明)。
+<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot 使用 [RokBot Noncommercial License 1.0](LICENSE)（中文译文见同一文件后半部分，以英文版为准）：允许个人使用、自托管、学习、修改与非商业分发，禁止任何商业用途。源自 ProkBot 的部分同时受 [ProkBot Noncommercial License 1.0](LICENSES/ProkBot-Noncommercial-1.0.txt) 约束；衍生关系与第三方声明见 [NOTICE](NOTICE)，合规说明见 [docs/faq.md](docs/faq.md#分发与合规说明)。
 
 ## 致谢
 
