@@ -80,7 +80,7 @@ export async function migrateInbox(request, response, path, migration, { limiter
   const token = migration.verifyToken(decodeURIComponent(match[1]));
   if (request.method === 'GET') { sendJson(response, 200, { ok: true, expiresAt: token.expiresAt, schema: 'rokbot.migrate', version: 1 }); return true; }
   check(request.method === 'POST' || request.method === 'PUT', 405, '请使用 POST 上传');
-  const result = await migration.receive(await uploadStream(request), { source: 'inbox', label: `${token.label} · Bot 上传`, tokenId: token.id });
+  const result = await migration.receive(await uploadStream(request), { source: 'inbox', label: token.label, tokenId: token.id });
   sendJson(response, 201, { ok: true, packageId: result.id, counts: result.counts, warnings: result.warnings,
     message: '已收到迁移文件，等待用户在 RokBot 中确认导入。' });
   return true;

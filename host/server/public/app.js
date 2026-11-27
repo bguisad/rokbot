@@ -22,6 +22,7 @@ import { createExecutionEditor } from './execution.js';
 import { createFederationEditor } from './federation.js';
 import { createWebhookEditor } from './webhooks.js';
 import { createSharingEditor } from './sharing.js';
+import { createMigratePage } from './migrate.js';
 
 const aliases = { profile: 'general', notifications: 'devices', plugins: 'apps', connectors: 'apps' };
 const sessionPaths = new Set(['/admin/api/session', '/admin/api/login', '/admin/api/setup']);
@@ -89,7 +90,7 @@ const views = {
   'web-client': createWebClientPage(context),
   updates: createUpdatesPage(context),
   network: createNetworkEditor(context), execution: createExecutionEditor(context), federation: createFederationEditor(context),
-  webhooks: createWebhookEditor(context), sharing: createSharingEditor(context),
+  webhooks: createWebhookEditor(context), sharing: createSharingEditor(context), migrate: createMigratePage(context),
 };
 setupPrivacy();
 const loginStage = createLoginStage();

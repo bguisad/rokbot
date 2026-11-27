@@ -437,6 +437,42 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    // ---- Migrate from Grok Bot (/local/migrate): prompt export, pending packages, import ----
+
+    public static JSONObject migrateOverview(Context context) throws Exception {
+        return requireJsonObject(authedRequest(context, "GET", "/local/migrate", null, 15000, null));
+    }
+
+    public static JSONObject migrateCreateToken(Context context, String label, String scope) throws Exception {
+        JSONObject req = new JSONObject();
+        req.put("label", label != null ? label : "");
+        req.put("scope", scope != null ? scope : "single");
+        return requireJsonObject(authedRequest(context, "POST", "/local/migrate/tokens", req, 15000, null));
+    }
+
+    public static JSONObject migratePrompt(Context context, String tokenId, String scope) throws Exception {
+        StringBuilder query = new StringBuilder("/local/migrate/prompt?scope=").append(encodePath(scope != null ? scope : "single"));
+        if (tokenId != null && !tokenId.isEmpty()) query.append("&tokenId=").append(encodePath(tokenId));
+        return requireJsonObject(authedRequest(context, "GET", query.toString(), null, 15000, null));
+    }
+
+    public static JSONObject migrateRevokeToken(Context context, String tokenId) throws Exception {
+        return requireJsonObject(authedRequest(context, "DELETE", "/local/migrate/tokens/" + encodePath(tokenId), null, 15000, null));
+    }
+
+    public static JSONObject migratePreview(Context context, String packageId) throws Exception {
+        return requireJsonObject(authedRequest(context, "GET", "/local/migrate/packages/" + encodePath(packageId), null, 30000, null));
+    }
+
+    public static JSONObject migrateImport(Context context, String packageId, JSONObject selection) throws Exception {
+        return requireJsonObject(authedRequest(context, "POST", "/local/migrate/packages/" + encodePath(packageId) + "/import",
+                selection != null ? selection : new JSONObject(), 600000, null));
+    }
+
+    public static JSONObject migrateDiscard(Context context, String packageId) throws Exception {
+        return requireJsonObject(authedRequest(context, "DELETE", "/local/migrate/packages/" + encodePath(packageId), null, 15000, null));
+    }
+
     public static JSONObject reorderQuickPhrases(Context context, List<String> ids) throws Exception {
         JSONObject req = new JSONObject();
         JSONArray arr = new JSONArray();
