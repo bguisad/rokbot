@@ -30,6 +30,8 @@ import {
   resolveWebhookOrigin,
 } from './automation-webhooks.mjs';
 import { Sharing } from './sharing.mjs';
+import { Migration } from './migrate.mjs';
+import { migrateAdmin, migrateDevice, migrateInbox } from './migrate-api.mjs';
 import { rewriteSharingUrls } from './sharing-api.mjs';
 import { Federation } from './federation.mjs';
 import { federationInternal } from './federation-api.mjs';
@@ -227,6 +229,7 @@ export async function createSelfHostServer(options = {}) {
   const automationWebhooks = await new AutomationWebhooks(dataDir).load();
   const sharing = await new Sharing(dataDir, { skills, plugins, profile, publicUrl: canonical,
     hostCall: internalHostClient(hostUrl, internalToken) }).load();
+  const migration = await new Migration(dataDir, { skills, library, hostCall: internalHostClient(hostUrl, internalToken) }).load();
   const notifications = await new Notifications(dataDir, { onPublish: item => push.enqueue(item) }).load();
   const notificationSettings = await new NotificationSettings(dataDir).load();
   const tickets = new VncTickets(auth, options.ticketOptions);
@@ -504,6 +507,7 @@ export async function createSelfHostServer(options = {}) {
       response.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length });
       return response.end(wav);
     }
+    if (await migrateAdmin(request, response, path, migration, { url, baseUrl: canonical ?? origin })) return;
     if (await tailcatAdmin(request, response, path, network)) return;
     if (await applicationsAdmin(request, response, path, applications, webhookOrigin(request, origin), { kind: 'admin', hash: hash(cookie(request, adminCookie)) })) return;
     if (await adminExtensions(request, response, path, { harness, skills, executionNode, plugins, webhooks, verifyAgent, sharing, federation, mediaSettings, webSettings, webServices, prompts })) return;
@@ -739,6 +743,7 @@ export async function createSelfHostServer(options = {}) {
         return webMoved(request, response, path, url, peerOrigin(origin, true));
     }
     if (await mediaInternal(request, response, path, { internalToken, mediaServices, webServices })) return;
+    if (!web && await migrateInbox(request, response, path, migration, { limiter })) return;
     if (request.method === 'POST' && ['/federation/v1/pair', '/federation/v1/sync', '/federation/v1/revoke'].includes(path)) {
       limiter.check(`federation:${request.socket.remoteAddress}`, 120);
       const envelope = await jsonBody(request, 512 * 1024);
@@ -1200,6 +1205,11 @@ export async function createSelfHostServer(options = {}) {
         items: notifications.list(url.searchParams.get("after")),
       });
     }
+    if (path === '/local/migrate' || path.startsWith('/local/migrate/')) {
+      const found = device(request, web);
+      connections.track(found.id, response);
+      if (await migrateDevice(request, response, path, migration, { url, baseUrl: canonical ?? mainOrigin })) return;
+    }
     if (
       (request.method === "POST" &&
         /^\/api\/[a-zA-Z][a-zA-Z0-9]*$/.test(path)) ||
@@ -1207,7 +1217,7 @@ export async function createSelfHostServer(options = {}) {
     ) {
       const found = device(request, web);
       connections.track(found.id, response);
-      check(!['/api/importLocalSharedBot', '/api/localApplicationRpc'].includes(path), 403, 'Administrator operation');
+      check(!['/api/importLocalSharedBot', '/api/localApplicationRpc', '/api/importLocalMigrationBot', '/api/importLocalMigrationUserMemory'].includes(path), 403, 'Administrator operation');
       if (taskControlMethods.has(path.slice('/api/'.length))) {
         const method = path.slice('/api/'.length), input = await jsonBody(request, 64000);
         const remote = await federation.control(method, input);
