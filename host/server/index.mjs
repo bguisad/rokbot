@@ -48,6 +48,7 @@ import { clientCompatMethods, handleClientCompatRpc } from './client-compat-api.
 import { adminExtensions } from './admin-extensions.mjs';
 import { recentRouting } from '../runtime/routing-log.mjs';
 import { usageSummary, USAGE_PERIODS } from "../runtime/usage-ledger.mjs";
+import { usageExport, usageReport, UsageReportError } from "../runtime/usage-report.mjs";
 import { Profile } from "./profile.mjs";
 import { Library, validateAgentId } from "./library.mjs";
 import { deleteAgentsWithLibrary } from "./host-api.mjs";
@@ -263,6 +264,50 @@ export async function createSelfHostServer(options = {}) {
     catch { throw new HttpError(400, 'Invalid time zone'); }
     if (period && !USAGE_PERIODS.some(item => item.id === period)) throw new HttpError(400, 'Invalid period');
     return usageSummary(join(dataDir, 'usage'), timeZone, new Date(), { period });
+  };
+  // The usage report (host/runtime/usage-report.mjs): ?timeZone=&range=today|7d|30d|all|custom
+  // (&from=&to= local dates), filters ?model=&provider=&profile=&kind=&agent=&status=, a page of
+  // requests ?offset=&limit=, or ?export=csv for every request as { filename, csv, count }.
+  // Bot and model profile names are looked up here; the ledger keeps only their ids.
+  const usageHostCall = internalHostClient(hostUrl, internalToken);
+  let usageNamesCache = null;
+  const usageNames = async () => {
+    if (usageNamesCache && Date.now() - usageNamesCache.at < 30000) return usageNamesCache.names;
+    const [agents, config] = await Promise.all([
+      usageHostCall('listAgents', {}, { signal: AbortSignal.timeout(4000) }).catch(() => null),
+      models.publicConfig().catch(() => null),
+    ]);
+    const names = {
+      agents: new Map((Array.isArray(agents) ? agents : []).filter(item => item?.id).map(item => [item.id, String(item.name ?? '').slice(0, 120) || item.id])),
+      profiles: new Map((config?.profiles ?? []).filter(item => item?.id).map(item => [item.id, item.name || item.model || item.id])),
+      providers: new Map((config?.providers ?? []).filter(item => item?.id).map(item => [item.id, item.name || item.id])),
+    };
+    // A failed bot lookup is retried on the next request instead of caching empty names.
+    if (Array.isArray(agents)) usageNamesCache = { at: Date.now(), names };
+    return names;
+  };
+  // Optional prices per model, per million tokens: { "model": { "input": 2, "output": 8, "cached": 0.5 } }.
+  const usagePrices = async () => {
+    try {
+      const value = JSON.parse(await readFile(join(dataDir, 'usage-prices.json'), 'utf8'));
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    } catch { return null; }
+  };
+  const usageReportFor = async url => {
+    const query = url.searchParams, timeZone = query.get('timeZone') || process.env.TZ || 'UTC';
+    try { new Intl.DateTimeFormat('en', { timeZone }).format(); }
+    catch { throw new HttpError(400, 'Invalid time zone'); }
+    const filters = Object.fromEntries(['model', 'provider', 'profile', 'kind', 'agent', 'status']
+      .map(key => [key, query.get(key) || undefined]).filter(([, value]) => value));
+    const options = { timeZone, range: query.get('range') || '7d', from: query.get('from') || undefined, to: query.get('to') || undefined,
+      filters, offset: Number(query.get('offset') ?? 0), limit: Number(query.get('limit') ?? 50),
+      names: await usageNames(), prices: await usagePrices() };
+    try {
+      return query.get('export') === 'csv' ? await usageExport(join(dataDir, 'usage'), options) : await usageReport(join(dataDir, 'usage'), options);
+    } catch (error) {
+      if (error instanceof UsageReportError) throw new HttpError(400, error.message);
+      throw error;
+    }
   };
   const sockets = new Set();
   function device(request, web = false) {
@@ -572,6 +617,8 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, await modelSettings.save(await jsonBody(request)));
     if (method === "GET" && path === "/admin/api/usage")
       return sendJson(response, 200, await usage(new URL(request.url, origin)));
+    if (method === "GET" && path === "/admin/api/usage/report")
+      return sendJson(response, 200, await usageReportFor(new URL(request.url, origin)));
     if (method === "PUT" && path === "/admin/api/model")
       return sendJson(
         response,
@@ -1125,6 +1172,10 @@ export async function createSelfHostServer(options = {}) {
     if (request.method === "GET" && path === "/local/usage") {
       device(request, web);
       return sendJson(response, 200, await usage(url));
+    }
+    if (request.method === "GET" && path === "/local/usage/report") {
+      device(request, web);
+      return sendJson(response, 200, await usageReportFor(url));
     }
     if (["GET", "PUT"].includes(request.method) && path === "/local/profile") {
       const found = device(request, web);

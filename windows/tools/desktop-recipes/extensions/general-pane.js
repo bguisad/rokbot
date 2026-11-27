@@ -1690,9 +1690,9 @@ function RokModelSettings() {
   });
 }
 
-// Settings > General > Usage: the Host's token usage (GET /local/usage) for today, the last 7
-// and the last 30 days: summary cards, tokens per hour or day stacked by model, the share per
-// model and a table. The charts come from rok-usage-charts.js (the admin page's usage-charts.js)
+// Settings > General > Usage: the Host's usage report (GET /local/usage/report) as the usage
+// dashboard; an older Host gets the original summary (GET /local/usage): today, the last 7 and
+// 30 days with cards, tokens per hour or day stacked by model, the share per model and a table. The charts come from rok-usage-charts.js (the admin page's usage-charts.js)
 // as a tree that becomes JSX here; counts are short (rok-usage-format.js) with the exact number
 // on hover and on a long press (or Enter) on touch screens.
 const rokUsageStyles = `
@@ -1703,6 +1703,7 @@ const rokUsageStyles = `
 .rok-usage-count{cursor:help;-webkit-touch-callout:none;user-select:none;border-radius:3px}
 .rok-usage-count:focus-visible{outline:2px solid currentColor;outline-offset:1px}
 .rok-usage-host{min-width:0}
+.rok-usage-legacy-head{display:flex;justify-content:flex-end;margin-bottom:10px}
 `;
 function RokUsageCount({ value, wrap }) {
   const locale = grokText('zh-CN', 'en'), [exact, setExact] = Q.useState(false), timer = Q.useRef(null);
@@ -1747,11 +1748,10 @@ function RokUsageCharts({ usage, period }) {
   return $.jsx('div', { className: 'rok-usage-host', ref: box, children: view.tree ? rokUsageJsx(view.tree, 'view') : null });
 }
 const ROK_USAGE_PERIODS = [['today', '今天', 'Today'], ['7d', '近 7 天', '7 days'], ['30d', '近 30 天', '30 days']];
-function RokUsageSettings() {
+// The original summary (GET /local/usage) for a Host without the usage report.
+function RokLegacyUsage({ api }) {
   const [usage, setUsage] = Q.useState(null), [failed, setFailed] = Q.useState(false), [period, setPeriod] = Q.useState('today');
-  const api = globalThis.window?.localBot;
   Q.useEffect(() => {
-    if (typeof api?.getUsage !== 'function') return undefined;
     let alive = true;
     const load = () => api.getUsage({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })
       .then(value => { if (!alive) return; if (value?.ok === false || !Array.isArray(value?.periods)) setFailed(true); else { setUsage(value); setFailed(false); } })
@@ -1760,18 +1760,44 @@ function RokUsageSettings() {
     const release = typeof api.onConnectionChanged === 'function' ? api.onConnectionChanged(() => void load()) : () => {};
     return () => { alive = false; try { release?.(); } catch {} };
   }, []);
-  if (typeof api?.getUsage !== 'function') return null;
   const current = usage?.periods?.find(item => item.id === period) ?? usage?.periods?.[0] ?? null;
   const tabs = $.jsx('div', { className: 'rok-usage-periods', role: 'radiogroup', 'aria-label': grokText('时间段', 'Period'),
     children: ROK_USAGE_PERIODS.filter(([id]) => !usage || usage.periods.some(item => item.id === id)).map(([id, zh, en]) => $.jsx('button', {
       type: 'button', role: 'radio', 'aria-checked': (current?.id ?? period) === id ? 'true' : 'false', onClick: () => setPeriod(id), children: grokText(zh, en),
     }, id)) });
-  const rows = current
-    ? [$.jsx(RokUsageCharts, { usage, period: current.id }, 'charts')]
-    : [$.jsx(X, { anchorId: null, variant: 'card', label: failed ? grokText('无法读取用量', 'Could not load usage') : grokText('正在读取…', 'Loading…'), description: null }, 'state')];
   return $.jsxs($.Fragment, { children: [
-    $.jsx('style', { children: rokUsageStyles + ROK_USAGE_CHART_CSS }),
-    $.jsx(Wn, { anchorId: 'outside-settings', title: grokText('用量', 'Usage'), titleAccessory: tabs, children: rows }),
+    $.jsx('div', { className: 'rok-usage-legacy-head', children: tabs }),
+    current ? $.jsx(RokUsageCharts, { usage, period: current.id }) : $.jsx(X, { anchorId: null, variant: 'card',
+      label: failed ? grokText('无法读取用量', 'Could not load usage') : grokText('正在读取…', 'Loading…'), description: null }),
+  ] });
+}
+// The usage dashboard (rok-usage-dashboard.js, the admin page's usage-dashboard.js) owns its
+// element: ranges, filters, trend, breakdowns, requests and CSV export through getUsage({ report }).
+function RokUsageDashboard({ api, onUnsupported }) {
+  const box = Q.useRef(null);
+  Q.useEffect(() => {
+    const element = box.current;
+    if (!element) return undefined;
+    const request = async query => {
+      const { timeZone, filters = {}, exportCsv, ...rest } = query;
+      const value = await api.getUsage({ timeZone, report: { ...rest, ...filters, ...(exportCsv ? { export: 'csv' } : {}) } });
+      if (value?.ok === false) throw Object.assign(new Error(value.error || value.message || grokText('无法读取用量', 'Could not load usage')), { status: value.status });
+      return value;
+    };
+    const dashboard = rokMountUsageDashboard(element, { load: request, exportCsv: request, locale: grokText('zh-CN', 'en'), onUnsupported });
+    const release = typeof api.onConnectionChanged === 'function' ? api.onConnectionChanged(() => void dashboard.refresh()) : () => {};
+    return () => { try { release?.(); } catch {} dashboard.destroy(); };
+  }, []);
+  return $.jsx('div', { className: 'rok-usage-host', ref: box });
+}
+function RokUsageSettings() {
+  const api = globalThis.window?.localBot, [legacy, setLegacy] = Q.useState(false);
+  if (typeof api?.getUsage !== 'function') return null;
+  return $.jsxs($.Fragment, { children: [
+    $.jsx('style', { children: rokUsageStyles + ROK_USAGE_CHART_CSS + ROK_USAGE_DASHBOARD_CSS }),
+    $.jsx(Wn, { anchorId: 'outside-settings', title: grokText('用量', 'Usage'), children: [legacy
+      ? $.jsx(RokLegacyUsage, { api }, 'legacy')
+      : $.jsx(RokUsageDashboard, { api, onUnsupported: () => setLegacy(true) }, 'dashboard')] }),
   ] });
 }
 

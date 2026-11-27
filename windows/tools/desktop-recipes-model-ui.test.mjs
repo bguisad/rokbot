@@ -372,7 +372,7 @@ async function startModelTestServer() {
   };
 }
 
-async function loadExtensionsInVm(harness, localBot) {
+async function loadExtensionsInVm(harness, localBot, dashboard = {}) {
   const moduleUrlLiteral = JSON.stringify(new URL('./desktop-recipes/extensions/module.js', import.meta.url).href);
   const i18nSrc = (await readFile(new URL('grok-local-i18n.js', extDir), 'utf8')).replace(/export /g, '');
   const gpSrc = (await readFile(new URL('general-pane.js', extDir), 'utf8')).replace(/export \{[^}]+\};?/g, '').replaceAll('import.meta.url', moduleUrlLiteral);
@@ -431,6 +431,9 @@ async function loadExtensionsInVm(harness, localBot) {
     grokText: i18nCtx.grokText,
     $: harness.JSX, Q: harness.React, K: Button, He: Toggle, L: Dialog,
     vr: { actionWeakBorder: {} }, Wn: Section, X: Row,
+    // rok-usage-dashboard.js draws into a real element; here a stub that calls `dashboard.mount`.
+    rokMountUsageDashboard: (element, options) => { dashboard.mounted = { element, options }; dashboard.mount?.(options); return { refresh() {}, destroy() { dashboard.destroyed = true; } }; },
+    ROK_USAGE_DASHBOARD_CSS: '.rud{display:grid}',
     __out: gpExports,
   });
   gpCtx.globalThis = gpCtx;
@@ -1067,6 +1070,40 @@ const USAGE_FIXTURE = (() => {
     periods: [today, { ...month, id: '7d', days: 7, from: '2026-11-19', buckets: days.slice(-7) }, month] };
 })();
 
+// The pane's element refs point at an element, as React's do after mounting.
+function withElementRefs(harness) {
+  const useRef = harness.React.useRef;
+  harness.React.useRef = init => useRef(init === null || init === undefined ? { nodeType: 1, tagName: 'DIV' } : init);
+}
+
+test('RokUsageSettings mounts the usage dashboard and maps its requests to getUsage({ report })', async t => {
+  const harness = createReactTestHarness();
+  t.after(() => harness.unmount());
+  withElementRefs(harness);
+  const calls = [], dashboard = {};
+  let reply = { ok: true, version: 2 };
+  const localBot = { locale: 'zh-CN', onConnectionChanged: () => () => {}, getUsage: async payload => { calls.push(payload); return reply; } };
+  const { RokUsageSettings } = await loadExtensionsInVm(harness, localBot, dashboard);
+  harness.mount(harness.JSX.jsx(RokUsageSettings, {}));
+  await harness.waitFor(() => Boolean(dashboard.mounted));
+  const tree = harness.getTree();
+  assert.ok(collectText(tree).includes('用量'));
+  const style = findNodes(tree, node => node.tag === 'style')[0];
+  assert.ok(style.children.includes('.rok-usage-view {') && style.children.endsWith('.rud{display:grid}'));
+  const { options } = dashboard.mounted;
+  assert.equal(options.locale, 'zh-CN');
+  assert.deepEqual(await options.load({ timeZone: 'Asia/Shanghai', range: 'custom', from: '2026-11-01', to: '2026-11-07', filters: { agent: 'bot-1' }, offset: 20, limit: 20 }), reply);
+  const plain = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(plain(calls.at(-1)), { timeZone: 'Asia/Shanghai', report: { range: 'custom', from: '2026-11-01', to: '2026-11-07', agent: 'bot-1', offset: 20, limit: 20 } });
+  await options.exportCsv({ timeZone: 'UTC', range: '7d', filters: {}, offset: 0, limit: 20, exportCsv: true });
+  assert.deepEqual(plain(calls.at(-1)), { timeZone: 'UTC', report: { range: '7d', offset: 0, limit: 20, export: 'csv' } });
+  // Bridge failures reject with the status, so a 404 (an older Host) falls back to the summary.
+  reply = { ok: false, status: 404, error: 'Not found' };
+  await assert.rejects(options.load({ range: '7d', filters: {} }), error => error.status === 404 && error.message === 'Not found');
+  harness.unmount();
+  assert.equal(dashboard.destroyed, true);
+});
+
 test('RokUsageSettings draws cards, columns, shares and a table per period, with exact counts on hover and long press', async t => {
   for (const [locale, expected] of [
     ['en-US', { title: 'Usage', cards: ['Total tokens', 'Requests', 'Input', 'Output', 'Cache hit rate'], today: ['12.3K', '9K', '75%', 'Tokens per hour'],
@@ -1078,7 +1115,9 @@ test('RokUsageSettings draws cards, columns, shares and a table per period, with
     t.after(() => harness.unmount());
     const calls = [];
     const localBot = { locale, onConnectionChanged: () => () => {}, getUsage: async payload => { calls.push(payload); return USAGE_FIXTURE; } };
-    const { RokUsageSettings } = await loadExtensionsInVm(harness, localBot);
+    // An older Host without the usage report: the dashboard gives up and the original summary shows.
+    withElementRefs(harness);
+    const { RokUsageSettings } = await loadExtensionsInVm(harness, localBot, { mount: options => options.onUnsupported() });
     harness.mount(harness.JSX.jsx(RokUsageSettings, {}));
     await harness.waitFor(tree => collectText(tree).includes(expected.cards[0]));
     assert.equal(typeof calls[0].timeZone, 'string');
@@ -1131,7 +1170,9 @@ test('RokUsageSettings draws cards, columns, shares and a table per period, with
 test('RokUsageSettings reports a failed read and stays hidden without the bridge method', async t => {
   const harness = createReactTestHarness();
   t.after(() => harness.unmount());
-  const { RokUsageSettings } = await loadExtensionsInVm(harness, { locale: 'en-US', onConnectionChanged: () => () => {}, getUsage: async () => ({ ok: false, status: 503 }) });
+  withElementRefs(harness);
+  const { RokUsageSettings } = await loadExtensionsInVm(harness, { locale: 'en-US', onConnectionChanged: () => () => {}, getUsage: async () => ({ ok: false, status: 503 }) },
+    { mount: options => options.onUnsupported() });
   harness.mount(harness.JSX.jsx(RokUsageSettings, {}));
   assert.ok(await harness.waitFor(tree => collectText(tree).includes('Could not load usage')));
   harness.unmount();

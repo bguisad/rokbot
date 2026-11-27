@@ -5,7 +5,7 @@ import { groups } from './navigation.js';
 import { blink, createGaze } from './face.js';
 import { createCrew } from './crew.js';
 import { formatCount, formatExactCount, withRequestUnit } from './usage-format.js';
-import { attachUsageTooltip, renderUsageTree, usageView } from './usage-charts.js';
+import { mountUsageDashboard, usageQuery } from './usage-dashboard.js';
 
 // Each summary reads its page's endpoint and returns [text, on] for the overview row.
 const enabled = value => [value ? t('{0} 项已启用', value) : t('未配置'), value > 0];
@@ -53,9 +53,8 @@ export function createOverview({ api, status: current }) {
       <div id="bot-crew" class="crew"></div>
     </section>
     <section id="attention" class="section" hidden><div class="section-head"><h2 class="section-title">待处理</h2></div><div id="attention-list" class="card"></div></section>
-    <section id="usage" class="section usage" aria-labelledby="usage-title" hidden>
-      <div class="section-head"><h2 id="usage-title" class="section-title">按模型用量</h2>
-        <div id="usage-periods" class="chips" role="radiogroup" aria-label="时间段"></div></div>
+    <section id="usage" class="section usage" aria-labelledby="usage-title">
+      <div class="section-head"><h2 id="usage-title" class="section-title">用量统计</h2></div>
       <div id="usage-view"></div>
     </section>
     <div id="overview-groups" class="overview-grid"></div>`);
@@ -125,41 +124,22 @@ export function createOverview({ api, status: current }) {
     element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); flip(); } });
     return element;
   }
-  const PERIODS = { today: '今天', '7d': '近 7 天', '30d': '近 30 天' };
-  let usageData = null, usagePeriod = 'today', usageTips = [], usageWidth = 0;
-  // Cards, columns per hour or day, share per model and the table (usage-charts.js).
-  function renderUsage() {
-    const periods = usageData?.periods ?? [];
-    const period = periods.find(item => item.id === usagePeriod) ?? periods[0];
-    $('#usage').hidden = !period;
-    if (!period) return;
-    $('#usage-periods').replaceChildren(...periods.map(item => {
-      const label = node('label', 'chip'), input = node('input'), text = node('span', '', t(PERIODS[item.id] ?? item.id));
-      input.type = 'radio'; input.name = 'usage-period'; input.value = item.id; input.checked = item.id === period.id;
-      input.addEventListener('change', () => { usagePeriod = item.id; renderUsage(); });
-      label.append(input, text); return label;
-    }));
-    const container = $('#usage-view');
-    usageWidth = container.clientWidth;
-    const view = usageView(usageData, period.id, { locale, width: usageWidth || 600 });
-    usageTips = view.tips;
-    container.replaceChildren(...(view.tree ? [renderUsageTree(view.tree, (value, unit) => count(value, unit === 'requests'
-      ? text => withRequestUnit(text, value, locale) : undefined))] : []));
-  }
-  attachUsageTooltip($('#usage-view'), () => usageTips, locale);
-  new ResizeObserver(() => { if (usageData && $('#usage-view').clientWidth !== usageWidth) renderUsage(); }).observe($('#usage-view'));
+  // The usage dashboard (usage-dashboard.js): ranges, filters, trend, breakdowns and requests.
+  const usageApi = query => api(`/admin/api/usage/report?${usageQuery(query)}`);
+  let dashboard = null;
   async function loadUsage() {
+    if (dashboard) void dashboard.refresh();
+    else dashboard = mountUsageDashboard($('#usage-view'), { load: usageApi, exportCsv: usageApi, locale });
     const usage = await api(`/admin/api/usage?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
     const hero = $('#hero-usage');
     if (usage.requests) {
       const [before, middle, after] = t('今天 {0} Token，{1} 次请求', '\u0000', '\u0001').split(/\u0000|\u0001/);
       hero.replaceChildren(before, count(usage.total), middle, count(usage.requests), after);
     } else hero.textContent = t('今天还没有模型请求');
-    usageData = usage; renderUsage();
   }
   async function load() {
     const state = current(); if (state) render(state);
-    await Promise.all([loadUsage().catch(() => { $('#hero-usage').textContent = ''; $('#usage').hidden = true; }),
+    await Promise.all([loadUsage().catch(() => { $('#hero-usage').textContent = ''; }),
       ...Object.entries(summaries).filter(([, [paths]]) => paths).map(async ([view, [paths, summarize]]) => {
         try { show(view, summarize(await Promise.all(paths.map(path => api(path))), state)); }
         catch { show(view, ['—', false]); }

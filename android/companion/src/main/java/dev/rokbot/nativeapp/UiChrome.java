@@ -321,6 +321,31 @@ public final class UiChrome {
                     arrow.lineTo(ax, ay + r * 0.08f);
                     arrow.lineTo(ax + r * 0.1f, ay - r * 0.42f);
                     canvas.drawPath(arrow, paint);
+                } else if ("download".equals(kind)) {
+                    // Arrow into a tray (export / save).
+                    canvas.drawLine(cx, cy - r * 0.95f, cx, cy + r * 0.25f, paint);
+                    Path head = new Path();
+                    head.moveTo(cx - r * 0.5f, cy - r * 0.2f);
+                    head.lineTo(cx, cy + r * 0.3f);
+                    head.lineTo(cx + r * 0.5f, cy - r * 0.2f);
+                    canvas.drawPath(head, paint);
+                    Path tray = new Path();
+                    tray.moveTo(cx - r * 0.9f, cy + r * 0.35f);
+                    tray.lineTo(cx - r * 0.9f, cy + r * 0.9f);
+                    tray.lineTo(cx + r * 0.9f, cy + r * 0.9f);
+                    tray.lineTo(cx + r * 0.9f, cy + r * 0.35f);
+                    canvas.drawPath(tray, paint);
+                } else if ("filter".equals(kind)) {
+                    // Funnel.
+                    Path funnel = new Path();
+                    funnel.moveTo(cx - r * 0.95f, cy - r * 0.75f);
+                    funnel.lineTo(cx + r * 0.95f, cy - r * 0.75f);
+                    funnel.lineTo(cx + r * 0.2f, cy + r * 0.1f);
+                    funnel.lineTo(cx + r * 0.2f, cy + r * 0.85f);
+                    funnel.lineTo(cx - r * 0.2f, cy + r * 0.6f);
+                    funnel.lineTo(cx - r * 0.2f, cy + r * 0.1f);
+                    funnel.close();
+                    canvas.drawPath(funnel, paint);
                 } else if ("moon".equals(kind)) {
                     Path moon = new Path();
                     moon.addCircle(cx, cy, r * 0.78f, Path.Direction.CW);

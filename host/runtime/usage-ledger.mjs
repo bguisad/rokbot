@@ -11,11 +11,22 @@ export function usageCounts(raw = {}) {
     cacheWrite: count(raw.cache_creation_input_tokens),
     reasoning: count(raw.completion_tokens_details?.reasoning_tokens) };
 }
-export async function recordUsage(directory, { raw, model, kind = 'chat', effort, requestId, profileId, providerId, at = new Date() }) {
-  if (!directory || !raw || !Object.keys(raw).length) return;
+// Optional request details (every field may be missing in older rows, shown as "not recorded"):
+// agentId (the bot), durationMs (request start to the end of the response), status ("ok",
+// "error" or "cancelled") and error (a short code such as "HTTP 429", never a message).
+export const USAGE_STATUSES = Object.freeze(['ok', 'error', 'cancelled']);
+const shortText = (value, limit = 200) => typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : undefined;
+export async function recordUsage(directory, { raw, model, kind = 'chat', effort, requestId, profileId, providerId, agentId,
+  durationMs, status, error, at = new Date() }) {
+  const known = USAGE_STATUSES.includes(status) ? status : undefined;
+  // A failed or cancelled request is kept without token counts; a finished one needs them.
+  if (!directory || ((!raw || !Object.keys(raw).length) && (!known || known === 'ok'))) return;
   const timestamp = at.toISOString();
+  const agent = shortText(agentId), code = known === 'error' ? shortText(error, 80) : undefined;
   const entry = { id: randomUUID(), at: timestamp, model, kind, effort, requestId,
-    ...(profileId ? { profileId } : {}), ...(providerId ? { providerId } : {}), ...usageCounts(raw) };
+    ...(profileId ? { profileId } : {}), ...(providerId ? { providerId } : {}), ...(agent ? { agentId: agent } : {}),
+    ...(Number.isFinite(durationMs) && durationMs >= 0 ? { durationMs: Math.round(durationMs) } : {}),
+    ...(known ? { status: known } : {}), ...(code ? { error: code } : {}), ...usageCounts(raw ?? {}) };
   await mkdir(directory, { recursive: true, mode: 0o700 });
   // Each process appends one short JSON line; no read/modify/write race with the admin server.
   await appendFile(join(directory, timestamp.slice(0, 10) + '.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
@@ -33,7 +44,9 @@ const DAY = 86400000;
 // Ledger files are one UTC day each. Past days no longer change, so a file is parsed again only
 // when its size or modification time does; the local date of each row is kept per time zone.
 const files = new Map();
-async function ledgerRows(path) {
+// Text fields kept per row for the report (usage-report.mjs) besides the counts.
+const DETAIL_FIELDS = ['kind', 'effort', 'requestId', 'profileId', 'providerId', 'agentId', 'status', 'error'];
+export async function ledgerRows(path) {
   const info = await stat(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
   if (!info) { files.delete(path); return null; }
   const key = `${info.size}:${info.mtimeMs}`, cached = files.get(path);
@@ -45,14 +58,23 @@ async function ledgerRows(path) {
     if (!row?.id || !Number.isFinite(at)) continue;
     const kept = { id: row.id, model: row.model, atMs: at };
     for (const field of USAGE_FIELDS) kept[field] = row[field];
+    for (const field of DETAIL_FIELDS) if (typeof row[field] === 'string' && row[field]) kept[field] = row[field];
+    if (Number.isFinite(row.durationMs) && row.durationMs >= 0) kept.durationMs = row.durationMs;
     rows.push(kept);
   }
   const entry = { key, rows, dates: new Map() };
   files.set(path, entry);
   return entry;
 }
+/** Forget the parsed files of `directory` older than the UTC day `oldest`. */
+export function forgetLedgerBefore(directory, oldest) {
+  for (const path of files.keys()) {
+    const name = path.slice(-16, -6);
+    if (path.startsWith(join(directory, '/')) && name < oldest) files.delete(path);
+  }
+}
 // The local date and hour of each row, "2026-11-25T13", per time zone.
-function localHours(entry, zone) {
+export function localHours(entry, zone) {
   let stamps = entry.dates.get(zone);
   if (!stamps) {
     const format = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
@@ -70,7 +92,7 @@ function localHours(entry, zone) {
   }
   return stamps;
 }
-const shiftDate = (date, days) => {
+export const shiftDate = (date, days) => {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 };
@@ -123,10 +145,7 @@ export async function usageSummary(directory, timeZone = 'UTC', now = new Date()
     });
   }
   // Drop cached files that have aged out of every period.
-  for (const path of files.keys()) {
-    const name = path.slice(-16, -6);
-    if (path.startsWith(join(directory, '/')) && name < shiftDate(first, -1)) files.delete(path);
-  }
+  forgetLedgerBefore(directory, shiftDate(first, -1));
   const periods = USAGE_PERIODS.map(period => {
     const from = shiftDate(today, 1 - period.days), items = rows.filter(item => item.date >= from);
     return { id: period.id, days: period.days, from, to: today, ...summarize(items.map(item => item.row)), ...buckets(items, period, today) };

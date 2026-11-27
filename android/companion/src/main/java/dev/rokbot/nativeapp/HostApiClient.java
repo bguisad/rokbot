@@ -601,6 +601,27 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    /**
+     * GET /local/usage/report (docs/usage-report.md) in the device time zone: `range` today | 7d |
+     * 30d | all | custom (with local dates `from` / `to`), `filters` by dimension key (model,
+     * provider, profile, kind, agent, status; "(none)" = not recorded) and a page of requests.
+     * Older Hosts answer 404 (ApiException.statusCode): the caller falls back to getUsage().
+     */
+    public static JSONObject getUsageReport(Context context, String range, String from, String to,
+                                            Map<String, String> filters, int offset, int limit) throws Exception {
+        String tz = TimeZone.getDefault().getID();
+        HttpResult res = authedGet(context, UsageReport.query(tz, range, from, to, filters, offset, limit, false));
+        return requireJsonObject(res);
+    }
+
+    /** The same report as CSV (export=csv): { filename, csv, count }, every filtered request of the range. */
+    public static JSONObject exportUsageCsv(Context context, String range, String from, String to,
+                                            Map<String, String> filters) throws Exception {
+        String tz = TimeZone.getDefault().getID();
+        HttpResult res = authedRequest(context, "GET", UsageReport.query(tz, range, from, to, filters, 0, 0, true), null, 60000);
+        return requireJsonObject(res);
+    }
+
     public static JSONObject getComputers(Context context) throws Exception {
         HttpResult res = authedGet(context, "/local/computers");
         return requireJsonObject(res);
