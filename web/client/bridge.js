@@ -14,6 +14,7 @@ import { createGateway } from './gateway.js';
 import { installWebviewFrames } from './webview.js';
 import { installLayoutFixes, computerStageOpen, phoneBack, showConversation } from './layout.js';
 import './desktop/composer-assist.js';
+import './desktop/group-create.js';
 import { installComposerSuggestions } from './suggestions.js';
 import { installAnchorFallback } from './anchor-fallback.js';
 import { rokText } from './desktop/i18n.mjs';
@@ -348,6 +349,14 @@ globalThis.__rokbotProfile = Object.freeze({
 });
 installLayoutFixes();
 installComposerSuggestions({ request: gateway.request, locale, getViewingAgentId: () => viewingAgentId });
+globalThis.RokBotGroupCreate?.installGroupCreate?.({
+  document,
+  window,
+  locale,
+  listAgents: () => gateway.command('listAgents', {}),
+  createGroup: body => gateway.command('createGroup', body),
+  openAgent,
+});
 if (anchorFallback) log(`[webview] CSS anchor positioning fallback active (${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'unknown'})`);
 
 // ---- Android shell events and the back gesture --------------------------------------------
