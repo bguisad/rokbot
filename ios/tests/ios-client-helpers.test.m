@@ -68,6 +68,7 @@ OSStatus RBHelperTestSecCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
 #import "../clients/ios/RBUpdater.m"
 #import "../clients/ios/RBSuggestions.m"
 #import "../clients/ios/RBGroupCreate.m"
+#import "../clients/ios/RBMigrate.m"
 
 #define CHECK(cond)                                                                                \
   do {                                                                                             \
@@ -539,9 +540,24 @@ static void testGroupCreateHelpers(void) {
   puts("PASS: RBGroupCreate Desktop rules (eligible Bots, ranking, inline new Bot, 6-Bot cap, auto name & 72-char cap, createGroup body)");
 }
 
+static void testMigrateHelpers(void) {
+  NSDictionary *counts = @{ @"bots" : @3, @"memory" : @6, @"skills" : @0, @"routines" : @2 };
+  if (![RBMigrateCountsLine(counts, YES) isEqualToString:@"3 个 Bot · 6 条记忆 · 2 个例程"]) { fprintf(stderr, "FAIL: migrate counts zh\n"); exit(1); }
+  if (![RBMigrateCountsLine(counts, NO) isEqualToString:@"3 Bots · 6 memories · 2 routines"]) { fprintf(stderr, "FAIL: migrate counts en\n"); exit(1); }
+  if (![RBMigrateCountsLine(@{}, YES) isEqualToString:@"没有可导入的内容"] || ![RBMigrateCountsLine(nil, YES) isEqualToString:@""]) { fprintf(stderr, "FAIL: migrate empty\n"); exit(1); }
+  NSArray *bots = @[ @{ @"key" : @"id:a" }, @{ @"key" : @"id:b" }, @{ @"name" : @"no key" } ];
+  NSDictionary *selection = RBMigrateSelection(bots, [NSSet setWithObject:@"id:b"], @{ @"id:a" : @"overwrite", @"id:b" : @"rm -rf" }, YES);
+  NSDictionary *chosen = selection[@"bots"];
+  if (chosen.count != 2 || ![chosen[@"id:a"][@"include"] boolValue] || [chosen[@"id:b"][@"include"] boolValue]) { fprintf(stderr, "FAIL: migrate include\n"); exit(1); }
+  if (![chosen[@"id:a"][@"conflict"] isEqual:@"overwrite"] || ![chosen[@"id:b"][@"conflict"] isEqual:@"rename"]) { fprintf(stderr, "FAIL: migrate policy\n"); exit(1); }
+  if (![chosen[@"id:a"][@"chat"] boolValue]) { fprintf(stderr, "FAIL: migrate chat\n"); exit(1); }
+  printf("PASS: RBMigrate\n");
+}
+
 int main(void) {
   @autoreleasepool {
     testDeviceIdentity();
+    testMigrateHelpers();
     testModelsHelpers();
     testUpdaterHelpers();
     testScenarioRouteHelpers();
