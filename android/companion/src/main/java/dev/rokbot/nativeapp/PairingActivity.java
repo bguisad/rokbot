@@ -390,18 +390,10 @@ public class PairingActivity extends Activity {
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "测速", "Speed test"), p));
         root.addView(buildSpeedTestCard(p));
 
-        // Only what belongs to this connection. Bot icon style, model settings, app updates,
+        // Only what belongs to this connection. Bot icon style, model settings, data migration, app updates,
         // appearance & language, notifications, profile, usage, Bot computers and the library are
         // first-level settings rows (or official RN rows) and are not repeated here; list
         // arrangement is the bell on the Bot list.
-        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "数据迁移", "Migration"), p));
-        LinearLayout migrateGroup = UiChrome.makeRowGroup(this, p);
-        TextView migrateRow = UiChrome.makeNavRow(this, Localize.t(this, MigrateActivity.TITLE_ZH, MigrateActivity.TITLE_EN), p.textPrimary, true, p,
-                v -> startActivity(new android.content.Intent(this, MigrateActivity.class)));
-        migrateRow.setContentDescription("open_migrate_row");
-        migrateGroup.addView(migrateRow);
-        root.addView(migrateGroup);
-
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "当前连接", "This connection"), p));
         LinearLayout actions = UiChrome.makeRowGroup(this, p);
         actions.setContentDescription("connection_actions");

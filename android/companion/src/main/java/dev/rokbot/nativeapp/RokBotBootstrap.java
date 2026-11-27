@@ -1824,6 +1824,12 @@ public class RokBotBootstrap {
         return matchesLabelOrCommaPrefix(s, "输入建议", false) || matchesLabelOrCommaPrefix(s, "Input Suggestions", true);
     }
 
+    /** rokbot.8 first-level row (MENU_LABELS.migrate; zh-Hant 資料迁移) -> MigrateActivity. */
+    static boolean matchesDataMigrationLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "数据迁移", false) || matchesLabelOrCommaPrefix(s, "Data Migration", true)
+                || matchesLabelOrCommaPrefix(s, "資料迁移", false);
+    }
+
     static boolean matchesSoftwareUpdateLabel(String s) {
         return matchesLabelOrCommaPrefix(s, "应用更新", false) || matchesLabelOrCommaPrefix(s, "App Updates", true)
                 // rokbot.5 wording, kept for bundles built before rokbot.6.
@@ -1945,6 +1951,7 @@ public class RokBotBootstrap {
                     || matchesUsageLabel(s)
                     || matchesModelSettingsLabel(s)
                     || matchesSuggestionsSettingsLabel(s)
+                    || matchesDataMigrationLabel(s)
                     || matchesSoftwareUpdateLabel(s)
                     || matchesAvatarStyleLabel(s)
                     || matchesComputersLabel(s))) {
@@ -2056,6 +2063,9 @@ public class RokBotBootstrap {
         }
         if (matchesSuggestionsSettingsLabel(s)) {
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? SuggestionsSettingsActivity.class : null;
+        }
+        if (matchesDataMigrationLabel(s)) {
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? MigrateActivity.class : null;
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? UpdateActivity.class : null;
@@ -2602,6 +2612,9 @@ public class RokBotBootstrap {
         }
         if (matchesSuggestionsSettingsLabel(s)) {
             return SuggestionsSettingsActivity.class;
+        }
+        if (matchesDataMigrationLabel(s)) {
+            return MigrateActivity.class;
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return UpdateActivity.class;

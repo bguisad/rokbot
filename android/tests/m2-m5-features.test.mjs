@@ -1464,6 +1464,8 @@ public class VerifyHarness {
         check(RokBotBootstrap.resolveNativeTargetForLabel("App Updates") == UpdateActivity.class, "App Updates");
         check(RokBotBootstrap.resolveNativeTargetForLabel("Bot 图标样式") == AvatarStyleActivity.class, "Bot 图标样式");
         check(RokBotBootstrap.resolveNativeTargetForLabel("Bot Icon Style") == AvatarStyleActivity.class, "Bot Icon Style");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("数据迁移") == MigrateActivity.class, "数据迁移");
+        check(RokBotBootstrap.resolveNativeTargetForLabel("Data Migration") == MigrateActivity.class, "Data Migration");
         check(RokBotBootstrap.resolveNativeTargetForLabel("外观") == null, "official Appearance row stays in RN");
         check(RokBotBootstrap.resolveNativeTargetForLabel("语言") == null, "official Language row stays in RN");
         check(RokBotBootstrap.resolveNativeTargetForLabel("消息") == null, "Bots list stays in RN");
