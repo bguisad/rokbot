@@ -139,9 +139,11 @@ test(
     // listSort in the JSON (rokbot.5b): the live arrangement, always applied to the paired bundle
     // with one titles set; behaviour is checked in list-groups.test.mjs.
     assert.equal(meta.listSort.live, 1);
-    assert.equal(meta.listSort.edits.length, 4);
+    assert.equal(meta.listSort.edits.length, 5);
     assert.deepEqual(listSortEdits(paired.gatewayTemplateHbc).edits.map(e => e.label), [
-      'recencyOf: global.sorted ? last message : official recency', 'SidebarSectionsView.resolve: sections <- FeedbackSheet.call(params)',
+      'recencyOf: global.sorted ? last message : official recency',
+      'recencyOf: global.sorted ? last message : official recency: property cache sizes',
+      'SidebarSectionsView.resolve: sections <- FeedbackSheet.call(params)',
       'toggleSectionCollapsed: fold any id', 'SearchButton: FeedbackSheet(props, 1)',
     ]);
     const sorted = applyListSortEdits(paired.gatewayTemplateHbc, [...meta.listSort.edits, ...meta.listSort.titles.zh]);

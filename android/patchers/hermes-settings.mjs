@@ -871,10 +871,17 @@ export function applySettingsMenu(hbcBuffer) {
 //     (C) (pressEvent) the bell's onPress (closure over the AgentsService instance): flips
 //         global.sorted and toggles 'sorted'. Nothing throws if the service is missing.
 //   Titles are String.fromCharCode(...) of the Web wording; zh and en bodies are published, the
-//   companion applies one (HermesPatcher). Property caches are disabled (255) in every body;
-//   registers follow each frame's number / non-pointer / pointer split.
+//   companion applies one (HermesPatcher). Registers follow each frame's number / non-pointer /
+//   pointer split.
+//
+// Property caches: every GetById / TryGetById / PutById of a new body gets a real cache index, one
+// per property name and kind (read / write), as the Hermes compiler allocates them, and the
+// function header's ReadCacheSize / WriteCacheSize is raised (a verified header edit) when the
+// body needs more entries than the official function had. Hermes v98 has no "caching disabled"
+// index for these opcodes: the interpreter indexes CodeBlock's trailing cache arrays with the
+// operand directly (the bound is only an assert), so the 255 used before read and wrote heap
+// memory far past the cache and crashed the JS thread (SIGSEGV in libhermesvm) on cold starts.
 
-const PROPERTY_CACHE_OFF = 255;
 export const LIST_MODE_ID = 'sorted';
 export const LIST_GROUP_IDS = ['pending', 'running', 'unread', 'read'];
 export const LIST_GROUP_TITLES = {
@@ -902,8 +909,21 @@ function assembler() {
   const parts = [];
   const labels = {};
   const fixups = [];
+  const readCache = new Map();
+  const writeCache = new Map();
+  const cacheIndex = (map, id) => {
+    if (!map.has(id)) map.set(id, map.size);
+    if (map.size > 255) throw new Error('more than 255 property cache entries');
+    return map.get(id);
+  };
   let pos = 0;
   const a = {
+    /** Read cache index for property name `id` (one per name, as the Hermes compiler assigns them). */
+    rc(id) { return cacheIndex(readCache, id); },
+    /** Write cache index for property name `id`. */
+    wc(id) { return cacheIndex(writeCache, id); },
+    get readCacheSize() { return readCache.size; },
+    get writeCacheSize() { return writeCache.size; },
     emit(b) { parts.push(b); pos += b.length; return a; },
     jump(op, label, ...regs) {
       if (!JUMP_OPS.has(op)) throw new Error(`not a jump: ${op}`);
@@ -928,6 +948,8 @@ function assembler() {
           body.writeInt8(d, f.at + 1);
         }
       }
+      body.readCacheSize = readCache.size;
+      body.writeCacheSize = writeCache.size;
       return body;
     },
   };
@@ -939,9 +961,19 @@ function loadString(a, reg, id) {
 }
 
 function getById(a, dst, obj, id) {
-  if (id < 256) return a.emit(ins(OPG.GetByIdShort, dst, obj, PROPERTY_CACHE_OFF, id));
-  if (id < 65536) return a.emit(ins(OPG.GetById, dst, obj, PROPERTY_CACHE_OFF, u16le(id)));
-  return a.emit(ins(OPG.GetByIdLong, dst, obj, PROPERTY_CACHE_OFF, u32le(id)));
+  if (id < 256) return a.emit(ins(OPG.GetByIdShort, dst, obj, a.rc(id), id));
+  if (id < 65536) return a.emit(ins(OPG.GetById, dst, obj, a.rc(id), u16le(id)));
+  return a.emit(ins(OPG.GetByIdLong, dst, obj, a.rc(id), u32le(id)));
+}
+
+function tryGetById(a, dst, obj, id) {
+  if (id >= 65536) throw new Error('TryGetById needs a 16-bit string id');
+  return a.emit(ins(OPG.TryGetById, dst, obj, a.rc(id), u16le(id)));
+}
+
+function putByIdLoose(a, obj, value, id) {
+  if (id >= 65536) throw new Error('PutByIdLoose needs a 16-bit string id');
+  return a.emit(ins(OPG.PutByIdLoose, obj, value, a.wc(id), u16le(id)));
 }
 
 // Strings the new bodies use. Property names (GetById / PutById / TryGetById) must be identifiers;
@@ -1020,7 +1052,7 @@ function recencyLiveBody(g) {
   a.emit(ins(OPG.LoadParam, 2, 1));                        // row
   a.emit(ins(OPG.LoadParam, 4, 2));                        // mode
   a.emit(ins(OPG.GetGlobalObject, 3));
-  a.emit(ins(OPG.TryGetById, 7, 3, PROPERTY_CACHE_OFF, u16le(g.Math)));
+  tryGetById(a, 7, 3, g.Math);
   getById(a, 6, 7, g.max);
   a.emit(ins(OPG.LoadConstNull, 1));
   getById(a, 5, 3, g[LIST_MODE_ID]);                      // global.sorted (undefined when never set)
@@ -1074,7 +1106,7 @@ function recencyLiveBody(g) {
 function emitModeOf(a, g, list, tag) {
   a.emit(ins(OPG.LoadConstFalse, 2));
   a.emit(ins(OPG.GetGlobalObject, 10));
-  a.emit(ins(OPG.TryGetById, 11, 10, PROPERTY_CACHE_OFF, u16le(g.Array)));
+  tryGetById(a, 11, 10, g.Array);
   getById(a, 12, 11, g.isArray);
   a.emit(ins(OPG.Call2, 12, 12, 11, list));
   a.far(OPG.JmpFalse, `${tag}:off`, 12);
@@ -1132,14 +1164,14 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   a.emit(ins(OPG.LoadFromEnvironment, 17, 8, 2));
   PROP(17, 17, 'SandButton');
   a.emit(ins(OPG.GetGlobalObject, 18));
-  a.emit(ins(OPG.TryGetById, 19, 18, PROPERTY_CACHE_OFF, u16le(g.__r)));
+  tryGetById(a, 19, 18, g.__r);
   a.emit(ins(OPG.LoadConstInt, 20, i32le(modules.queries)));
   a.emit(ins(OPG.Call2, 20, 19, 4, 20));
   PROP(20, 20, 'useCollapsedSectionIdsQuery');
   a.emit(ins(OPG.Call1, 20, 20, 4));                       // hook: re-renders the bell with the mode
   PROP(21, 20, 'data');
   emitModeOf(a, g, 21, 'B');                               // r2 = mode
-  a.emit(ins(OPG.PutByIdLoose, 18, 2, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));
+  putByIdLoose(a, 18, 2, g[LIST_MODE_ID]);
   a.emit(ins(OPG.LoadConstInt, 22, i32le(modules.session)));
   a.emit(ins(OPG.Call2, 22, 19, 4, 22));
   PROP(22, 22, 'useSessionService');
@@ -1212,7 +1244,7 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   emitModeOf(a, g, 15, 'C');
   a.emit(ins(OPG.Not, 3, 2));
   a.emit(ins(OPG.GetGlobalObject, 16));
-  a.emit(ins(OPG.PutByIdLoose, 16, 3, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));   // before the re-render sorts
+  putByIdLoose(a, 16, 3, g[LIST_MODE_ID]);   // before the re-render sorts
   loadString(a, 17, g[LIST_MODE_ID]);
   a.emit(ins(OPG.Call2, 14, 14, 9, 17));                   // toggleSectionCollapsed('sorted')
   a.label('Cdone');
@@ -1222,7 +1254,7 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   a.label('A');
   PROP(9, 8, 'collapsedSectionIds');                       // r8 = this
   emitModeOf(a, g, 9, 'A');
-  a.emit(ins(OPG.PutByIdLoose, 10, 2, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));   // r10 = global (emitModeOf)
+  putByIdLoose(a, 10, 2, g[LIST_MODE_ID]);   // r10 = global (emitModeOf)
   a.far(OPG.JmpTrue, 'Agroups', 2);
   PROP(6, 8, 'sections');
   a.emit(ins(OPG.Ret, 6));                                 // official: the user's sections
@@ -1271,7 +1303,7 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   a.emit(ins(OPG.Add, 19, 19, 26));
   a.far(OPG.Jmp, 'Aloop');
   a.label('Adone');
-  a.emit(ins(OPG.TryGetById, 10, 10, PROPERTY_CACHE_OFF, u16le(g.String)));
+  tryGetById(a, 10, 10, g.String);
   PROP(11, 10, 'fromCharCode');
   a.emit(ins(OPG.NewArray, 7, u16le(0)));
   LIST_GROUP_IDS.forEach((id, i) => {
@@ -1392,10 +1424,13 @@ export function listSortEdits(hbcBuffer) {
     modules[m.key] = id;
   }
 
+  // A whole new body plus, when it needs more property cache entries than the official function
+  // had, the header edit that sizes the caches for it (see "Property caches" above).
   const whole = (label, fn, body) => {
     if (body.length > fn.size) throw new Error(`${label}: ${body.length} > ${fn.size}`);
-    return { label, offset: fn.offset, original: Buffer.from(buf.subarray(fn.offset, fn.offset + fn.size)),
-      patched: Buffer.concat([body, Buffer.alloc(fn.size - body.length, OP.AsyncBreakCheck)]) };
+    const header = cacheSizeEdit(buf, L, fn.index, body, label);
+    return [{ label, offset: fn.offset, original: Buffer.from(buf.subarray(fn.offset, fn.offset + fn.size)),
+      patched: Buffer.concat([body, Buffer.alloc(fn.size - body.length, OP.AsyncBreakCheck)]) }, ...(header ? [header] : [])];
   };
   const prologue = Buffer.concat([
     ins(OPG.CreateClosure, 4, 2, u16le(fs.index)),
@@ -1405,18 +1440,18 @@ export function listSortEdits(hbcBuffer) {
   let edits, titles;
   try {
     edits = [
-      whole('recencyOf: global.sorted ? last message : official recency', recency, recencyLiveBody(g)),
+      ...whole('recencyOf: global.sorted ? last message : official recency', recency, recencyLiveBody(g)),
       { label: 'SidebarSectionsView.resolve: sections <- FeedbackSheet.call(params)', offset: resolve.offset + 18,
         original: Buffer.from(RESOLVE_PROLOGUE_ORIGINAL),
         patched: Buffer.concat([prologue, Buffer.alloc(RESOLVE_PROLOGUE_ORIGINAL.length - prologue.length, OP.AsyncBreakCheck)]) },
       { label: 'toggleSectionCollapsed: fold any id', offset: toggle.offset + 43,
         original: Buffer.from(TOGGLE_CHECK_ORIGINAL), patched: hex('ae 07 7e') },
-      whole('SearchButton: FeedbackSheet(props, 1)', search, searchButtonLiveBody(fs.index)),
+      ...whole('SearchButton: FeedbackSheet(props, 1)', search, searchButtonLiveBody(fs.index)),
     ];
     titles = {};
     for (const [lang, list] of Object.entries(LIST_GROUP_TITLES)) {
-      titles[lang] = [whole(`FeedbackSheet -> ${lang} list arrangement`, fs,
-        feedbackSheetLiveBody({ g, selfIndex: fs.index, modules, titles: list }))];
+      titles[lang] = whole(`FeedbackSheet -> ${lang} list arrangement`, fs,
+        feedbackSheetLiveBody({ g, selfIndex: fs.index, modules, titles: list }));
     }
   } catch {
     return null;
@@ -1431,9 +1466,31 @@ function functionHeader(buf, L, index) {
   if (flags & 0x20) {
     const large = ((w1 & 0xffffff) | (((w2 >>> 14) & 0xff) << 24)) >>> 0;
     const u = o => buf.readUInt32LE(large + o);
-    return { params: u(4), size: u(12), numRegs: u(20), nonPtrRegs: u(24), frame: u(28) };
+    // LargeFunctionHeader: one uint32 per field up to FrameSize, then uint8 ReadCacheSize,
+    // WriteCacheSize, NumCacheNewObject, PrivateNameCacheSize and the flags.
+    return { params: u(4), size: u(12), numRegs: u(20), nonPtrRegs: u(24), frame: u(28),
+      readCache: buf[large + 32], writeCache: buf[large + 33], cacheAt: large + 32, large: true };
   }
-  return { params: (w1 >>> 25) & 31, size: w2 & 0x3fff, numRegs: (w2 >>> 22) & 31, nonPtrRegs: (w2 >>> 27) & 31, frame: buf[a + 8] };
+  // Small header third word: FrameSize:8, ReadCacheSize:8, WriteCacheSize:6 (+2 flag bits), flags.
+  return { params: (w1 >>> 25) & 31, size: w2 & 0x3fff, numRegs: (w2 >>> 22) & 31, nonPtrRegs: (w2 >>> 27) & 31, frame: buf[a + 8],
+    readCache: buf[a + 9], writeCache: buf[a + 10] & 0x3f, cacheAt: a + 9, large: false };
+}
+
+/**
+ * Header edit raising function `index`'s ReadCacheSize / WriteCacheSize to at least what a new
+ * body uses (`body.readCacheSize` / `body.writeCacheSize` from assembler()), or null when the
+ * official sizes already cover it. Hermes sizes CodeBlock's property caches from these fields.
+ */
+export function cacheSizeEdit(buf, L, index, body, label) {
+  const h = functionHeader(buf, L, index);
+  const needRead = body.readCacheSize || 0, needWrite = body.writeCacheSize || 0;
+  if (needRead <= h.readCache && needWrite <= h.writeCache) return null;
+  if (needRead > 255 || needWrite > (h.large ? 255 : 63)) throw new Error(`${label}: property cache too large`);
+  const original = Buffer.from(buf.subarray(h.cacheAt, h.cacheAt + 2));
+  const patched = Buffer.from(original);
+  patched[0] = Math.max(h.readCache, needRead);
+  patched[1] = h.large ? Math.max(h.writeCache, needWrite) : (original[1] & 0xc0) | Math.max(h.writeCache, needWrite);
+  return { label: `${label}: property cache sizes`, offset: h.cacheAt, original, patched };
 }
 
 /** Applies (or verifies) list sort edits in place; mirrors HermesPatcher.applyListSortEdits. */
