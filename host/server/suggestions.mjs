@@ -10,6 +10,10 @@ import { reasoningOptions } from '../runtime/model-policy.mjs';
 import { recordUsage } from '../runtime/usage-ledger.mjs';
 import { JsonStore } from './storage.mjs';
 import { check } from './security.mjs';
+import {
+  SuggestionHabits, filterAndRankSuggestions, habitSuggestions, frequentMessages, profilePromptSummary,
+  MAX_SUGGESTION_CHARS_ZH,
+} from './suggestion-habits.mjs';
 
 // A suggestion answer is keyed by Bot + the last transcript entry, so it never goes stale while
 // that entry is the last one: keep it for a day in memory and a week on disk (one per Bot).
@@ -19,11 +23,16 @@ const DEFAULT_PERSIST_TTL_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_MAX_CACHE = 200;
 const MAX_PERSISTED_AGENTS = 200;
 const MAX_SUGGESTIONS = 3;
+// The model may propose a few more than shown: filtering (generic, repeats, ignored) picks from them.
+const MAX_MODEL_ITEMS = 5;
 // Short prompt, short answer: 3 items of at most ~22 characters fit in well under 120 tokens.
 const SUGGESTION_MAX_TOKENS = 120;
 const PROMPT_CONTEXT_MESSAGES = 4;
-const PROMPT_LAST_MESSAGE_CHARS = 360;
-const PROMPT_EARLIER_MESSAGE_CHARS = 140;
+const PROMPT_LAST_MESSAGE_CHARS = 480;
+const PROMPT_EARLIER_MESSAGE_CHARS = 160;
+const PROMPT_CONTEXT_MESSAGES_WITH_PROFILE = 6;
+const MAX_COMPLETION_CANDIDATES = 40;
+const PROFILE_WAIT_MS = 1_500;
 // A Bot's reply notification arrives as the turn ends; give the transcript a moment to settle.
 const REPLY_PREFETCH_DELAY_MS = 800;
 const REQUEST_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
@@ -82,6 +91,8 @@ function sanitizeStoredState(raw) {
   const enabled = raw?.enabled !== false;
   const aiEnabled = raw?.aiEnabled !== false;
   const completionEnabled = raw?.completionEnabled !== false;
+  const learningEnabled = raw?.learningEnabled !== false;
+  const localCompletionEnabled = raw?.localCompletionEnabled !== false;
   const quickPhrases = [];
   const seenIds = new Set();
   const seenTexts = new Set();
@@ -104,7 +115,7 @@ function sanitizeStoredState(raw) {
     }
   }
   const updatedAt = typeof raw?.updatedAt === 'string' ? raw.updatedAt : null;
-  return { version: 1, enabled, aiEnabled, completionEnabled, quickPhrases, updatedAt };
+  return { version: 1, enabled, aiEnabled, completionEnabled, learningEnabled, localCompletionEnabled, quickPhrases, updatedAt };
 }
 
 export class SuggestionsSettings {
@@ -114,6 +125,8 @@ export class SuggestionsSettings {
       enabled: true,
       aiEnabled: true,
       completionEnabled: true,
+      learningEnabled: true,
+      localCompletionEnabled: true,
       quickPhrases: [],
       updatedAt: null,
     });
@@ -132,6 +145,8 @@ export class SuggestionsSettings {
       enabled: clean.enabled,
       aiEnabled: clean.aiEnabled,
       completionEnabled: clean.completionEnabled,
+      learningEnabled: clean.learningEnabled,
+      localCompletionEnabled: clean.localCompletionEnabled,
       quickPhrases: clean.quickPhrases.map(item => ({ id: item.id, text: item.text })),
       updatedAt: clean.updatedAt,
     };
@@ -156,6 +171,11 @@ export class SuggestionsSettings {
     if (Object.hasOwn(input, 'completionEnabled')) {
       check(typeof input.completionEnabled === 'boolean', 400, 'completionEnabled 必须为布尔值');
       next.completionEnabled = input.completionEnabled;
+    }
+    for (const key of ['learningEnabled', 'localCompletionEnabled']) {
+      if (!Object.hasOwn(input, key)) continue;
+      check(typeof input[key] === 'boolean', 400, `${key} 必须为布尔值`);
+      next[key] = input[key];
     }
     if (Object.hasOwn(input, 'quickPhrases')) {
       next.quickPhrases = normalizeQuickPhrases(input.quickPhrases);
@@ -363,7 +383,7 @@ export function parseSuggestionResponse(rawText) {
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(cleaned);
-    if (result.length >= MAX_SUGGESTIONS) break;
+    if (result.length >= MAX_MODEL_ITEMS) break;
   }
   return result;
 }
@@ -376,33 +396,60 @@ function clipMiddle(text, max) {
 }
 
 /** The prompt only needs the gist: the last few messages, the latest one kept longest. */
-export function compactSuggestionHistory(recentMessages) {
-  const recent = recentMessages.slice(-PROMPT_CONTEXT_MESSAGES);
+export function compactSuggestionHistory(recentMessages, count = PROMPT_CONTEXT_MESSAGES) {
+  const recent = recentMessages.slice(-count);
   return recent.map((item, index) => ({
     ...item,
     text: clipMiddle(item.text, index === recent.length - 1 ? PROMPT_LAST_MESSAGE_CHARS : PROMPT_EARLIER_MESSAGE_CHARS),
   }));
 }
 
-function buildSuggestionMessages(recentMessages, lang) {
+/**
+ * The prompt: the recent turns plus what the Host learned about how this user writes to this Bot.
+ * Generic filler ("继续执行下一步", "总结一下当前进展", ...) is forbidden; an empty array is a valid
+ * answer when nothing specific fits (the strip then shows only the user's own phrases).
+ */
+export function buildSuggestionMessages(recentMessages, lang, { profileSummary = '', recentUserTexts = [] } = {}) {
   const isZh = lang === 'zh';
   const systemPrompt = isZh
-    ? '你是聊天输入建议助手。根据最近的对话，给出3条用户下一步最可能发出的简短回复或追问。' +
-      '要求：用户视角；每条6到20个字；互相有区分度并紧扣最后一条回复；只输出一个 JSON 字符串数组，不要解释、序号、Markdown 或表情符号。'
-    : 'Suggest 3 short next messages the user might send in this chat. ' +
-      'Rules: user perspective; under 8 words each; distinct and tied to the latest assistant reply; output ONLY a JSON array of strings, no explanation, numbering, markdown, or emojis.';
+    ? '你替用户预判他在这个对话里下一句最可能亲自打出来的话，用作输入框上方的快捷建议。' +
+      '规则：1) 必须紧扣最后一条 Bot 回复里的具体对象（文件、命令、错误、选项、数字、名字），换个对话就不成立；' +
+      '2) 用用户自己的口吻、语言、长短和常用说法（参考“用户习惯”），像他本人会打的字，不要客服腔；' +
+      `3) 每条不超过${MAX_SUGGESTION_CHARS_ZH}个汉字；4) 0到3条，彼此不同，也不要重复用户最近发过的话；` +
+      '5) 禁止空泛万能句，例如“继续”“继续执行下一步”“总结一下当前进展”“检查线上部署状态”“还有什么建议”“好的谢谢”“详细说说”；' +
+      '没有足够具体的就少给或返回 []；6) Bot 在提问或给选项时，优先给出具体的回答或选择。' +
+      '只输出 JSON 字符串数组，不要解释、序号、Markdown 或表情。'
+    : 'Predict what this user will most likely type next in this chat; shown as quick replies above the input. ' +
+      'Rules: 1) tie each item to something concrete in the latest assistant reply (file, command, error, option, number, name) so it would not fit another chat; ' +
+      "2) use the user's own voice, language, length and habits (see \"User habits\"); " +
+      '3) at most 8 words each; 4) 0 to 3 items, distinct, not repeating what the user just sent; ' +
+      '5) never generic filler like "continue", "next step", "summarize progress", "check the deployment status", "any other suggestions", "thanks", "tell me more" — return fewer or [] instead; ' +
+      '6) when the assistant asks a question or offers options, answer or pick concretely. ' +
+      'Output ONLY a JSON array of strings, no explanation, numbering, markdown, or emojis.';
 
-  const transcript = compactSuggestionHistory(recentMessages)
+  const count = profileSummary ? PROMPT_CONTEXT_MESSAGES_WITH_PROFILE : PROMPT_CONTEXT_MESSAGES;
+  const transcript = compactSuggestionHistory(recentMessages, count)
     .map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.text}`)
     .join('\n');
-  const userPrompt = isZh
-    ? `最近对话：\n${transcript}\n\n请只返回 JSON 字符串数组：`
-    : `Recent conversation:\n${transcript}\n\nReturn only the JSON array of strings:`;
-
+  const recentUser = recentUserTexts.slice(-5).map(text => `- ${clipMiddle(text, 80)}`).join('\n');
+  const parts = [];
+  if (profileSummary) parts.push(isZh ? `用户习惯：\n${profileSummary}` : `User habits:\n${profileSummary}`);
+  if (recentUser) parts.push(isZh ? `用户最近发过（不要重复）：\n${recentUser}` : `User recently sent (do not repeat):\n${recentUser}`);
+  parts.push(isZh ? `最近对话：\n${transcript}` : `Recent conversation:\n${transcript}`);
+  parts.push(isZh ? '请只返回 JSON 字符串数组（可以是 []）：' : 'Return only the JSON array of strings (may be []):');
   return [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
+    { role: 'user', content: parts.join('\n\n') },
   ];
+}
+
+/** The model answered "nothing specific" ([]), as opposed to an unusable answer. */
+export function isEmptySuggestionAnswer(rawText) {
+  if (typeof rawText !== 'string') return false;
+  let text = rawText.trim();
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (fenced) text = fenced[1].trim();
+  return /^\[\s*\]$/.test(text) || /^\{\s*"suggestions"\s*:\s*\[\s*\]\s*\}$/.test(text);
 }
 
 function historySignature(recentMessages, explicitLastEntryId) {
@@ -432,30 +479,48 @@ function optimizeRouteForLatency(route) {
   return route;
 }
 
-function buildPayload({ enabled, aiEnabled, quickPhrases, aiSuggestions, source, cached, lang, agentId = '', historyId = '' }) {
+function buildPayload({
+  enabled, aiEnabled, quickPhrases, aiSuggestions, source, cached, lang, agentId = '', historyId = '',
+  habitItems = [], completionCandidates, learningEnabled, localCompletionEnabled,
+}) {
   const phrases = quickPhrases.map(item => ({ id: item.id, text: item.text }));
-  const phraseSet = new Set(phrases.map(item => item.text.toLowerCase()));
+  const seen = new Set(phrases.map(item => item.text.toLowerCase()));
   const filteredAi = [];
-  const seenAi = new Set();
   for (const text of aiSuggestions) {
     if (typeof text !== 'string') continue;
     const cleaned = text.trim();
     if (!cleaned) continue;
     const key = cleaned.toLowerCase();
-    if (phraseSet.has(key) || seenAi.has(key)) continue;
-    seenAi.add(key);
+    if (seen.has(key)) continue;
+    seen.add(key);
     filteredAi.push(cleaned);
     if (filteredAi.length >= MAX_SUGGESTIONS) break;
+  }
+  // The user's own repeated messages fill what the model left open (all of it without a model).
+  const frequent = [];
+  for (const text of habitItems) {
+    if (filteredAi.length + frequent.length >= MAX_SUGGESTIONS) break;
+    const key = String(text).toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    frequent.push(text);
   }
   const items = [
     ...phrases.map(item => ({ type: 'phrase', id: item.id, text: item.text })),
     ...filteredAi.map(text => ({ type: 'ai', text })),
+    ...frequent.map(text => ({ type: 'frequent', text })),
   ];
   return {
     enabled,
     aiEnabled,
     quickPhrases: phrases,
     aiSuggestions: filteredAi,
+    // rokbot habits (optional for older clients): repeated messages of this user to this Bot, and
+    // the candidates the client matches locally while the user types (no request per keystroke).
+    frequentSuggestions: frequent,
+    ...(completionCandidates ? { completionCandidates } : {}),
+    ...(typeof learningEnabled === 'boolean' ? { learningEnabled } : {}),
+    ...(typeof localCompletionEnabled === 'boolean' ? { localCompletionEnabled } : {}),
     suggestions: items.map(item => item.text),
     items,
     source,
@@ -543,6 +608,8 @@ export class SuggestionsService {
     persistTtlMs = DEFAULT_PERSIST_TTL_MS,
     maxCache = DEFAULT_MAX_CACHE,
     replyPrefetchDelayMs = REPLY_PREFETCH_DELAY_MS,
+    profileWaitMs = PROFILE_WAIT_MS,
+    habits,
     now = () => Date.now(),
   } = {}) {
     this.models = models;
@@ -565,9 +632,13 @@ export class SuggestionsService {
     this.completionInFlight = new Map();
     // The latest answer per Bot survives a Host restart: reopening a chat shows it at once.
     this.persisted = dataDir ? new JsonStore(join(dataDir, 'suggestions-cache.json'), { version: 1, agents: {} }) : null;
+    // What the user sends to each Bot and how they react to suggestions (suggestion-habits.mjs).
+    this.habits = habits ?? new SuggestionHabits({ dataDir, hostCall, now });
+    this.profileWaitMs = profileWaitMs;
   }
 
   async load() {
+    await this.habits.load?.();
     if (!this.persisted) return this;
     try {
       await this.persisted.load();
@@ -597,7 +668,7 @@ export class SuggestionsService {
     }
     const stored = agentId ? this.persisted?.value?.agents?.[agentId] : null;
     if (stored && stored.key === key && Array.isArray(stored.aiSuggestions) && this.now() - stored.at < this.persistTtlMs) {
-      const warm = { aiSuggestions: stored.aiSuggestions.filter(item => typeof item === 'string').slice(0, MAX_SUGGESTIONS),
+      const warm = { aiSuggestions: stored.aiSuggestions.filter(item => typeof item === 'string').slice(0, MAX_MODEL_ITEMS),
         source: 'model', lang: stored.lang, at: stored.at };
       this.cache.set(key, warm);
       return warm;
@@ -657,7 +728,7 @@ export class SuggestionsService {
     const cfg = this.settings?.current?.() ?? { enabled: true, aiEnabled: true };
     if (!cfg.enabled || !cfg.aiEnabled) return false;
     if (this.prefetching.has(agentId)) return true;
-    const task = this.generate({ agentId, locale })
+    const task = this.generate({ agentId, locale, foreground: false })
       .catch(error => console.warn(`[suggestions] prefetch failed for ${agentId}: ${error?.message ?? error}`))
       .finally(() => { if (this.prefetching.get(agentId) === task) this.prefetching.delete(agentId); });
     this.prefetching.set(agentId, task);
@@ -679,10 +750,26 @@ export class SuggestionsService {
     return true;
   }
 
-  async generate({ agentId = '', lastEntryId = '', locale = '', recentMessages, force = false } = {}) {
+  /** The habit profile of a Bot, or null; a slow first build continues in the background. */
+  async #habitProfile(agentId, cfg) {
+    if (!agentId || cfg.learningEnabled === false || !this.habits) return null;
+    const task = this.habits.profile(agentId);
+    let timer;
+    const timeout = new Promise(resolve => { timer = setTimeout(() => resolve(null), this.profileWaitMs); timer.unref?.(); });
+    try {
+      return await Promise.race([task, timeout]);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async generate({ agentId = '', lastEntryId = '', locale = '', recentMessages, force = false, foreground = true } = {}) {
     const cfg = this.settings?.current?.() ?? { enabled: true, aiEnabled: true, quickPhrases: [] };
     const initialLang = detectSuggestionLanguage(locale, []);
-    const payload = fields => buildPayload({ enabled: true, aiEnabled: true, quickPhrases: cfg.quickPhrases, cached: false, agentId, ...fields });
+    const learning = cfg.learningEnabled !== false;
+    const localCompletion = cfg.localCompletionEnabled !== false;
 
     // Master switch off: return empty immediately without touching transcript or model.
     if (!cfg.enabled) {
@@ -695,19 +782,50 @@ export class SuggestionsService {
         cached: false,
         lang: initialLang,
         agentId,
+        learningEnabled: learning,
+        localCompletionEnabled: localCompletion,
       });
     }
 
-    // AI suggestions switch off: return custom quick phrases only.
+    const profileTask = this.#habitProfile(agentId, cfg);
+    let profile = null;
+    let recentUserTexts = [];
+    const feedback = learning && agentId ? this.habits?.feedbackOf?.(agentId) ?? {} : {};
+    const payload = (fields, { modelItems = null, lang: outLang = fields.lang } = {}) => {
+      const ranked = modelItems
+        ? filterAndRankSuggestions(modelItems, { lang: outLang, profile, feedback: learning ? feedback : {}, recentUserTexts, max: MAX_SUGGESTIONS })
+        : fields.aiSuggestions ?? [];
+      const habitItems = learning
+        ? habitSuggestions(profile, feedback, { exclude: [...ranked, ...cfg.quickPhrases.map(item => item.text)], max: MAX_SUGGESTIONS })
+        : [];
+      const candidates = localCompletion
+        ? [...cfg.quickPhrases.map(item => item.text), ...(learning ? frequentMessages(profile, { min: 2, limit: MAX_COMPLETION_CANDIDATES }).map(item => item.text) : [])]
+        : [];
+      const out = buildPayload({
+        enabled: true, aiEnabled: true, quickPhrases: cfg.quickPhrases, cached: false, agentId,
+        learningEnabled: learning, localCompletionEnabled: localCompletion,
+        completionCandidates: [...new Set(candidates)].slice(0, MAX_COMPLETION_CANDIDATES),
+        habitItems, ...fields, aiSuggestions: ranked,
+      });
+      if (foreground && learning && agentId) {
+        void this.habits?.noteShown?.(agentId, [...out.aiSuggestions, ...out.frequentSuggestions]);
+      }
+      return out;
+    };
+
+    // AI suggestions switch off: the user's quick phrases (and own frequent messages) only.
     if (!cfg.aiEnabled) {
+      profile = await profileTask;
       return payload({ aiEnabled: false, aiSuggestions: [], source: 'phrases-only', lang: initialLang });
     }
 
     const history = await this.#loadRecentMessages(agentId, recentMessages);
+    profile = await profileTask;
     if (history === null) return payload({ aiSuggestions: [], source: 'model-error', lang: initialLang });
     const lang = detectSuggestionLanguage(locale, history);
+    recentUserTexts = [...(profile?.recent ?? []), ...history.filter(item => item.role === 'user').map(item => item.text)].slice(-8);
 
-    // Empty chat: no LLM call and no hardcoded presets — custom quick phrases only.
+    // Empty chat: no LLM call and no hardcoded presets — the user's own phrases only.
     if (history.length === 0) return payload({ aiSuggestions: [], source: 'empty', lang });
 
     const route = await this.#resolveRoute();
@@ -716,25 +834,56 @@ export class SuggestionsService {
     // The Host's own transcript decides which message the answer belongs to; a client's
     // lastEntryId only matters when there is no Bot ID to read it from.
     const historyId = historySignature(history, agentId ? '' : lastEntryId);
-    const cacheKey = `${agentId || '_'}:${historyId}:${lang}:${route.profileId}:${route.model}:${route.effort}`;
+    const habitsTag = learning && profile?.total ? `h${profile.total}` : 'h0';
+    const cacheKey = `${agentId || '_'}:${historyId}:${lang}:${route.profileId}:${route.model}:${route.effort}:${habitsTag}`;
     if (!force) {
       const hit = this.#getCached(cacheKey, agentId);
-      if (hit) return payload({ aiSuggestions: hit.aiSuggestions, source: hit.source, cached: true, lang, historyId });
+      if (hit) return payload({ source: hit.source, cached: true, lang, historyId }, { modelItems: hit.aiSuggestions });
       const existing = this.inFlight.get(cacheKey);
       if (existing) {
         const result = await existing;
-        return payload({ aiSuggestions: result.aiSuggestions, source: result.source, cached: true, lang: result.lang, historyId });
+        return payload({ source: result.source, cached: true, lang: result.lang, historyId }, { modelItems: result.aiSuggestions });
       }
     }
 
-    const task = this.#generateFromModel(route, history, lang, cacheKey, agentId);
+    const context = {
+      profileSummary: learning ? profilePromptSummary(profile, lang) : '',
+      recentUserTexts,
+    };
+    const task = this.#generateFromModel(route, history, lang, cacheKey, agentId, context);
     this.inFlight.set(cacheKey, task);
     try {
       const outcome = await task;
-      return payload({ aiSuggestions: outcome.aiSuggestions, source: outcome.source, lang: outcome.lang, historyId });
+      return payload({ source: outcome.source, lang: outcome.lang, historyId }, { modelItems: outcome.aiSuggestions });
     } finally {
       if (this.inFlight.get(cacheKey) === task) this.inFlight.delete(cacheKey);
     }
+  }
+
+  /** Client feedback (a tapped suggestion, a dismissed strip). */
+  async feedback({ agentId = '', action = '', text = '', shown = [] } = {}) {
+    const cfg = this.settings?.current?.() ?? {};
+    if (!agentId || !AGENT_ID_RE.test(agentId) || cfg.learningEnabled === false) return { recorded: false };
+    if (!['tap', 'dismiss'].includes(action)) return { recorded: false };
+    const clean = list => (Array.isArray(list) ? list : [])
+      .filter(item => typeof item === 'string').map(item => item.replace(/\s+/g, ' ').trim().slice(0, MAX_ITEM_CHARS)).filter(Boolean).slice(0, 8);
+    await this.habits.record(agentId, { action, text: typeof text === 'string' ? text.trim().slice(0, MAX_PHRASE_CHARS) : '', shown: clean(shown) });
+    return { recorded: true };
+  }
+
+  /** 清空学习记录: profiles, reactions, and the answers that were built with them. */
+  async clearHabits() {
+    await this.habits.clear();
+    this.cache.clear();
+    if (this.persisted?.value) {
+      await this.persisted.mutate(state => { state.agents = {}; }).catch(() => {});
+    }
+    return { cleared: true, ...this.habits.summary() };
+  }
+
+  habitsSummary() {
+    const cfg = this.settings?.current?.() ?? {};
+    return { learningEnabled: cfg.learningEnabled !== false, ...this.habits.summary() };
   }
 
   async #resolveRoute() {
@@ -795,13 +944,19 @@ export class SuggestionsService {
     }
   }
 
-  async #generateFromModel(route, history, lang, cacheKey, agentId) {
+  async #generateFromModel(route, history, lang, cacheKey, agentId, context = {}) {
     try {
-      const output = await this.#streamText(route, buildSuggestionMessages(history, lang), {
+      const output = await this.#streamText(route, buildSuggestionMessages(history, lang, context), {
         timeoutMs: this.timeoutMs, maxTokens: SUGGESTION_MAX_TOKENS, kind: 'suggestions', label: 'composer-suggestions', agentId,
       });
       const parsed = parseSuggestionResponse(output);
       if (parsed.length === 0) {
+        // "Nothing specific fits" is an answer too: keep it, so the chat is not asked again.
+        if (isEmptySuggestionAnswer(output)) {
+          const entry = { aiSuggestions: [], source: 'model', lang };
+          this.#setCached(cacheKey, entry, agentId);
+          return entry;
+        }
         console.warn(`[suggestions] empty or unparseable model response (${route.model})`);
         return { aiSuggestions: [], source: 'model-error', lang };
       }
