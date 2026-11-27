@@ -194,7 +194,7 @@ export async function createLocalServices(profile, window, { command, request, a
       isBelowMinimumVersion: false,
       autoUpdateWhenIdle: false,
     }),
-    checkForUpdates: () => updater ? updater.check() : known.getUpdateStatus(),
+    checkForUpdates: () => updater ? updater.check({ download: true }) : known.getUpdateStatus(),
     setUpdateTrack: args => updater ? updater.setTrack(args) : known.getUpdateStatus(),
     setAutoUpdateWhenIdle: args => updater ? updater.setAutoUpdateWhenIdle(args) : known.getUpdateStatus(),
     quitAndInstallUpdate: args => updater ? updater.quitAndInstall(args) : ({ status: 'unsupported' }),
@@ -212,7 +212,13 @@ export async function createLocalServices(profile, window, { command, request, a
     getCursorTrainingSetting: () => "signed-out",
     getCursorBonfireStatus: () => ({ kind: "ineligible" }),
     getLocalPitmanState: () => ({ isRecorderReady: false, session: null }),
-    getPendingRestartToUpdate: () => null,
+    getPendingRestartToUpdate: () => {
+      const st = updater?.status?.();
+      if (st?.state?.type === 'ready' && st.state.version) {
+        return { version: st.state.version, message: st.state.readyMessage || '已下载，重启即可更新' };
+      }
+      return null;
+    },
     getMicrosoftTeamsAccountLinkStatus: () => ({ links: [], teamEnablement: null }),
     getCurrentMachineMessagesEnabled: () => false,
     getMessagesCapabilities: () => ({ read: false, send: false }),

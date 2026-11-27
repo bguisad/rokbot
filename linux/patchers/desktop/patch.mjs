@@ -127,10 +127,7 @@ async function main() {
     const recipesManifest = JSON.parse(await readFile(path.join(recipesDir, 'manifest.json'), 'utf8'));
     await applyReleaseRecipes(unpacked, recipesDir);
     const recipesCount = recipesManifest.files.length;
-    let updateUiPatch = null;
-    if (updateConfig) {
-      updateUiPatch = await patchDesktopUpdateSettingsUi(unpacked);
-    }
+    const updateUiPatch = await patchDesktopUpdateSettingsUi(unpacked);
 
     const { binaryPath: tailcatPath, licensePath: tailcatLicensePath } = resolveLinuxTailcatBinary(repoRoot, arch);
     const tailcatStat = await stat(tailcatPath).catch(() => null);

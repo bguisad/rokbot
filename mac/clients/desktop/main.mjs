@@ -23,7 +23,12 @@ import { installExternalLinks } from './external-links.mjs';
 import { CANVAS_SCHEME, canvasAppId, createCanvasBridge } from './canvas-bridge.mjs';
 import { auth, boot, theme, language, experiments, createLocalServices, desktopEdges, probeLocalMethod } from './local-services.mjs';
 import { createModelBridge } from './model-bridge.mjs';
-import { createDesktopUpdater, createTailcatUpdateFetch, resolveDesktopUpdateSource } from './updater.mjs';
+import {
+  buildWindowsDelayedInstallCommand,
+  createDesktopUpdater,
+  createTailcatUpdateFetch,
+  resolveDesktopUpdateSource,
+} from './updater.mjs';
 import { applyAsarUpdateAndRestart, canApplyAsarUpdate } from './asar-install.mjs';
 import { createMigration } from './migrate-desktop.mjs';
 
@@ -285,20 +290,48 @@ async function showWorkspace() {
     }),
     onStatus: status => { if (!win.isDestroyed()) win.webContents.send('dune-rpc:main:e:update-status', status); },
     canUseAsarUpdate: canApplyAsarUpdate,
-    onInstallAsar: info => applyAsarUpdateAndRestart({ ...info, quitApp: () => app.quit() }),
+    onInstallAsar: async info => {
+      await stopConnection();
+      await transport?.close?.().catch(() => {});
+      transport = null;
+      return applyAsarUpdateAndRestart({ ...info, quitApp: () => { quitting = true; app.quit(); } });
+    },
     onInstallFile: async file => {
       if (isWindows && String(file).toLowerCase().endsWith('.exe')) {
-        spawn(file, ['/S', '/LAUNCH'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        // Ensure child processes (transport / Tailcat) and tray handles release all install-dir locks before replacing.
+        quitting = true;
+        stopConnection();
+        await transport?.close?.().catch(() => {});
+        transport = null;
+        try { tray?.destroy?.(); tray = null; } catch {}
+        try {
+          spawn('powershell.exe', buildWindowsDelayedInstallCommand(file, process.pid), {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true,
+          }).unref();
+        } catch {
+          spawn(file, ['/S', '/LAUNCH'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        }
         app.quit();
         return;
       }
+      quitting = true;
       const openError = await shell.openPath(file);
       if (openError) throw new Error(openError);
       app.quit();
     },
   });
-  if (updater.status().delivery === 'in-app' && updater.status().autoUpdateWhenIdle) {
-    void updater.check();
+  if (updater.status().delivery === 'in-app') {
+    if (updater.status().autoUpdateWhenIdle && updater.status().state.type !== 'ready') {
+      void updater.check();
+    }
+    const updatePoll = setInterval(() => {
+      if (updater.status().autoUpdateWhenIdle && updater.status().state.type !== 'ready') {
+        void updater.check();
+      }
+    }, 6 * 60 * 60 * 1000);
+    updatePoll.unref?.();
   }
   methodCall = await createLocalServices(profile, win, {
     appVersion: app.getVersion(), persistence, updater, emit: send,
