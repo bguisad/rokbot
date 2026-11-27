@@ -1,9 +1,9 @@
 // rokbot.6: the rokbot section is the first group under the account card. The former "Send
 // Feedback" group (rokbot.3: one "Connection & Diagnostics" row) becomes a titled section built in
 // the dead link-group block (hermes-settings.mjs applySettingsMenu): native InsetGroupNavRow rows
-// (Bot Icon Style, Model Settings, Connection & Diagnostics, App Updates) plus the official
-// Appearance, Language and Usage rows moved out of their groups; the companion opens the native
-// page for each label.
+// (Bot Icon Style, Model Settings, Input Suggestions (rokbot.7), Connection & Diagnostics, App
+// Updates) plus the official Appearance, Language and Usage rows moved out of their groups; the
+// companion opens the native page for each label.
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { patchHermesBundleSafely } from '../patchers/hermes.mjs';
 import {
-  MENU_LABELS, MENU_ORDER, SHEET_CHILD_INDEX, applyConnectionEntry, applySettingsMenu, applySettingsRebrand,
+  MENU_LABELS, MENU_ORDER, SHEET_CHILD_INDEX, SUGGESTIONS_MESSAGE, applyConnectionEntry, applySettingsMenu, applySettingsRebrand,
 } from '../patchers/hermes-settings.mjs';
 import { entryBytes, readZip } from '../patchers/signing.mjs';
 
@@ -41,22 +41,32 @@ const SETTINGS_SIZE = 4376;
 
 // HBC v98 sizes of every opcode the rokbot.6 feedback-group path executes.
 const SIZE = {
-  2: 10, 8: 4, 30: 4, 59: 4, 61: 2, 68: 5, 69: 6, 72: 6, 82: 4, 90: 4, 94: 4, 110: 5, 111: 6, 112: 7, 133: 7, 139: 3,
-  140: 6, 1: 6, 144: 4, 145: 6, 147: 2, 148: 2, 151: 2, 174: 2, 175: 5, 176: 3, 211: 4, 212: 7,
+  2: 10, 8: 4, 21: 3, 30: 4, 59: 4, 61: 2, 68: 5, 69: 6, 72: 6, 82: 4, 90: 4, 93: 4, 94: 4, 110: 5, 111: 6, 112: 7, 126: 1,
+  133: 7, 139: 3, 140: 6, 1: 6, 144: 4, 145: 6, 147: 2, 148: 2, 151: 2, 174: 2, 175: 5, 176: 3, 180: 3, 211: 4, 212: 7,
+  213: 4, 214: 7,
 };
+const EXY_LITERAL = 399145;
 
 /**
- * Executes SettingsSheet from +3689 (memo check of the group) to +3819 (memo store)
- * symbolically. `connectionLabel` is what i18n._({id:'exyUec'}) returns; `memo` stands for the
- * render's memo cache (r7). Returns the built group.
+ * Executes SettingsSheet from +3689 (former memo check of the group) to +3819 (memo store)
+ * symbolically. `messages` maps the {id} literal offsets i18n._ is called with to what it
+ * returns (exyUec: the connection label); `memo` stands for the render's memo cache (r7).
+ * Returns the built group.
  */
-function runFeedbackGroup(fn, connectionLabel, sid, memo) {
+function runFeedbackGroup(fn, messages, sid, memo) {
   const r = new Map();
   const i18n = { kind: 'i18n' };
   r.set(31, i18n);
   r.set(1, undefined);
   r.set(6, { kind: 'env' });
   r.set(7, memo);
+  // SettingsSheet's frame: r0 is the number register, r1..r4 are non-pointer registers.
+  const set = r.set.bind(r);
+  r.set = (reg, v) => {
+    if (reg === 0) assert.equal(typeof v, 'number', `non-number in r0 at +${pc}`);
+    else if (reg >= 1 && reg <= 4) assert.ok(v === undefined || v === null || typeof v !== 'object', `pointer in r${reg} at +${pc}`);
+    return set(reg, v);
+  };
   const visited = new Set();
   let pc = 3689;
   let steps = 0;
@@ -75,12 +85,21 @@ function runFeedbackGroup(fn, connectionLabel, sid, memo) {
       case 176: if (rd(u8(2))) next = pc + fn.readInt8(pc + 1); break;       // JmpTrue
       case 174: next = pc + fn.readInt8(pc + 1); break;                       // Jmp
       case 94: r.set(u8(1), rd(u8(2))[u8(3)]); break;                         // GetByIndex
+      case 93: {                                                              // GetByVal (array index)
+        const key = rd(u8(3));
+        assert.equal(typeof key, 'number');
+        r.set(u8(1), rd(u8(2))[key]);
+        break;
+      }
+      case 21: r.set(u8(1), typeof rd(u8(2))); break;                         // TypeOf
+      case 126: break;                                                        // AsyncBreakCheck
+      case 180: if (rd(u8(2)) === undefined) next = pc + fn.readInt8(pc + 1); break;   // JmpUndefined
       case 175: next = pc + fn.readInt32LE(pc + 1); break;                    // JmpLong
       case 59: r.set(u8(1), { kind: 'module', slot: u8(3) }); break;          // LoadFromEnvironment
       case 68: {                                                              // GetByIdShort
         const name = sid[u8(4)];
         const obj = rd(u8(2));
-        r.set(u8(1), name === 'charCodeAt' ? { kind: 'charCodeAt' } : { kind: 'fn', name, of: obj });
+        r.set(u8(1), name === 'charCodeAt' ? { kind: 'charCodeAt' } : name === 'push' ? { kind: 'push' } : { kind: 'fn', name, of: obj });
         break;
       }
       case 69: case 72: {                                                     // GetById / TryGetById
@@ -89,7 +108,7 @@ function runFeedbackGroup(fn, connectionLabel, sid, memo) {
         break;
       }
       case 61: r.set(u8(1), { kind: 'global' }); break;
-      case 2: r.set(u8(1), { kind: 'object', shape: fn.readUInt32LE(pc + 2), slots: [] }); break; // NewObjectWithBufferLong
+      case 2: r.set(u8(1), { kind: 'object', shape: fn.readUInt32LE(pc + 2), lit: fn.readUInt32LE(pc + 6), slots: [] }); break; // NewObjectWithBufferLong
       case 1: r.set(u8(1), { kind: 'object', shape: fn.readUInt16LE(pc + 2), slots: [] }); break;
       case 82: rd(u8(1)).slots[u8(3)] = rd(u8(2)); break;                     // PutOwnBySlotIdx
       case 8: r.set(u8(1), []); break;                                        // NewArray
@@ -99,17 +118,30 @@ function runFeedbackGroup(fn, connectionLabel, sid, memo) {
       case 140: r.set(u8(1), fn.readInt32LE(pc + 2)); break;                  // LoadConstInt
       case 144: r.set(u8(1), sid[fn.readUInt16LE(pc + 2)]); break;
       case 145: r.set(u8(1), sid[fn.readUInt32LE(pc + 2)]); break;
-      case 30: r.set(u8(1), rd(u8(2)) + rd(u8(3))); break;                    // Add (strings only here)
+      case 30: {                                                              // Add (strings, or the loop counter)
+        const [a, b] = [rd(u8(2)), rd(u8(3))];
+        assert.equal(typeof a, typeof b, `Add of ${typeof a} and ${typeof b} at +${pc}`);
+        r.set(u8(1), a + b);
+        break;
+      }
       case 133: r.set(u8(1), { kind: 'closure', index: fn.readUInt32LE(pc + 3) }); break; // CreateClosureLongIndex
       case 211: if (rd(u8(2)) === rd(u8(3))) next = pc + fn.readInt8(pc + 1); break;
       case 212: if (rd(u8(5)) === rd(u8(6))) next = pc + fn.readInt32LE(pc + 1); break;
+      case 213: if (rd(u8(2)) !== rd(u8(3))) next = pc + fn.readInt8(pc + 1); break;
+      case 214: if (rd(u8(5)) !== rd(u8(6))) next = pc + fn.readInt32LE(pc + 1); break;
       case 110: case 111: case 112: {                                         // Call2 / Call3 / Call4
         const callee = rd(u8(2));
         const args = [rd(u8(4)), rd(u8(5)), rd(u8(6))].slice(0, op - 109);
         let out;
         if (callee === i18n) {
           assert.equal(args[0].kind, 'object');
-          out = connectionLabel;
+          assert.equal(args[0].shape, 347, '{id}');
+          assert.ok(Object.hasOwn(messages, args[0].lit), `i18n message literal ${args[0].lit}`);
+          out = messages[args[0].lit];
+        } else if (callee.kind === 'push') {
+          const self = rd(u8(3));
+          assert.ok(Array.isArray(self));
+          out = self.push(args[0]);
         } else if (callee.kind === 'charCodeAt') {
           out = rd(u8(3)).charCodeAt(args[0]);
         } else if (callee.name === 'fromCharCode') {
@@ -147,13 +179,14 @@ test('Settings menu: fail closed on anything but the rokbot.3 settings sheet', (
 
 test('Settings menu: labels match the companion routing and the native page titles', () => {
   const boot = fs.readFileSync(path.join(SRC, 'RokBotBootstrap.java'), 'utf8');
-  for (const key of ['models', 'update', 'avatar']) {
+  for (const key of ['models', 'update', 'avatar', 'suggestions']) {
     assert.ok(boot.includes(`matchesLabelOrCommaPrefix(s, "${MENU_LABELS.zh[key]}", false) || matchesLabelOrCommaPrefix(s, "${MENU_LABELS.en[key]}", true)`), key);
   }
   const row = '\\(paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f\\)';
   assert.match(boot, new RegExp(`matchesModelSettingsLabel\\(s\\)\\) \\{\\s*//[^\\n]*\\n\\s*return ${row} \\? ModelsActivity\\.class`));
   assert.match(boot, new RegExp(`matchesSoftwareUpdateLabel\\(s\\)\\) \\{\\s*return ${row} \\? UpdateActivity\\.class`));
   assert.match(boot, new RegExp(`matchesAvatarStyleLabel\\(s\\)\\) \\{\\s*return ${row} \\? AvatarStyleActivity\\.class`));
+  assert.match(boot, new RegExp(`matchesSuggestionsSettingsLabel\\(s\\)\\) \\{\\s*return ${row} \\? SuggestionsSettingsActivity\\.class`));
   // Same wording as the pages they open.
   assert.ok(fs.readFileSync(path.join(SRC, 'ModelsActivity.java'), 'utf8').includes(`Localize.t(this, "${MENU_LABELS.zh.models}", "${MENU_LABELS.en.models}")`));
   const titles = file => {
@@ -163,6 +196,12 @@ test('Settings menu: labels match the companion routing and the native page titl
   };
   assert.deepEqual(titles('UpdateActivity.java'), [MENU_LABELS.zh.update, MENU_LABELS.en.update]);
   assert.deepEqual(titles('AvatarStyleActivity.java'), [MENU_LABELS.zh.avatar, MENU_LABELS.en.avatar]);
+  assert.deepEqual(titles('SuggestionsSettingsActivity.java'), [MENU_LABELS.zh.suggestions, MENU_LABELS.en.suggestions]);
+  // Only one configuration entry: no floating card on the settings sheet, no jump row in Model Settings.
+  assert.ok(!fs.existsSync(path.join(SRC, 'SettingsSuggestionsOverlay.java')));
+  assert.ok(!boot.includes('SettingsSuggestionsOverlay'));
+  const models = fs.readFileSync(path.join(SRC, 'ModelsActivity.java'), 'utf8');
+  assert.ok(!models.includes('SuggestionsSettingsActivity') && !models.includes('输入建议开关与常用语'));
   // The new page is declared in the patched manifest.
   assert.match(fs.readFileSync(path.join(PROJECT_ROOT, 'android/patchers/manifest.mjs'), 'utf8'),
     /upsertAppChild\('activity', 'dev\.rokbot\.nativeapp\.AvatarStyleActivity', \[\s*makeAttrStr\('name', 'dev\.rokbot\.nativeapp\.AvatarStyleActivity'\),\s*makeAttrBool\('exported', false\)/);
@@ -254,7 +293,8 @@ test('Settings menu: real 1.26.0 bundle gets the rokbot section, decoded and exe
     'settings: account group without the Usage row',
     'settings: preferences group without Appearance and Language',
     'settings: rokbot section program in the dead link-group block',
-    'settings: rokbot section rebuilt on every render',
+    'settings: rokbot section rebuilt on every render (prologue over the memo check)',
+    'settings: last label stored after the label builder',
     'settings: feedback group -> rokbot section',
     'settings: rokbot section right after the account group',
   ]);
@@ -263,9 +303,9 @@ test('Settings menu: real 1.26.0 bundle gets the rokbot section, decoded and exe
   assert.equal(applySettingsMenu(menu.buffer).applied, false, 'not applied twice');
   assert.equal(applySettingsMenu(applySettingsRebrand(plain.buffer).buffer).applied, false, 'needs the rokbot.3 row first');
 
-  // Only SettingsSheet bytes change: the two shrunk groups, the dead block + memo check +3001..+3692,
-  // the jump at +3809, the sheet children +4224..+4271, and the footer.
-  const ranges = [[1254, 1278], [2857, 2885], [3001, 3693], [3809, 3819], [4224, 4272]]
+  // Only SettingsSheet bytes change: the two shrunk groups, the dead block + the former memo check
+  // +3001..+3721, the padding +3778..+3787, the jump at +3809, the sheet children +4224..+4271, and the footer.
+  const ranges = [[1254, 1278], [2857, 2885], [3001, 3722], [3778, 3788], [3809, 3819], [4224, 4272]]
     .map(([a, b]) => [SETTINGS_OFFSET + a, SETTINGS_OFFSET + b]);
   for (let i = 0; i < conn.buffer.length - 20; i++) {
     if (conn.buffer[i] !== menu.buffer[i]) assert.ok(ranges.some(([a, b]) => i >= a && i < b), `stray change at ${i}`);
@@ -300,7 +340,7 @@ test('Settings menu: real 1.26.0 bundle gets the rokbot section, decoded and exe
       const n = Number(id);
       return { 44: 'String', 87: 'charCodeAt', 182: 'jsx', 183: 'jsxs', 12628: 'fromCharCode', 13382: ' ', 14250: '&', 38602: 'Diagnostics',
         37606: 'InsetGroup', 40009: 'InsetGroupNavRow', 75365: 'rokbot', 11408: 'Icon', 65679: 'Style', 11627: 'Settings',
-        14015: 'App' }[n];
+        14015: 'App', 13238: 'string', 214: 'push' }[n];
     },
   });
   const memo = [];
@@ -309,31 +349,38 @@ test('Settings menu: real 1.26.0 bundle gets the rokbot section, decoded and exe
   memo[71] = { element: 'InsetGroupNavRow', label: 'Language' };
   memo[103] = 'stale deps';
   memo[106] = { element: 'stale group' };
+  // The {id:'8J32PY'} literal ("Suggestions" / "建议") the English Input Suggestions label uses.
+  assert.equal(SUGGESTIONS_MESSAGE.literal, 382263);
   const cases = [
-    ['连接', '连接与诊断', MENU_LABELS.zh],
-    ['連線', '连接与诊断', MENU_LABELS.zh],
-    ['Connection', 'Connection & Diagnostics', MENU_LABELS.en],
-    ['Verbindung', 'Verbindung & Diagnostics', MENU_LABELS.en],
+    ['连接', '连接与诊断', MENU_LABELS.zh, '建议'],
+    ['連線', '连接与诊断', MENU_LABELS.zh, '建議'],
+    ['Connection', 'Connection & Diagnostics', MENU_LABELS.en, 'Suggestions'],
+    ['Verbindung', 'Verbindung & Diagnostics', { ...MENU_LABELS.en, suggestions: 'Input Vorschläge' }, 'Vorschläge'],
   ];
-  assert.deepEqual(MENU_ORDER, ['avatar', 'appearance', 'language', 'usage', 'models', 'connection', 'update']);
-  for (const [i18nLabel, connLabel, labels] of cases) {
-    const { group, visited } = runFeedbackGroup(fn, i18nLabel, sid, memo);
-    assert.ok(!visited.has(3693), 'the memoized group is never reused');
+  assert.deepEqual(MENU_ORDER, ['avatar', 'appearance', 'language', 'usage', 'models', 'suggestions', 'connection', 'update']);
+  // The former memo check (+3689) is the prologue now: the memoized group (slot 106) is never reused.
+  assert.ok(!fn.subarray(3689, 3722).includes(Buffer.from([0x5e, 0x09, 0x07, 0x6a])), 'no GetByIndex r9, r7, 106 left');
+  for (const [i18nLabel, connLabel, labels, suggestionsWord] of cases) {
+    const messages = { [EXY_LITERAL]: i18nLabel, [SUGGESTIONS_MESSAGE.literal]: suggestionsWord };
+    const { group, visited } = runFeedbackGroup(fn, messages, sid, memo);
+    assert.ok(visited.has(3722) && visited.has(3788) && visited.has(3809), 'prologue, rokbot.3 row and tail all run');
+    assert.notEqual(group, memo[106]);
     assert.equal(group.element, 'InsetGroup');
     assert.equal(group.props.shape, 10320, '{header, children}');
     assert.equal(group.props.slots[0], 'rokbot');
     const rows = group.props.slots[1];
-    assert.equal(rows.length, 7);
+    assert.equal(rows.length, 8);
     assert.equal(rows[1], memo[60], 'official Appearance row');
     assert.equal(rows[2], memo[71], 'official Language row');
     assert.equal(rows[3], memo[19], 'official Usage row');
-    const native = [0, 4, 5, 6].map(i => rows[i]);
+    const native = [0, 4, 5, 6, 7].map(i => rows[i]);
     for (const row of native) {
       assert.equal(row.element, 'InsetGroupNavRow');
       assert.equal(row.props.shape, 11202, '{label, onPress}: chevron row like the official ones');
       assert.equal(row.props.slots[1].kind, 'closure');
     }
-    assert.deepEqual(native.map(row => row.props.slots[0]), [labels.avatar, labels.models, connLabel, labels.update], i18nLabel);
+    assert.deepEqual(native.map(row => row.props.slots[0]),
+      [labels.avatar, labels.models, labels.suggestions, connLabel, labels.update], i18nLabel);
     // One shared onPress: the rokbot.3 no-op.
     assert.ok(native.every(row => row.props.slots[1] === native[0].props.slots[1]));
   }

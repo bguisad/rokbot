@@ -19,13 +19,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(HERE, '../..');
-export const LICENSE_NAME = 'ProkBot Noncommercial License 1.0';
+export const LICENSE_NAME = 'RokBot Noncommercial License 1.0';
 export const SUMS_NAME = 'SHA256SUMS.txt';
 export const PLATFORMS = ['windows', 'mac', 'linux', 'web', 'android', 'ios', 'host'];
 
 // 补丁器、配方与被注入的 RokBot 客户端源码。某个标签里不存在的目录会被自动跳过。
 export const SOURCE_ROOTS = [
-  'LICENSE', 'NOTICE', 'README.md', 'README.en.md',
+  'LICENSE', 'LICENSES', 'NOTICE', 'README.md', 'README.en.md',
   'docs/PATCHING_WORKFLOW.md', 'docs/PATCHING_WORKFLOW.en.md', 'docs/releases',
   'windows/patchers', 'mac/patchers', 'mac/clients', 'linux/patchers', 'web/patchers', 'web/client',
   'android/patchers', 'android/recipes', 'android/release', 'android/companion',

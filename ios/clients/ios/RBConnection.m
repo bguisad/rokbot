@@ -4,6 +4,7 @@
 #import "RBModels.h"
 #import "RBGroupCreate.h"
 #import "RBSuggestions.h"
+#import "RBMigrate.h"
 #import "RBUpdater.h"
 #import "RBNetwork.h"
 #import "RBNetworkScanner.h"
@@ -341,6 +342,17 @@ static UIViewController *RBTop(void) {
     [suggestionsButton.heightAnchor constraintEqualToConstant:50].active = YES;
     [suggestionsButton addTarget:self action:@selector(openSuggestions) forControlEvents:UIControlEventTouchUpInside];
     [stack addArrangedSubview:suggestionsButton];
+    UIButton *migrateButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *migrateConfig = UIButtonConfiguration.tintedButtonConfiguration;
+    migrateConfig.title = RBL(@"从 Grok Bot 迁移", @"Migrate from Grok Bot");
+    migrateConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    migrateConfig.baseForegroundColor = UIColor.labelColor;
+    migrateConfig.baseBackgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    migrateButton.configuration = migrateConfig;
+    migrateButton.accessibilityIdentifier = @"rokbot.host.migrate";
+    [migrateButton.heightAnchor constraintEqualToConstant:50].active = YES;
+    [migrateButton addTarget:self action:@selector(openMigrate) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:migrateButton];
     UIButton *groupButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *groupConfig = UIButtonConfiguration.tintedButtonConfiguration;
     groupConfig.title = RBL(@"新建群聊", @"New Group Chat");
@@ -442,6 +454,7 @@ static UIViewController *RBTop(void) {
 }
 - (void)openModels { RBShowModelsFrom(self); }
 - (void)openSuggestions { RBShowSuggestionsSettingsFrom(self); }
+- (void)openMigrate { RBShowMigrateFrom(self); }
 - (void)openCreateGroup {
   UIViewController *presenter = self.navigationController.presentingViewController;
   if (presenter) [self.navigationController dismissViewControllerAnimated:YES completion:^{ RBShowCreateGroupFrom(presenter); }];

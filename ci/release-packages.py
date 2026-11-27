@@ -23,7 +23,7 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 SUMS = 'SHA256SUMS.txt'
-COMMON = ('LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'SECURITY.md', 'docs')
+COMMON = ('LICENSE', 'LICENSES/ProkBot-Noncommercial-1.0.txt', 'NOTICE', 'README.md', 'README.en.md', 'SECURITY.md', 'docs')
 PACKAGES = {'host': ('host', 'assets/logo'), 'windows': ('windows', 'mac', 'assets/logo'), 'mac': ('mac', 'assets/logo'),
             'ios': ('ios', 'assets/logo'), 'android': ('android', 'windows', 'mac', 'assets/logo'), 'web': ('web', 'windows', 'mac', 'assets/logo')}
 # A faithful archive of an incomplete commit is still not a usable tool package.

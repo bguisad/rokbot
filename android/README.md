@@ -9,7 +9,7 @@
 ## 核心能力
 
 - **官方 Split XAPK/APKS 合并与 Google Play Pairip 去校验**
-  - **多分包合并 (`xapk.mjs` & `arsc.mjs`)**：纯 Node.js 解包官方 `.xapk` / `.apks` / `.apk`，剥离 `libpairipcore.so`，合并基础包、`arm64-v8a` 原生库与密度/语言分包的 `resources.arsc` 与资源文件，替换 RokBot 桌面/启动器 `mipmap-*` 图标，输出单一通用签名 APK（推荐 `android/output/rokbot-android-patched.apk`）。
+  - **多分包合并 (`xapk.mjs` & `arsc.mjs`)**：纯 Node.js 解包官方 `.xapk` / `.apks` / `.apk`，剥离 `libpairipcore.so`，合并基础包、`arm64-v8a` 原生库与密度/语言分包的 `resources.arsc` 与资源文件，替换 RokBot 桌面/启动器 `mipmap-*` 图标，并把系统启动图（`drawable/splashscreen_logo`，官方只有 108px mdpi 位图，被放大成模糊的第一屏）换成 `assets/logo/android/splash/` 的清晰 RokBot 图标：与 RN 启动页 launch-mark 同为居中 64dp 圆角方块，补 xxxhdpi（含夜间）配置，动画 WebP 让系统启动页按原分辨率绘制，启动全程只有一个清晰 logo；输出单一通用签名 APK（推荐 `android/output/rokbot-android-patched.apk`）。
   - **Pairip 防篡改中和 (`pairip-dex.mjs`, `pairip-elf.mjs`, `PairipVmBridge`, `RokBotAppComponentFactory`)**：中和 Pairip DEX 签名/授权校验并接管 `VMRunner` 调度，清理原生 `.so` 的 `DT_NEEDED libpairipcore.so`、`DT_INIT` 跳板、`ExecuteProgram` 重定位与固定 `.data` 加密区，并移除清单中的 Pairip 与 Play 分包元数据。被 Pairip 虚拟化的 Activity 生命周期方法由 `PairipActivityPorts` 按上游源码移植执行（expo-video 全屏页的 onCreate/onPause/onDestroy、expo-web-browser `BrowserProxyActivity`、CanHub 裁剪页、Play Core 对话框、Braze WebView），不会只调 `super`；RokBot 用不到的 Play 计费与 Google 登录页返回 `RESULT_CANCELED` 并立即关闭。
 - **安全配对与多传输连接 (`PairingActivity`)**
   - 支持直接填写 `http://` / `https://` 地址、**6 位配对码 / 管理员密码**切换、**局域网 / mDNS (`_rokbot._tcp.`) 自动扫描**，以及内置 **Tailcat 加密隧道（`tailcat://connect/...`）**。

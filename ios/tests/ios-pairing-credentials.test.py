@@ -48,6 +48,10 @@ BOOL RBOpenCanvasURL(NSURL *url) {
   return YES;
 }
 
+void RBSuggestionsNoteOpenedAgent(NSString *agentId) {
+  (void)agentId;
+}
+
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #expr); exit(1); } } while (0)
 
 int main(void) { @autoreleasepool {

@@ -1,0 +1,17 @@
+:root { color-scheme: light dark; --sand-text-primary: #1d1d1f; --sand-text-secondary: #55555c; --sand-text-tertiary: #86868c; --sand-bg-pane: #ffffff;
+  --sand-bg-secondary: #f1f1f3; --sand-bg-elevated: #ffffff; --sand-bg-accent-primary: #1f6feb; --sand-bg-accent-primary-hover: #1a5fcc; }
+@media (prefers-color-scheme: dark) {
+  :root { --sand-text-primary: #f2f2f4; --sand-text-secondary: #b4b4ba; --sand-text-tertiary: #85858c; --sand-bg-pane: #1c1c1e; --sand-bg-secondary: #2a2a2d;
+    --sand-bg-elevated: #232326; --sand-bg-hover: rgba(255,255,255,.06); --sand-border-tertiary-translucent: rgba(255,255,255,.1);
+    --sand-border-secondary-translucent: rgba(255,255,255,.18); --sand-bg-accent-secondary: rgba(80,150,255,.18); --sand-text-accent-primary: #7fb0ff;
+    --sand-bg-success-secondary: rgba(60,190,100,.18); --sand-text-success-primary: #6fd08f; --sand-bg-warn-secondary: rgba(230,170,40,.18); --sand-text-warn-primary: #e6b54a;
+    --sand-bg-danger-secondary: rgba(240,90,80,.16); --sand-text-danger-primary: #f08a80; }
+}
+html, body { margin: 0; background: var(--sand-bg-pane); color: var(--sand-text-primary); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+.drag { position: fixed; inset: 0 0 auto 0; height: 28px; -webkit-app-region: drag; }
+main { max-width: 860px; margin: 0 auto; padding: 44px 28px 40px; }
+header h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
+header p { margin: 0 0 24px; color: var(--sand-text-secondary); }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 80vw; padding: 10px 16px; border-radius: 10px;
+  background: #1d1d1f; color: #fff; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.25); z-index: 2000; }
+#toast.error { background: #b3261e; }

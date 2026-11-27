@@ -288,6 +288,28 @@
       "sha256": "fea63d6b561025eb1d007b5619fc68dbbe437be0061ea270b8abdcb4f382b033"
     }
   ],
+  "androidSplash": [
+    {
+      "density": "mdpi",
+      "kind": "splashscreen_logo",
+      "frames": 2,
+      "path": "assets/logo/android/splash/splashscreen_logo-mdpi.webp",
+      "width": 288,
+      "height": 288,
+      "mode": "RGBA",
+      "sha256": "54e84f1a2f38a93648b665ec3ae0b238d3d6355151baff2641e20d79eb92cd4b"
+    },
+    {
+      "density": "xxxhdpi",
+      "kind": "splashscreen_logo",
+      "frames": 2,
+      "path": "assets/logo/android/splash/splashscreen_logo-xxxhdpi.webp",
+      "width": 1152,
+      "height": 1152,
+      "mode": "RGBA",
+      "sha256": "53456385a2bc1bb08818d857749ecaed62784faa7c5265cb6fb24846da3626d6"
+    }
+  ],
   "ios": [
     {
       "path": "assets/logo/ios/AppIcon-120.png",

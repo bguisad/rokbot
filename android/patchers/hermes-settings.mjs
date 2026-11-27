@@ -541,12 +541,13 @@ export function applyConnectionEntry(hbcBuffer) {
 }
 
 // ---------------------------------------------------------------------------
-// rokbot.6: one rokbot section right under the account card.
+// rokbot.6: one rokbot section right under the account card (rokbot.7: + Input Suggestions).
 //
 // rokbot.3 gave the former "Send Feedback" InsetGroup one row, "Connection & Diagnostics";
 // rokbot.5 turned it into a titled section (+ model settings, software update) near the bottom of
-// the sheet. rokbot.6 rebuilds that section as the first group after the account card and moves
-// the official rows RokBot cares about into it, so nothing is listed twice:
+// the sheet. rokbot.6 rebuilt that section as the first group after the account card and moved
+// the official rows RokBot cares about into it, so nothing is listed twice. rokbot.7 adds the
+// native Input Suggestions page as a first-level row:
 //
 //   [account card]                     (official AccountRow; the official Usage row moved out)
 //   rokbot                             <- InsetGroup header (the rebrand's "rokbot" string)
@@ -555,6 +556,7 @@ export function applyConnectionEntry(hbcBuffer) {
 //     语言 / Language    <value>        official row element (memo slot 71), moved here
 //     用量 / Usage                      official UsageGroup element (memo slot 19), moved here
 //     模型配置 / Model Settings         native ModelsActivity
+//     输入建议 / Input Suggestions      native SuggestionsSettingsActivity
 //     连接与诊断 / <Connection> & Diagnostics   native PairingActivity (rokbot.3 label)
 //     应用更新 / App Updates            native UpdateActivity
 //   [official groups: Connect apps, Bot, Notifications + Haptics, ..., Sign out, About]
@@ -564,37 +566,48 @@ export function applyConnectionEntry(hbcBuffer) {
 //          (the official Usage element is no longer listed there; the 4th write is repeated).
 //   +2857  settings group: NewArray r35, 6 -> 4; [Notifications, Sound, Haptics, DataSharing]
 //          (Appearance and Language are no longer listed there).
+//   +3689..+3721  the memo check of the group (never reused: the section is rebuilt on every
+//          render, so the moved official rows always show their current value) becomes the
+//          prologue P: r39 = i18n._({id:'exyUec'}), r0 = r39.charCodeAt(0), r9 = 连; it falls through to
+//          +3722 (nothing in +3722..+3773 touches r0, r9, r39 or r40).
 //   +3001..+3688 (the dead link-group block; rokbot.3 label builder + rokbot.5 rows) one program:
-//          A (+3001, from +3773): r39 = i18n._({id:'exyUec'}); zh when it starts with 连/連:
-//            r39 = 连接与诊断 or "<Connection> & Diagnostics"; r34 = [avatar, models, update]
-//            labels (String.fromCharCode pairs + existing strings), then JmpLong +3788 where
-//            rokbot.3 builds the connection row (r35) with the no-op onPress (r38).
-//          B (from +3809): r40 = 7 rows (the native rows reuse the rokbot.3 {label, onPress}
-//            shape, InsetGroupNavRow and the no-op onPress, like the connection row; the official
-//            ones are read from the memo cache r7, filled earlier in this same render);
-//            r19 = jsxs(InsetGroup, {header: 'rokbot', children: r40}); JmpLong +3819.
-//   +3689  memo check of the group -> Jmp +3722: the section is rebuilt on every render, so
-//          the moved official rows always show their current value.
-//   +3809  JmpLong -> B.
+//          A (+3001, from +3773): zh when r0 is 连/連. r39 = 连接与诊断 or
+//            "<Connection> & Diagnostics"; r34 = an 8-slot spec array with the native labels at
+//            their final positions (String.fromCharCode chunks, words that already are strings of
+//            the bundle, and for "Suggestions" the official i18n message 8J32PY); then JmpLong T.
+//          B (from +3809): the official elements of this render (memo cache r7) and the
+//            connection row go into the spec; a loop turns every string of the spec into an
+//            InsetGroupNavRow {label, onPress: the rokbot.3 no-op} and pushes each entry into
+//            r40; r19 = jsxs(InsetGroup, {header: 'rokbot', children: r40}); JmpLong +3819.
+//   +3778..+3787  T (the padding after +3773): r34[7] = r40 (last label), falls into +3788 where
+//          rokbot.3 builds the connection row (r35) with the no-op onPress (r38).
+//   +3809  r34[6] = r35; JmpLong -> B.
 //   +4224..+4264  sheet children: the rokbot section becomes child #3 (right after the account
 //          group, before Intune / migration cards / update row / Connect apps / ...).
 // Scratch registers: r0 (numbers), r9, r19, r32, r34, r35, r39, r40 (all written before their
-// next read after +3819; r19 is the group, as before). r41+ is the call area. Labels are
-// String.fromCharCode chunks (+ words that already are strings of the bundle); see emitLabel for
+// next read after +3819; r19 is the group, as before). r41+ is the call area. See emitLabel for
 // why a 3-code call may only run while r40 is free.
 const MENU_BLOCK = 3001;
 const MENU_BLOCK_END = 3689;
+const MENU_PROLOGUE = 3689;
+const MENU_PROLOGUE_END = 3722;
+const MENU_TAIL = 3778;
+const MENU_TAIL_END = 3788;
 export const MENU_LABELS = {
-  zh: { avatar: 'Bot 图标样式', models: '模型配置', update: '应用更新' },
-  en: { avatar: 'Bot Icon Style', models: 'Model Settings', update: 'App Updates' },
+  zh: { avatar: 'Bot 图标样式', models: '模型配置', suggestions: '输入建议', update: '应用更新' },
+  en: { avatar: 'Bot Icon Style', models: 'Model Settings', suggestions: 'Input Suggestions', update: 'App Updates' },
 };
-// English labels reuse words that are already strings of the bundle (cheaper than char codes).
+// English labels reuse strings of the bundle (cheaper than char codes); { m } is an official
+// i18n message id (en catalog: "Suggestions").
 const MENU_EN_PIECES = {
-  avatar: ['Bot ', { s: 'Icon' }, ' ', { s: 'Style' }],
-  models: ['Model ', { s: 'Settings' }],
+  avatar: ['Bot', { s: ' ' }, { s: 'Icon' }, { s: ' ' }, { s: 'Style' }],
+  models: ['Model', { s: ' ' }, { s: 'Settings' }],
+  suggestions: ['Input', { s: ' ' }, { m: '8J32PY' }],
   update: [{ s: 'App' }, ' Updates'],
 };
-export const MENU_ORDER = ['avatar', 'appearance', 'language', 'usage', 'models', 'connection', 'update'];
+export const SUGGESTIONS_MESSAGE = { id: '8J32PY', literal: 382263 };
+export const MENU_ORDER = ['avatar', 'appearance', 'language', 'usage', 'models', 'suggestions', 'connection', 'update'];
+const NATIVE_ROWS = ['avatar', 'models', 'suggestions', 'update'];
 // Memo cache slots of the official row elements (SettingsSheet stores them before +2993).
 const MEMO_SLOTS = { usage: 19, appearance: 60, language: 71 };
 export const SHEET_CHILD_INDEX = 3;
@@ -630,12 +643,13 @@ function shapeKeys(buf, L, index) {
 }
 
 /**
- * Emits `dst = <label>`; pieces are char runs or { id } existing strings. Char runs are
- * String.fromCharCode(...) of 2 codes (r9 / r0) per call, or 3 (r9 / r0 / r19) where allowed:
- * SettingsSheet's frame reserves outgoing-call room for Call3 only, so a Call4 also writes r40.
- * `call4` is 'all' when r40 holds nothing live (any chunk), 'first' when dst is r40 (only the
- * first chunk, whose result then lands in r40), or 'none'. this = r1 (undefined; fromCharCode
- * ignores it), r32 = fromCharCode. dst must not be r9, r0 or r19.
+ * Emits `dst = <label>`; pieces are char runs, { id } existing strings or { lit } i18n messages
+ * (i18n._(<{id} literal>), r31 = i18n._). Char runs are String.fromCharCode(...) of 2 codes
+ * (r9 / r0) per call, or 3 (r9 / r0 / r19) where allowed: SettingsSheet's frame reserves
+ * outgoing-call room for Call3 only, so a Call4 also writes r40. `call4` is 'all' when r40
+ * holds nothing live (any chunk), 'first' when dst is r40 (only the first chunk, whose result
+ * then lands in r40), or 'none'. this = r1 (undefined; fromCharCode ignores it), r32 =
+ * fromCharCode. dst must not be r9, r0 or r19.
  */
 function emitLabel(emit, dst, pieces, call4 = 'none') {
   const loadNum = (reg, code) => (code < 256 ? ins(139 /* LoadConstUInt8 */, reg, code) : ins(OPX.LoadConstInt, reg, i32le(code)));
@@ -649,7 +663,12 @@ function emitLabel(emit, dst, pieces, call4 = 'none') {
   for (const piece of pieces) {
     if (typeof piece !== 'string') {
       const target = put();
-      emit(loadStr(target, piece.id));
+      if (piece.lit !== undefined) {
+        emit(ins(OPX.NewObjectWithBufferLong, target, u32le(347), u32le(piece.lit)));
+        emit(ins(OPX.Call2, target, 31, 1, target));
+      } else {
+        emit(loadStr(target, piece.id));
+      }
       if (target !== dst) emit(ins(OPX.Add, dst, dst, 9));
       continue;
     }
@@ -668,6 +687,35 @@ function emitLabel(emit, dst, pieces, call4 = 'none') {
 /** Expected / new bytes of a run of DefineOwnInDenseArray arr, reg, i. */
 const denseWrites = (arr, list) => Buffer.concat(list.map(([reg, i]) => ins(90, arr, reg, i)));
 
+/** Small assembler over one SettingsSheet range; jumps are fixed up with absolute (+rel) labels. */
+function rangeAsm(start) {
+  const code = [];
+  const fix = [];                                                   // [at, operandOffset, label, width]
+  const a = {
+    pos: start,
+    labels: {},
+    emit(b) { code.push(b); a.pos += b.length; },
+    here(name) { a.labels[name] = a.pos; },
+    far(op, label, ...regs) { fix.push([a.pos, 1, label, 4]); a.emit(ins(op, i32le(0), ...regs)); },
+    near(op, label, ...regs) { fix.push([a.pos, 1, label, 1]); a.emit(ins(op, 0, ...regs)); },
+    build(labels) {
+      const block = Buffer.concat(code);
+      for (const [at, off, label, width] of fix) {
+        const target = a.labels[label] ?? labels[label];
+        if (target === undefined) throw new Error(`label ${label}`);
+        const d = target - at;
+        if (width === 4) block.writeInt32LE(d, at - start + off);
+        else {
+          if (d < -128 || d > 127) throw new Error(`short jump to ${label} out of range (${d})`);
+          block.writeInt8(d, at - start + off);
+        }
+      }
+      return block;
+    },
+  };
+  return a;
+}
+
 /**
  * Rebuilds the rokbot section (see above). Input must be applyConnectionEntry() output.
  * Returns { buffer, applied, reason, edits, size }; the input is never mutated.
@@ -683,17 +731,18 @@ export function applySettingsMenu(hbcBuffer) {
   const expectAt = (abs, bytes) => buf.subarray(abs, abs + bytes.length).equals(bytes);
 
   const words = ['Icon', 'Style', 'Settings', 'App'];
-  const wanted = new Set([BRAND_NAME, 'jsxs', 'charCodeAt', 'String', 'fromCharCode', ' ', '&', 'Diagnostics', ...words]);
+  const wanted = new Set([BRAND_NAME, 'jsxs', 'charCodeAt', 'String', 'fromCharCode', ' ', '&', 'Diagnostics', 'string', 'push',
+    SUGGESTIONS_MESSAGE.id, ...words]);
   const ids = findStringIds(buf, L, wanted);
   const sid = {};
   for (const name of wanted) {
     if (ids.get(name).length !== 1) return skip(`string "${name}" not found exactly once`);
     sid[name] = ids.get(name)[0];
   }
-  if (sid.jsxs >= 256 || sid.charCodeAt >= 256 || sid.String >= 65536 || sid.fromCharCode >= 65536) {
+  if (sid.jsxs >= 256 || sid.charCodeAt >= 256 || sid.push >= 256 || sid.String >= 65536 || sid.fromCharCode >= 65536) {
     return skip('string ids out of range');
   }
-  for (const name of [' ', '&', 'Diagnostics']) if (sid[name] >= 65536) return skip(`string "${name}" needs a long index`);
+  for (const name of [' ', '&', 'Diagnostics', 'string']) if (sid[name] >= 65536) return skip(`string "${name}" needs a long index`);
 
   const EXY_LITERAL = 399145;
   const checks = [
@@ -710,12 +759,14 @@ export function applySettingsMenu(hbcBuffer) {
     [2857, Buffer.concat([ins(8, 35, u16le(6)), denseWrites(35, [[39, 0], [23, 1], [19, 2], [10, 3], [37, 4], [36, 5]]), hex('52 09 23 00')])],
     // rokbot.3 label builder at +3001: r39 = i18n._({id:'exyUec'})
     [3001, Buffer.concat([ins(OPX.NewObjectWithBufferLong, 39, u32le(347), u32le(EXY_LITERAL)), ins(OPX.Call2, 39, 31, 1, 39)])],
-    // +3689 GetByIndex r9, r7, 103 (memo check of the group) ; +3722 LoadConstNull r19 ; +3724 JmpTrue +95, r19
-    [3689, hex('5e 09 07 67')],
-    [3722, hex('94 13 b0 5f 13 3b 24 06 2a')],
-    // +3763 NewObjectWithBufferLong r35, 11202, 114747 ({label, onPress}) ; +3773 JmpLong -> +3001
+    // +3689..+3721 memo check of the group: GetByIndex r9, r7, 103..106 against r31, r22, r3, then the
+    // cached group (JmpLong +133 -> +3850); every miss jumps to +3722 LoadConstNull r19.
+    [3689, hex('5e 09 07 67 d5 1d 09 1f 5e 09 07 68 d5 15 09 16 5e 09 07 69 d5 0d 09 03 5e 09 07 6a af 85 00 00 00')],
+    // +3722 LoadConstNull r19 ; +3724 JmpTrue +95, r19 ; +3727..+3772 r36, r34, r35, r33, r32, r37, r36 only
+    [3722, hex('94 13 b0 5f 13 3b 24 06 2a 44 22 24 21 b6 3b 23 06 14 45 21 23 2e e6 92 01 20 46 0f 06 fd 44 25 24 21 b6 45 24 23 34 49 9c')],
+    // +3763 NewObjectWithBufferLong r35, 11202, 114747 ({label, onPress}) ; +3773 JmpLong -> +3001 ; +3778 padding
     [3763, ins(OPX.NewObjectWithBufferLong, 35, u32le(11202), u32le(114747))],
-    [3773, ins(OPX.JmpLong, i32le(3001 - 3773))],
+    [3773, Buffer.concat([ins(OPX.JmpLong, i32le(3001 - 3773)), hex('94 00 94 00 94 00 94 00 94 00')])],
     // +3788 PutOwnBySlotIdx r35, r39, 0 ; +3792 CreateClosureLongIndex r38, ...
     [3788, hex('52 23 27 00 85 26 26')],
     // +3803 Call3 r35, r37, r1, r36, r35 ; +3809 PutOwnBySlotIdx r32, r35, 0 ; Call3 r19, r34, r1, r33, r32
@@ -734,89 +785,125 @@ export function applySettingsMenu(hbcBuffer) {
   let free = MENU_BLOCK_END;
   while (free > MENU_BLOCK && buf[S(free - 1)] === OP.AsyncBreakCheck) free--;
   if (free > 3160 || !expectAt(S(free - 5), ins(OPX.JmpLong, i32le(3788 - (free - 5))))) return skip('rokbot.3 label builder not found');
-  // Shapes: 11202 {label, onPress}; 10320 {header, children}; both with the two-null values at 114747.
+  // Shapes: 11202 {label, onPress}; 10320 {header, children}; both with the two-null values at 114747;
+  // 347 {id} with the official "Suggestions" message id at SUGGESTIONS_MESSAGE.literal.
   const rowKeys = shapeKeys(buf, L, 11202);
   const groupKeys = shapeKeys(buf, L, 10320);
+  const idKeys = shapeKeys(buf, L, 347);
   if (!rowKeys || rowKeys.join() !== 'label,onPress') return skip('row shape differs');
   if (!groupKeys || groupKeys.join() !== 'header,children') return skip('group shape differs');
+  if (!idKeys || idKeys.join() !== 'id') return skip('{id} shape differs');
   if (buf[L.lvOff + 114747] !== 0x02) return skip('two-null literal differs');
-
-  const resolve = pieces => pieces.map(p => (typeof p === 'string' ? p : { id: sid[p.s] }));
-
-  // --- one program over the dead block -----------------------------------------
-  const code = [];
-  let pos = MENU_BLOCK;
-  const emit = b => { code.push(b); pos += b.length; };
-  const fix = [];                                                  // [at, operandOffset, label]
-  const labels = {};
-  const jumpLong = (op, label, ...regs) => { fix.push([pos, 1, label]); emit(ins(op, i32le(0), ...regs)); };
-  const here = name => { labels[name] = pos; };
-
-  // A: labels (entered from +3773 with r35 = {label, onPress} object; r35 kept).
-  emit(ins(OPX.NewObjectWithBufferLong, 39, u32le(347), u32le(EXY_LITERAL)));
-  emit(ins(OPX.Call2, 39, 31, 1, 39));                            // r39 = i18n._({id:'exyUec'})
-  emit(ins(OPX.GetByIdShort, 40, 39, 45, sid.charCodeAt));
-  emit(ins(OPX.LoadConstZero, 9));
-  emit(ins(OPX.Call2, 0, 40, 39, 9));                             // r0 = r39.charCodeAt(0)
-  emit(ins(OPX.GetGlobalObject, 19));
-  emit(ins(OPX.TryGetById, 19, 19, 52, u16le(sid.String)));       // r19 = String
-  emit(ins(OPX.GetById, 32, 19, 46, u16le(sid.fromCharCode)));    // r32 = String.fromCharCode
-  emit(ins(8 /* NewArray */, 34, u16le(3)));                       // r34 = [avatar, models, update] labels
-  emit(ins(OPX.LoadConstInt, 9, i32le(0x8fde)));                  // 连
-  jumpLong(212 /* JStrictEqualLong */, 'zh', 0, 9);
-  emit(ins(OPX.LoadConstInt, 9, i32le(0x9023)));                  // 連
-  jumpLong(212, 'zh', 0, 9);
-  emit(ins(OPX.LoadConstString, 9, u16le(sid[' '])));
-  emit(ins(OPX.Add, 39, 39, 9));
-  emit(ins(OPX.LoadConstString, 40, u16le(sid['&'])));
-  emit(ins(OPX.Add, 39, 39, 40));
-  emit(ins(OPX.Add, 39, 39, 9));
-  emit(ins(OPX.LoadConstString, 40, u16le(sid.Diagnostics)));
-  emit(ins(OPX.Add, 39, 39, 40));                                 // "<Connection> & Diagnostics"
-  ['avatar', 'models', 'update'].forEach((key, i) => {
-    emitLabel(emit, 40, resolve(MENU_EN_PIECES[key]), 'first');
-    emit(ins(90, 34, 40, i));
-  });
-  jumpLong(OPX.JmpLong, 'back');
-  here('zh');
-  emitLabel(emit, 39, ['连接与诊断'], 'all');                       // r40 is free here
-  ['avatar', 'models', 'update'].forEach((key, i) => {
-    emitLabel(emit, 40, [MENU_LABELS.zh[key]], 'first');
-    emit(ins(90, 34, 40, i));
-  });
-  jumpLong(OPX.JmpLong, 'back');
-
-  // B: rows (entered from +3809 with r35 = connection row element, r34 = labels).
-  here('rows');
-  emit(ins(8, 40, u16le(MENU_ORDER.length)));
-  emit(ins(90, 40, 35, MENU_ORDER.indexOf('connection')));
-  ['avatar', 'models', 'update'].forEach((key, i) => {
-    emit(ins(94 /* GetByIndex */, 39, 34, i));
-    emit(ins(OPX.NewObjectWithBufferLong, 35, u32le(11202), u32le(114747)));
-    emit(ins(82 /* PutOwnBySlotIdx */, 35, 39, 0));
-    emit(ins(82, 35, 38, 1));                                     // onPress: rokbot.3 no-op
-    emit(ins(OPX.Call3, 35, 37, 1, 36, 35));                      // jsx(InsetGroupNavRow, props)
-    emit(ins(90, 40, 35, MENU_ORDER.indexOf(key)));
-  });
-  for (const key of ['appearance', 'language', 'usage']) {
-    emit(ins(94, 9, 7, MEMO_SLOTS[key]));                         // the official element of this render
-    emit(ins(90, 40, 9, MENU_ORDER.indexOf(key)));
+  if (!expectAt(L.lvOff + SUGGESTIONS_MESSAGE.literal, Buffer.concat([Buffer.from([0x41]), u32le(sid[SUGGESTIONS_MESSAGE.id])]))) {
+    return skip(`{id:${SUGGESTIONS_MESSAGE.id}} literal not found`);
   }
-  emit(ins(OPX.NewObjectWithBufferLong, 32, u32le(10320), u32le(114747)));
-  emit(sid[BRAND_NAME] < 65536
+
+  const resolve = pieces => pieces.map(p => {
+    if (typeof p === 'string') return p;
+    if (p.m) return { lit: SUGGESTIONS_MESSAGE.literal };
+    return { id: sid[p.s] };
+  });
+  const POS = key => MENU_ORDER.indexOf(key);
+  const shared = { back: 3788, memo: 3819 };
+
+  // --- P: prologue over the memo check (+3689..+3721), falls through to +3722 ----
+  const P = rangeAsm(MENU_PROLOGUE);
+  P.emit(ins(OPX.NewObjectWithBufferLong, 39, u32le(347), u32le(EXY_LITERAL)));
+  P.emit(ins(OPX.Call2, 39, 31, 1, 39));                          // r39 = i18n._({id:'exyUec'})
+  P.emit(ins(OPX.GetByIdShort, 40, 39, 45, sid.charCodeAt));
+  P.emit(ins(OPX.LoadConstZero, 9));
+  P.emit(ins(OPX.Call2, 0, 40, 39, 9));                           // r0 = r39.charCodeAt(0)
+  P.emit(ins(OPX.LoadConstInt, 9, i32le(0x8fde)));                // r9 = 连 (compared first in A)
+  const prologue = P.build({});
+  if (MENU_PROLOGUE + prologue.length > MENU_PROLOGUE_END) return skip('menu prologue does not fit');
+
+  // --- A + B: the dead block -----------------------------------------------------
+  const A = rangeAsm(MENU_BLOCK);
+  // A: labels (entered from +3773 with r35 = {label, onPress} object; r35 kept).
+  A.emit(ins(OPX.GetGlobalObject, 19));
+  A.emit(ins(OPX.TryGetById, 19, 19, 52, u16le(sid.String)));     // r19 = String
+  A.emit(ins(OPX.GetById, 32, 19, 46, u16le(sid.fromCharCode)));  // r32 = String.fromCharCode
+  A.emit(ins(8 /* NewArray */, 34, u16le(MENU_ORDER.length)));     // r34 = spec
+  A.near(OP.JStrictEqual, 'zh', 0, 9);                           // r9 = 连 (P)
+  A.emit(ins(OPX.LoadConstInt, 9, i32le(0x9023)));                // 連
+  A.far(214 /* JStrictNotEqualLong */, 'en', 0, 9);
+  A.here('zh');
+  for (const key of ['avatar', 'models', 'suggestions']) {        // r40 is free: 3-code chunks
+    emitLabel(A.emit, 39, [MENU_LABELS.zh[key]], 'all');
+    A.emit(ins(90, 34, 39, POS(key)));
+  }
+  emitLabel(A.emit, 39, ['连接与诊断'], 'all');
+  emitLabel(A.emit, 40, [MENU_LABELS.zh.update], 'first');         // stored by T
+  A.far(OPX.JmpLong, 'tail');
+  A.here('en');
+  A.emit(ins(OPX.LoadConstString, 9, u16le(sid[' '])));
+  A.emit(ins(OPX.Add, 39, 39, 9));
+  A.emit(ins(OPX.LoadConstString, 40, u16le(sid['&'])));
+  A.emit(ins(OPX.Add, 39, 39, 40));
+  A.emit(ins(OPX.Add, 39, 39, 9));
+  A.emit(ins(OPX.LoadConstString, 40, u16le(sid.Diagnostics)));
+  A.emit(ins(OPX.Add, 39, 39, 40));                               // "<Connection> & Diagnostics"
+  for (const key of NATIVE_ROWS) {
+    emitLabel(A.emit, 40, resolve(MENU_EN_PIECES[key]), 'first');
+    if (key !== 'update') A.emit(ins(90, 34, 40, POS(key)));
+  }
+  A.far(OPX.JmpLong, 'tail');
+
+  // B: rows (entered from +3809 with r34 = spec incl. the connection row, r38 = no-op onPress,
+  // r36 = InsetGroupNavRow, r37 = jsx, r33 = InsetGroup).
+  A.here('rows');
+  for (const key of ['appearance', 'language', 'usage']) {
+    A.emit(ins(94 /* GetByIndex */, 9, 7, MEMO_SLOTS[key]));     // the official element of this render
+    A.emit(ins(90, 34, 9, POS(key)));
+  }
+  A.emit(ins(8, 40, u16le(0)));                                   // r40 = [] (children)
+  A.emit(ins(OPX.LoadConstZero, 0));
+  A.emit(ins(139, 19, 1));
+  A.emit(ins(OPX.LoadConstString, 32, u16le(sid.string)));
+  A.here('loop');
+  A.emit(ins(93 /* GetByVal */, 39, 34, 0));                      // r39 = spec[r0]
+  A.near(180 /* JmpUndefined */, 'done', 39);
+  A.emit(ins(21 /* TypeOf */, 9, 39));
+  A.near(213 /* JStrictNotEqual */, 'push', 9, 32);
+  A.emit(ins(OPX.NewObjectWithBufferLong, 35, u32le(11202), u32le(114747)));
+  A.emit(ins(82 /* PutOwnBySlotIdx */, 35, 39, 0));               // label
+  A.emit(ins(82, 35, 38, 1));                                     // onPress: rokbot.3 no-op
+  A.emit(ins(OPX.Call3, 39, 37, 1, 36, 35));                      // jsx(InsetGroupNavRow, props)
+  A.here('push');
+  A.emit(ins(OPX.GetByIdShort, 9, 40, 45, sid.push));
+  A.emit(ins(OPX.Call2, 9, 9, 40, 39));                           // r40.push(r39)
+  A.emit(ins(OPX.Add, 0, 0, 19));
+  A.near(174 /* Jmp */, 'loop');
+  A.here('done');
+  A.emit(ins(OPX.NewObjectWithBufferLong, 32, u32le(10320), u32le(114747)));
+  A.emit(sid[BRAND_NAME] < 65536
     ? ins(OPX.LoadConstString, 39, u16le(sid[BRAND_NAME]))
     : ins(OPX.LoadConstStringLongIndex, 39, u32le(sid[BRAND_NAME])));
-  emit(ins(82, 32, 39, 0));                                       // header: 'rokbot'
-  emit(ins(82, 32, 40, 1));                                       // children
-  emit(ins(59 /* LoadFromEnvironment */, 34, 6, 42));
-  emit(ins(OPX.GetByIdShort, 34, 34, 45, sid.jsxs));
-  emit(ins(OPX.Call3, 19, 34, 1, 33, 32));                        // r19 = jsxs(InsetGroup, props)
-  labels.back = 3788;
-  labels.memo = 3819;
-  jumpLong(OPX.JmpLong, 'memo');
-  const block = Buffer.concat(code);
-  for (const [at, off, label] of fix) block.writeInt32LE(labels[label] - at, at - MENU_BLOCK + off);
+  A.emit(ins(82, 32, 39, 0));                                     // header: 'rokbot'
+  A.emit(ins(82, 32, 40, 1));                                     // children
+  A.emit(ins(59 /* LoadFromEnvironment */, 34, 6, 42));
+  A.emit(ins(OPX.GetByIdShort, 34, 34, 45, sid.jsxs));
+  A.emit(ins(OPX.Call3, 19, 34, 1, 33, 32));                      // r19 = jsxs(InsetGroup, props)
+  A.far(OPX.JmpLong, 'memo');
+
+  // T: shared tail of both label branches (+3778, falls into +3788).
+  const T = rangeAsm(MENU_TAIL);
+  T.emit(ins(90, 34, 40, POS('update')));
+  const tail = T.build({});
+  // +3809: the connection row into the spec, then B.
+  const C = rangeAsm(3809);
+  C.emit(ins(90, 34, 35, POS('connection')));
+  C.far(OPX.JmpLong, 'rows');
+
+  let block;
+  try {
+    block = A.build({ ...shared, tail: MENU_TAIL });
+  } catch (error) {
+    return skip(`menu program: ${error.message}`);
+  }
   if (MENU_BLOCK + block.length > MENU_BLOCK_END) return skip(`menu block does not fit (${block.length} bytes)`);
+  const toRows = C.build({ rows: A.labels.rows });
+  if (MENU_TAIL + tail.length > MENU_TAIL_END || toRows.length > 10) return skip('menu tail does not fit');
 
   const edits = [];
   const write = (label, abs, bytes) => { bytes.copy(buf, abs); edits.push(label); };
@@ -829,16 +916,24 @@ export function applySettingsMenu(hbcBuffer) {
   write('settings: rokbot section program in the dead link-group block', S(MENU_BLOCK), Buffer.concat([
     block, Buffer.alloc(MENU_BLOCK_END - MENU_BLOCK - block.length, OP.AsyncBreakCheck),
   ]));
-  write('settings: rokbot section rebuilt on every render', S(3689), Buffer.from([174 /* Jmp */, 3722 - 3689, OP.AsyncBreakCheck, OP.AsyncBreakCheck]));
+  write('settings: rokbot section rebuilt on every render (prologue over the memo check)', S(MENU_PROLOGUE), Buffer.concat([
+    prologue, Buffer.alloc(MENU_PROLOGUE_END - MENU_PROLOGUE - prologue.length, OP.AsyncBreakCheck),
+  ]));
+  write('settings: last label stored after the label builder', S(MENU_TAIL), Buffer.concat([
+    tail, Buffer.alloc(MENU_TAIL_END - MENU_TAIL - tail.length, OP.AsyncBreakCheck),
+  ]));
   write('settings: feedback group -> rokbot section', S(3809), Buffer.concat([
-    ins(OPX.JmpLong, i32le(labels.rows - 3809)), Buffer.alloc(5, OP.AsyncBreakCheck),
+    toRows, Buffer.alloc(10 - toRows.length, OP.AsyncBreakCheck),
   ]));
   write('settings: rokbot section right after the account group', S(4224), denseWrites(20, [
     [15, 2], [9, SHEET_CHILD_INDEX], [28, 4], [27, 5], [14, 6], [12, 7], [26, 8], [25, 9], [24, 10], [11, 11], [23, 12], [10, 13],
   ]));
   const sha1 = crypto.createHash('sha1').update(buf.subarray(0, buf.length - 20)).digest();
   sha1.copy(buf, buf.length - 20);
-  return { buffer: buf, applied: true, reason: 'rokbot section right under the account card', edits, size: block.length };
+  return {
+    buffer: buf, applied: true, reason: 'rokbot section right under the account card', edits,
+    size: block.length, prologueSize: prologue.length, tailSize: tail.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -871,10 +966,17 @@ export function applySettingsMenu(hbcBuffer) {
 //     (C) (pressEvent) the bell's onPress (closure over the AgentsService instance): flips
 //         global.sorted and toggles 'sorted'. Nothing throws if the service is missing.
 //   Titles are String.fromCharCode(...) of the Web wording; zh and en bodies are published, the
-//   companion applies one (HermesPatcher). Property caches are disabled (255) in every body;
-//   registers follow each frame's number / non-pointer / pointer split.
+//   companion applies one (HermesPatcher). Registers follow each frame's number / non-pointer /
+//   pointer split.
+//
+// Property caches: every GetById / TryGetById / PutById of a new body gets a real cache index, one
+// per property name and kind (read / write), as the Hermes compiler allocates them, and the
+// function header's ReadCacheSize / WriteCacheSize is raised (a verified header edit) when the
+// body needs more entries than the official function had. Hermes v98 has no "caching disabled"
+// index for these opcodes: the interpreter indexes CodeBlock's trailing cache arrays with the
+// operand directly (the bound is only an assert), so the 255 used before read and wrote heap
+// memory far past the cache and crashed the JS thread (SIGSEGV in libhermesvm) on cold starts.
 
-const PROPERTY_CACHE_OFF = 255;
 export const LIST_MODE_ID = 'sorted';
 export const LIST_GROUP_IDS = ['pending', 'running', 'unread', 'read'];
 export const LIST_GROUP_TITLES = {
@@ -902,8 +1004,21 @@ function assembler() {
   const parts = [];
   const labels = {};
   const fixups = [];
+  const readCache = new Map();
+  const writeCache = new Map();
+  const cacheIndex = (map, id) => {
+    if (!map.has(id)) map.set(id, map.size);
+    if (map.size > 255) throw new Error('more than 255 property cache entries');
+    return map.get(id);
+  };
   let pos = 0;
   const a = {
+    /** Read cache index for property name `id` (one per name, as the Hermes compiler assigns them). */
+    rc(id) { return cacheIndex(readCache, id); },
+    /** Write cache index for property name `id`. */
+    wc(id) { return cacheIndex(writeCache, id); },
+    get readCacheSize() { return readCache.size; },
+    get writeCacheSize() { return writeCache.size; },
     emit(b) { parts.push(b); pos += b.length; return a; },
     jump(op, label, ...regs) {
       if (!JUMP_OPS.has(op)) throw new Error(`not a jump: ${op}`);
@@ -928,6 +1043,8 @@ function assembler() {
           body.writeInt8(d, f.at + 1);
         }
       }
+      body.readCacheSize = readCache.size;
+      body.writeCacheSize = writeCache.size;
       return body;
     },
   };
@@ -939,9 +1056,19 @@ function loadString(a, reg, id) {
 }
 
 function getById(a, dst, obj, id) {
-  if (id < 256) return a.emit(ins(OPG.GetByIdShort, dst, obj, PROPERTY_CACHE_OFF, id));
-  if (id < 65536) return a.emit(ins(OPG.GetById, dst, obj, PROPERTY_CACHE_OFF, u16le(id)));
-  return a.emit(ins(OPG.GetByIdLong, dst, obj, PROPERTY_CACHE_OFF, u32le(id)));
+  if (id < 256) return a.emit(ins(OPG.GetByIdShort, dst, obj, a.rc(id), id));
+  if (id < 65536) return a.emit(ins(OPG.GetById, dst, obj, a.rc(id), u16le(id)));
+  return a.emit(ins(OPG.GetByIdLong, dst, obj, a.rc(id), u32le(id)));
+}
+
+function tryGetById(a, dst, obj, id) {
+  if (id >= 65536) throw new Error('TryGetById needs a 16-bit string id');
+  return a.emit(ins(OPG.TryGetById, dst, obj, a.rc(id), u16le(id)));
+}
+
+function putByIdLoose(a, obj, value, id) {
+  if (id >= 65536) throw new Error('PutByIdLoose needs a 16-bit string id');
+  return a.emit(ins(OPG.PutByIdLoose, obj, value, a.wc(id), u16le(id)));
 }
 
 // Strings the new bodies use. Property names (GetById / PutById / TryGetById) must be identifiers;
@@ -1020,7 +1147,7 @@ function recencyLiveBody(g) {
   a.emit(ins(OPG.LoadParam, 2, 1));                        // row
   a.emit(ins(OPG.LoadParam, 4, 2));                        // mode
   a.emit(ins(OPG.GetGlobalObject, 3));
-  a.emit(ins(OPG.TryGetById, 7, 3, PROPERTY_CACHE_OFF, u16le(g.Math)));
+  tryGetById(a, 7, 3, g.Math);
   getById(a, 6, 7, g.max);
   a.emit(ins(OPG.LoadConstNull, 1));
   getById(a, 5, 3, g[LIST_MODE_ID]);                      // global.sorted (undefined when never set)
@@ -1074,7 +1201,7 @@ function recencyLiveBody(g) {
 function emitModeOf(a, g, list, tag) {
   a.emit(ins(OPG.LoadConstFalse, 2));
   a.emit(ins(OPG.GetGlobalObject, 10));
-  a.emit(ins(OPG.TryGetById, 11, 10, PROPERTY_CACHE_OFF, u16le(g.Array)));
+  tryGetById(a, 11, 10, g.Array);
   getById(a, 12, 11, g.isArray);
   a.emit(ins(OPG.Call2, 12, 12, 11, list));
   a.far(OPG.JmpFalse, `${tag}:off`, 12);
@@ -1132,14 +1259,14 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   a.emit(ins(OPG.LoadFromEnvironment, 17, 8, 2));
   PROP(17, 17, 'SandButton');
   a.emit(ins(OPG.GetGlobalObject, 18));
-  a.emit(ins(OPG.TryGetById, 19, 18, PROPERTY_CACHE_OFF, u16le(g.__r)));
+  tryGetById(a, 19, 18, g.__r);
   a.emit(ins(OPG.LoadConstInt, 20, i32le(modules.queries)));
   a.emit(ins(OPG.Call2, 20, 19, 4, 20));
   PROP(20, 20, 'useCollapsedSectionIdsQuery');
   a.emit(ins(OPG.Call1, 20, 20, 4));                       // hook: re-renders the bell with the mode
   PROP(21, 20, 'data');
   emitModeOf(a, g, 21, 'B');                               // r2 = mode
-  a.emit(ins(OPG.PutByIdLoose, 18, 2, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));
+  putByIdLoose(a, 18, 2, g[LIST_MODE_ID]);
   a.emit(ins(OPG.LoadConstInt, 22, i32le(modules.session)));
   a.emit(ins(OPG.Call2, 22, 19, 4, 22));
   PROP(22, 22, 'useSessionService');
@@ -1212,7 +1339,7 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   emitModeOf(a, g, 15, 'C');
   a.emit(ins(OPG.Not, 3, 2));
   a.emit(ins(OPG.GetGlobalObject, 16));
-  a.emit(ins(OPG.PutByIdLoose, 16, 3, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));   // before the re-render sorts
+  putByIdLoose(a, 16, 3, g[LIST_MODE_ID]);   // before the re-render sorts
   loadString(a, 17, g[LIST_MODE_ID]);
   a.emit(ins(OPG.Call2, 14, 14, 9, 17));                   // toggleSectionCollapsed('sorted')
   a.label('Cdone');
@@ -1222,7 +1349,7 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   a.label('A');
   PROP(9, 8, 'collapsedSectionIds');                       // r8 = this
   emitModeOf(a, g, 9, 'A');
-  a.emit(ins(OPG.PutByIdLoose, 10, 2, PROPERTY_CACHE_OFF, u16le(g[LIST_MODE_ID])));   // r10 = global (emitModeOf)
+  putByIdLoose(a, 10, 2, g[LIST_MODE_ID]);   // r10 = global (emitModeOf)
   a.far(OPG.JmpTrue, 'Agroups', 2);
   PROP(6, 8, 'sections');
   a.emit(ins(OPG.Ret, 6));                                 // official: the user's sections
@@ -1271,7 +1398,7 @@ function feedbackSheetLiveBody({ g, selfIndex, modules, titles }) {
   a.emit(ins(OPG.Add, 19, 19, 26));
   a.far(OPG.Jmp, 'Aloop');
   a.label('Adone');
-  a.emit(ins(OPG.TryGetById, 10, 10, PROPERTY_CACHE_OFF, u16le(g.String)));
+  tryGetById(a, 10, 10, g.String);
   PROP(11, 10, 'fromCharCode');
   a.emit(ins(OPG.NewArray, 7, u16le(0)));
   LIST_GROUP_IDS.forEach((id, i) => {
@@ -1392,10 +1519,13 @@ export function listSortEdits(hbcBuffer) {
     modules[m.key] = id;
   }
 
+  // A whole new body plus, when it needs more property cache entries than the official function
+  // had, the header edit that sizes the caches for it (see "Property caches" above).
   const whole = (label, fn, body) => {
     if (body.length > fn.size) throw new Error(`${label}: ${body.length} > ${fn.size}`);
-    return { label, offset: fn.offset, original: Buffer.from(buf.subarray(fn.offset, fn.offset + fn.size)),
-      patched: Buffer.concat([body, Buffer.alloc(fn.size - body.length, OP.AsyncBreakCheck)]) };
+    const header = cacheSizeEdit(buf, L, fn.index, body, label);
+    return [{ label, offset: fn.offset, original: Buffer.from(buf.subarray(fn.offset, fn.offset + fn.size)),
+      patched: Buffer.concat([body, Buffer.alloc(fn.size - body.length, OP.AsyncBreakCheck)]) }, ...(header ? [header] : [])];
   };
   const prologue = Buffer.concat([
     ins(OPG.CreateClosure, 4, 2, u16le(fs.index)),
@@ -1405,18 +1535,18 @@ export function listSortEdits(hbcBuffer) {
   let edits, titles;
   try {
     edits = [
-      whole('recencyOf: global.sorted ? last message : official recency', recency, recencyLiveBody(g)),
+      ...whole('recencyOf: global.sorted ? last message : official recency', recency, recencyLiveBody(g)),
       { label: 'SidebarSectionsView.resolve: sections <- FeedbackSheet.call(params)', offset: resolve.offset + 18,
         original: Buffer.from(RESOLVE_PROLOGUE_ORIGINAL),
         patched: Buffer.concat([prologue, Buffer.alloc(RESOLVE_PROLOGUE_ORIGINAL.length - prologue.length, OP.AsyncBreakCheck)]) },
       { label: 'toggleSectionCollapsed: fold any id', offset: toggle.offset + 43,
         original: Buffer.from(TOGGLE_CHECK_ORIGINAL), patched: hex('ae 07 7e') },
-      whole('SearchButton: FeedbackSheet(props, 1)', search, searchButtonLiveBody(fs.index)),
+      ...whole('SearchButton: FeedbackSheet(props, 1)', search, searchButtonLiveBody(fs.index)),
     ];
     titles = {};
     for (const [lang, list] of Object.entries(LIST_GROUP_TITLES)) {
-      titles[lang] = [whole(`FeedbackSheet -> ${lang} list arrangement`, fs,
-        feedbackSheetLiveBody({ g, selfIndex: fs.index, modules, titles: list }))];
+      titles[lang] = whole(`FeedbackSheet -> ${lang} list arrangement`, fs,
+        feedbackSheetLiveBody({ g, selfIndex: fs.index, modules, titles: list }));
     }
   } catch {
     return null;
@@ -1431,9 +1561,31 @@ function functionHeader(buf, L, index) {
   if (flags & 0x20) {
     const large = ((w1 & 0xffffff) | (((w2 >>> 14) & 0xff) << 24)) >>> 0;
     const u = o => buf.readUInt32LE(large + o);
-    return { params: u(4), size: u(12), numRegs: u(20), nonPtrRegs: u(24), frame: u(28) };
+    // LargeFunctionHeader: one uint32 per field up to FrameSize, then uint8 ReadCacheSize,
+    // WriteCacheSize, NumCacheNewObject, PrivateNameCacheSize and the flags.
+    return { params: u(4), size: u(12), numRegs: u(20), nonPtrRegs: u(24), frame: u(28),
+      readCache: buf[large + 32], writeCache: buf[large + 33], cacheAt: large + 32, large: true };
   }
-  return { params: (w1 >>> 25) & 31, size: w2 & 0x3fff, numRegs: (w2 >>> 22) & 31, nonPtrRegs: (w2 >>> 27) & 31, frame: buf[a + 8] };
+  // Small header third word: FrameSize:8, ReadCacheSize:8, WriteCacheSize:6 (+2 flag bits), flags.
+  return { params: (w1 >>> 25) & 31, size: w2 & 0x3fff, numRegs: (w2 >>> 22) & 31, nonPtrRegs: (w2 >>> 27) & 31, frame: buf[a + 8],
+    readCache: buf[a + 9], writeCache: buf[a + 10] & 0x3f, cacheAt: a + 9, large: false };
+}
+
+/**
+ * Header edit raising function `index`'s ReadCacheSize / WriteCacheSize to at least what a new
+ * body uses (`body.readCacheSize` / `body.writeCacheSize` from assembler()), or null when the
+ * official sizes already cover it. Hermes sizes CodeBlock's property caches from these fields.
+ */
+export function cacheSizeEdit(buf, L, index, body, label) {
+  const h = functionHeader(buf, L, index);
+  const needRead = body.readCacheSize || 0, needWrite = body.writeCacheSize || 0;
+  if (needRead <= h.readCache && needWrite <= h.writeCache) return null;
+  if (needRead > 255 || needWrite > (h.large ? 255 : 63)) throw new Error(`${label}: property cache too large`);
+  const original = Buffer.from(buf.subarray(h.cacheAt, h.cacheAt + 2));
+  const patched = Buffer.from(original);
+  patched[0] = Math.max(h.readCache, needRead);
+  patched[1] = h.large ? Math.max(h.writeCache, needWrite) : (original[1] & 0xc0) | Math.max(h.writeCache, needWrite);
+  return { label: `${label}: property cache sizes`, offset: h.cacheAt, original, patched };
 }
 
 /** Applies (or verifies) list sort edits in place; mirrors HermesPatcher.applyListSortEdits. */

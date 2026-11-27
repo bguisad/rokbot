@@ -2,6 +2,7 @@
 #import "RBCanvas.h"
 #import "RBConnection.h"
 #import "RBDiagnostics.h"
+#import "RBSuggestions.h"
 #import <objc/message.h>
 #import <objc/runtime.h>
 
@@ -223,6 +224,8 @@ void RBOpenAgent(NSString *agentId) {
   NSURL *url = RBChatURL(agentId);
   if (!url) return;
   RBDiagnosticsEvent(@"notification.open", @{@"agentId":agentId, @"observing":RBObserving ? @YES : @NO, @"hasBeenActive":RBHasBeenActive ? @YES : @NO});
+  // Strong navigation signal: input suggestions now belong to this bot.
+  RBSuggestionsNoteOpenedAgent(agentId);
   @synchronized (NSClassFromString(@"RCTLinkingManager")) {
     if (!RBHasBeenActive) {
       RBInitialNotificationURL = url;

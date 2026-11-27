@@ -1,5 +1,5 @@
 import { t, html } from './i18n.js';
-import { $, node, empty, iconButton } from './ui.js';
+import { $, node, empty, iconButton, dropdown } from './ui.js';
 import { providerDialog, serviceRow, sectionHead } from './media-editor-ui.js';
 
 export function createWebServicesEditor({ api, act }) {
@@ -37,7 +37,7 @@ export function createWebServicesEditor({ api, act }) {
       model.placeholder = t('模型 ID'); model.setAttribute('aria-label', t('模型 ID')); line.append(model);
     }
     for (const kind of ['search', 'fetch']) {
-      const input = document.createElement('select'); input.name = kind; input.setAttribute('aria-label', t(kind === 'search' ? '搜索' : '抓取'));
+      const input = dropdown(); input.name = kind; input.setAttribute('aria-label', t(kind === 'search' ? '搜索' : '抓取'));
       for (const [value, title] of options(kind)) input.add(new Option(title, value));
       input.value = route[kind]; line.append(input);
     }

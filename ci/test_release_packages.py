@@ -130,7 +130,7 @@ class Packages(unittest.TestCase):
         expected = {'host': {'host', 'assets/logo'}, 'windows': {'windows', 'mac', 'assets/logo'},
                     'mac': {'mac', 'assets/logo'}, 'ios': {'ios', 'assets/logo'},
                     'android': {'android', 'windows', 'mac', 'assets/logo'}, 'web': {'web', 'windows', 'mac', 'assets/logo'}}
-        common = {'LICENSE', 'NOTICE', 'README.md', 'README.en.md', 'SECURITY.md', 'docs'}
+        common = {'LICENSE', 'LICENSES/ProkBot-Noncommercial-1.0.txt', 'NOTICE', 'README.md', 'README.en.md', 'SECURITY.md', 'docs'}
         self.assertEqual(set(data), {f'rokbot-{k}.zip' for k in expected} | {'SHA256SUMS.txt'})
         self.assertEqual(data['SHA256SUMS.txt'], checksum_lines(data))
         for key, roots in expected.items():

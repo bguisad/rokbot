@@ -390,7 +390,20 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    /** Client read timeout of /local/suggestions (was 18 s; the Host answers from cache or gives up sooner). */
+    static final int SUGGESTIONS_TIMEOUT_MS = 9000;
+
     public static JSONObject getSuggestions(Context context, String agentId, String lastEntryId, String locale) throws Exception {
+        return getSuggestions(context, agentId, lastEntryId, locale, null, false);
+    }
+
+    /**
+     * POST /local/suggestions { agentId, lastEntryId?, locale?, requestId? (max 64 chars), prefetch? }.
+     * Response adds agentId / requestId (echoed) and historyId; with prefetch the Host answers
+     * 202 { accepted, agentId, requestId } and generates into its cache in the background.
+     */
+    public static JSONObject getSuggestions(Context context, String agentId, String lastEntryId, String locale,
+                                            String requestId, boolean prefetch) throws Exception {
         JSONObject req = new JSONObject();
         if (agentId != null && !agentId.trim().isEmpty()) {
             req.put("agentId", agentId.trim());
@@ -401,7 +414,72 @@ public class HostApiClient {
         if (locale != null && !locale.trim().isEmpty()) {
             req.put("locale", locale.trim());
         }
-        HttpResult res = authedRequest(context, "POST", "/local/suggestions", req, 18000, null);
+        if (requestId != null && !requestId.trim().isEmpty()) {
+            String rid = requestId.trim();
+            req.put("requestId", rid.length() > 64 ? rid.substring(0, 64) : rid);
+        }
+        if (prefetch) req.put("prefetch", true);
+        HttpResult res = authedRequest(context, "POST", "/local/suggestions", req, SUGGESTIONS_TIMEOUT_MS, null);
+        return requireJsonObject(res);
+    }
+
+    /** Client read timeout of /local/suggestions/complete (the Host gives the model 8 s). */
+    static final int COMPLETION_TIMEOUT_MS = 9000;
+
+    /**
+     * Lets another thread abort an in-flight request: {@link #cancel()} disconnects the
+     * HttpURLConnection, which closes the socket so the Host aborts the model call.
+     */
+    public static final class CancelHandle {
+        private volatile HttpURLConnection mConn;
+        private volatile boolean mCancelled;
+
+        public void cancel() {
+            mCancelled = true;
+            HttpURLConnection c = mConn;
+            if (c != null) {
+                try {
+                    c.disconnect();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        public boolean isCancelled() {
+            return mCancelled;
+        }
+
+        void attach(HttpURLConnection conn) throws IOException {
+            mConn = conn;
+            if (mCancelled) {
+                conn.disconnect();
+                throw new IOException("cancelled");
+            }
+        }
+    }
+
+    /**
+     * POST /local/suggestions/complete: the predicted rest of {@code text} (the whole draft).
+     * Response: { enabled, text, completion (suffix only, '' = nothing), source, cached, lang? }.
+     */
+    public static JSONObject complete(Context context, String agentId, String text, String locale,
+                                      CancelHandle cancel) throws Exception {
+        JSONObject req = new JSONObject();
+        if (agentId != null && !agentId.trim().isEmpty()) {
+            req.put("agentId", agentId.trim());
+        }
+        req.put("text", text != null ? text : "");
+        if (locale != null && !locale.trim().isEmpty()) {
+            req.put("locale", locale.trim());
+        }
+        String server = resolveServer(context);
+        String token = Storage.getToken(context);
+        if (server == null || server.isEmpty() || token == null || token.isEmpty()) {
+            throw new ApiException(401, Localize.t(context, "设备尚未配对。", "Device is not paired."));
+        }
+        byte[] payload = req.toString().getBytes(StandardCharsets.UTF_8);
+        HttpResult res = rawRequest(server + "/local/suggestions/complete", "POST", token, payload, "application/json",
+                5000, COMPLETION_TIMEOUT_MS, RokBotBootstrap.isForeground(), null, cancel);
         return requireJsonObject(res);
     }
 
@@ -411,9 +489,16 @@ public class HostApiClient {
     }
 
     public static JSONObject updateSuggestionsSettings(Context context, Boolean enabled, Boolean aiEnabled) throws Exception {
+        return updateSuggestionsSettings(context, enabled, aiEnabled, null);
+    }
+
+    /** PUT /local/suggestions/settings; null fields are left untouched (completionEnabled alone is accepted). */
+    public static JSONObject updateSuggestionsSettings(Context context, Boolean enabled, Boolean aiEnabled,
+                                                       Boolean completionEnabled) throws Exception {
         JSONObject req = new JSONObject();
         if (enabled != null) req.put("enabled", enabled.booleanValue());
         if (aiEnabled != null) req.put("aiEnabled", aiEnabled.booleanValue());
+        if (completionEnabled != null) req.put("completionEnabled", completionEnabled.booleanValue());
         HttpResult res = authedRequest(context, "PUT", "/local/suggestions/settings", req, 10000, null);
         return requireJsonObject(res);
     }
@@ -435,6 +520,42 @@ public class HostApiClient {
     public static JSONObject deleteQuickPhrase(Context context, String id) throws Exception {
         HttpResult res = authedRequest(context, "DELETE", "/local/suggestions/phrases/" + encodePath(id), null, 10000, null);
         return requireJsonObject(res);
+    }
+
+    // ---- Migrate from Grok Bot (/local/migrate): prompt export, pending packages, import ----
+
+    public static JSONObject migrateOverview(Context context) throws Exception {
+        return requireJsonObject(authedRequest(context, "GET", "/local/migrate", null, 15000, null));
+    }
+
+    public static JSONObject migrateCreateToken(Context context, String label, String scope) throws Exception {
+        JSONObject req = new JSONObject();
+        req.put("label", label != null ? label : "");
+        req.put("scope", scope != null ? scope : "single");
+        return requireJsonObject(authedRequest(context, "POST", "/local/migrate/tokens", req, 15000, null));
+    }
+
+    public static JSONObject migratePrompt(Context context, String tokenId, String scope) throws Exception {
+        StringBuilder query = new StringBuilder("/local/migrate/prompt?scope=").append(encodePath(scope != null ? scope : "single"));
+        if (tokenId != null && !tokenId.isEmpty()) query.append("&tokenId=").append(encodePath(tokenId));
+        return requireJsonObject(authedRequest(context, "GET", query.toString(), null, 15000, null));
+    }
+
+    public static JSONObject migrateRevokeToken(Context context, String tokenId) throws Exception {
+        return requireJsonObject(authedRequest(context, "DELETE", "/local/migrate/tokens/" + encodePath(tokenId), null, 15000, null));
+    }
+
+    public static JSONObject migratePreview(Context context, String packageId) throws Exception {
+        return requireJsonObject(authedRequest(context, "GET", "/local/migrate/packages/" + encodePath(packageId), null, 30000, null));
+    }
+
+    public static JSONObject migrateImport(Context context, String packageId, JSONObject selection) throws Exception {
+        return requireJsonObject(authedRequest(context, "POST", "/local/migrate/packages/" + encodePath(packageId) + "/import",
+                selection != null ? selection : new JSONObject(), 600000, null));
+    }
+
+    public static JSONObject migrateDiscard(Context context, String packageId) throws Exception {
+        return requireJsonObject(authedRequest(context, "DELETE", "/local/migrate/packages/" + encodePath(packageId), null, 15000, null));
     }
 
     public static JSONObject reorderQuickPhrases(Context context, List<String> ids) throws Exception {
@@ -1382,7 +1503,14 @@ public class HostApiClient {
     public static HttpResult rawRequest(String urlStr, String method, String token, byte[] body, String contentType,
                                         int connectTimeoutMs, int readTimeoutMs, boolean foreground,
                                         Map<String, String> extraHeaders) throws IOException {
+        return rawRequest(urlStr, method, token, body, contentType, connectTimeoutMs, readTimeoutMs, foreground, extraHeaders, null);
+    }
+
+    public static HttpResult rawRequest(String urlStr, String method, String token, byte[] body, String contentType,
+                                        int connectTimeoutMs, int readTimeoutMs, boolean foreground,
+                                        Map<String, String> extraHeaders, CancelHandle cancel) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+        if (cancel != null) cancel.attach(conn);
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod(method);
         conn.setConnectTimeout(connectTimeoutMs);

@@ -25,6 +25,7 @@ import { auth, boot, theme, language, experiments, createLocalServices, desktopE
 import { createModelBridge } from './model-bridge.mjs';
 import { createDesktopUpdater, createTailcatUpdateFetch, resolveDesktopUpdateSource } from './updater.mjs';
 import { applyAsarUpdateAndRestart, canApplyAsarUpdate } from './asar-install.mjs';
+import { createMigration } from './migrate-desktop.mjs';
 
 const clientRoot = path.dirname(fileURLToPath(import.meta.url));
 const payload = path.join(clientRoot, '../dist');
@@ -76,7 +77,17 @@ async function showApp() {
   if (!starting) await (transport && config ? showWorkspace() : showConnection());
 }
 function routeLink(url) { const id = agentFromLink(url); if (id) openAgent(id); }
+// The chat on screen, as the official renderer reports it (setViewingAgent) or a link opens it.
+// The composer suggestions (suggestions-composer.cjs) only show answers for this Bot.
+let suggestionsAgentId = '';
+function noteSuggestionsAgent(id) {
+  const next = typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : '';
+  if (!next || next === suggestionsAgentId) return;
+  suggestionsAgentId = next;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rokbot-local:viewing-agent', next);
+}
 function openAgent(id) {
+  noteSuggestionsAgent(id);
   pendingAgent = id;
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (transport && config && app.isReady()) void showWorkspace();
@@ -158,6 +169,45 @@ async function showConnection() {
   connectWindow.on('closed', () => { connectWindow = null; });
   await connectWindow.loadFile(path.join(clientRoot, 'connect.html'));
 }
+let migrateWindow = null;
+const migration = createMigration({ getConfig: () => config, request: (...args) => {
+  if (!gateway) throw new Error(localText('尚未连接 Host', 'Not connected to a Host'));
+  return gateway.request(...args);
+}, dialog, clipboard, getWindow: () => migrateWindow });
+/** "Migrate from Grok Bot" window: the shared wizard over the device migration API. */
+async function showMigration() {
+  if (!app.isReady() || !config) return;
+  if (migrateWindow && !migrateWindow.isDestroyed()) { migrateWindow.show(); migrateWindow.focus(); return; }
+  const background = nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff';
+  const desktopIcon = windowIcon(clientRoot);
+  migrateWindow = new BrowserWindow({ width: 940, height: 780, minWidth: 560, minHeight: 520, title: localText('从 Grok Bot 迁移', 'Migrate from Grok Bot'),
+    backgroundColor: background, ...(desktopIcon ? { icon: desktopIcon } : {}), ...windowChrome(background),
+    webPreferences: { preload: path.join(clientRoot, 'migrate-preload.cjs'), sandbox: true, nodeIntegration: false, contextIsolation: true } });
+  migrateWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  migrateWindow.webContents.on('will-navigate', event => event.preventDefault());
+  migrateWindow.on('closed', () => { migrateWindow = null; });
+  await migrateWindow.loadFile(path.join(clientRoot, 'migrate.html'));
+}
+for (const [name, handler] of Object.entries({
+  detect: () => migration.detect(),
+  'upload-folder': (progress, folder) => migration.uploadFolder(String(folder ?? ''), progress),
+  'choose-folder': progress => migration.chooseFolder(progress),
+  'choose-file': progress => migration.chooseFile(progress),
+  list: () => migration.list(),
+  'create-token': (_progress, body) => migration.createToken(body),
+  'revoke-token': (_progress, id) => migration.revokeToken(String(id)),
+  prompt: (_progress, options) => migration.prompt(options ?? {}),
+  preview: (_progress, id) => migration.preview(String(id)),
+  import: (_progress, id, selection) => migration.import(String(id), selection),
+  discard: (_progress, id) => migration.discard(String(id)),
+  copy: (_progress, text) => migration.copy(text),
+})) ipcMain.handle(`rokbot-migrate:${name}`, (event, ...args) => {
+  if (!trusted(event, migrateWindow)) throw new Error('Unexpected renderer');
+  const progress = value => { if (!event.sender.isDestroyed()) event.sender.send('rokbot-migrate:progress', value); };
+  return handler(progress, ...args);
+});
+ipcMain.on('rokbot-local:migrate-open', event => { if (trusted(event, mainWindow)) void showMigration(); });
+
 function updateMenu() {
   // Windows windows are frameless with native caption buttons; Linux uses standard File/Edit/View/Window menus.
   Menu.setApplicationMenu(Menu.buildFromTemplate(isWindows
@@ -165,6 +215,7 @@ function updateMenu() {
     : isLinux
       ? [{ role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
       : [{ label: 'RokBot', submenu: [{ role: 'about' }, { type: 'separator' },
+        { label: localText('从 Grok Bot 迁移…', 'Migrate from Grok Bot…'), enabled: Boolean(config), click: () => void showMigration() }, { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
 }
@@ -270,7 +321,8 @@ async function showWorkspace() {
       showDownloadError: () => dialog.showMessageBox(win, { type: 'error',
         message: localText('无法下载文件，请重试。', 'Could not download this file. Try again.') }),
     }) },
-    disconnect: async () => { await store.clear(); config = null; disposeWorkspace(); await transport?.close(); transport = null; await showConnection(); }, notifications,
+    disconnect: async () => { await store.clear(); config = null; disposeWorkspace(); await transport?.close(); transport = null; await showConnection(); },
+    notifications: { ...notifications, noteViewingAgent: id => { notifications?.noteViewingAgent(id); noteSuggestionsAgent(id); } },
     settings: { ...createSettings({ profile, window: win, app, nativeTheme, settings: clientSettings, enabledAtLaunch, command: gateway.command, theme, language, boot,
       onVoicePreference: () => voiceAvailability.refresh(), onBackground: chrome.setBackground }), ...chrome.handlers,
       ...accountProfile.handlers, ...localExec.handlers, ...browserProviders.handlers,
@@ -385,6 +437,26 @@ ipcMain.handle('rokbot-local:suggestions-phrase-delete', (event, payload) => {
 ipcMain.handle('rokbot-local:suggestions-phrase-reorder', (event, payload) => {
   if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
   return gateway.request('/local/suggestions/phrases/reorder', { ids: Array.isArray(payload?.ids) ? payload.ids : [] }, AbortSignal.timeout(10000), 'PUT');
+});
+// Composer suggestions and inline completion. Each call carries a renderer request id so a newer
+// keystroke (rokbot-local:suggestions-cancel) aborts the Host request it replaces.
+const suggestionCalls = new Map();
+function suggestionCall(event, payload, path, timeoutMs) {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const requestId = typeof payload?.requestId === 'string' ? payload.requestId.slice(0, 64) : '';
+  const body = payload?.body && typeof payload.body === 'object' && !Array.isArray(payload.body) ? payload.body : {};
+  const controller = new AbortController();
+  if (requestId) suggestionCalls.set(requestId, controller);
+  return gateway.request(path, body, AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]), 'POST')
+    .finally(() => { if (requestId && suggestionCalls.get(requestId) === controller) suggestionCalls.delete(requestId); });
+}
+ipcMain.handle('rokbot-local:suggestions-generate', (event, payload) => suggestionCall(event, payload, '/local/suggestions', 10000));
+ipcMain.on('rokbot-local:viewing-agent-get', event => { event.returnValue = trusted(event, mainWindow) ? suggestionsAgentId : ''; });
+ipcMain.handle('rokbot-local:suggestions-complete', (event, payload) => suggestionCall(event, payload, '/local/suggestions/complete', 9000));
+ipcMain.on('rokbot-local:suggestions-cancel', (event, requestId) => {
+  if (!trusted(event, mainWindow) || typeof requestId !== 'string') return;
+  suggestionCalls.get(requestId)?.abort();
+  suggestionCalls.delete(requestId);
 });
 ipcMain.handle('rokbot-local:download-attachments-zip', async (event, payload) => {
   if (!trusted(event, mainWindow) || !methodCall) throw new Error('Unexpected renderer');

@@ -37,13 +37,25 @@ public class NetworkInterceptor implements Interceptor {
         GatewayEndpointRouter.setLastAgentId(agentId);
     }
 
+    /** Direct-Host requests: feed the input suggestions only (body is read, not consumed). */
+    private void observeSuggestionsAgent(String path, RequestBody body) {
+        if (body == null || !GatewayEndpointRouter.shouldObserveSuggestionsPath(path)) return;
+        try {
+            long len = body.contentLength();
+            if (len > 65536L) return;
+            byte[] raw = readRequestBodyBytes(body, 65536L);
+            if (raw != null && raw.length > 0) GatewayEndpointRouter.observeSuggestionsAgentFromJson(path, raw);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private byte[] observeAgentId(String path, RequestBody body) {
         if (body == null || !GatewayEndpointRouter.shouldObserveAgentIdPath(path)) return null;
         try {
             long len = body.contentLength();
             if (len > 65536L) return null;
             byte[] raw = readRequestBodyBytes(body, 65536L);
-            GatewayEndpointRouter.observeAgentIdFromJson(raw);
+            GatewayEndpointRouter.observeAgentIdFromJson(path, raw);
             return raw;
         } catch (Throwable ignored) {
             return null;
@@ -80,6 +92,7 @@ public class NetworkInterceptor implements Interceptor {
         }
 
         // 3. Redirect Cloud Endpoints & Native RPCs to Self-Hosted Gateway (direct or Tailcat tunnel)
+        if (!isTargetCloudEndpoint(host)) observeSuggestionsAgent(path, request.body());
         if (isTargetCloudEndpoint(host)) {
             byte[] observedRaw = observeAgentId(path, request.body());
             boolean isVoiceMint = "POST".equals(httpMethod)

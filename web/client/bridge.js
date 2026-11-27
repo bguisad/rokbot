@@ -13,6 +13,7 @@ import { boot as androidBoot, native, log, timeout } from './native.js';
 import { createGateway } from './gateway.js';
 import { installWebviewFrames } from './webview.js';
 import { installLayoutFixes, computerStageOpen, phoneBack, showConversation } from './layout.js';
+import './desktop/composer-assist.js';
 import { installComposerSuggestions } from './suggestions.js';
 import { installAnchorFallback } from './anchor-fallback.js';
 import { rokText } from './desktop/i18n.mjs';

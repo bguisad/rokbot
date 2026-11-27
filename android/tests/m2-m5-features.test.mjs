@@ -3549,9 +3549,11 @@ test('M1.6-Rebrand: replaces splash/notification drawables, rebrands app.config 
   const res = patchLauncherIcons(entries, logoDir);
   assert.equal(res.brandDrawablesReplaced, 3);
   const byName = new Map(res.entries.map(e => [e.name, e]));
+  // The system splash icon is the launch-mark-sized tile (animated WebP, see android-splash.test.mjs);
+  // with no resources.arsc in this list there is nothing to rename, so the entry keeps its name.
   assert.deepEqual(
     entryBytes(byName.get('res/drawable-xxhdpi-v4/splashscreen_logo.png')),
-    fs.readFileSync(path.join(logoDir, 'mipmap-xxhdpi/ic_launcher_foreground.png'))
+    fs.readFileSync(path.join(logoDir, 'splash/splashscreen_logo-xxxhdpi.webp'))
   );
   assert.deepEqual(
     entryBytes(byName.get('res/drawable/bootsplash_logo.png')),

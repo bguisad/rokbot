@@ -169,7 +169,6 @@ public class RokBotBootstrap {
                 if (isReactActivity(activity)) ImageViewerTakeover.onReactResumed(activity);
                 if (isReactActivity(activity)) ComposerSuggestionsOverlay.onReactResumed(activity);
                 if (isReactActivity(activity)) BotProfileModelOverlay.onReactResumed(activity);
-                if (isReactActivity(activity)) SettingsSuggestionsOverlay.onReactResumed(activity);
                 if (isReactActivity(activity) && Storage.isPaired(activity)) {
                     // Returning from ProfileActivity or another app: repaint, then re-fetch.
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
@@ -188,7 +187,6 @@ public class RokBotBootstrap {
                     ImageViewerTakeover.onReactPaused(activity);
                     ComposerSuggestionsOverlay.onReactPaused(activity);
                     BotProfileModelOverlay.onReactPaused(activity);
-                    SettingsSuggestionsOverlay.onReactPaused(activity);
                 }
             }
 
@@ -641,6 +639,7 @@ public class RokBotBootstrap {
             if (agentId != null && !agentId.isEmpty()) {
                 setLastAgentId(agentId);
                 setViewingAgentId(agentId);
+                notifySuggestionsDeepLink(intent, agentId);
                 intent.setData(normalizeDeepLink(data));
                 intent.putExtra("agentId", agentId);
             }
@@ -649,8 +648,26 @@ public class RokBotBootstrap {
             if (agentId != null && !agentId.isEmpty()) {
                 setLastAgentId(agentId);
                 setViewingAgentId(agentId);
+                notifySuggestionsDeepLink(intent, agentId);
             }
         }
+    }
+
+    private static final String EXTRA_SUGGESTIONS_NAV_SEEN = "dev.rokbot.nativeapp.SUGGESTIONS_NAV_SEEN";
+
+    /**
+     * A deep link / notification tap is a navigation signal for the input suggestions, once per
+     * intent: the activity's old launch intent is re-read on every resume and must not pull the
+     * suggestions back to that Bot after the user moved to another chat.
+     */
+    private static void notifySuggestionsDeepLink(Intent intent, String agentId) {
+        try {
+            if (intent.getBooleanExtra(EXTRA_SUGGESTIONS_NAV_SEEN, false)) return;
+            intent.putExtra(EXTRA_SUGGESTIONS_NAV_SEEN, true);
+        } catch (Throwable ignored) {
+            return;
+        }
+        ComposerSuggestionsOverlay.onDeepLinkAgent(agentId);
     }
 
     private static boolean isBootstrapProxy(Object obj) {
@@ -932,6 +949,7 @@ public class RokBotBootstrap {
             intent.setAction(Intent.ACTION_VIEW);
             intent.setData(normalizeDeepLink(uri));
             intent.putExtra("agentId", agentId);
+            notifySuggestionsDeepLink(intent, agentId);
             context.startActivity(intent);
         }
     }
@@ -1769,6 +1787,11 @@ public class RokBotBootstrap {
         return matchesLabelOrCommaPrefix(s, "模型配置", false) || matchesLabelOrCommaPrefix(s, "Model Settings", true);
     }
 
+    /** rokbot.7 first-level row (MENU_LABELS.suggestions) -> SuggestionsSettingsActivity. */
+    static boolean matchesSuggestionsSettingsLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "输入建议", false) || matchesLabelOrCommaPrefix(s, "Input Suggestions", true);
+    }
+
     static boolean matchesSoftwareUpdateLabel(String s) {
         return matchesLabelOrCommaPrefix(s, "应用更新", false) || matchesLabelOrCommaPrefix(s, "App Updates", true)
                 // rokbot.5 wording, kept for bundles built before rokbot.6.
@@ -1889,6 +1912,7 @@ public class RokBotBootstrap {
                     || matchesLibraryLabel(s)
                     || matchesUsageLabel(s)
                     || matchesModelSettingsLabel(s)
+                    || matchesSuggestionsSettingsLabel(s)
                     || matchesSoftwareUpdateLabel(s)
                     || matchesAvatarStyleLabel(s)
                     || matchesComputersLabel(s))) {
@@ -1997,6 +2021,9 @@ public class RokBotBootstrap {
         if (matchesModelSettingsLabel(s)) {
             // rokbot.5 settings rows (hermes-settings.mjs applySettingsMenu): full-width nav rows.
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? ModelsActivity.class : null;
+        }
+        if (matchesSuggestionsSettingsLabel(s)) {
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? SuggestionsSettingsActivity.class : null;
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? UpdateActivity.class : null;
@@ -2540,6 +2567,9 @@ public class RokBotBootstrap {
         }
         if (matchesModelSettingsLabel(s)) {
             return ModelsActivity.class;
+        }
+        if (matchesSuggestionsSettingsLabel(s)) {
+            return SuggestionsSettingsActivity.class;
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return UpdateActivity.class;

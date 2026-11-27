@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { parseAxml, serializeAxml, patchManifest, extractManifestInfo, resolveRokbotVersion, ANDROID_NS, KNOWN_RES_IDS } from '../patchers/manifest.mjs';
-import { findMipmapResourceId, findResourceId, setColorResourceValue } from '../patchers/arsc.mjs';
+import { addFileResourceDensity, findMipmapResourceId, findResourceId, setColorResourceValue } from '../patchers/arsc.mjs';
 import {
   dexEntriesContainClass,
   injectCompanionDex,
@@ -51,6 +51,16 @@ const ICON_KINDS = ['ic_launcher', 'ic_launcher_round', 'ic_launcher_foreground'
 const MIPMAP_ICON_RE = /^res\/mipmap-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi)(?:-v\d+)?\/(ic_launcher(?:_round|_foreground)?)\.(?:png|webp)$/i;
 const ADAPTIVE_ICON_XML_RE = /^res\/mipmap-anydpi(?:-v\d+)?\/ic_launcher(?:_round)?\.xml$/i;
 const SPLASH_DRAWABLE_RE = /^res\/drawable(?:-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|nodpi))?(?:-v\d+)?\/(splashscreen_logo|bootsplash_logo|splash_logo|ic_splash|splash_icon)\.(?:png|webp)$/i;
+// The Android 12+ system splash icon (Theme.App.SplashScreen windowSplashScreenAnimatedIcon), light
+// and night. The official 1.26.0 XAPK only ships it as a 108 px mdpi bitmap (config.mdpi split), which
+// Android stretched to the 288 dp splash box: the blurry first logo before React Native's own sharp
+// launch-mark. It becomes assets/logo/android/splash/splashscreen_logo-<density>.webp: the
+// launch-mark's 64 dp tile centered in the 288 dp box (both stages are the same picture), as a
+// two-frame animated WebP that the system splash draws live instead of through its low-resolution
+// icon cache (see assets/logo/generate_icons.py). resources.arsc gets xxxhdpi twins of the mdpi
+// configurations (denser screens scale a 1152 px image down) and every splash path ends in .webp.
+const SYSTEM_SPLASH_RE = /^res\/drawable(?:-night)?-(mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|nodpi)(?:-v\d+)?\/splashscreen_logo\.(?:png|webp)$/i;
+const SPLASH_DENSITY_FILES = { mdpi: 'splashscreen_logo-mdpi.webp', xxxhdpi: 'splashscreen_logo-xxxhdpi.webp' };
 // React Native's own app icon asset (assets/appIcon/assets/dark.svg), shown in-app (notification prompt).
 const RN_APP_ICON_RE = /^res\/raw\/assets_appicon_[a-z0-9_]+\.svg$/i;
 const LOGO_SVG_PATH = path.resolve(ROOT_DIR, 'assets/logo/rokbot-app-icon.svg');
@@ -115,6 +125,11 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     );
   };
 
+  const splashDir = path.join(logoDir, 'splash');
+  const splashAssets = Object.values(SPLASH_DENSITY_FILES).every(f => fs.existsSync(path.join(splashDir, f)))
+    ? Object.fromEntries(Object.entries(SPLASH_DENSITY_FILES).map(([d, f]) => [d, fs.readFileSync(path.join(splashDir, f))]))
+    : null;
+
   const arscEntry = entries.find(e => e.name === 'resources.arsc');
   const fgMipmapId = arscEntry ? findMipmapResourceId(entryBytes(arscEntry), 'ic_launcher_foreground') : null;
 
@@ -153,6 +168,12 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
         // Leave malformed XML untouched rather than crashing non-adaptive builds
       }
       return entry;
+    }
+
+    const systemSplash = SYSTEM_SPLASH_RE.exec(entry.name);
+    if (systemSplash && splashAssets) {
+      brandDrawablesReplaced++;
+      return createEntry(entry.name, systemSplash[1].toLowerCase() === 'mdpi' ? splashAssets.mdpi : splashAssets.xxxhdpi, { store: false });
     }
 
     const splashMatch = SPLASH_DRAWABLE_RE.exec(entry.name);
@@ -207,7 +228,30 @@ export function patchLauncherIcons(entries, logoDir = LOGO_ANDROID_DIR) {
     }
   }
 
-  return { entries: updated, replaced, inserted, adaptiveIconsPatched, brandDrawablesReplaced, iconBackgroundPatched };
+  // System splash icon: xxxhdpi twins of its mdpi configurations (light and night) and .webp paths,
+  // see SYSTEM_SPLASH_RE.
+  const splashDensitiesAdded = [];
+  let result = updated;
+  const tableIndex = result.findIndex(e => e.name === 'resources.arsc');
+  if (splashAssets && tableIndex >= 0) {
+    const withSplash = addFileResourceDensity(entryBytes(result[tableIndex]), 'drawable', 'splashscreen_logo',
+      { fromDensity: 160, density: 640, fromQualifier: 'mdpi', qualifier: 'xxxhdpi', extension: '.webp' });
+    if (withSplash.added.length) {
+      result = result.slice();
+      result[tableIndex] = createEntry('resources.arsc', withSplash.buffer, { store: true });
+      const renamedFrom = new Set(withSplash.renamed.map(r => r.from));
+      result = result.filter(e => !renamedFrom.has(e.name));
+      for (const { path: file } of withSplash.renamed) {
+        if (!result.some(e => e.name === file)) result.push(createEntry(file, splashAssets.mdpi, { store: false }));
+      }
+      for (const { path: file } of withSplash.added) {
+        if (!result.some(e => e.name === file)) result.push(createEntry(file, splashAssets.xxxhdpi, { store: false }));
+        splashDensitiesAdded.push(file);
+      }
+    }
+  }
+
+  return { entries: result, replaced, inserted, adaptiveIconsPatched, brandDrawablesReplaced, iconBackgroundPatched, splashDensitiesAdded };
 }
 
 const PAIRING_CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/i;
@@ -718,6 +762,7 @@ export async function runPatchPipeline(options) {
     adaptiveIconsPatched: iconResult.adaptiveIconsPatched,
     brandDrawablesReplaced: iconResult.brandDrawablesReplaced,
     iconBackgroundPatched: iconResult.iconBackgroundPatched,
+    splashDensitiesAdded: iconResult.splashDensitiesAdded || [],
   };
 
   const reportPath = path.join(path.dirname(outPath), 'patch-report.json');

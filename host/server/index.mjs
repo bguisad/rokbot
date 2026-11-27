@@ -30,6 +30,8 @@ import {
   resolveWebhookOrigin,
 } from './automation-webhooks.mjs';
 import { Sharing } from './sharing.mjs';
+import { Migration } from './migrate.mjs';
+import { migrateAdmin, migrateDevice, migrateInbox } from './migrate-api.mjs';
 import { rewriteSharingUrls } from './sharing-api.mjs';
 import { Federation } from './federation.mjs';
 import { federationInternal } from './federation-api.mjs';
@@ -229,7 +231,13 @@ export async function createSelfHostServer(options = {}) {
   const automationWebhooks = await new AutomationWebhooks(dataDir).load();
   const sharing = await new Sharing(dataDir, { skills, plugins, profile, publicUrl: canonical,
     hostCall: internalHostClient(hostUrl, internalToken) }).load();
-  const notifications = await new Notifications(dataDir, { onPublish: item => push.enqueue(item) }).load();
+  const migration = await new Migration(dataDir, { skills, library, hostCall: internalHostClient(hostUrl, internalToken) }).load();
+  // A Bot's reply also prepares the input suggestions of that chat (SuggestionsService.prefetch).
+  let suggestionsForReplies = null;
+  const notifications = await new Notifications(dataDir, { onPublish: item => {
+    try { suggestionsForReplies?.onAgentNotification(item); } catch {}
+    return push.enqueue(item);
+  } }).load();
   const notificationSettings = await new NotificationSettings(dataDir).load();
   const tickets = new VncTickets(auth, options.ticketOptions);
   const connections = new DeviceConnections();
@@ -251,13 +259,15 @@ export async function createSelfHostServer(options = {}) {
   const limiter = options.rateLimit ?? new RateLimit();
   const speedTest = createSpeedTest({ limiter });
   const suggestionsSettings = await new SuggestionsSettings(dataDir).load();
-  const suggestions = new SuggestionsService({
+  const suggestions = await new SuggestionsService({
     models,
     settings: suggestionsSettings,
     hostCall: internalHostClient(hostUrl, internalToken),
     dataDir,
     fetchImpl: options.suggestionsFetch,
-  });
+    ...options.suggestionsOptions,
+  }).load();
+  suggestionsForReplies = suggestions;
   // ?timeZone= (default: the Host's) and an optional ?period=today|7d|30d to return one period.
   const usage = url => {
     const timeZone = url.searchParams.get('timeZone') || process.env.TZ || 'UTC', period = url.searchParams.get('period') || undefined;
@@ -550,6 +560,7 @@ export async function createSelfHostServer(options = {}) {
       response.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length });
       return response.end(wav);
     }
+    if (await migrateAdmin(request, response, path, migration, { url, baseUrl: canonical ?? origin })) return;
     if (await tailcatAdmin(request, response, path, network)) return;
     if (await applicationsAdmin(request, response, path, applications, webhookOrigin(request, origin), { kind: 'admin', hash: hash(cookie(request, adminCookie)) })) return;
     if (await adminExtensions(request, response, path, { harness, skills, executionNode, plugins, webhooks, verifyAgent, sharing, federation, mediaSettings, webSettings, webServices, prompts })) return;
@@ -794,6 +805,7 @@ export async function createSelfHostServer(options = {}) {
         return webMoved(request, response, path, url, peerOrigin(origin, true));
     }
     if (await mediaInternal(request, response, path, { internalToken, mediaServices, webServices })) return;
+    if (!web && await migrateInbox(request, response, path, migration, { limiter })) return;
     if (request.method === 'POST' && ['/federation/v1/pair', '/federation/v1/sync', '/federation/v1/revoke'].includes(path)) {
       limiter.check(`federation:${request.socket.remoteAddress}`, 120);
       const envelope = await jsonBody(request, 512 * 1024);
@@ -1096,6 +1108,29 @@ export async function createSelfHostServer(options = {}) {
       limiter.check(`suggestions-phrases:${found.id}`, 60);
       return sendJson(response, 200, await suggestionsSettings.deletePhrase(localPhraseMatch[1]));
     }
+    if (request.method === "POST" && path === "/local/suggestions/complete") {
+      const found = device(request, web);
+      limiter.check(`suggestions-complete:${found.id}`, 240);
+      const body = await jsonBody(request, 32 * 1024, { allowEmpty: true });
+      const rawAgentId = typeof body?.agentId === "string" ? body.agentId.trim() : "";
+      if (rawAgentId) check(/^[A-Za-z0-9_-]{1,128}$/.test(rawAgentId), 400, "Bot ID 无效");
+      check(body?.text === undefined || typeof body.text === "string", 400, "补全内容无效");
+      // A newer keystroke closes this request on the client: stop the model call too.
+      const abort = new AbortController();
+      const cancel = () => { if (!response.writableEnded) abort.abort(new Error("Completion request cancelled")); };
+      request.once("aborted", cancel);
+      response.once("close", cancel);
+      const result = await suggestions.complete({
+        agentId: rawAgentId,
+        lastEntryId: typeof body?.lastEntryId === "string" ? body.lastEntryId.slice(0, 128) : "",
+        locale: typeof body?.locale === "string" ? body.locale.slice(0, 32) : "",
+        text: typeof body?.text === "string" ? body.text.slice(0, 4000) : "",
+        recentMessages: Array.isArray(body?.recentMessages) ? body.recentMessages.slice(-8) : undefined,
+        signal: abort.signal,
+      });
+      if (abort.signal.aborted || response.destroyed) return;
+      return sendJson(response, 200, result);
+    }
     if (request.method === "POST" && path === "/local/suggestions") {
       const found = device(request, web);
       limiter.check(`suggestions:${found.id}`, 60);
@@ -1106,13 +1141,20 @@ export async function createSelfHostServer(options = {}) {
       const lastEntryId = typeof body?.lastEntryId === "string" ? body.lastEntryId.slice(0, 128) : "";
       const locale = typeof body?.locale === "string" ? body.locale.slice(0, 32) : "";
       const recentMessages = Array.isArray(body?.recentMessages) ? body.recentMessages.slice(-8) : undefined;
-      return sendJson(response, 200, await suggestions.generate({
+      // Echoed back so a client can drop a late answer to an older request.
+      const requestId = typeof body?.requestId === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(body.requestId) ? body.requestId : "";
+      if (body?.prefetch === true) {
+        // Entering a chat: generate in the background; the request on focus hits the cache.
+        const accepted = suggestions.prefetch({ agentId, locale });
+        return sendJson(response, 202, { accepted, agentId, requestId });
+      }
+      return sendJson(response, 200, { ...await suggestions.generate({
         agentId,
         lastEntryId,
         locale,
         recentMessages,
         force: body?.force === true,
-      }));
+      }), requestId });
     }
     if (["GET", "PUT"].includes(request.method) && path === "/local/device") {
       const found = device(request, web);
@@ -1261,6 +1303,11 @@ export async function createSelfHostServer(options = {}) {
         items: notifications.list(url.searchParams.get("after")),
       });
     }
+    if (path === '/local/migrate' || path.startsWith('/local/migrate/')) {
+      const found = device(request, web);
+      connections.track(found.id, response);
+      if (await migrateDevice(request, response, path, migration, { url, baseUrl: canonical ?? mainOrigin })) return;
+    }
     if (
       (request.method === "POST" &&
         /^\/api\/[a-zA-Z][a-zA-Z0-9]*$/.test(path)) ||
@@ -1268,7 +1315,7 @@ export async function createSelfHostServer(options = {}) {
     ) {
       const found = device(request, web);
       connections.track(found.id, response);
-      check(!['/api/importLocalSharedBot', '/api/localApplicationRpc'].includes(path), 403, 'Administrator operation');
+      check(!['/api/importLocalSharedBot', '/api/localApplicationRpc', '/api/importLocalMigrationBot', '/api/importLocalMigrationUserMemory'].includes(path), 403, 'Administrator operation');
       if (taskControlMethods.has(path.slice('/api/'.length))) {
         const method = path.slice('/api/'.length), input = await jsonBody(request, 64000);
         const remote = await federation.control(method, input);
@@ -1432,6 +1479,7 @@ export async function createSelfHostServer(options = {}) {
       await voice.close(); await synthesis.close(); await voiceConfig.close();
       await speech.close();
       notifications.close();
+      suggestions.close();
       notificationSettings.close();
       await push.close();
       await connectors.close();

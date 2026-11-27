@@ -204,8 +204,8 @@ class SandSelect extends (globalThis.HTMLElement ?? class {}) {
     this.addEventListener('blur', () => this.close());
   }
 
-  static get observedAttributes() { return ['disabled']; }
-  attributeChangedCallback() { this.#syncState(); if (this.disabled) this.close(); }
+  static get observedAttributes() { return ['disabled', 'required']; }
+  attributeChangedCallback() { this.#syncState(); this.#sync(); if (this.disabled) this.close(); }
   connectedCallback() {
     if (!this.hasAttribute('role')) this.setAttribute('role', 'combobox');
     this.setAttribute('aria-haspopup', 'listbox');
@@ -223,6 +223,12 @@ class SandSelect extends (globalThis.HTMLElement ?? class {}) {
   get form() { return this.#internals?.form ?? null; }
   get name() { return this.getAttribute('name') ?? ''; }
   set name(value) { this.setAttribute('name', value); }
+  get required() { return this.hasAttribute('required'); }
+  set required(value) { this.toggleAttribute('required', Boolean(value)); }
+  get validity() { return this.#internals?.validity; }
+  get validationMessage() { return this.#internals?.validationMessage ?? ''; }
+  checkValidity() { return this.#internals?.checkValidity?.() ?? true; }
+  reportValidity() { return this.#internals?.reportValidity?.() ?? true; }
   get disabled() { return this.hasAttribute('disabled'); }
   set disabled(value) { this.toggleAttribute('disabled', Boolean(value)); }
   get options() { return [...this.querySelectorAll('option')]; }
@@ -260,6 +266,11 @@ class SandSelect extends (globalThis.HTMLElement ?? class {}) {
     this.#label.textContent = option?.label || option?.textContent || '';
     this.title = this.#label.textContent;
     this.#internals?.setFormValue?.(this.name ? this.value : null);
+    // Like a native required <select>: a chosen empty-value option (a placeholder) is missing.
+    if (this.#internals?.setValidity) {
+      if (this.required && !this.disabled && !this.value) this.#internals.setValidity({ valueMissing: true }, t('请选择一项'), this);
+      else this.#internals.setValidity({});
+    }
   }
   #choose(option) {
     this.close();
@@ -362,9 +373,15 @@ class SandSelect extends (globalThis.HTMLElement ?? class {}) {
   }
 }
 
+// Defined up front, so <select> markup that html() turned into <sand-select> upgrades as it is parsed.
+const defineSandSelect = () => {
+  if (globalThis.customElements && !customElements.get('sand-select')) customElements.define('sand-select', SandSelect);
+};
+defineSandSelect();
+
 /** Creates a Sand drop-down (see SandSelect) in place of document.createElement('select'). */
 export function dropdown({ name, label, className } = {}) {
-  if (!customElements.get('sand-select')) customElements.define('sand-select', SandSelect);
+  defineSandSelect();
   const element = document.createElement('sand-select');
   if (name) element.name = name;
   if (label) element.setAttribute('aria-label', label);

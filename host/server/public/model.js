@@ -66,7 +66,7 @@ const emptyRouting = () => ({ version: 1, providers: [], profiles: [], defaultRo
   adaptiveRouting: { enabled: false, classifierModel: 'jev-latest', tiers: null } });
 
 const SCENARIO_DEFS = [
-  ['suggestions', '输入框建议', '根据当前对话上下文生成输入框快捷建议，推荐使用轻量快速模型'],
+  ['suggestions', '输入框建议', '根据当前对话上下文生成输入框快捷建议与输入补全，推荐使用轻量快速模型'],
   ['summarization', '上下文压缩', '对话过长自动压缩或手动摘要上下文时使用'],
   ['memoryExtraction', '记忆提取', '对话结束后提取长期记忆时使用'],
   ['autoReview', '自动审核', '执行敏感工具调用前的安全分类器'],
