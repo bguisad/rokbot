@@ -1302,6 +1302,12 @@ export async function createSelfHostServer(options = {}) {
       if (body.agentId) await verifyAgent(body.agentId);
       return sendJson(response, 200, await push.test(found.id, body.agentId || "rokbot-test", { bypassForeground: body.bypassForeground !== false }));
     }
+    if (path === "/local/device/revoke") {
+      const found = device(request);
+      check(request.method === "POST", 405, "不支持的请求方法");
+      await revokeDevice(found.id);
+      return sendJson(response, 200, { ok: true, deviceId: found.id });
+    }
     if (request.method === "GET" && path === "/local/computers") {
       device(request);
       const status = options.computers?.() ?? { available: false, computers: [] }, computers = new Map(status.computers.map(item => [item.id, item]));

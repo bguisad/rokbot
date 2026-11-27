@@ -57,7 +57,30 @@ EXPECTED_GATEWAY_SHA256 = (
     '1fe92c5c37f401eaef0ea4c4eb574471c828e1f99b96826919f74f550d178bf2'
 )
 EXPECTED_GATEWAY_SHA256_WITH_AVATAR_MOTION = (
-    '0f82ccd7b58503d7ecde6752237c596a94580141e0be2227a209d5aea5517dc7'
+    'a0f5b60721318c956d9e37c9e566c6de1671ebabffb317298816a6b84631a299'
+)
+BACKEND_CALL_FUNCTION = 26615
+BACKEND_CALL_PUBLIC_FUNCTION = 26617
+BACKEND_LOCAL_BYPASS_RPCS = (
+    # Connectors / MCP / Marketplace
+    'aiserver.v1.DashboardService/ListMarketplacePlugins',
+    'aiserver.v1.DashboardService/ListMarketplaces',
+    'aiserver.v1.DashboardService/GetEffectiveUserPlugins',
+    'aiserver.v1.DashboardService/GetAvailableMcpServers',
+    'aiserver.v1.DashboardService/ListSandMcpTools',
+    'aiserver.v1.DashboardService/ValidateMcpOAuthTokens',
+    'aiserver.v1.DashboardService/InstallUserPlugin',
+    'aiserver.v1.DashboardService/UninstallUserPlugin',
+    'aiserver.v1.DashboardService/RenameMcpOAuthAccount',
+    'aiserver.v1.DashboardService/DeleteMcpOAuthAccount',
+    'aiserver.v1.DashboardService/CheckHttpMcpStatus',
+    'aiserver.v1.DashboardService/CompleteMcpOAuth',
+    # Speech / Voice
+    'aiserver.v1.AiService/TranscribeAudio',
+    'aiserver.v1.GrokBotService/MintSandVoiceCallSecret',
+    # Auto-review local preference overrides (intercepted by RBConnectors.m)
+    'aiserver.v1.DashboardService/GetTeamAdminSettingsOrEmptyIfNotInTeam',
+    'aiserver.v1.BackgroundComposerService/GetBackgroundComposerUserSettings',
 )
 CHAT_AVATAR_FUNCTION = 40727
 CHAT_AVATAR_DEFAULT_STATIC_INDEX = 16147
@@ -1389,6 +1412,77 @@ def apply_clean_126_fixes(
             f'cover boundary is {boundary_52198}, expected 7'
         )
     replacements[NATIVE_PLUGIN_ENTRIES_FUNCTION] = FunctionEdit(body=body_52198)
+
+    # 19. fn#26615 (BackendClient.call) & fn#26617 (BackendClient.callPublic):
+    #     include Auto-review local preference RPCs in the local NSURLProtocol bypass
+    #     (matching iOS 1.27.0 and RBConnectors.m RBLocalPreferenceResponse).
+    by_text: dict[str, int] = {}
+    for idx, item in enumerate(strs):
+        by_text.setdefault(item.text, idx)
+    post_id = _unique_str_idx(strs, 'post')
+    apply_id = _unique_str_idx(strs, 'apply')
+    apply_ins = (
+        _encode_ins(opcodes, 'GetByIdShort', 7, 2, 1, apply_id)
+        if apply_id < 256
+        else _encode_ins(
+            opcodes, 'GetById' if apply_id < 65536 else 'GetByIdLong', 7, 2, 1, apply_id
+        )
+    )
+    post_ins = _encode_ins(
+        opcodes, 'GetById' if post_id < 65536 else 'GetByIdLong', 2, 1, 0, post_id
+    )
+    bypass_tail = (
+        _encode_ins(opcodes, 'LoadParam', 1, 0)
+        + post_ins
+        + _encode_ins(opcodes, 'LoadParam', 3, 2)
+        + _encode_ins(opcodes, 'LoadConstUndefined', 4)
+        + _encode_ins(opcodes, 'LoadParam', 5, 3)
+        + _encode_ins(opcodes, 'NewArray', 6, 4)
+        + _encode_ins(opcodes, 'DefineOwnByIndex', 6, 0, 0)
+        + _encode_ins(opcodes, 'DefineOwnByIndex', 6, 3, 1)
+        + _encode_ins(opcodes, 'DefineOwnByIndex', 6, 4, 2)
+        + _encode_ins(opcodes, 'DefineOwnByIndex', 6, 5, 3)
+        + apply_ins
+        + _encode_ins(opcodes, 'Call3', 8, 7, 2, 1, 6)
+        + _encode_ins(opcodes, 'Ret', 8)
+    )
+    prefix_load = _encode_ins(opcodes, 'LoadParam', 0, 1)
+    load_chunks = [
+        _encode_ins(
+            opcodes,
+            'LoadConstString' if by_text[rpc] < 65536 else 'LoadConstStringLongIndex',
+            1,
+            by_text[rpc],
+        )
+        for rpc in BACKEND_LOCAL_BYPASS_RPCS
+    ]
+    for fn_idx in (BACKEND_CALL_FUNCTION, BACKEND_CALL_PUBLIC_FUNCTION):
+        eh_s = effective_header(stock, fn_idx)
+        stock_body = stock.data[eh_s.offset:eh_s.offset + eh_s.bytecode_size]
+        if len(stock_body) != 32:
+            raise ValueError(f'BackendClient fn#{fn_idx} stock body is {len(stock_body)} bytes, expected 32')
+        bypass_offset = len(prefix_load) + sum(len(c) + 7 for c in load_chunks) + len(stock_body)
+        out = bytearray(prefix_load)
+        for chunk in load_chunks:
+            out.extend(chunk)
+            out.extend(_encode_ins(opcodes, 'JStrictEqualLong', bypass_offset - len(out), 0, 1))
+        out.extend(stock_body)
+        out.extend(bypass_tail)
+        body = bytes(out)
+        opcodes.decode(body, 0, len(body))
+        existing_edit = replacements[fn_idx]
+        req = body_requirements(opcodes, body)
+        base_meta = existing_edit.metadata or FunctionMetadata.from_header(eh_s)
+        meta = replace(
+            base_meta,
+            frame_size=max(base_meta.frame_size, req.frame_size),
+            read_cache_size=max(base_meta.read_cache_size, req.read_cache_entries),
+            write_cache_size=max(base_meta.write_cache_size, req.write_cache_entries),
+            private_name_cache_size=max(base_meta.private_name_cache_size, req.private_name_cache_entries),
+            num_cache_new_object=max(base_meta.num_cache_new_object, req.num_cache_new_object),
+        )
+        require_metadata(req, meta, label=f'1.26 BackendClient fn#{fn_idx}')
+        replacements[fn_idx] = replace(existing_edit, body=body, metadata=meta)
 
 
 def build_gateway(
