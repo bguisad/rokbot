@@ -67,20 +67,37 @@ test('brand-assets stages RokBot Windows icons into app.asar, resolves binaries,
   t.after(() => rm(dir, { recursive: true, force: true }));
 
   const asar = createRequire(path.join(repoRoot, 'mac/patchers/desktop/package.json'))('@electron/asar');
-  const { icoPath, iconPngPath } = resolveRokBotWindowsLogoPaths(repoRoot);
+  const { icoPath, iconPngPath, rendererIconPngPath } = resolveRokBotWindowsLogoPaths(repoRoot);
 
   const unpacked = path.join(dir, 'unpacked');
   const outAsar = path.join(dir, 'app.asar');
   await mkdir(path.join(unpacked, 'local-client'), { recursive: true });
+  await mkdir(path.join(unpacked, 'dist/renderer/assets'), { recursive: true });
   await writeFile(path.join(unpacked, 'package.json'), JSON.stringify({ name: 'rokbot', main: 'local-client/main.mjs' }));
+  await writeFile(path.join(unpacked, 'dist/renderer/assets/app-icon-B8tEBssC.png'), 'stale-official-about-icon');
 
-  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath });
+  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath, rendererIconPngPath });
   await asar.createPackageWithOptions(unpacked, outAsar, {});
 
-  const verified = await verifyRokBotWindowsIcons({ icoPath, iconPngPath, outAsarPath: outAsar, asarModule: asar });
+  const verified = await verifyRokBotWindowsIcons({ icoPath, iconPngPath, rendererIconPngPath, outAsarPath: outAsar, asarModule: asar });
   assert.equal(verified.rokbotIconApplied, true);
   assert.equal(verified.iconSha256, sha(await readFile(icoPath)));
   assert.equal(verified.localIconSha256, sha(await readFile(iconPngPath)));
+  assert.deepEqual(verified.rendererAppIcons, ['dist/renderer/assets/app-icon-B8tEBssC.png']);
+  assert.equal(
+    sha(asar.extractFile(outAsar, 'dist/renderer/assets/app-icon-B8tEBssC.png')),
+    sha(await readFile(rendererIconPngPath)),
+  );
+
+  // Tamper dist/renderer/assets/app-icon-*.png -> must fail closed.
+  await writeFile(path.join(unpacked, 'dist/renderer/assets/app-icon-B8tEBssC.png'), 'tampered-about-icon');
+  const tamperedRendererAsar = path.join(dir, 'tampered-renderer.asar');
+  await asar.createPackageWithOptions(unpacked, tamperedRendererAsar, {});
+  await assert.rejects(
+    verifyRokBotWindowsIcons({ icoPath, iconPngPath, rendererIconPngPath, outAsarPath: tamperedRendererAsar, asarModule: asar }),
+    /app-icon-B8tEBssC\.png/,
+  );
+  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath, rendererIconPngPath });
 
   // Tamper local-client/icon.png -> must fail closed.
   await writeFile(path.join(unpacked, 'local-client/icon.png'), 'tampered-png');

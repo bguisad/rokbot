@@ -55,7 +55,7 @@ async function main() {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const repo = path.resolve(root, '..');
-const { icnsPath, iconPngPath } = resolveRokBotLogoPaths(repo);
+const { icnsPath, iconPngPath, rendererIconPngPath } = resolveRokBotLogoPaths(repo);
 const releases = (await macReleases()).map(({ supported: item }) => item.version);
 const startedAt = performance.now();
 const timings = {};
@@ -169,7 +169,7 @@ try {
     await chmod(path.join(output, 'Contents/Resources/rokbot-tailcat'), 0o755);
     await cp(path.join(root, 'network/TAILCAT-LICENSE'), path.join(output, 'Contents/Resources/TAILCAT-LICENSE'));
     await chmodNativeHelpers(unpacked);
-    await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath });
+    await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath, rendererIconPngPath });
     const outResources = path.join(output, 'Contents/Resources');
     const outAsar = path.join(outResources, 'app.asar');
     await rm(outAsar);
@@ -236,6 +236,7 @@ try {
     const iconVerification = await verifyRokBotIcons({
       icnsPath,
       iconPngPath,
+      rendererIconPngPath,
       outIconPath: path.join(outResources, 'icon.icns'),
       outAsarPath: outAsar,
       asarModule: asar,

@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { allLinuxReleases, linuxReleasesForArch, normalizeLinuxArch, selectLinuxRelease } from '../patchers/desktop/inputs.mjs';
 import { buildArArchive, buildDeb, parseArArchive } from '../patchers/desktop/deb.mjs';
 import {
+  applyRokBotLinuxAsarIcons,
   buildAppArmorProfile,
   buildDebianControl,
   buildDesktopEntry,
@@ -24,7 +25,7 @@ import {
   resolveRokBotLinuxLogoPaths,
   stageDebianTree,
 } from '../patchers/desktop/brand-assets.mjs';
-import { connectWindowChrome, createTray, windowChrome } from '../../mac/clients/desktop/platform.mjs';
+import { connectWindowChrome, createTray, windowChrome, windowIcon } from '../../mac/clients/desktop/platform.mjs';
 import { canApplyAsarUpdate } from '../../mac/clients/desktop/asar-install.mjs';
 import { normalizeDesktopUpdateUrl, resolveDesktopUpdateSource } from '../../mac/clients/desktop/updater.mjs';
 import { UpdatesManager } from '../../host/server/updates.mjs';
@@ -138,9 +139,25 @@ test('ar archive builder/parser and .deb builder produce valid Debian 2.0 packag
   assert.equal(debMembers[0].data.toString('ascii'), '2.0\n');
 });
 
-test('Linux desktop runtime helpers: windowChrome, tray icon, updater feeds, and writable ASAR eligibility', async t => {
+test('Linux desktop runtime helpers: windowChrome, windowIcon, tray icon, ASAR about icon, updater feeds, and writable ASAR eligibility', async t => {
   assert.deepEqual(windowChrome('#111111', 'linux'), { frame: true });
   assert.deepEqual(connectWindowChrome('linux'), {});
+  assert.equal(windowIcon('/opt/RokBot/local-client', 'linux'), '/opt/RokBot/local-client/icon.png');
+  assert.equal(windowIcon('/opt/RokBot/local-client', 'darwin'), undefined);
+  assert.equal(windowIcon('/opt/RokBot/local-client', 'win32'), undefined);
+
+  const asarStage = await mkdtemp(path.join(os.tmpdir(), 'rokbot-linux-asar-icons-'));
+  t.after(() => rm(asarStage, { recursive: true, force: true }));
+  await mkdir(path.join(asarStage, 'dist/renderer/assets'), { recursive: true });
+  await writeFile(path.join(asarStage, 'dist/renderer/assets/app-icon-B8tEBssC.png'), 'stale-official-about-icon');
+  const iconRes = await applyRokBotLinuxAsarIcons(asarStage, repoRoot);
+  const logos = resolveRokBotLinuxLogoPaths(repoRoot);
+  assert.equal(iconRes.icon512Sha256, sha(await readFile(logos.icon512Path)));
+  assert.deepEqual(iconRes.rendererAppIcons, ['dist/renderer/assets/app-icon-B8tEBssC.png']);
+  assert.equal(
+    sha(await readFile(path.join(asarStage, 'dist/renderer/assets/app-icon-B8tEBssC.png'))),
+    sha(await readFile(logos.sized[256])),
+  );
 
   let trayPath = '';
   const FakeTray = class {

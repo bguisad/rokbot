@@ -183,7 +183,10 @@ async function listFiles(root, prefix = '') {
 export async function bundleFiles({ dist, preload, vncPreload, icon, icon512, build }) {
   const files = new Map();
   const add = (name, bytes) => { if (files.has(name)) throw new Error(`重复的文件：${name}`); files.set(name, Buffer.from(bytes)); };
-  for (const name of await listFiles(path.join(dist, 'renderer'))) add(`renderer/${name}`, await readFile(path.join(dist, 'renderer', name)));
+  for (const name of await listFiles(path.join(dist, 'renderer'))) {
+    const bytes = /^assets\/app-icon-[^/]+\.png$/.test(name) ? icon : await readFile(path.join(dist, 'renderer', name));
+    add(`renderer/${name}`, bytes);
+  }
   for (const name of await listFiles(path.join(webRoot, 'client'))) add(`client/${name}`, await readFile(path.join(webRoot, 'client', name)));
   for (const name of sharedAssets)
     add(`client/desktop/${name.replace(/\.cjs$/, '.js')}`, await readFile(path.join(repo, 'mac/clients/desktop', name)));
