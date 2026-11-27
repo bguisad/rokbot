@@ -51,6 +51,12 @@
 
 <br clear="right" />
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-migrate.webp" width="200" alt="Android client Migrate from Grok Bot page" /><br /><sub>Migrate from Grok Bot</sub></td>
+  </tr>
+</table>
+
 ### <img src="docs/images/icons/devices.svg" width="22" height="22" alt="" /> Every Platform
 
 <img src="site/img/desktop-chat.webp" width="420" align="right" alt="Desktop chat window" />
@@ -64,8 +70,6 @@
 
 ### <img src="docs/images/icons/message.svg" width="22" height="22" alt="" /> Chat Experience
 
-<img src="site/img/android-image-generation.webp" width="200" align="right" alt="Android client chatting with a design Bot that generates images" />
-
 - **Input suggestions:** when the composer has focus, suggestions written from the current conversation appear above it and send with one tap; a blank chat shows only your quick phrases, which live on the Host and sync across clients. Turn the bar off entirely, or only the AI-generated part.
 - **Inline completion:** gray ghost text suggests the rest of the sentence as you type; press Tab or the Right Arrow to accept. IME-aware, and it has its own switch.
 - **Fast, and never from the wrong Bot:** suggestions are kept per Bot and prefetched after each Bot reply, so focus-to-suggestion time dropped from about 1960 ms to about 165 ms; a shimmer shows while they generate, and the settings sit at the top level of Settings.
@@ -73,7 +77,12 @@
 - **Voice:** voice input and voice calls, with speech recognition and synthesis on services you configure.
 - **Image generation:** image and video generation each take their own model, results come back as attachments, and you can batch-download several at once.
 
-<br clear="right" />
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-suggestions.webp" width="200" alt="Android client input suggestions above the composer" /><br /><sub>Input suggestions</sub></td>
+    <td align="center"><img src="site/img/android-image-generation.webp" width="200" alt="Android client chatting with a design Bot that generates images" /><br /><sub>Image generation</sub></td>
+  </tr>
+</table>
 
 ### <img src="docs/images/icons/canvas.svg" width="22" height="22" alt="" /> Canvas
 
@@ -84,7 +93,7 @@
 
 ### <img src="docs/images/icons/chart.svg" width="22" height="22" alt="" /> Usage Statistics
 
-<img src="site/img/android-usage.webp" width="200" align="right" alt="Android client usage report" />
+<img src="docs/images/readme/android-usage.webp" width="200" align="right" alt="Android client usage report" />
 
 - **Every call recorded:** the Host records the model, Bot, duration and status of every model call.
 - **On every client:** the admin console, desktop and web settings, Android and iOS all have a usage report with time ranges, filters, trends, breakdowns and per-request detail.
@@ -94,7 +103,7 @@
 
 ### <img src="docs/images/icons/bot.svg" width="22" height="22" alt="" /> Bots That Manage Themselves
 
-<img src="site/img/android-bot-details.webp" width="200" align="right" alt="Android client Bot details with routines, library, the Bot's computer and instructions" />
+<img src="docs/images/readme/android-bot-detail.webp" width="200" align="right" alt="Android client Bot details with routines, library, the Bot's computer and instructions" />
 
 - **Memory:** a Bot can update and recall its long-term memory on your own Host.
 - **Routines:** a Bot can edit its own routines and check their run history.
@@ -109,25 +118,31 @@
 
 ### <img src="docs/images/icons/users.svg" width="22" height="22" alt="" /> Group Chats
 
-<img src="site/img/android-bot-list.webp" width="200" align="right" alt="Android client chat list grouped into Needs attention, In progress, Unread and Read" />
-
 - **Multi-Bot group chats:** bring several Bots into one group to work together, up to 6 Bots per group.
 - **Android group creation matches desktop:** Android now creates groups on a single page with a "To:" recipient bar, and names groups the same way desktop does.
 - **Create while you pick:** you can create a new Bot right from the member picker and add it to the group.
 - **Automatic rollback:** if group creation fails, completed steps are undone so no half-built group is left behind.
 
-<br clear="right" />
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-chat-list.webp" width="200" alt="Android client chat list grouped into In progress and Read" /><br /><sub>Chat list grouped by status</sub></td>
+    <td align="center"><img src="docs/images/readme/android-create-group.webp" width="200" alt="Android client Create group chat with the To: recipient bar" /><br /><sub>Create a group chat</sub></td>
+  </tr>
+</table>
 
 ### <img src="docs/images/icons/palette.svg" width="22" height="22" alt="" /> RokBot's Own Design
-
-<img src="site/img/android-models.webp" width="200" align="right" alt="Android client model settings page" />
 
 - **RokBot's own pickers and controls:** native system drop-downs on model routing pages are replaced by RokBot-style menus, shown as bottom sheets on Android.
 - **Light and dark themes:** menus, bottom sheets and settings follow the system theme and the Chinese or English interface.
 - **Animated avatars:** Bots use RokBot animated avatars by default, across 26 shapes, with an in-app style switcher.
 - **Unified icons:** the desktop, in-app and About page icons all use the RokBot mark.
 
-<br clear="right" />
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-settings.webp" width="200" alt="Android client Settings with RokBot top-level entries" /><br /><sub>Settings with RokBot entries</sub></td>
+    <td align="center"><img src="site/img/android-models.webp" width="200" alt="Android client model settings page" /><br /><sub>Model settings</sub></td>
+  </tr>
+</table>
 
 ### <img src="docs/images/icons/monitor.svg" width="22" height="22" alt="" /> Remote Computer & Local Execution
 
@@ -186,6 +201,8 @@ For options, offline installs, source builds and AI-assisted deployment, see [De
 ## Get the Clients
 
 <img src="docs/images/icons/download.svg" width="22" height="22" alt="" /> This repository does not distribute installers. Patch the official installers yourself following [Getting the Clients](docs/clients.en.md), or download them from Client updates on a deployed Host, then pair with a 6-digit code from the admin console.
+
+Patching (including `rokbot pack`) needs the original official installer, which you supply yourself: the original Android package can be obtained from [APKPure](https://apkpure.com/grok-bot/ai.x.grok.bot), and the original iOS package (IPA) from [IPA Filezone](https://ipafilezone.com/app/x-corp/grok-bot/6794501026).
 
 ## How RokBot Differs from Upstream
 
