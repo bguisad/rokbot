@@ -46,6 +46,7 @@
 - **Per-scenario model routing:** input suggestions, context compaction, memory extraction, auto-review, sub-agents and routines can each use their own model and reasoning effort, and any single Bot can have its own model too.
 - **Automatic fallback when the main model fails:** each route takes up to 8 fallback models; on error RokBot switches automatically, and never swaps models in the middle of a reply that has started streaming.
 - **Migrate from Grok Bot:** read the local Grok Bot data in one click, or copy a migration prompt so Grok Bot exports its memories, skills and routines; review, then import, as often as you like without duplicates. See the [migration guide](docs/migrate-from-grokbot.md) (Chinese).
+- **Paged admin console:** the admin console is split into Overview, Models, Usage, Clients, Devices, Bots, Account and System pages with left-hand navigation; each page loads only its own modules and the navigation folds into a menu on narrow screens.
 - **No cloud account needed:** pair with a single-use 6-digit code, and reach the Host remotely through the built-in Tailcat network, Tailscale or an HTTPS reverse proxy.
 
 <br clear="right" />
@@ -55,7 +56,7 @@
 <img src="site/img/desktop-chat.webp" width="420" align="right" alt="Desktop chat window" />
 
 - **Six platforms:** web, Mac, Windows, Linux (x64 / arm64), Android and iOS all connect to one Host, so a task you start on your computer can be followed on your phone.
-- **Desktop auto-update:** desktop 1.3.1 checks for new versions through Client updates on your own Host and supports delta updates that only download what changed.
+- **Desktop auto-update:** desktop 1.3.3 checks for new versions through Client updates on your own Host and supports delta updates that only download what changed.
 - **Android upgrades in place:** Android releases are all signed with the RokBot release key, so a new version installs over the old one without uninstalling.
 - **Native Android client:** native screens plus system share, a native image viewer and multi-select batch saving to the gallery.
 
@@ -65,14 +66,29 @@
 
 <img src="site/img/android-image-generation.webp" width="200" align="right" alt="Android client chatting with a design Bot that generates images" />
 
-- **Input suggestions v2:** the suggestion bar above the composer can be turned off entirely, or you can turn off only the AI-generated part.
-- **Custom quick phrases:** your phrases are stored on the Host and sync across desktop, web and Android.
-- **Tap to send:** tapping a suggestion sends it right away.
-- **Shown only on focus:** the suggestion bar appears only while the composer has focus.
-- **Smart, context-aware:** in a conversation with history the model writes suggestions from the current context; a blank chat shows only your quick phrases.
+- **Input suggestions:** when the composer has focus, suggestions written from the current conversation appear above it and send with one tap; a blank chat shows only your quick phrases, which live on the Host and sync across clients. Turn the bar off entirely, or only the AI-generated part.
+- **Inline completion:** gray ghost text suggests the rest of the sentence as you type; press Tab or the Right Arrow to accept. IME-aware, and it has its own switch.
+- **Fast, and never from the wrong Bot:** suggestions are kept per Bot and prefetched after each Bot reply, so focus-to-suggestion time dropped from about 1960 ms to about 165 ms; a shimmer shows while they generate, and the settings sit at the top level of Settings.
 - **Uploads without a size limit:** files between your computer and the Bot's workspace are streamed in chunks, with no per-file size limit by default.
 - **Voice:** voice input and voice calls, with speech recognition and synthesis on services you configure.
 - **Image generation:** image and video generation each take their own model, results come back as attachments, and you can batch-download several at once.
+
+<br clear="right" />
+
+### <img src="docs/images/icons/canvas.svg" width="22" height="22" alt="" /> Canvas
+
+- **Interactive pages from your Bots:** a Bot writes web pages, charts and small tools as canvases, hosted by your own Host with no official cloud involved.
+- **Opens inside the app:** web, desktop, Android and iOS open canvases in the app itself.
+- **Private by default, public on demand:** a new canvas is visible only to you; sharing creates a public link you can copy or regenerate, and unsharing kills the link at once.
+- **Canvas list in Bot details:** see, open and manage every canvas a Bot has created from its details page.
+
+### <img src="docs/images/icons/chart.svg" width="22" height="22" alt="" /> Usage Statistics
+
+<img src="site/img/android-usage.webp" width="200" align="right" alt="Android client usage report" />
+
+- **Every call recorded:** the Host records the model, Bot, duration and status of every model call.
+- **On every client:** the admin console, desktop and web settings, Android and iOS all have a usage report with time ranges, filters, trends, breakdowns and per-request detail.
+- **CSV export:** export the report as CSV; the API is described in [docs/usage-report.md](docs/usage-report.md) (Chinese).
 
 <br clear="right" />
 
@@ -124,6 +140,12 @@
 
 <br clear="right" />
 
+### <img src="docs/images/icons/terminal.svg" width="22" height="22" alt="" /> rokbot CLI
+
+- **One command for operations:** `rokbot` covers deployment, admin setup, environment checks, update and rollback, and local packing. It needs only Node.js 20+ and has no third-party dependencies.
+- **Run it directly:** `npx rokbot --help` and `npx rokbot doctor`, or install it with `npm i -g rokbot` and use `rokbot init`, `rokbot up` and `rokbot update`.
+- **Updates you can undo:** each update backs up first and records a rollback point, so `rokbot rollback` takes you back; see the [CLI guide](docs/cli.md) (Chinese).
+
 See [docs/features.en.md](docs/features.en.md) for the full feature guide, [Screenshots](docs/screenshots.en.md) for more screens, and the [2026-11-27 release notes](docs/releases/2026-11-27.md) (Chinese) for recent changes.
 
 ## New Directions & Roadmap
@@ -132,13 +154,7 @@ See [docs/features.en.md](docs/features.en.md) for the full feature guide, [Scre
 
 | Feature | Description | Status |
 | --- | --- | --- |
-| Local canvas | Bots generate interactive pages hosted by your own Host | In development |
-| Inline completion | Gray ghost text suggests the rest of the sentence as you type; press Tab to accept | In development |
-| Suggestion loading animation | An animation while input suggestions are being generated | In development |
-| Suggestion settings entry | Input suggestion settings move to the top level of Settings | Coming soon |
-| iOS feature parity | The iOS client catches up on all of the new features above | Coming soon |
-| Automated releases | GitHub Releases published automatically with delta patch packages attached | Coming soon |
-| Website redesign | A black-and-white redesign of the website | Coming soon |
+| iOS feature parity | The iOS client catches up on inline completion, in-app canvas and sharing, and other new features | In development |
 
 ## Quick Start
 
@@ -153,6 +169,17 @@ docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /da
 ```
 
 Open `http://127.0.0.1:18080/admin`, use the setup key to set an admin password, then add a model service under Chat model and make it the default route.
+
+You can also deploy with the `rokbot` CLI, which handles deployment, the admin password, environment checks, update and rollback, and local packing:
+
+```bash
+npx rokbot doctor   # check Node, Docker, ports, disk and certificates
+npx rokbot init     # wizard: pick image or source mode and write the config
+npx rokbot up       # start the Host and the execution desktop
+npx rokbot admin    # set the admin password for the first time
+```
+
+Or install it with `npm i -g rokbot`, or run `bash scripts/install-cli.sh` from a source checkout; see the [CLI guide](docs/cli.md) (Chinese). Coming from Grok Bot? After deploying, follow [Migrate from Grok Bot](docs/migrate-from-grokbot.md) (Chinese) to bring over your Bots, memories and skills.
 
 For options, offline installs, source builds and AI-assisted deployment, see [Deployment Guide](docs/deployment.en.md) · [AI Agent Deploy Runbook](docs/AGENT_DEPLOY.en.md) · [Operations & Backup](docs/AI-INSTALL.en.md).
 
@@ -169,7 +196,7 @@ For options, offline installs, source builds and AI-assisted deployment, see [De
 | Hosting & data | Official cloud | Self-hosted Docker | Self-hosted, with ARM64 and backup/restore | Self-hosted with one-script prebuilt-image deploy |
 | Model routing | Official models only | Bring your own model | Per-Bot routes and fallbacks | 6 scenario routes, up to 8 fallbacks each |
 | Clients | Official apps | macOS, iOS | Adds Windows and web | Six platforms, adds Linux and native Android |
-| Chat & Bots | Official cloud features | Core chat and cloud desktop | App catalog, webhooks, usage stats | Input suggestions v2, self-managing Bots, native group creation |
+| Chat & Bots | Official cloud features | Core chat and cloud desktop | App catalog, webhooks, usage stats | Input suggestions and completion, local canvas, usage reports, self-managing Bots, native group creation |
 | Privacy | Official account and telemetry | Telemetry off | Telemetry off | Telemetry off everywhere, write-only API keys |
 
 ## Documentation
@@ -180,6 +207,9 @@ For options, offline installs, source builds and AI-assisted deployment, see [De
 | --- | --- |
 | [docs/features.en.md](docs/features.en.md) | Full feature guide |
 | [docs/screenshots.en.md](docs/screenshots.en.md) | Android, desktop and admin console screenshots |
+| [docs/cli.md](docs/cli.md) | rokbot CLI: deployment, admin, checks, update and rollback, packing (Chinese) |
+| [docs/migrate-from-grokbot.md](docs/migrate-from-grokbot.md) | Migrating Bots, memories, skills, routines and chats from Grok Bot (Chinese) |
+| [docs/usage-report.md](docs/usage-report.md) | Usage report API and screen structure (Chinese) |
 | [docs/deployment.en.md](docs/deployment.en.md) | Deployment steps, script flags, initialization and model setup |
 | [docs/clients.en.md](docs/clients.en.md) | Supported versions, per-platform build commands and Host distribution |
 | [docs/architecture-overview.en.md](docs/architecture-overview.en.md) | Architecture overview |

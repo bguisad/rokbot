@@ -176,8 +176,8 @@
       <div class="hero-copy">
         <a class="kicker-pill" href="#whatsnew">
           <i class="pulse-dot" aria-hidden="true"></i>
-          <span lang="zh">11 月 27 日更新 · 桌面端 1.3.1 · 输入建议 v2</span>
-          <span lang="en">Nov 27 update · Desktop 1.3.1 · Suggestions v2</span>
+          <span lang="zh">11 月 27 日第四版 · 画布 · 用量统计 · rokbot CLI</span>
+          <span lang="en">Nov 27, 4th drop · Canvas · Usage · rokbot CLI</span>
           <svg class="ico ico-13" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
         </a>
         <h1>
@@ -286,12 +286,100 @@
     <div class="container">
       <div class="section-head">
         <span class="section-kicker">What’s new · 2026-11-27</span>
-        <h2 id="whatsnewHeading"><span lang="zh">这一版，把细节都补齐了</span><span lang="en">This release sweats the details</span></h2>
+        <h2 id="whatsnewHeading"><span lang="zh">第四版：画布、用量、迁移与命令行</span><span lang="en">Fourth drop: canvas, usage, migration and a CLI</span></h2>
         <p>
-          <span lang="zh">同一天连发三版：输入建议重做、安卓建群对齐桌面端、模型选择器统一样式，自建 Host 补齐全部自管理工具，桌面端升到 1.3.1 并可自动更新。</span>
-          <span lang="en">Three drops in one day: rebuilt composer suggestions, desktop-grade group creation on Android, unified model pickers, every self-management tool restored on self-hosted Hosts, and desktop 1.3.1 with auto-update.</span>
+          <span lang="zh">画布在 App 内打开并可公开分享，用量统计覆盖每个端，从 Grok Bot 一键迁移，输入建议更快并支持行内补全，管理后台分页，新增 rokbot 命令行。桌面与网页 1.3.3，安卓 1.26.0-rokbot.11。</span>
+          <span lang="en">Canvases open in the app and can be shared publicly, usage reports on every client, one-step migration from Grok Bot, faster suggestions with inline completion, a paged admin console and the new rokbot CLI. Desktop and web 1.3.3, Android 1.26.0-rokbot.11.</span>
         </p>
       </div>
+
+      <div class="bento bento-v4">
+        <!-- V4 A · Suggestions v4 -->
+        <article class="bento-card v4-wide reveal">
+          <header class="bento-head">
+            <span class="bento-ico" aria-hidden="true"><svg class="ico ico-16"><use href="#i-sparkles"></use></svg></span>
+            <span class="bento-tag mono">Suggestions v4</span>
+          </header>
+          <h3><span lang="zh">输入建议：快 12 倍，还会帮你补完后半句</span><span lang="en">Suggestions: 12x faster, and they finish your sentence</span></h3>
+          <p><span lang="zh">建议按 Bot 隔离，Bot 回复后就提前生成好；打字时浅色文字提示后半句，按 Tab 接受，兼容输入法。</span><span lang="en">Suggestions are kept per Bot and prefetched after each reply; as you type, ghost text offers the rest of the sentence. Press Tab to accept, IME-aware.</span></p>
+          <div class="ghost-input mono" aria-hidden="true"><span class="ghost-typed"><span lang="zh">帮我把这份报告</span><span lang="en">Turn this report</span></span><span class="ghost-rest"><span lang="zh">整理成三点摘要</span><span lang="en">&nbsp;into a three-point summary</span></span><span class="ghost-key">Tab</span></div>
+          <div class="v4-stat" aria-hidden="true">
+            <div><span class="mono v4-stat-old">~1960 ms</span><svg class="ico ico-14"><use href="#i-arrow-right"></use></svg><span class="mono v4-stat-new">~165 ms</span></div>
+            <span><span lang="zh">从聚焦输入框到出现建议</span><span lang="en">from composer focus to suggestions</span></span>
+          </div>
+        </article>
+
+        <!-- V4 B · Canvas -->
+        <article class="bento-card v4-side reveal">
+          <header class="bento-head">
+            <span class="bento-ico" aria-hidden="true"><svg class="ico ico-16"><use href="#i-layout-grid"></use></svg></span>
+            <span class="bento-tag mono">Canvas</span>
+          </header>
+          <h3><span lang="zh">画布：App 内打开，默认私有</span><span lang="en">Canvas: opens in the app, private by default</span></h3>
+          <p><span lang="zh">Bot 写的页面由你的 Host 托管，各端在 App 内直接打开；需要时公开分享，取消分享链接立即失效。Bot 详情页列出它的全部画布。</span><span lang="en">Pages your Bots write are hosted by your Host and open inside every client. Share publicly when you want; unsharing kills the link at once. Bot details list all of its canvases.</span></p>
+          <div class="share-mock" aria-hidden="true">
+            <div><svg class="ico ico-14"><use href="#i-lock"></use></svg><span lang="zh">私有</span><span lang="en">Private</span><b class="mono">/canvas/app/…</b></div>
+            <div class="is-on"><svg class="ico ico-14"><use href="#i-globe"></use></svg><span lang="zh">公开分享</span><span lang="en">Shared</span><b class="mono">/canvas/7f3c…</b></div>
+          </div>
+        </article>
+
+        <!-- V4 C · Usage -->
+        <article class="bento-card v4-third reveal">
+          <header class="bento-head">
+            <span class="bento-ico" aria-hidden="true"><svg class="ico ico-16"><use href="#i-gauge"></use></svg></span>
+            <span class="bento-tag mono">Usage</span>
+          </header>
+          <h3><span lang="zh">用量统计，每个端都能看</span><span lang="en">Usage reports on every client</span></h3>
+          <p><span lang="zh">每次模型调用记下模型、Bot、耗时与状态；按范围筛选，看趋势和明细，导出 CSV。</span><span lang="en">Every model call records its model, Bot, duration and status. Filter by range, see trends and requests, export CSV.</span></p>
+          <div class="usage-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </article>
+
+        <!-- V4 D · Migration -->
+        <article class="bento-card v4-third reveal">
+          <header class="bento-head">
+            <span class="bento-ico" aria-hidden="true"><svg class="ico ico-16"><use href="#i-upload"></use></svg></span>
+            <span class="bento-tag mono">Migrate</span>
+          </header>
+          <h3><span lang="zh">从 Grok Bot 迁移</span><span lang="en">Migrate from Grok Bot</span></h3>
+          <p><span lang="zh">Bot、指令、记忆、技能、例程和聊天记录一起搬过来；预览后导入，重复执行不产生重复。</span><span lang="en">Bring Bots, instructions, memories, skills, routines and chats along. Preview, then import; reruns never duplicate.</span></p>
+          <ol class="step-list mono" aria-hidden="true"><li><span>01</span><span lang="zh">读取本机数据或导出</span><span lang="en">Read local data or export</span></li><li><span>02</span><span lang="zh">预览</span><span lang="en">Preview</span></li><li><span>03</span><span lang="zh">导入</span><span lang="en">Import</span></li></ol>
+        </article>
+
+        <!-- V4 E · CLI -->
+        <article class="bento-card v4-third reveal">
+          <header class="bento-head">
+            <span class="bento-ico" aria-hidden="true"><svg class="ico ico-16"><use href="#i-terminal"></use></svg></span>
+            <span class="bento-tag mono">rokbot CLI</span>
+          </header>
+          <h3><span lang="zh">一个命令管部署</span><span lang="en">One command for operations</span></h3>
+          <p><span lang="zh">部署、管理员初始化、环境检查、更新回滚与本地打包，只需要 Node.js 20+。</span><span lang="en">Deploy, set up the admin, check the environment, update, roll back and pack. Node.js 20+ only.</span></p>
+          <pre class="cli-mock mono" aria-hidden="true"><span>$ npx rokbot doctor</span>
+<span>$ npx rokbot init</span>
+<span>$ npx rokbot up</span></pre>
+        </article>
+
+        <!-- V4 F · Admin pages -->
+        <article class="bento-card v4-half reveal">
+          <header class="bento-head">
+            <span class="bento-ico" aria-hidden="true"><svg class="ico ico-16"><use href="#i-layers"></use></svg></span>
+            <span class="bento-tag mono">Admin console</span>
+          </header>
+          <h3><span lang="zh">管理后台分页</span><span lang="en">A paged admin console</span></h3>
+          <p><span lang="zh">按概览、模型、用量、客户端、设备、Bot、账号、系统分页，左侧导航，每页只加载自己的模块；旧链接自动跳转。</span><span lang="en">Overview, Models, Usage, Clients, Devices, Bots, Account and System each get a page with left-hand navigation and their own modules; old links redirect.</span></p>
+        </article>
+
+        <!-- V4 G · Android + license -->
+        <article class="bento-card v4-half reveal">
+          <header class="bento-head">
+            <span class="bento-ico" aria-hidden="true"><svg class="ico ico-16"><use href="#i-plat-android"></use></svg></span>
+            <span class="bento-tag mono">1.26.0-rokbot.11</span>
+          </header>
+          <h3><span lang="zh">安卓冷启动更稳，开屏只有一个清晰 logo</span><span lang="en">Steadier Android cold starts, one sharp splash logo</span></h3>
+          <p><span lang="zh">修复冷启动闪退；开屏从第一帧起就是清晰的 RokBot logo。许可证改为 RokBot Noncommercial License 1.0，上游 ProkBot 许可证原样保留。</span><span lang="en">Fixes a cold-start crash, and the splash shows a sharp RokBot logo from the first frame. Licensing moves to the RokBot Noncommercial License 1.0, with the upstream ProkBot license kept as is.</span></p>
+        </article>
+      </div>
+
+      <p class="bento-sublabel mono"><span lang="zh">同日第二、三版</span><span lang="en">Earlier drops the same day</span></p>
 
       <div class="bento">
         <!-- A · Suggestions v2 -->
@@ -1259,7 +1347,7 @@
         <div class="plat-row">
           <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-android"></use></svg></span>Android</span>
           <span class="plat-form"><span lang="zh">原生 APK（arm64-v8a，正式签名，可覆盖升级）</span><span lang="en">Native APK (arm64-v8a, release-signed, in-place upgrades)</span></span>
-          <span class="plat-base mono">1.26.0-rokbot.10</span>
+          <span class="plat-base mono">1.26.0-rokbot.11</span>
           <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
           <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/android/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
@@ -1273,28 +1361,28 @@
         <div class="plat-row">
           <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-macos"></use></svg></span>macOS</span>
           <span class="plat-form"><span lang="zh">Apple Silicon 桌面端（GUI 控制，自动更新）</span><span lang="en">Apple Silicon desktop (GUI control, auto-update)</span></span>
-          <span class="plat-base mono">1.3.1 · 1.2.3</span>
+          <span class="plat-base mono">1.3.3 · 1.2.3</span>
           <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
           <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
           <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-windows"></use></svg></span>Windows</span>
           <span class="plat-form"><span lang="zh">x64 安装版与便携版（支持本机命令）</span><span lang="en">x64 installer &amp; portable (local shell)</span></span>
-          <span class="plat-base mono">1.3.1 · 1.2.3 · 0.71.2</span>
+          <span class="plat-base mono">1.3.3 · 1.2.3 · 0.71.2</span>
           <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
           <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
           <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-plat-linux"></use></svg></span><span lang="zh">Linux 桌面</span><span lang="en">Linux</span></span>
           <span class="plat-form"><span lang="zh">x64 / arm64：<code>.deb</code>、<code>.tar.gz</code> 与便携目录</span><span lang="en">x64 / arm64: <code>.deb</code>, <code>.tar.gz</code> &amp; portable</span></span>
-          <span class="plat-base mono">1.3.1</span>
+          <span class="plat-base mono">1.3.3</span>
           <span class="plat-how"><span lang="zh">自行构建 / 从自己的 Host 获取</span><span lang="en">Build yourself / From your Host</span></span>
           <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/linux/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
         <div class="plat-row">
           <span class="plat-name"><span class="plat-name-ico" aria-hidden="true"><svg class="ico ico-15" aria-hidden="true"><use href="#i-globe"></use></svg></span>Web</span>
           <span class="plat-form"><span lang="zh">浏览器界面（由自己的 Host :18081 托管）</span><span lang="en">Browser UI (served by your Host :18081)</span></span>
-          <span class="plat-base mono">1.3.1 UI</span>
+          <span class="plat-base mono">1.3.3 UI</span>
           <span class="plat-how"><span lang="zh">自行构建界面包并上传至 Host</span><span lang="en">Build UI bundle &amp; upload to Host</span></span>
           <a class="plat-doc" href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener"><span lang="zh">文档</span><span lang="en">Docs</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a>
         </div>
@@ -1399,7 +1487,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
           <span class="channel-ico" aria-hidden="true"><svg class="ico ico-18"><use href="#i-rotate-cw"></use></svg></span>
           <div>
             <h3><span lang="zh">客户端：从你的 Host 下载与自动更新</span><span lang="en">Clients: download &amp; auto-update from your Host</span></h3>
-            <p><span lang="zh">管理页「客户端更新」发布后，桌面端（1.3.1）与 Android 自动检查并校验更新；Android 正式签名一致即可覆盖升级，iOS 走 <code>itms-services</code> 或 AltStore / SideStore 源。</span><span lang="en">Publish in Admin → Client updates; desktop (1.3.1) and Android check and verify automatically. Android upgrades in place when the release certificate matches; iOS uses <code>itms-services</code> or AltStore / SideStore feeds.</span></p>
+            <p><span lang="zh">管理页「客户端更新」发布后，桌面端（1.3.3）与 Android 自动检查并校验更新；Android 正式签名一致即可覆盖升级，iOS 走 <code>itms-services</code> 或 AltStore / SideStore 源。</span><span lang="en">Publish in Admin → Client updates; desktop (1.3.3) and Android check and verify automatically. Android upgrades in place when the release certificate matches; iOS uses <code>itms-services</code> or AltStore / SideStore feeds.</span></p>
           </div>
           <span class="channel-tag mono">/admin · updates</span>
         </li>
@@ -1463,7 +1551,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
             <div class="code-wrap">
               <pre><code>node mac/patchers/desktop/patch.mjs \
   --source /path/to/official-1.3.0.dmg \
-  --app-version 1.3.1</code></pre>
+  --app-version 1.3.3</code></pre>
               <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">macOS · Node.js 22.12+ · 生成 <code>mac/output.noindex/RokBot.app</code>。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.md" rel="noopener">mac/README.md</a></span><span lang="en">macOS · Node.js 22.12+ · Builds <code>mac/output.noindex/RokBot.app</code>. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/mac/README.en.md" rel="noopener">mac/README.en.md</a></span></small></p>
@@ -1473,7 +1561,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
             <div class="code-wrap">
               <pre><code>node windows/patchers/desktop/patch.mjs `
   --source C:\path\to\official-1.3.0-setup.exe `
-  --app-version 1.3.1</code></pre>
+  --app-version 1.3.3</code></pre>
               <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">Windows x64 · Node.js 22.12+ · 生成安装版与便携 ZIP。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.md" rel="noopener">windows/README.md</a></span><span lang="en">Windows x64 · Node.js 22.12+ · Builds installer &amp; portable ZIP. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/windows/README.en.md" rel="noopener">windows/README.en.md</a></span></small></p>
@@ -1482,7 +1570,7 @@ bash ../rokbot-src/host/release/install-images.sh --local</code></pre>
           <div data-patch-panel="p-linux" hidden>
             <div class="code-wrap">
               <pre><code>npm install --prefix mac/patchers/desktop
-node linux/patchers/desktop/patch.mjs --arch x64 --app-version 1.3.1</code></pre>
+node linux/patchers/desktop/patch.mjs --arch x64 --app-version 1.3.3</code></pre>
               <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">Linux 或 macOS · Node.js 22.12+ · 自动下载锁定版本并生成 <code>.deb</code>、<code>.tar.gz</code> 与便携目录，<code>--arch arm64</code> 构建 arm64。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/linux/README.md" rel="noopener">linux/README.md</a></span><span lang="en">Linux or macOS · Node.js 22.12+ · Downloads the pinned build and outputs <code>.deb</code>, <code>.tar.gz</code> and a portable folder; use <code>--arch arm64</code> for arm64. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/linux/README.en.md" rel="noopener">linux/README.en.md</a></span></small></p>
@@ -1492,7 +1580,7 @@ node linux/patchers/desktop/patch.mjs --arch x64 --app-version 1.3.1</code></pre
             <div class="code-wrap">
               <pre><code>node web/patchers/patch.mjs \
   --source /path/to/official-1.3.0-setup.exe \
-  --app-version 1.3.1</code></pre>
+  --app-version 1.3.3</code></pre>
               <button class="copy-btn" type="button" aria-label="复制 Copy"><span class="copy-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-copy"></use></svg><span lang="zh">复制</span><span lang="en">Copy</span></span><span class="copied-txt"><svg class="ico ico-13" aria-hidden="true"><use href="#i-check"></use></svg><span lang="zh">已复制</span><span lang="en">Copied</span></span></button>
             </div>
             <p><small><span lang="zh">生成界面 ZIP 包后在 Host 管理页「网页版」上传，或加 <code>--upload &lt;Host&gt;</code> 直传。详见 <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.md" rel="noopener">web/README.md</a></span><span lang="en">Upload the generated UI bundle in Admin → Web, or pass <code>--upload &lt;Host&gt;</code>. See <a href="https://github.com/hongfaqiu/rokbot/blob/main/web/README.en.md" rel="noopener">web/README.en.md</a></span></small></p>
@@ -1508,7 +1596,7 @@ node linux/patchers/desktop/patch.mjs --arch x64 --app-version 1.3.1</code></pre
           <ol class="host-steps">
             <li><span lang="zh">管理员按左侧步骤构建并签名对应平台的客户端包。</span><span lang="en">Build and sign the client packages locally using the patch tools.</span></li>
             <li><span lang="zh">在管理页「客户端更新」上传并发布，支持基于旧版本生成增量差分补丁。</span><span lang="en">Upload in Admin → Client updates and optionally generate delta patches from an older build.</span></li>
-            <li><span lang="zh">已配对的 Android 与桌面客户端（macOS、Windows、Linux 1.3.1）自动从你的 Host 校验（SHA-256 / ECDSA P-256 / 证书一致）并升级；iOS 支持 <code>itms-services</code> 与 AltStore / SideStore 源。</span><span lang="en">Paired Android &amp; desktop clients (macOS, Windows, Linux 1.3.1) verify SHA-256 / ECDSA P-256 / certs and update directly; iOS supports <code>itms-services</code> and AltStore / SideStore feeds.</span></li>
+            <li><span lang="zh">已配对的 Android 与桌面客户端（macOS、Windows、Linux 1.3.3）自动从你的 Host 校验（SHA-256 / ECDSA P-256 / 证书一致）并升级；iOS 支持 <code>itms-services</code> 与 AltStore / SideStore 源。</span><span lang="en">Paired Android &amp; desktop clients (macOS, Windows, Linux 1.3.3) verify SHA-256 / ECDSA P-256 / certs and update directly; iOS supports <code>itms-services</code> and AltStore / SideStore feeds.</span></li>
           </ol>
           <p><a class="link-ico" href="https://github.com/hongfaqiu/rokbot/blob/main/docs/AGENT_DEPLOY.md" rel="noopener"><span lang="zh">查看完整发布与分发手册</span><span lang="en">Read the full distribution guide</span><svg class="ico ico-14" aria-hidden="true"><use href="#i-arrow-right"></use></svg></a></p>
         </div>

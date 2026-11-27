@@ -17,6 +17,11 @@ export const WINDOWS_PE_VERSION_STRINGS = {
 const RENDERER_APP_ICON_RE = /^app-icon-[^/]+\.png$/;
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+// @electron/asar resolves archive paths by splitting on path.sep, so on Windows a
+// forward-slash path like dist/renderer/assets/x.png is "not found". Always hand it
+// native separators; report/compare with forward slashes.
+const toArchivePath = (rel, sep = path.sep) => rel.split('/').join(sep);
+const fromArchivePath = name => name.replaceAll('\\', '/').replace(/^\//, '');
 
 export function resolveRokBotWindowsLogoPaths(repoRoot) {
   return {
@@ -47,25 +52,26 @@ export async function stageLocalClientWindowsIcons({ unpackedDir, icoPath, iconP
   }
 }
 
-export async function verifyRokBotWindowsIcons({ icoPath, iconPngPath, rendererIconPngPath = iconPngPath, outAsarPath, asarModule }) {
+export async function verifyRokBotWindowsIcons({ icoPath, iconPngPath, rendererIconPngPath = iconPngPath, outAsarPath, asarModule, pathSep = path.sep }) {
+  const extract = rel => asarModule.extractFile(outAsarPath, toArchivePath(rel, pathSep));
   const [expectedIcoSha256, expectedPngSha256, expectedRendererPngSha256] = await Promise.all([
     readFile(icoPath).then(sha),
     readFile(iconPngPath).then(sha),
     readFile(rendererIconPngPath).then(sha),
   ]);
-  const localIconSha256 = sha(asarModule.extractFile(outAsarPath, 'local-client/icon.png'));
+  const localIconSha256 = sha(extract('local-client/icon.png'));
   if (localIconSha256 !== expectedPngSha256) {
     throw new Error('RokBot 图标替换校验失败（local-client/icon.png）。');
   }
-  const iconSha256 = sha(asarModule.extractFile(outAsarPath, 'local-client/icon.ico'));
+  const iconSha256 = sha(extract('local-client/icon.ico'));
   if (iconSha256 !== expectedIcoSha256) {
     throw new Error('RokBot 图标替换校验失败（local-client/icon.ico）。');
   }
   const rendererAppIcons = asarModule.listPackage(outAsarPath)
-    .map(name => name.replaceAll('\\', '/').replace(/^\//, ''))
+    .map(fromArchivePath)
     .filter(name => /^dist\/renderer\/assets\/app-icon-[^/]+\.png$/.test(name));
   for (const rel of rendererAppIcons) {
-    if (sha(asarModule.extractFile(outAsarPath, rel)) !== expectedRendererPngSha256) {
+    if (sha(extract(rel)) !== expectedRendererPngSha256) {
       throw new Error(`RokBot 图标替换校验失败（${rel}）。`);
     }
   }

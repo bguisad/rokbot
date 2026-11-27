@@ -63,6 +63,42 @@ test('assets/logo RokBot Windows icons match manifest.json and carry valid ICO/P
   assert.equal(sha(pngBytes), manifest512.sha256);
 });
 
+test('verifyRokBotWindowsIcons works with Windows path separators (asar splits on path.sep)', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-win-sep-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const asar = createRequire(path.join(repoRoot, 'mac/patchers/desktop/package.json'))('@electron/asar');
+  const { icoPath, iconPngPath, rendererIconPngPath } = resolveRokBotWindowsLogoPaths(repoRoot);
+  const unpacked = path.join(dir, 'unpacked');
+  const outAsar = path.join(dir, 'app.asar');
+  await mkdir(path.join(unpacked, 'local-client'), { recursive: true });
+  await mkdir(path.join(unpacked, 'dist/renderer/assets'), { recursive: true });
+  await writeFile(path.join(unpacked, 'package.json'), '{}');
+  // Hash suffix differs per upstream build; the patcher must match by pattern.
+  await writeFile(path.join(unpacked, 'dist/renderer/assets/app-icon-Qz81xYw0.png'), 'stale');
+  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath, rendererIconPngPath });
+  await asar.createPackageWithOptions(unpacked, outAsar, {});
+
+  // Emulate @electron/asar on win32: listPackage yields backslash paths and
+  // extractFile only resolves directories split by "\\".
+  const winAsar = {
+    listPackage: p => asar.listPackage(p).map(n => n.replaceAll('/', '\\')),
+    extractFile: (p, rel) => {
+      const dir = path.posix.dirname(rel);
+      if (dir.includes('/')) throw new Error(`"${rel}" was not found in this archive`);
+      return asar.extractFile(p, rel.replaceAll('\\', '/'));
+    },
+  };
+  const verified = await verifyRokBotWindowsIcons({
+    icoPath, iconPngPath, rendererIconPngPath, outAsarPath: outAsar, asarModule: winAsar, pathSep: '\\',
+  });
+  assert.deepEqual(verified.rendererAppIcons, ['dist/renderer/assets/app-icon-Qz81xYw0.png']);
+  // The pre-fix behaviour (forward slashes handed to asar on Windows) reproduces the CI failure.
+  await assert.rejects(
+    verifyRokBotWindowsIcons({ icoPath, iconPngPath, rendererIconPngPath, outAsarPath: outAsar, asarModule: winAsar, pathSep: '/' }),
+    /app-icon-Qz81xYw0\.png" was not found in this archive/,
+  );
+});
+
 test('brand-assets stages RokBot Windows icons into app.asar, resolves binaries, and fails closed on mismatch', async t => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'rokbot-win-branding-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
