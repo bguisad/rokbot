@@ -1061,7 +1061,7 @@ export default {
   "跟随默认": "Follow default",
   "为不同后台与辅助场景单独指定模型和思考强度；未指定时沿用默认路由。": "Assign dedicated models and reasoning effort per scenario; unset scenarios follow the default route.",
   "输入框建议": "Input suggestions",
-  "根据当前对话上下文生成输入框快捷建议，推荐使用轻量快速模型": "Generate contextual quick-reply chips in the composer; a fast lightweight model is recommended",
+  "根据当前对话上下文生成输入框快捷建议与输入补全，推荐使用轻量快速模型": "Generate contextual quick-reply chips and inline completion in the composer; a fast lightweight model is recommended",
   "上下文压缩": "Context summarization",
   "对话过长自动压缩或手动摘要上下文时使用": "Used for automatic long-conversation compaction and manual summaries",
   "记忆提取": "Memory extraction",
@@ -1102,7 +1102,7 @@ export default {
   "设备与配对": "Devices & pairing",
   "通知与推送": "Notifications & push",
   "Bot 与数据": "Bots & data",
-  "Bot 的内置能力、技能、应用、提示词、自动化 Webhook 和分享。": "Built-in capabilities, skills, apps, prompts, automation webhooks and sharing for your Bots.",
+  "Bot 的内置能力、技能、应用、提示词、自动化 Webhook、分享，以及从 Grok Bot 迁移数据。": "Built-in capabilities, skills, apps, prompts, automation webhooks and sharing for your Bots, plus migrating data from Grok Bot.",
   "安全与账号": "Security & account",
   "管理员资料、登录状态，以及客户端修改模型配置的权限。": "Administrator profile, sign-in, and whether clients may change the model configuration.",
   "系统设置与日志": "System & logs",
@@ -1127,4 +1127,5 @@ export default {
   "网页版界面包": "Web client bundle",
   "Webhook 运行记录": "Webhook runs",
   "请选择一项": "Choose an option",
+  "从 Grok Bot 迁移": "Migrate from Grok Bot",
 };

@@ -342,6 +342,8 @@ public class NotificationService extends Service {
             return;
         }
         String agentId = item.optString("agentId", "");
+        // A new reply of this Bot: its suggestions are out of date (only this Bot's generation moves).
+        ComposerSuggestionsOverlay.onAgentReplied(agentId);
         boolean viewing = RokBotBootstrap.isForeground() && agentId.equals(RokBotBootstrap.getViewingAgentId());
         if (!viewing) {
             showNotification(context, item);

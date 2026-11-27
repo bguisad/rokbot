@@ -42,6 +42,7 @@ export const modules = {
   sharing: ['sharing.js', 'createSharingEditor'],
   usage: ['usage.js', 'createUsagePage'],
   system: ['system.js', 'createSystemPage'],
+  migrate: ['migrate.js', 'createMigratePage', { lazy: true }],
 };
 
 // The model form keeps one save bar for all of its sections; both model tabs show it.
@@ -85,7 +86,7 @@ export const pages = [
       { id: 'federation', label: 'Host 协作', summary: 'federation', blocks: [{ view: 'federation' }] },
     ] },
   { id: 'bots', label: 'Bot 与数据', icon: 'toggles',
-    description: 'Bot 的内置能力、技能、应用、提示词、自动化 Webhook 和分享。',
+    description: 'Bot 的内置能力、技能、应用、提示词、自动化 Webhook、分享，以及从 Grok Bot 迁移数据。',
     tabs: [
       { id: 'harness', label: '内置能力', summary: 'harness', blocks: [{ view: 'harness' }] },
       { id: 'skills', label: '技能', summary: 'skills', blocks: [{ view: 'skills' }] },
@@ -93,6 +94,7 @@ export const pages = [
       { id: 'prompts', label: '提示词', layout: 'wide', blocks: [{ view: 'prompts' }] },
       { id: 'webhooks', label: 'Webhook', summary: 'webhooks', blocks: [{ view: 'webhooks', except: ['section:has(#hook-events)'] }] },
       { id: 'sharing', label: '分享', summary: 'sharing', blocks: [{ view: 'sharing' }] },
+      { id: 'migrate', label: '从 Grok Bot 迁移', blocks: [{ view: 'migrate' }] },
     ] },
   { id: 'account', label: '安全与账号', icon: 'shield',
     description: '管理员资料、登录状态，以及客户端修改模型配置的权限。',
@@ -117,7 +119,7 @@ export const legacyViews = {
   overview: 'overview/home', general: 'account/admin', profile: 'account/admin',
   model: 'models/providers', speech: 'models/speech', media: 'models/media', 'web-services': 'models/web',
   harness: 'bots/harness', skills: 'bots/skills', apps: 'bots/apps', plugins: 'bots/apps', connectors: 'bots/apps',
-  prompts: 'bots/prompts', webhooks: 'bots/webhooks', sharing: 'bots/sharing',
+  prompts: 'bots/prompts', webhooks: 'bots/webhooks', sharing: 'bots/sharing', migrate: 'bots/migrate',
   devices: 'devices/list', notifications: 'devices/notify', network: 'devices/network', execution: 'devices/execution',
   federation: 'devices/federation', 'web-client': 'clients/web', updates: 'clients/updates',
 };
@@ -135,6 +137,7 @@ export const legacyAnchors = {
   'notification-list': ['system/logs', 'notification-list'], 'hook-events': ['system/logs', 'hook-events'],
   'updates-ios-section': ['clients/updates', 'updates-ios-section'], 'updates-releases': ['clients/updates', 'updates-releases'],
   'updates-key-spki': ['clients/signing'],
+  'migrate-root': ['bots/migrate'],
 };
 
 const byId = new Map(pages.map(page => [page.id, page]));

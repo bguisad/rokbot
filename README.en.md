@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: RokBot Noncommercial License 1.0" /></a>
   <a href="docs/clients.en.md"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, Linux, iOS, Android, Web" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
@@ -45,6 +45,7 @@
 - **Choose your own models:** works with OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so you decide which provider and model to use.
 - **Per-scenario model routing:** input suggestions, context compaction, memory extraction, auto-review, sub-agents and routines can each use their own model and reasoning effort, and any single Bot can have its own model too.
 - **Automatic fallback when the main model fails:** each route takes up to 8 fallback models; on error RokBot switches automatically, and never swaps models in the middle of a reply that has started streaming.
+- **Migrate from Grok Bot:** read the local Grok Bot data in one click, or copy a migration prompt so Grok Bot exports its memories, skills and routines; review, then import, as often as you like without duplicates. See the [migration guide](docs/migrate-from-grokbot.md) (Chinese).
 - **No cloud account needed:** pair with a single-use 6-digit code, and reach the Host remotely through the built-in Tailcat network, Tailscale or an HTTPS reverse proxy.
 
 <br clear="right" />
@@ -194,7 +195,7 @@ For options, offline installs, source builds and AI-assisted deployment, see [De
 
 ## License
 
-<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot is licensed under the [ProkBot Noncommercial License 1.0](LICENSE): personal use, self-hosting, study, modification and noncommercial redistribution are permitted, and all commercial use is prohibited. See [NOTICE](NOTICE) for derivation and third-party notices, and [docs/faq.en.md](docs/faq.en.md#distribution--compliance) for compliance notes.
+<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot is licensed under the [RokBot Noncommercial License 1.0](LICENSE): personal use, self-hosting, study, modification and noncommercial redistribution are permitted, and all commercial use is prohibited. Portions derived from ProkBot also remain under the [ProkBot Noncommercial License 1.0](LICENSES/ProkBot-Noncommercial-1.0.txt). See [NOTICE](NOTICE) for derivation and third-party notices, and [docs/faq.en.md](docs/faq.en.md#distribution--compliance) for compliance notes.
 
 ## Acknowledgements
 

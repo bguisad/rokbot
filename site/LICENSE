@@ -4,7 +4,8 @@ RokBot Website & Inline Icon Licenses
 1. Website Source
 -----------------
 The RokBot website source files in this directory are part of the RokBot
-project and are licensed under the ProkBot Noncommercial License 1.0.
+project and are licensed under the RokBot Noncommercial License 1.0
+(SPDX: LicenseRef-RokBot-Noncommercial-1.0).
 See the root LICENSE file in the repository for full terms:
 https://github.com/hongfaqiu/rokbot/blob/main/LICENSE
 

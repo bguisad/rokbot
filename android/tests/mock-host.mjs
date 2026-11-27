@@ -147,9 +147,21 @@ export class MockHostServer {
     this.suggestionsSettings = {
       enabled: true,
       aiEnabled: true,
+      completionEnabled: true,
       quickPhrases: [],
       updatedAt: null,
     };
+    // Optional artificial latency (ms) of /local/suggestions and /local/suggestions/complete, e.g. to
+    // capture the loading shimmer on an emulator.
+    this.suggestionsDelayMs = Number(options.suggestionsDelayMs) || 0;
+    this.completionDelayMs = Number(options.completionDelayMs) || 0;
+    this.completionRequests = [];
+    // /local/suggestions: every request body (agentId / requestId / prefetch), and the Host-side
+    // cache filled by prefetch: true (agentId:historyId:lang -> aiSuggestions).
+    this.suggestionRequests = [];
+    this.suggestionsCache = new Map();
+    // Optional per-Bot AI suggestions: { [agentId]: string[] } (default: the generic three).
+    this.suggestionsByAgent = options.suggestionsByAgent || {};
     this.profile = {
       displayName: 'Local Test User',
       avatarDataUrl: null,
@@ -929,6 +941,7 @@ export class MockHostServer {
       try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) { return this._json(res, 400, { error: 'Invalid JSON' }); }
       if (typeof body.enabled === 'boolean') this.suggestionsSettings.enabled = body.enabled;
       if (typeof body.aiEnabled === 'boolean') this.suggestionsSettings.aiEnabled = body.aiEnabled;
+      if (typeof body.completionEnabled === 'boolean') this.suggestionsSettings.completionEnabled = body.completionEnabled;
       if (Array.isArray(body.quickPhrases)) {
         this.suggestionsSettings.quickPhrases = body.quickPhrases
           .map((item, i) => ({
@@ -992,6 +1005,40 @@ export class MockHostServer {
       return this._json(res, 200, { ok: true, quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
     }
 
+    // Inline completion (ghost text): POST /local/suggestions/complete. Deterministic fake model:
+    // the rest of a known sentence when the draft is a prefix of it, otherwise a fixed tail.
+    if (pathname === '/local/suggestions/complete' && method === 'POST') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {}
+      const text = String(body.text ?? '');
+      const draft = text.trim();
+      const agentId = String(body.agentId || '').trim();
+      this.completionRequests.push({ agentId, text, locale: body.locale || null });
+      const zh = /[\u4e00-\u9fff]/.test(draft) || (!/[A-Za-z]/.test(draft) && /^zh/i.test(String(body.locale || '')));
+      const reply = (completion, source, extra = {}) => this._json(res, 200, {
+        enabled: this.suggestionsSettings.completionEnabled !== false, text, completion, source, cached: false, ...extra,
+      });
+      if (this.suggestionsSettings.completionEnabled === false) return reply('', 'disabled');
+      if (draft.length < 2) return reply('', 'too-short');
+      const transcript = agentId ? (this.transcripts.get(agentId) || []) : [];
+      const hasHistory = transcript.length > 0 || (Array.isArray(body.recentMessages) && body.recentMessages.length > 0);
+      if (!hasHistory) return reply('', 'empty');
+      if (this.completionDelayMs > 0) {
+        const aborted = await new Promise(resolve => {
+          const timer = setTimeout(() => resolve(false), this.completionDelayMs);
+          res.once('close', () => { if (!res.writableEnded) { clearTimeout(timer); resolve(true); } });
+        });
+        if (aborted || res.destroyed) return undefined;
+      }
+      const sentences = zh
+        ? ['帮我总结一下今天的进展和下一步计划', '请检查最新的运行日志并找出报错原因', '把关键结论整理成清单']
+        : ['Can you summarize the latest changes and next steps', 'Please check the build logs for errors', 'List the key takeaways'];
+      const hit = sentences.find(sentence => sentence.startsWith(text) && sentence.length > text.length);
+      const completion = hit ? hit.slice(text.length) : (zh ? '，并给出下一步建议' : ' and suggest the next steps');
+      return reply(completion, 'model', { lang: zh ? 'zh' : 'en' });
+    }
+
     // Local Suggestions: POST /local/suggestions
     if (pathname === '/local/suggestions' && method === 'POST') {
       const raw = await this._readBody(req);
@@ -999,6 +1046,31 @@ export class MockHostServer {
       try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {}
       const zh = /^zh/i.test(String(body.locale || ''));
       const lang = zh ? 'zh' : 'en';
+      // Contract: { agentId, lastEntryId?, locale?, requestId? (<= 64 chars), prefetch? }; the answer
+      // echoes agentId / requestId and names the history it was generated from (historyId).
+      const agentId = String(body.agentId || '').trim();
+      const requestId = typeof body.requestId === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(body.requestId) ? body.requestId : '';
+      this.suggestionRequests.push({ agentId, requestId, prefetch: body.prefetch === true, locale: String(body.locale || '') });
+      const transcript = agentId ? (this.transcripts.get(agentId) || []) : [];
+      const recent = Array.isArray(body.recentMessages) ? body.recentMessages : [];
+      const lastEntry = transcript.length ? transcript[transcript.length - 1] : (recent.length ? recent[recent.length - 1] : null);
+      const historyId = lastEntry ? String(lastEntry.id || lastEntry.entryId || `n${transcript.length || recent.length}`) : '';
+      const hasHistory = transcript.length > 0 || recent.length > 0;
+      // Per-Bot answers so a test can tell which Bot a suggestion belongs to.
+      const aiFor = id => this.suggestionsByAgent[id]
+        || (zh ? ['查看最新运行日志', '把关键结论整理成清单', '下一步怎么验证？']
+              : ['Check the latest logs', 'List the key takeaways', 'How should we verify next?']);
+      const cacheKey = `${agentId || '_'}:${historyId}:${lang}`;
+      if (body.prefetch === true) {
+        // Answer at once; "generate" in the background into the Host cache.
+        const accepted = this.suggestionsSettings.enabled && this.suggestionsSettings.aiEnabled && hasHistory;
+        if (accepted) {
+          setTimeout(() => this.suggestionsCache.set(cacheKey, aiFor(agentId).slice(0, 3)), this.suggestionsDelayMs);
+        }
+        return this._json(res, 202, { accepted, agentId, requestId });
+      }
+      const hostCached = this.suggestionsCache.has(cacheKey);
+      if (this.suggestionsDelayMs > 0 && !hostCached) await new Promise(resolve => setTimeout(resolve, this.suggestionsDelayMs));
       if (!this.suggestionsSettings.enabled) {
         return this._json(res, 200, {
           enabled: false,
@@ -1010,15 +1082,14 @@ export class MockHostServer {
           source: 'disabled',
           cached: false,
           lang,
+          agentId,
+          requestId,
+          historyId,
         });
       }
       const quickPhrases = this.suggestionsSettings.quickPhrases.map(p => ({ id: p.id, text: p.text }));
-      const agentId = String(body.agentId || '').trim();
-      const transcript = agentId ? (this.transcripts.get(agentId) || []) : [];
-      const hasHistory = transcript.length > 0 || (Array.isArray(body.recentMessages) && body.recentMessages.length > 0);
       const aiSuggestions = (this.suggestionsSettings.aiEnabled && hasHistory)
-        ? (zh ? ['查看最新运行日志', '把关键结论整理成清单', '下一步怎么验证？']
-              : ['Check the latest logs', 'List the key takeaways', 'How should we verify next?'])
+        ? (hostCached ? this.suggestionsCache.get(cacheKey) : aiFor(agentId)).slice(0, 3)
         : [];
       const source = !this.suggestionsSettings.aiEnabled ? 'phrases-only' : (hasHistory ? 'model' : 'empty');
       const items = [
@@ -1033,8 +1104,11 @@ export class MockHostServer {
         suggestions: items.map(i => i.text),
         items,
         source,
-        cached: false,
+        cached: hostCached && hasHistory && this.suggestionsSettings.aiEnabled,
         lang,
+        agentId,
+        requestId,
+        historyId,
       });
     }
 

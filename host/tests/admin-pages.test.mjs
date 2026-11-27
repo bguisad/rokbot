@@ -18,7 +18,7 @@ const emoji = /\p{Extended_Pictographic}/u;
 
 // Every view of the former single-level console (navigation.js before the page split).
 const formerViews = ['overview', 'general', 'model', 'speech', 'media', 'web-services', 'harness', 'skills', 'apps', 'prompts',
-  'devices', 'web-client', 'updates', 'network', 'execution', 'federation', 'webhooks', 'sharing', 'profile', 'notifications', 'plugins', 'connectors'];
+  'devices', 'web-client', 'updates', 'network', 'execution', 'federation', 'webhooks', 'sharing', 'migrate', 'profile', 'notifications', 'plugins', 'connectors'];
 
 // Former section -> [module, an element id inside it]. Each must be shown by at least one tab.
 const formerSections = {
@@ -61,6 +61,7 @@ const formerSections = {
   'Webhooks': ['webhooks', 'hook-list'],
   'Webhook runs': ['webhooks', 'hook-events'],
   'Sharing': ['sharing', 'sharing-list'],
+  'Migration from Grok Bot': ['migrate', 'migrate-root'],
   'Host runtime details': ['system', 'system-info'],
 };
 
@@ -201,7 +202,8 @@ test('page labels have English text and the new files stay free of emoji and the
   for (const file of ['admin-routes.js', 'navigation.js', 'app.js', 'overview.js', 'usage.js', 'system.js', 'shell.css', 'stage.css', 'index.html']) {
     const source = await read(file);
     assert.doesNotMatch(source, emoji, `${file} has no emoji`);
-    assert.doesNotMatch(source, /grok/i, `${file} has no upstream product name`);
+    // The only allowed mention is the migration source, spelled exactly "Grok Bot".
+    assert.doesNotMatch(source.replaceAll('Grok Bot', ''), /grok/i, `${file} has no upstream product name`);
   }
 });
 
