@@ -2122,10 +2122,30 @@ public class RokBotBootstrap {
         }
     }
 
+    /**
+     * Click hooks are only for third-party (RN / expo) surfaces. Our own native pages
+     * (dev.rokbot.nativeapp.*) already wire their buttons; rewiring them is what made
+     * UpdateActivity's 「检查更新」 pill (re-scanned on every AppUpdater state change) start a
+     * second UpdateActivity instead of checking in place. Never hook a view to the page it is on.
+     */
+    static boolean shouldWireNativeHook(String activityClassName, Class<?> target) {
+        if (target == null) return false;
+        if (activityClassName == null) return true;
+        if (activityClassName.startsWith("dev.rokbot.nativeapp.")) return false;
+        return !activityClassName.equals(target.getName());
+    }
+
+    /** Never stack a native page on top of itself (e.g. UpdateActivity -> UpdateActivity). */
+    static boolean shouldLaunchNativeTarget(String activityClassName, Class<?> dest) {
+        return dest != null && (activityClassName == null || !activityClassName.equals(dest.getName()));
+    }
+
     private static void launchNativeTarget(Activity activity, Class<?> target) {
         if (activity == null || target == null) return;
         Class<?> dest = Storage.isPaired(activity) ? target : PairingActivity.class;
+        if (!shouldLaunchNativeTarget(activity.getClass().getName(), dest)) return;
         Intent i = new Intent(activity, dest);
+        i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         if (dest == LibraryActivity.class) {
             String agentId = getLastAgentId();
             if (agentId == null || agentId.isEmpty()) agentId = getViewingAgentId();
@@ -2489,7 +2509,7 @@ public class RokBotBootstrap {
             }
             if (!isReactActivity(activity)) {
                 Class<?> target = resolveNativeTargetForView(activity, view);
-                if (target != null) {
+                if (target != null && shouldWireNativeHook(activity.getClass().getName(), target)) {
                     View clickTarget = findClickableHostView(view);
                     if (!Boolean.TRUE.equals(clickTarget.getTag(TAG_HOOKED_CLICK))) {
                         clickTarget.setTag(TAG_HOOKED_CLICK, Boolean.TRUE);
