@@ -304,6 +304,57 @@ test('createLocalTrackedTasksPort and createLocalEffortToolPort persist locally'
   assert.equal(kv.get('rokbot.outputEffort'), 'low');
 });
 
+test('local Tracked Tasks tools emit McpToolResult payloads the harness renders as text', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-tasks-proto-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  // Minimal stand-ins for the protobuf-es classes: unlike real messages they keep every
+  // field, so the assertions below pin the exact message types and the field path that
+  // the harness's renderMcpTool reads (result.case -> McpSuccess.content[].content.value.text).
+  const proto = (typeName) => class { constructor(init = {}) { Object.assign(this, init); this.typeName = typeName; } };
+  const tf = Object.fromEntries(['ToolCall', 'McpToolCall', 'McpArgs', 'McpToolResult', 'McpSuccess',
+    'McpToolResultContentItem', 'McpTextContent', 'McpResult', 'McpToolError'].map((n) => [n, proto(n)]));
+  const library = { getToolFrameworkRecoveryBindings: () => tf };
+  const tasksPort = createLocalTrackedTasksPort({ library, agentDir: dir });
+
+  const harnessText = (output) => {
+    assert.equal(output.typeName, 'McpToolResult');
+    assert.equal(output.result.case, 'success');
+    assert.equal(output.result.value.typeName, 'McpSuccess');
+    return output.result.value.content.map((item) => {
+      assert.equal(item.typeName, 'McpToolResultContentItem');
+      assert.equal(item.content.case, 'text');
+      assert.equal(item.content.value.typeName, 'McpTextContent');
+      return item.content.value.text;
+    }).join('\n');
+  };
+  const runTool = async (name, args) => {
+    const tool = tasksPort.tools.find((item) => item.name === name);
+    const merged = [];
+    const handler = {
+      executeToolCall: async (_ctx, pending, callId, promiseFn, mergeFn) => {
+        assert.equal(pending.tool.case, 'mcpToolCall');
+        assert.equal(pending.tool.value.args.typeName, 'McpArgs');
+        assert.equal(pending.tool.value.args.toolCallId, callId);
+        const result = await promiseFn({});
+        merged.push(mergeFn(result));
+        return result;
+      },
+    };
+    const out = await tool.execute({}, handler, (async function* () { yield JSON.stringify(args); })(), { toolCallId: `call-${name}` });
+    const text = harnessText(out);
+    assert.equal(merged[0].tool.value.result, out, 'client-visible McpToolCall.result must be the McpToolResult');
+    const rendered = await tool.render({}, out);
+    assert.equal(rendered.content[0].text, text);
+    assert.ok(text.length > 0, `${name} returned an empty result`);
+    return text;
+  };
+
+  assert.match(await runTool('CreateTrackedTasks', { tasks: [{ title: 'Proto check', tags: ['host'] }] }), /Created 1 task\(s\):\n- T-1 \(v1\) \[queued\] \[host\]: Proto check/);
+  assert.match(await runTool('ListTrackedTasks', {}), /T-1 \(v1\) \[queued\] \[host\]: Proto check/);
+  assert.match(await runTool('UpdateTrackedTasks', { updates: [{ key: 'T-1', status: 'done' }] }), /T-1 \(v2\) \[done\]/);
+  assert.match(await runTool('UpdateTrackedTaskTags', { add: ['urgent'] }), /urgent/);
+});
+
 test('sanitizeSelfHostedPromptText removes unoffered cloud tools and missing managed skills', () => {
   const sample = [
     'Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.',
@@ -549,6 +600,23 @@ if (configuredSeed || configuredArchive) {
           return;
         }
         if (callStep === 2) {
+          // Exercise the remaining Tracked Tasks tools so their model-visible results can be asserted.
+          writeSseToolCalls(res, [
+            { id: 'call-task-list', name: 'ListTrackedTasks', arguments: {} },
+            {
+              id: 'call-task-update',
+              name: 'UpdateTrackedTasks',
+              arguments: { updates: [{ key: 'T-1', status: 'done', notes: 'checked' }] },
+            },
+            {
+              id: 'call-task-tags',
+              name: 'CallDynamicTool',
+              arguments: { namespace: 'cursor', toolName: 'UpdateTrackedTaskTags', arguments: { add: ['urgent'] } },
+            },
+          ]);
+          return;
+        }
+        if (callStep === 3) {
           writeSseToolCalls(res, [
             {
               id: 'call-send',
@@ -657,6 +725,20 @@ if (configuredSeed || configuredArchive) {
         assert.ok(!combinedPromptAndTools.includes(forbidden), `Unoffered tool ${forbidden} must not be advertised in prompt or tool descriptions`);
       }
 
+      // 1b. Every local Tracked Tasks tool must hand its text result back to the model
+      // (regression: the McpToolResult payload used to serialize to an empty body).
+      assert.ok(requests.length >= 3, `Expected tracked-task round-trips, got ${requests.length} requests`);
+      const toolMessage = (request, id) => {
+        const msg = (request.messages ?? []).find((m) => m.role === 'tool' && m.tool_call_id === id);
+        assert.ok(msg, `Missing tool result message for ${id}`);
+        return typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      };
+      assert.match(toolMessage(requests[1], 'call-task-create'), /Created 1 task\(s\):\n- T-1 \(v1\) \[queued\] \[e2e\]: Verify state tools E2E/);
+      assert.match(toolMessage(requests[1], 'call-mem-agent'), /Saved to memory/);
+      assert.match(toolMessage(requests[2], 'call-task-list'), /T-1 \(v1\) \[queued\] \[e2e\]: Verify state tools E2E/);
+      assert.match(toolMessage(requests[2], 'call-task-update'), /T-1 \(v2\) \[done\]/);
+      assert.match(toolMessage(requests[2], 'call-task-tags'), /urgent/);
+
       // 2. Assert every state write persisted to the host data directory
       const sandRoot = join(stateDir, 'host-data');
       const agentDir = join(sandRoot, 'agents', agentId);
@@ -668,6 +750,8 @@ if (configuredSeed || configuredArchive) {
       const trackedTasks = JSON.parse(await readFile(join(agentDir, 'tracked-tasks.json'), 'utf8'));
       assert.equal(trackedTasks.tasks.length, 1);
       assert.equal(trackedTasks.tasks[0].title, 'Verify state tools E2E');
+      assert.equal(trackedTasks.tasks[0].status, 'done');
+      assert.ok(trackedTasks.tags.includes('urgent'));
 
       const refData = JSON.parse(await readFile(join(agentDir, 'reference.json'), 'utf8'));
       assert.equal(refData.links.length, 1);

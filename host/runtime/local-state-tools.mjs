@@ -689,37 +689,55 @@ function makeLocalHarnessTool(library, { name, description, schema, contextType,
     isError,
   }));
 
+  // The harness hands `execute`'s return value to `render` and merges it into the
+  // client-visible McpToolCall as `McpToolCall.result`, which is an `McpToolResult`
+  // (oneof success: McpSuccess { content: McpToolResultContentItem[] }, error: McpToolError).
+  // `McpResult` is the executor-level envelope and must not be used here: building it
+  // around an `McpToolResult({ content })` silently drops the text (McpToolResult has no
+  // `content` field), which is how every local tool used to return an empty body.
+  const hasProto = Boolean(tf.McpToolResult && tf.McpSuccess && tf.McpToolResultContentItem && tf.McpTextContent);
   const buildResultPayload = (text, isError = false) => {
-    if (tf.McpResult && tf.McpToolResult && tf.McpToolResultContentItem) {
-      if (isError && tf.McpToolError) {
-        return new tf.McpResult({ result: { case: 'error', value: new tf.McpToolError({ error: text }) } });
-      }
-      return new tf.McpResult({
+    if (hasProto) {
+      return new tf.McpToolResult({
         result: {
           case: 'success',
-          value: new tf.McpToolResult({
-            content: [new tf.McpToolResultContentItem({ content: { case: 'text', value: text } })],
+          value: new tf.McpSuccess({
+            content: [new tf.McpToolResultContentItem({
+              content: { case: 'text', value: new tf.McpTextContent({ text }) },
+            })],
             isError,
           }),
         },
       });
     }
-    return { result: { case: isError ? 'error' : 'success', value: isError ? { error: text } : { text } } };
+    return {
+      result: {
+        case: 'success',
+        value: { content: [{ content: { case: 'text', value: { text } } }], isError },
+      },
+    };
   };
 
-  const wrapToolCall = (argsObj, resultPayload) => {
+  const wrapToolCall = (toolCallId, resultPayload) => {
     if (tf.ToolCall && tf.McpToolCall) {
+      const argsInit = { name, toolName: name, providerIdentifier: 'rokbot-local', ...(toolCallId ? { toolCallId } : {}) };
       return new tf.ToolCall({
         tool: {
           case: 'mcpToolCall',
           value: new tf.McpToolCall({
-            args: { name, args: {}, toolName: name, providerIdentifier: 'rokbot-local', ...(argsObj ? {} : {}) },
+            args: tf.McpArgs ? new tf.McpArgs(argsInit) : argsInit,
             ...(resultPayload ? { result: resultPayload } : {}),
           }),
         },
       });
     }
-    return { tool: { case: 'mcpToolCall', value: { name, result: resultPayload } } };
+    return { tool: { case: 'mcpToolCall', value: { args: { name, toolName: name }, result: resultPayload } } };
+  };
+
+  const textOfItem = (item) => {
+    const value = item?.content?.value ?? item;
+    if (typeof value === 'string') return value;
+    return String(value?.text ?? item?.text ?? '');
   };
 
   return {
@@ -745,12 +763,13 @@ function makeLocalHarnessTool(library, { name, description, schema, contextType,
         }
       };
       if (typeof interactionHandler?.executeToolCall === 'function') {
+        const toolCallId = meta?.toolCallId ?? randomUUID();
         return await interactionHandler.executeToolCall(
           ctx,
-          wrapToolCall(parsed),
-          meta?.toolCallId ?? randomUUID(),
+          wrapToolCall(toolCallId),
+          toolCallId,
           invoke,
-          (resultPayload) => wrapToolCall(parsed, resultPayload),
+          (resultPayload) => wrapToolCall(toolCallId, resultPayload),
         );
       }
       return await invoke();
@@ -760,14 +779,16 @@ function makeLocalHarnessTool(library, { name, description, schema, contextType,
       if (res?.case === 'error') {
         return createStringResult(String(res.value?.error ?? 'Tool failed.'), true);
       }
+      if (res?.case === 'rejected') {
+        return createStringResult(String(res.value?.reason || 'Tool rejected.'), true);
+      }
       const items = res?.value?.content;
       if (Array.isArray(items) && items.length > 0) {
-        const text = items.map((item) => item?.content?.value ?? item?.text ?? '').join('\n');
-        return createStringResult(text, Boolean(res?.value?.isError));
+        return createStringResult(items.map(textOfItem).join('\n'), Boolean(res?.value?.isError));
       }
-      return createStringResult(String(res?.value?.text ?? ''), false);
+      return createStringResult(String(res?.value?.text ?? ''), Boolean(res?.value?.isError));
     },
-    serializeError: (err) => wrapToolCall({}, buildResultPayload(err?.message ?? String(err), true)),
+    serializeError: (err) => wrapToolCall(undefined, buildResultPayload(err?.message ?? String(err), true)),
   };
 }
 
