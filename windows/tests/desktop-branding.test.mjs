@@ -19,7 +19,8 @@ import {
   stageLocalClientWindowsIcons,
   verifyRokBotWindowsIcons,
 } from '../patchers/desktop/brand-assets.mjs';
-import { applicationIcon, hasAuthenticode, replaceAsarIntegrity, replaceResources, versionInfo } from '../patchers/desktop/pe.mjs';
+import { applicationIcon, fixedVersionInfo, hasAuthenticode, replaceAsarIntegrity, replaceResources, versionInfo } from '../patchers/desktop/pe.mjs';
+import { windowsFixedVersion } from '../../mac/patchers/desktop/app-version.mjs';
 import { buildWindowsResourceSyso } from '../tools/build-installer-syso.mjs';
 import { acquireDesktopSource, resolveDesktopDownloadUrl } from '../../mac/patchers/desktop/download-original.mjs';
 import { replaceWindowsAsarIntegrityHex } from '../../mac/clients/desktop/asar-install.mjs';
@@ -615,6 +616,21 @@ test('pe.replaceResources replaces RT_ICON, RT_GROUP_ICON, and RT_VERSION while 
     ProductName: 'RokBot Local',
     ProductVersion: '1.2.3',
   });
+  assert.deepEqual(fixedVersionInfo(patchedPe), { fileVersion: '0.0.0.0', productVersion: '0.0.0.0' });
+
+  // --app-version rewrites both the StringFileInfo strings and VS_FIXEDFILEINFO (what Explorer shows).
+  const bumpedPe = replaceResources(peBuf, {
+    ico: rokbotIco,
+    versionStrings: { ...WINDOWS_PE_VERSION_STRINGS, FileVersion: '1.3.1', ProductVersion: '1.3.1' },
+    fixedVersion: windowsFixedVersion('1.3.1'),
+  });
+  assert.equal(versionInfo(bumpedPe).FileVersion, '1.3.1');
+  assert.equal(versionInfo(bumpedPe).ProductVersion, '1.3.1');
+  assert.equal(versionInfo(bumpedPe).ProductName, 'RokBot Local');
+  assert.deepEqual(fixedVersionInfo(bumpedPe), { fileVersion: '1.3.1.0', productVersion: '1.3.1.0' });
+  assert.equal(applicationIcon(bumpedPe).ico.equals(rokbotIco), true);
+  assert.equal(bumpedPe.includes(manifestXml), true);
+
   // Verify RT_MANIFEST was preserved and .reloc was shifted cleanly.
   assert.equal(patchedPe.includes(manifestXml), true);
   const newRelocVa = patchedPe.readUInt32LE(dirs + 5 * 8);

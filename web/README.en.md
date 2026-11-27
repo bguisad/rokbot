@@ -32,6 +32,7 @@ If the 1.2.3 interface does not work for you, add `--version 0.71.2` to use the 
 | `--source <file or directory>` | Use a downloaded official installer, `app-64.7z` or an installed original directory; 1.2.3 or 0.71.2 is recognised by hash |
 | `--version <1.2.3\|0.71.2>` | Choose the interface version. Default 1.2.3 (recommended); fall back to 0.71.2 only when needed |
 | `--output <directory>` | Output directory, default `web/output/` |
+| `--app-version <x.y.z>` | Version shown for the bundle (manifest and file name); not lower than the official renderer version; defaults to it |
 | `--force` | Overwrite existing output |
 | `--upload <Host address>` | Install the bundle on that Host after building and enable the web client; see the next step |
 | `--password-file <file>` | File with the administrator password for `--upload` |
