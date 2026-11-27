@@ -139,6 +139,12 @@ export class MockHostServer {
     this.asyncTasks = [];
     this.notificationHistory = [];
     this.notificationSettings = { frequency: 'every-reply' };
+    this.suggestionsSettings = {
+      enabled: true,
+      aiEnabled: true,
+      quickPhrases: [],
+      updatedAt: null,
+    };
     this.profile = {
       displayName: 'Local Test User',
       avatarDataUrl: null,
@@ -898,20 +904,122 @@ export class MockHostServer {
       });
     }
 
+    // Local Suggestions settings & quick phrases CRUD
+    if (pathname === '/local/suggestions/settings' && method === 'GET') {
+      return this._json(res, 200, this.suggestionsSettings);
+    }
+    if (pathname === '/local/suggestions/settings' && method === 'PUT') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) { return this._json(res, 400, { error: 'Invalid JSON' }); }
+      if (typeof body.enabled === 'boolean') this.suggestionsSettings.enabled = body.enabled;
+      if (typeof body.aiEnabled === 'boolean') this.suggestionsSettings.aiEnabled = body.aiEnabled;
+      if (Array.isArray(body.quickPhrases)) {
+        this.suggestionsSettings.quickPhrases = body.quickPhrases
+          .map((item, i) => ({
+            id: typeof item === 'object' && item?.id ? String(item.id) : `p_mock_${i + 1}`,
+            text: String(typeof item === 'string' ? item : item?.text || '').trim(),
+          }))
+          .filter(item => item.text);
+      }
+      this.suggestionsSettings.updatedAt = new Date().toISOString();
+      return this._json(res, 200, this.suggestionsSettings);
+    }
+    if (pathname === '/local/suggestions/phrases' && method === 'GET') {
+      return this._json(res, 200, { quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
+    }
+    if (pathname === '/local/suggestions/phrases' && method === 'POST') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) { return this._json(res, 400, { error: 'Invalid JSON' }); }
+      const text = String(body.text || '').replace(/\s+/g, ' ').trim();
+      if (!text) return this._json(res, 400, { error: '常用语不能为空' });
+      if (this.suggestionsSettings.quickPhrases.some(p => p.text.toLowerCase() === text.toLowerCase())) {
+        return this._json(res, 400, { error: '该常用语已存在' });
+      }
+      const phrase = { id: `p_${crypto.randomBytes(4).toString('hex')}`, text };
+      this.suggestionsSettings.quickPhrases.push(phrase);
+      this.suggestionsSettings.updatedAt = new Date().toISOString();
+      return this._json(res, 201, { phrase, quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
+    }
+    if (pathname === '/local/suggestions/phrases/reorder' && (method === 'PUT' || method === 'POST')) {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) { return this._json(res, 400, { error: 'Invalid JSON' }); }
+      const ids = Array.isArray(body.ids) ? body.ids : [];
+      const map = new Map(this.suggestionsSettings.quickPhrases.map(p => [p.id, p]));
+      if (ids.length !== map.size || ids.some(id => !map.has(id))) {
+        return this._json(res, 400, { error: '排序 ID 列表无效' });
+      }
+      this.suggestionsSettings.quickPhrases = ids.map(id => map.get(id));
+      this.suggestionsSettings.updatedAt = new Date().toISOString();
+      return this._json(res, 200, { quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
+    }
+    const phraseMatch = /^\/local\/suggestions\/phrases\/([A-Za-z0-9_-]{1,64})$/.exec(pathname);
+    if (phraseMatch && (method === 'PUT' || method === 'PATCH')) {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) { return this._json(res, 400, { error: 'Invalid JSON' }); }
+      const text = String(body.text || '').replace(/\s+/g, ' ').trim();
+      if (!text) return this._json(res, 400, { error: '常用语不能为空' });
+      const idx = this.suggestionsSettings.quickPhrases.findIndex(p => p.id === phraseMatch[1]);
+      if (idx < 0) return this._json(res, 404, { error: '常用语不存在' });
+      const phrase = { id: phraseMatch[1], text };
+      this.suggestionsSettings.quickPhrases[idx] = phrase;
+      this.suggestionsSettings.updatedAt = new Date().toISOString();
+      return this._json(res, 200, { phrase, quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
+    }
+    if (phraseMatch && method === 'DELETE') {
+      const before = this.suggestionsSettings.quickPhrases.length;
+      this.suggestionsSettings.quickPhrases = this.suggestionsSettings.quickPhrases.filter(p => p.id !== phraseMatch[1]);
+      if (this.suggestionsSettings.quickPhrases.length === before) return this._json(res, 404, { error: '常用语不存在' });
+      this.suggestionsSettings.updatedAt = new Date().toISOString();
+      return this._json(res, 200, { ok: true, quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
+    }
+
     // Local Suggestions: POST /local/suggestions
     if (pathname === '/local/suggestions' && method === 'POST') {
       const raw = await this._readBody(req);
       let body = {};
       try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {}
       const zh = /^zh/i.test(String(body.locale || ''));
-      const suggestions = zh
-        ? ['继续展开说说', '总结核心要点', '给我一个具体例子', '下一步应该怎么推进？']
-        : ['Tell me more about that', 'Summarize the key points', 'Give me a concrete example', 'What should I do next?'];
+      const lang = zh ? 'zh' : 'en';
+      if (!this.suggestionsSettings.enabled) {
+        return this._json(res, 200, {
+          enabled: false,
+          aiEnabled: this.suggestionsSettings.aiEnabled,
+          quickPhrases: [],
+          aiSuggestions: [],
+          suggestions: [],
+          items: [],
+          source: 'disabled',
+          cached: false,
+          lang,
+        });
+      }
+      const quickPhrases = this.suggestionsSettings.quickPhrases.map(p => ({ id: p.id, text: p.text }));
+      const agentId = String(body.agentId || '').trim();
+      const transcript = agentId ? (this.transcripts.get(agentId) || []) : [];
+      const hasHistory = transcript.length > 0 || (Array.isArray(body.recentMessages) && body.recentMessages.length > 0);
+      const aiSuggestions = (this.suggestionsSettings.aiEnabled && hasHistory)
+        ? (zh ? ['查看最新运行日志', '把关键结论整理成清单', '下一步怎么验证？']
+              : ['Check the latest logs', 'List the key takeaways', 'How should we verify next?'])
+        : [];
+      const source = !this.suggestionsSettings.aiEnabled ? 'phrases-only' : (hasHistory ? 'model' : 'empty');
+      const items = [
+        ...quickPhrases.map(p => ({ type: 'phrase', id: p.id, text: p.text })),
+        ...aiSuggestions.map(text => ({ type: 'ai', text })),
+      ];
       return this._json(res, 200, {
-        suggestions,
-        source: 'model',
+        enabled: true,
+        aiEnabled: this.suggestionsSettings.aiEnabled,
+        quickPhrases,
+        aiSuggestions,
+        suggestions: items.map(i => i.text),
+        items,
+        source,
         cached: false,
-        lang: zh ? 'zh' : 'en',
+        lang,
       });
     }
 

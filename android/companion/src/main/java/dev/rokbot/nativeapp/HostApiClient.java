@@ -405,8 +405,62 @@ public class HostApiClient {
         if (locale != null && !locale.trim().isEmpty()) {
             req.put("locale", locale.trim());
         }
-        HttpResult res = authedRequest(context, "POST", "/local/suggestions", req, 7000, null);
+        HttpResult res = authedRequest(context, "POST", "/local/suggestions", req, 18000, null);
         return requireJsonObject(res);
+    }
+
+    public static JSONObject getSuggestionsSettings(Context context) throws Exception {
+        HttpResult res = authedRequest(context, "GET", "/local/suggestions/settings", null, 10000, null);
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject updateSuggestionsSettings(Context context, Boolean enabled, Boolean aiEnabled) throws Exception {
+        JSONObject req = new JSONObject();
+        if (enabled != null) req.put("enabled", enabled.booleanValue());
+        if (aiEnabled != null) req.put("aiEnabled", aiEnabled.booleanValue());
+        HttpResult res = authedRequest(context, "PUT", "/local/suggestions/settings", req, 10000, null);
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject addQuickPhrase(Context context, String text) throws Exception {
+        JSONObject req = new JSONObject();
+        req.put("text", text != null ? text : "");
+        HttpResult res = authedRequest(context, "POST", "/local/suggestions/phrases", req, 10000, null);
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject updateQuickPhrase(Context context, String id, String text) throws Exception {
+        JSONObject req = new JSONObject();
+        req.put("text", text != null ? text : "");
+        HttpResult res = authedRequest(context, "PUT", "/local/suggestions/phrases/" + encodePath(id), req, 10000, null);
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject deleteQuickPhrase(Context context, String id) throws Exception {
+        HttpResult res = authedRequest(context, "DELETE", "/local/suggestions/phrases/" + encodePath(id), null, 10000, null);
+        return requireJsonObject(res);
+    }
+
+    public static JSONObject reorderQuickPhrases(Context context, List<String> ids) throws Exception {
+        JSONObject req = new JSONObject();
+        JSONArray arr = new JSONArray();
+        if (ids != null) {
+            for (String id : ids) {
+                if (id != null && !id.isEmpty()) arr.put(id);
+            }
+        }
+        req.put("ids", arr);
+        HttpResult res = authedRequest(context, "PUT", "/local/suggestions/phrases/reorder", req, 10000, null);
+        return requireJsonObject(res);
+    }
+
+    private static String encodePath(String segment) {
+        if (segment == null) return "";
+        try {
+            return java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20");
+        } catch (Exception ignored) {
+            return segment;
+        }
     }
 
     public static String uploadAttachmentChunked(Context context, String agentId, String filename,
