@@ -19,7 +19,8 @@ test('Android companion sources wire scenario models, per-Bot model routes, crea
   assert.ok(models.includes('renderBotRoutesList'), 'ModelsActivity renders per-Bot routes');
   assert.ok(models.includes('payload.put("scenarioRoutes"'), 'ModelsActivity persists scenarioRoutes');
   assert.ok(models.includes('payload.put("botRoutes"'), 'ModelsActivity persists botRoutes');
-  assert.ok(models.includes('SuggestionsSettingsActivity.class'), 'ModelsActivity links to SuggestionsSettingsActivity');
+  // v3: the only entry is the first-level settings row (settings-menu.test.mjs), not a jump row here.
+  assert.ok(!models.includes('SuggestionsSettingsActivity'), 'ModelsActivity no longer links to SuggestionsSettingsActivity');
 
   const groupAct = fs.readFileSync(path.join(SRC, 'CreateGroupActivity.java'), 'utf8');
   assert.ok(groupAct.includes('HostApiClient.createGroup'), 'CreateGroupActivity calls HostApiClient.createGroup');
@@ -45,7 +46,8 @@ test('Android companion sources wire scenario models, per-Bot model routes, crea
   assert.ok(boot.includes('CreateGroupActivity.class'), 'RokBotBootstrap launches CreateGroupActivity');
   assert.ok(boot.includes('ComposerSuggestionsOverlay.onReactResumed'), 'RokBotBootstrap wires ComposerSuggestionsOverlay');
   assert.ok(boot.includes('BotProfileModelOverlay.onReactResumed'), 'RokBotBootstrap wires BotProfileModelOverlay');
-  assert.ok(boot.includes('SettingsSuggestionsOverlay.onReactResumed'), 'RokBotBootstrap wires SettingsSuggestionsOverlay');
+  assert.ok(!boot.includes('SettingsSuggestionsOverlay'), 'the floating settings card is gone');
+  assert.ok(boot.includes('matchesSuggestionsSettingsLabel(s)'), 'RokBotBootstrap routes the Input Suggestions row');
 
   const manifest = fs.readFileSync(path.join(PROJECT_ROOT, 'android/patchers/manifest.mjs'), 'utf8');
   assert.ok(manifest.includes('dev.rokbot.nativeapp.CreateGroupActivity'), 'manifest registers CreateGroupActivity');
@@ -71,9 +73,7 @@ test('Android companion sources wire scenario models, per-Bot model routes, crea
   assert.doesNotMatch(sugSettings, /grok/i, 'SuggestionsSettingsActivity must not mention Grok');
   assert.doesNotMatch(sugSettings, /[\u{1F300}-\u{1FAFF}]/u, 'SuggestionsSettingsActivity must not contain emoji');
 
-  const settingsOverlay = fs.readFileSync(path.join(SRC, 'SettingsSuggestionsOverlay.java'), 'utf8');
-  assert.ok(settingsOverlay.includes('SuggestionsSettingsActivity.class'), 'SettingsSuggestionsOverlay opens SuggestionsSettingsActivity');
-  assert.doesNotMatch(settingsOverlay, /grok/i, 'SettingsSuggestionsOverlay must not mention Grok');
+  assert.ok(!fs.existsSync(path.join(SRC, 'SettingsSuggestionsOverlay.java')), 'SettingsSuggestionsOverlay removed');
 
   const botOverlay = fs.readFileSync(path.join(SRC, 'BotProfileModelOverlay.java'), 'utf8');
   assert.ok(botOverlay.includes('ModelsActivity.EXTRA_AGENT_ID'), 'BotProfileModelOverlay opens ModelsActivity for current Bot');

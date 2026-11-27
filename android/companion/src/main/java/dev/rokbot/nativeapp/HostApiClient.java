@@ -405,15 +405,82 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    /** Client read timeout of /local/suggestions/complete (the Host gives the model 8 s). */
+    static final int COMPLETION_TIMEOUT_MS = 9000;
+
+    /**
+     * Lets another thread abort an in-flight request: {@link #cancel()} disconnects the
+     * HttpURLConnection, which closes the socket so the Host aborts the model call.
+     */
+    public static final class CancelHandle {
+        private volatile HttpURLConnection mConn;
+        private volatile boolean mCancelled;
+
+        public void cancel() {
+            mCancelled = true;
+            HttpURLConnection c = mConn;
+            if (c != null) {
+                try {
+                    c.disconnect();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        public boolean isCancelled() {
+            return mCancelled;
+        }
+
+        void attach(HttpURLConnection conn) throws IOException {
+            mConn = conn;
+            if (mCancelled) {
+                conn.disconnect();
+                throw new IOException("cancelled");
+            }
+        }
+    }
+
+    /**
+     * POST /local/suggestions/complete: the predicted rest of {@code text} (the whole draft).
+     * Response: { enabled, text, completion (suffix only, '' = nothing), source, cached, lang? }.
+     */
+    public static JSONObject complete(Context context, String agentId, String text, String locale,
+                                      CancelHandle cancel) throws Exception {
+        JSONObject req = new JSONObject();
+        if (agentId != null && !agentId.trim().isEmpty()) {
+            req.put("agentId", agentId.trim());
+        }
+        req.put("text", text != null ? text : "");
+        if (locale != null && !locale.trim().isEmpty()) {
+            req.put("locale", locale.trim());
+        }
+        String server = resolveServer(context);
+        String token = Storage.getToken(context);
+        if (server == null || server.isEmpty() || token == null || token.isEmpty()) {
+            throw new ApiException(401, Localize.t(context, "设备尚未配对。", "Device is not paired."));
+        }
+        byte[] payload = req.toString().getBytes(StandardCharsets.UTF_8);
+        HttpResult res = rawRequest(server + "/local/suggestions/complete", "POST", token, payload, "application/json",
+                5000, COMPLETION_TIMEOUT_MS, RokBotBootstrap.isForeground(), null, cancel);
+        return requireJsonObject(res);
+    }
+
     public static JSONObject getSuggestionsSettings(Context context) throws Exception {
         HttpResult res = authedRequest(context, "GET", "/local/suggestions/settings", null, 10000, null);
         return requireJsonObject(res);
     }
 
     public static JSONObject updateSuggestionsSettings(Context context, Boolean enabled, Boolean aiEnabled) throws Exception {
+        return updateSuggestionsSettings(context, enabled, aiEnabled, null);
+    }
+
+    /** PUT /local/suggestions/settings; null fields are left untouched (completionEnabled alone is accepted). */
+    public static JSONObject updateSuggestionsSettings(Context context, Boolean enabled, Boolean aiEnabled,
+                                                       Boolean completionEnabled) throws Exception {
         JSONObject req = new JSONObject();
         if (enabled != null) req.put("enabled", enabled.booleanValue());
         if (aiEnabled != null) req.put("aiEnabled", aiEnabled.booleanValue());
+        if (completionEnabled != null) req.put("completionEnabled", completionEnabled.booleanValue());
         HttpResult res = authedRequest(context, "PUT", "/local/suggestions/settings", req, 10000, null);
         return requireJsonObject(res);
     }
@@ -1326,7 +1393,14 @@ public class HostApiClient {
     public static HttpResult rawRequest(String urlStr, String method, String token, byte[] body, String contentType,
                                         int connectTimeoutMs, int readTimeoutMs, boolean foreground,
                                         Map<String, String> extraHeaders) throws IOException {
+        return rawRequest(urlStr, method, token, body, contentType, connectTimeoutMs, readTimeoutMs, foreground, extraHeaders, null);
+    }
+
+    public static HttpResult rawRequest(String urlStr, String method, String token, byte[] body, String contentType,
+                                        int connectTimeoutMs, int readTimeoutMs, boolean foreground,
+                                        Map<String, String> extraHeaders, CancelHandle cancel) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+        if (cancel != null) cancel.attach(conn);
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod(method);
         conn.setConnectTimeout(connectTimeoutMs);

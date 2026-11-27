@@ -67,7 +67,7 @@ Conversations, files, settings and API keys stay on the Host's data volumes. Thi
 - Conversations and settings live on the Host, and every client connects to the same Host. You can start a task on your computer and follow up on your phone or in the browser.
 - The chat list can be sorted by last message and grouped: Needs attention, Unread and Read on desktop and web, with an additional In progress group on Android.
 - On Android, tapping the `+` button in the top-right corner of the chat list opens a native bottom sheet to create either a new Bot or a new group chat with multiple Bots collaborating together.
-- Web and Android show contextual input suggestions above the chat composer; tap any suggestion to fill the input box. Suggestions use the dedicated Input suggestions scenario model and fall back to built-in Chinese/English presets when no model is configured or the request fails.
+- Web, desktop and Android show input suggestions while the composer is focused (your quick phrases first, then contextual replies from the model when the chat has history); clicking one sends it. While replies are generated, shimmering placeholders hold their place and disappear quietly on failure. While you type, inline completion predicts the rest of the sentence as gray text: accept with Tab or Right Arrow on desktop and Web, or tap the gray text or the Complete pill above the keyboard on Android. Both use the Input suggestions scenario model; toggles and quick phrases live under Input suggestions in the first-level settings menu.
 - Notification channels:
   - iOS can use APNs or Bark.
   - The Android client keeps its own connection to the Host and can also use ntfy, UnifiedPush, FCM or a webhook.
