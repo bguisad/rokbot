@@ -76,6 +76,58 @@
     };
   }
 
+  // ---- the user's voice (same rule as host/server/suggestion-voice.mjs) ------------------------
+  // Suggestions are what the USER sends to the Bot. Learned habits, local completion candidates and
+  // model output never contain the Bot offering help (「要不要我一起查一下这个问题」, "Would you like
+  // me to…"), and only messages the user themself sent are ever learned.
+  const ASSISTANT_OFFER_PREFIXES = Object.freeze([
+    '要不要我', '需不需要我', '需要我', '我可以帮你', '我可以为你', '我来帮你', '我帮你', '让我来',
+    'would you like me', 'shall i', 'do you want me', 'let me', 'i can help you', "i'll help you", 'i will help you',
+  ]);
+  const OFFER_EXCEPTIONS = Object.freeze(['let me know']);
+  const LEADING_NOISE = /^[\s"'“”‘’`「」『』（）()【】\[\]<>《》.,，。、!！?？:：;；~～…\-—*_#>]+/u;
+  const voiceKey = text => String(text ?? '').normalize('NFKC').replace(/[’‘]/g, "'").replace(LEADING_NOISE, '').replace(/\s+/g, ' ').toLowerCase();
+
+  function isAssistantOfferPhrase(text) {
+    const key = voiceKey(text);
+    if (!key || OFFER_EXCEPTIONS.some(prefix => key.startsWith(prefix))) return false;
+    return ASSISTANT_OFFER_PREFIXES.some(prefix => key.startsWith(prefix)
+      && (!/[a-z]$/.test(prefix) || !/^[a-z]/.test(key.slice(prefix.length))));
+  }
+
+  const SELF_NAMES = new Set(['self', 'me', 'user', 'human', '我']);
+  const NON_SELF_SOURCES = new Set(['agent', 'bot', 'assistant', 'system', 'tool', 'automation', 'routine', 'webhook', 'schedule', 'scheduler', 'federation', 'notification']);
+  const someoneElse = value => {
+    if (value === undefined || value === null || value === '') return false;
+    if (typeof value === 'string') return !SELF_NAMES.has(value.toLowerCase());
+    if (typeof value === 'object') {
+      const kind = String(value.kind ?? value.type ?? value.role ?? '').toLowerCase();
+      return kind ? !SELF_NAMES.has(kind) : Boolean(value.id || value.agentId || value.name);
+    }
+    return Boolean(value);
+  };
+
+  /** A message the user themself sent (never assistant / bot / system / tool, nor another Bot's "user" turn). */
+  function isSelfUserEntry(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    const role = typeof entry.role === 'string' ? entry.role.toLowerCase() : '';
+    const kind = String(entry.kind ?? entry.type ?? '').toLowerCase();
+    if (role ? role !== 'user' : !['user', 'user-message', 'prompt', 'user_message'].includes(kind)) return false;
+    if (entry.fromAgent || entry.fromAgentId || entry.senderAgentId || entry.agentSender) return false;
+    if (someoneElse(entry.sender) || someoneElse(entry.author) || someoneElse(entry.from)) return false;
+    const source = String(entry.source ?? entry.origin ?? '').toLowerCase();
+    if (source && NON_SELF_SOURCES.has(source)) return false;
+    return !(entry.synthetic === true || entry.isSystem === true || entry.automated === true);
+  }
+
+  /** '' when the continuation turns the draft into the Bot's offer; a draft the user typed that way stays theirs. */
+  function voiceSafeCompletion(draft, completion) {
+    if (!completion) return '';
+    const typed = String(draft ?? '');
+    if (isAssistantOfferPhrase(typed)) return completion;
+    return isAssistantOfferPhrase(typed + completion) ? '' : completion;
+  }
+
   /** Quick phrases, the model's items, then the user's own frequent messages (habits) to fill. */
   function mergeSuggestionItems(quickPhrases = [], aiSuggestions = [], frequentSuggestions = []) {
     const items = [];
@@ -90,7 +142,7 @@
     }
     for (const raw of Array.isArray(aiSuggestions) ? aiSuggestions : []) {
       const text = typeof raw === 'string' ? raw.trim() : String(raw?.text ?? '').trim();
-      if (!text) continue;
+      if (!text || isAssistantOfferPhrase(text)) continue;
       const key = text.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -100,7 +152,7 @@
     for (const raw of Array.isArray(frequentSuggestions) ? frequentSuggestions : []) {
       if (room <= 0) break;
       const text = typeof raw === 'string' ? raw.trim() : String(raw?.text ?? '').trim();
-      if (!text) continue;
+      if (!text || isAssistantOfferPhrase(text)) continue;
       const key = text.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -127,7 +179,7 @@
     for (const raw of pool) {
       const text = typeof raw === 'string' ? raw.trim() : String(raw?.text ?? '').trim();
       const key = normalizeMatchKey(text);
-      if (!key || key === q || key.length <= q.length || seen.has(key)) continue;
+      if (!key || key === q || key.length <= q.length || seen.has(key) || isAssistantOfferPhrase(text)) continue;
       seen.add(key);
       if (key.startsWith(q)) prefix.push(text);
       else if (key.includes(q)) substring.push(text);
@@ -265,7 +317,7 @@
       if (res && typeof res.enabled === 'boolean' && !res.enabled) {
         try { onSettings?.({ completionEnabled: false }); } catch {}
       }
-      const completion = typeof res?.completion === 'string' ? res.completion.replace(/[\r\n]+/g, ' ') : '';
+      const completion = voiceSafeCompletion(input.text, typeof res?.completion === 'string' ? res.completion.replace(/[\r\n]+/g, ' ') : '');
       if (res?.source === 'model') remember(cacheKey(input.context, input.text), completion);
       // The draft moved on while waiting: only show the answer if it still applies.
       if (!latest || latest.context !== input.context || latest.text !== input.text) return;
@@ -920,15 +972,15 @@
             settingsUi?.updateState(settingsState);
           }
           const items = Array.isArray(res?.aiSuggestions)
-            ? res.aiSuggestions.filter(item => typeof item === 'string' && item.trim()).slice(0, MAX_AI_SUGGESTIONS)
+            ? res.aiSuggestions.filter(item => typeof item === 'string' && item.trim() && !isAssistantOfferPhrase(item)).slice(0, MAX_AI_SUGGESTIONS)
             : [];
           if (Array.isArray(res?.frequentSuggestions)) {
             frequentCache.delete(key);
-            frequentCache.set(key, res.frequentSuggestions.filter(item => typeof item === 'string' && item.trim()).slice(0, MAX_AI_SUGGESTIONS));
+            frequentCache.set(key, res.frequentSuggestions.filter(item => typeof item === 'string' && item.trim() && !isAssistantOfferPhrase(item)).slice(0, MAX_AI_SUGGESTIONS));
             while (frequentCache.size > MAX_CLIENT_CACHE) frequentCache.delete(frequentCache.keys().next().value);
           }
           if (Array.isArray(res?.completionCandidates)) {
-            candidatesByAgent.set(agentId, res.completionCandidates.filter(item => typeof item === 'string' && item.trim()).slice(0, 60));
+            candidatesByAgent.set(agentId, res.completionCandidates.filter(item => typeof item === 'string' && item.trim() && !isAssistantOfferPhrase(item)).slice(0, 60));
           }
           if (res && (typeof res.learningEnabled === 'boolean' || typeof res.localCompletionEnabled === 'boolean')) {
             settingsState = normalizeSettings({ ...settingsState,
@@ -1771,6 +1823,10 @@
     normalizeSettings,
     mergeSuggestionItems,
     matchCompletions,
+    ASSISTANT_OFFER_PREFIXES,
+    isAssistantOfferPhrase,
+    isSelfUserEntry,
+    voiceSafeCompletion,
     BAR_FADE_MS,
     prefersReducedMotion,
     createLoadingMachine,

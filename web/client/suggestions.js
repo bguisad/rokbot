@@ -18,6 +18,10 @@ export const appendComposerText = (...args) => assist().appendComposerText(...ar
 export const sendSuggestionText = (...args) => assist().sendSuggestionText(...args);
 export const mergeSuggestionItems = (...args) => assist().mergeSuggestionItems(...args);
 export const matchCompletions = (...args) => assist().matchCompletions(...args);
+// The user's voice: assistant offers are never suggested, only self-sent messages are learned.
+export const isAssistantOfferPhrase = (...args) => assist().isAssistantOfferPhrase(...args);
+export const isSelfUserEntry = (...args) => assist().isSelfUserEntry(...args);
+export const voiceSafeCompletion = (...args) => assist().voiceSafeCompletion(...args);
 export const createLoadingMachine = (...args) => assist().createLoadingMachine(...args);
 export const createCompletionController = (...args) => assist().createCompletionController(...args);
 export const installSuggestionsSettingsPage = (...args) => assist().installSuggestionsSettingsPage(...args);
