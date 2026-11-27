@@ -166,7 +166,6 @@ public class RokBotBootstrap {
                 if (isReactActivity(activity)) ImageViewerTakeover.onReactResumed(activity);
                 if (isReactActivity(activity)) ComposerSuggestionsOverlay.onReactResumed(activity);
                 if (isReactActivity(activity)) BotProfileModelOverlay.onReactResumed(activity);
-                if (isReactActivity(activity)) SettingsSuggestionsOverlay.onReactResumed(activity);
                 if (isReactActivity(activity) && Storage.isPaired(activity)) {
                     // Returning from ProfileActivity or another app: repaint, then re-fetch.
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
@@ -185,7 +184,6 @@ public class RokBotBootstrap {
                     ImageViewerTakeover.onReactPaused(activity);
                     ComposerSuggestionsOverlay.onReactPaused(activity);
                     BotProfileModelOverlay.onReactPaused(activity);
-                    SettingsSuggestionsOverlay.onReactPaused(activity);
                 }
             }
 
@@ -1766,6 +1764,11 @@ public class RokBotBootstrap {
         return matchesLabelOrCommaPrefix(s, "模型配置", false) || matchesLabelOrCommaPrefix(s, "Model Settings", true);
     }
 
+    /** rokbot.7 first-level row (MENU_LABELS.suggestions) -> SuggestionsSettingsActivity. */
+    static boolean matchesSuggestionsSettingsLabel(String s) {
+        return matchesLabelOrCommaPrefix(s, "输入建议", false) || matchesLabelOrCommaPrefix(s, "Input Suggestions", true);
+    }
+
     static boolean matchesSoftwareUpdateLabel(String s) {
         return matchesLabelOrCommaPrefix(s, "应用更新", false) || matchesLabelOrCommaPrefix(s, "App Updates", true)
                 // rokbot.5 wording, kept for bundles built before rokbot.6.
@@ -1886,6 +1889,7 @@ public class RokBotBootstrap {
                     || matchesLibraryLabel(s)
                     || matchesUsageLabel(s)
                     || matchesModelSettingsLabel(s)
+                    || matchesSuggestionsSettingsLabel(s)
                     || matchesSoftwareUpdateLabel(s)
                     || matchesAvatarStyleLabel(s)
                     || matchesComputersLabel(s))) {
@@ -1994,6 +1998,9 @@ public class RokBotBootstrap {
         if (matchesModelSettingsLabel(s)) {
             // rokbot.5 settings rows (hermes-settings.mjs applySettingsMenu): full-width nav rows.
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? ModelsActivity.class : null;
+        }
+        if (matchesSuggestionsSettingsLabel(s)) {
+            return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? SuggestionsSettingsActivity.class : null;
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return (paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f) ? UpdateActivity.class : null;
@@ -2537,6 +2544,9 @@ public class RokBotBootstrap {
         }
         if (matchesModelSettingsLabel(s)) {
             return ModelsActivity.class;
+        }
+        if (matchesSuggestionsSettingsLabel(s)) {
+            return SuggestionsSettingsActivity.class;
         }
         if (matchesSoftwareUpdateLabel(s)) {
             return UpdateActivity.class;

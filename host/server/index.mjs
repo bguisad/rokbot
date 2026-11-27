@@ -1088,6 +1088,29 @@ export async function createSelfHostServer(options = {}) {
       limiter.check(`suggestions-phrases:${found.id}`, 60);
       return sendJson(response, 200, await suggestionsSettings.deletePhrase(localPhraseMatch[1]));
     }
+    if (request.method === "POST" && path === "/local/suggestions/complete") {
+      const found = device(request, web);
+      limiter.check(`suggestions-complete:${found.id}`, 240);
+      const body = await jsonBody(request, 32 * 1024, { allowEmpty: true });
+      const rawAgentId = typeof body?.agentId === "string" ? body.agentId.trim() : "";
+      if (rawAgentId) check(/^[A-Za-z0-9_-]{1,128}$/.test(rawAgentId), 400, "Bot ID 无效");
+      check(body?.text === undefined || typeof body.text === "string", 400, "补全内容无效");
+      // A newer keystroke closes this request on the client: stop the model call too.
+      const abort = new AbortController();
+      const cancel = () => { if (!response.writableEnded) abort.abort(new Error("Completion request cancelled")); };
+      request.once("aborted", cancel);
+      response.once("close", cancel);
+      const result = await suggestions.complete({
+        agentId: rawAgentId,
+        lastEntryId: typeof body?.lastEntryId === "string" ? body.lastEntryId.slice(0, 128) : "",
+        locale: typeof body?.locale === "string" ? body.locale.slice(0, 32) : "",
+        text: typeof body?.text === "string" ? body.text.slice(0, 4000) : "",
+        recentMessages: Array.isArray(body?.recentMessages) ? body.recentMessages.slice(-8) : undefined,
+        signal: abort.signal,
+      });
+      if (abort.signal.aborted || response.destroyed) return;
+      return sendJson(response, 200, result);
+    }
     if (request.method === "POST" && path === "/local/suggestions") {
       const found = device(request, web);
       limiter.check(`suggestions:${found.id}`, 60);

@@ -32,9 +32,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Native settings screen for Input Suggestions ("输入建议 / Input Suggestions").
- * Provides Host-synced master & AI toggles plus full Quick Phrases management
- * (add, edit, delete, reorder). Zero emoji, crisp vector icons, full zh/en localization.
+ * Native settings screen for Input Suggestions ("输入建议 / Input Suggestions"), opened from the
+ * first-level "输入建议 / Input Suggestions" row of the settings sheet (hermes-settings.mjs
+ * applySettingsMenu, MENU_LABELS.suggestions). Provides Host-synced master, AI and inline
+ * completion toggles plus full Quick Phrases management (add, edit, delete, reorder).
+ * Zero emoji, crisp vector icons, full zh/en localization.
  */
 public class SuggestionsSettingsActivity extends Activity {
     static final String TITLE_ZH = "输入建议";
@@ -56,11 +58,13 @@ public class SuggestionsSettingsActivity extends Activity {
 
     private boolean mEnabled = true;
     private boolean mAiEnabled = true;
+    private boolean mCompletionEnabled = true;
     private boolean mSuppressToggleEvents = false;
     private final List<Phrase> mPhrases = new ArrayList<>();
 
     private Switch mEnabledSwitch;
     private Switch mAiSwitch;
+    private Switch mCompletionSwitch;
     private View mAiRow;
     private EditText mAddInput;
     private TextView mAddButton;
@@ -114,7 +118,7 @@ public class SuggestionsSettingsActivity extends Activity {
         mEnabledSwitch.setChecked(mEnabled);
         mEnabledSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (mSuppressToggleEvents) return;
-            saveToggles(isChecked, null);
+            saveToggles(isChecked, null, null);
         });
         switchesCard.addView(makeSwitchRow(
                 p,
@@ -130,7 +134,7 @@ public class SuggestionsSettingsActivity extends Activity {
         mAiSwitch.setChecked(mAiEnabled);
         mAiSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (mSuppressToggleEvents) return;
-            saveToggles(null, isChecked);
+            saveToggles(null, isChecked, null);
         });
         mAiRow = makeSwitchRow(
                 p,
@@ -139,6 +143,23 @@ public class SuggestionsSettingsActivity extends Activity {
                 mAiSwitch
         );
         switchesCard.addView(mAiRow);
+
+        switchesCard.addView(UiChrome.makeRowDivider(this, p));
+
+        // Independent of the suggestions switch: ghost-text completion while typing.
+        mCompletionSwitch = new Switch(this);
+        mCompletionSwitch.setContentDescription("suggestions_completion_switch");
+        mCompletionSwitch.setChecked(mCompletionEnabled);
+        mCompletionSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (mSuppressToggleEvents) return;
+            saveToggles(null, null, isChecked);
+        });
+        switchesCard.addView(makeSwitchRow(
+                p,
+                Localize.t(this, "输入补全", "Inline Completion"),
+                Localize.t(this, "输入时以灰色文字预测后续内容，点按补全即可采用", "Predict the rest of your message in gray while typing; tap to accept"),
+                mCompletionSwitch
+        ));
         root.addView(switchesCard);
 
         // Section 2: Quick Phrases
@@ -228,6 +249,7 @@ public class SuggestionsSettingsActivity extends Activity {
         if (obj == null) return;
         if (obj.has("enabled")) mEnabled = obj.optBoolean("enabled", true);
         if (obj.has("aiEnabled")) mAiEnabled = obj.optBoolean("aiEnabled", true);
+        if (obj.has("completionEnabled")) mCompletionEnabled = obj.optBoolean("completionEnabled", true);
         JSONArray arr = obj.optJSONArray("quickPhrases");
         if (arr != null) {
             mPhrases.clear();
@@ -250,6 +272,7 @@ public class SuggestionsSettingsActivity extends Activity {
         try {
             mEnabledSwitch.setChecked(mEnabled);
             mAiSwitch.setChecked(mAiEnabled);
+            mCompletionSwitch.setChecked(mCompletionEnabled);
             mAiSwitch.setEnabled(mEnabled);
             mAiRow.setAlpha(mEnabled ? 1f : 0.45f);
         } finally {
@@ -290,10 +313,10 @@ public class SuggestionsSettingsActivity extends Activity {
         });
     }
 
-    private void saveToggles(Boolean enabled, Boolean aiEnabled) {
+    private void saveToggles(Boolean enabled, Boolean aiEnabled, Boolean completionEnabled) {
         mIo.execute(() -> {
             try {
-                JSONObject res = HostApiClient.updateSuggestionsSettings(this, enabled, aiEnabled);
+                JSONObject res = HostApiClient.updateSuggestionsSettings(this, enabled, aiEnabled, completionEnabled);
                 ComposerSuggestionsOverlay.invalidateSettingsCache();
                 mMain.post(() -> {
                     if (mDestroyed) return;
