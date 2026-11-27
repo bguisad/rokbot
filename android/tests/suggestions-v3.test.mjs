@@ -318,7 +318,7 @@ test('Composer overlay wires the shimmer, ghost text, Complete pill and completi
   assert.ok(src.includes('res.has("completionEnabled")'), 'completionEnabled synced');
   // Existing rules still hold.
   assert.ok(src.includes('composer.hasFocus()'), 'focus only');
-  assert.ok(src.includes('pill.setOnClickListener(v -> sendSuggestion(activity, item.text))'), 'tap sends immediately');
+  assert.ok(src.includes('sendSuggestion(activity, item.text);'), 'tap sends immediately');
   assert.ok(!src.includes('SettingsSuggestionsOverlay'));
   assert.doesNotMatch(src, /grok/i);
   assert.doesNotMatch(src, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u, 'no emoji');

@@ -148,9 +148,15 @@ export class MockHostServer {
       enabled: true,
       aiEnabled: true,
       completionEnabled: true,
+      learningEnabled: true,
+      localCompletionEnabled: true,
       quickPhrases: [],
       updatedAt: null,
     };
+    // Habit learning (POST /local/suggestions/feedback) and the per-Bot frequent messages.
+    this.suggestionFeedback = [];
+    this.habitsCleared = 0;
+    this.frequentByAgent = options.frequentByAgent || {};
     // Optional artificial latency (ms) of /local/suggestions and /local/suggestions/complete, e.g. to
     // capture the loading shimmer on an emulator.
     this.suggestionsDelayMs = Number(options.suggestionsDelayMs) || 0;
@@ -942,6 +948,8 @@ export class MockHostServer {
       if (typeof body.enabled === 'boolean') this.suggestionsSettings.enabled = body.enabled;
       if (typeof body.aiEnabled === 'boolean') this.suggestionsSettings.aiEnabled = body.aiEnabled;
       if (typeof body.completionEnabled === 'boolean') this.suggestionsSettings.completionEnabled = body.completionEnabled;
+      if (typeof body.learningEnabled === 'boolean') this.suggestionsSettings.learningEnabled = body.learningEnabled;
+      if (typeof body.localCompletionEnabled === 'boolean') this.suggestionsSettings.localCompletionEnabled = body.localCompletionEnabled;
       if (Array.isArray(body.quickPhrases)) {
         this.suggestionsSettings.quickPhrases = body.quickPhrases
           .map((item, i) => ({
@@ -1005,6 +1013,21 @@ export class MockHostServer {
       return this._json(res, 200, { ok: true, quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
     }
 
+    if (pathname === '/local/suggestions/feedback' && method === 'POST') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {}
+      const ok = this.suggestionsSettings.learningEnabled !== false && ['tap', 'dismiss'].includes(body.action);
+      if (ok) this.suggestionFeedback.push({ agentId: String(body.agentId || ''), action: body.action, text: String(body.text || ''), shown: body.shown || [] });
+      return this._json(res, 200, { recorded: ok });
+    }
+    if (pathname === '/local/suggestions/habits' && method === 'DELETE') {
+      this.habitsCleared++;
+      this.suggestionFeedback = [];
+      this.frequentByAgent = {};
+      return this._json(res, 200, { cleared: true });
+    }
+
     // Inline completion (ghost text): POST /local/suggestions/complete. Deterministic fake model:
     // the rest of a known sentence when the draft is a prefix of it, otherwise a fixed tail.
     if (pathname === '/local/suggestions/complete' && method === 'POST') {
@@ -1058,8 +1081,8 @@ export class MockHostServer {
       const hasHistory = transcript.length > 0 || recent.length > 0;
       // Per-Bot answers so a test can tell which Bot a suggestion belongs to.
       const aiFor = id => this.suggestionsByAgent[id]
-        || (zh ? ['查看最新运行日志', '把关键结论整理成清单', '下一步怎么验证？']
-              : ['Check the latest logs', 'List the key takeaways', 'How should we verify next?']);
+        || (zh ? ['看下 build #42 的报错', '把结论写进 README', '先修 upload.spec']
+              : ['Show the build #42 error', 'Put the findings in README', 'Fix upload.spec first']);
       const cacheKey = `${agentId || '_'}:${historyId}:${lang}`;
       if (body.prefetch === true) {
         // Answer at once; "generate" in the background into the Host cache.
@@ -1092,15 +1115,27 @@ export class MockHostServer {
         ? (hostCached ? this.suggestionsCache.get(cacheKey) : aiFor(agentId)).slice(0, 3)
         : [];
       const source = !this.suggestionsSettings.aiEnabled ? 'phrases-only' : (hasHistory ? 'model' : 'empty');
+      const learning = this.suggestionsSettings.learningEnabled !== false;
+      const frequentSuggestions = learning && hasHistory
+        ? (this.frequentByAgent[agentId] || []).filter(text => !aiSuggestions.includes(text)).slice(0, Math.max(0, 3 - aiSuggestions.length))
+        : [];
       const items = [
         ...quickPhrases.map(p => ({ type: 'phrase', id: p.id, text: p.text })),
         ...aiSuggestions.map(text => ({ type: 'ai', text })),
+        ...frequentSuggestions.map(text => ({ type: 'frequent', text })),
       ];
+      const completionCandidates = this.suggestionsSettings.localCompletionEnabled !== false
+        ? [...quickPhrases.map(p => p.text), ...(learning ? this.frequentByAgent[agentId] || [] : [])]
+        : [];
       return this._json(res, 200, {
         enabled: true,
         aiEnabled: this.suggestionsSettings.aiEnabled,
         quickPhrases,
         aiSuggestions,
+        frequentSuggestions,
+        completionCandidates,
+        learningEnabled: learning,
+        localCompletionEnabled: this.suggestionsSettings.localCompletionEnabled !== false,
         suggestions: items.map(i => i.text),
         items,
         source,

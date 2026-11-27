@@ -59,12 +59,16 @@ public class SuggestionsSettingsActivity extends Activity {
     private boolean mEnabled = true;
     private boolean mAiEnabled = true;
     private boolean mCompletionEnabled = true;
+    private boolean mLearningEnabled = true;
+    private boolean mLocalCompletionEnabled = true;
     private boolean mSuppressToggleEvents = false;
     private final List<Phrase> mPhrases = new ArrayList<>();
 
     private Switch mEnabledSwitch;
     private Switch mAiSwitch;
     private Switch mCompletionSwitch;
+    private Switch mLearningSwitch;
+    private Switch mLocalCompletionSwitch;
     private View mAiRow;
     private EditText mAddInput;
     private TextView mAddButton;
@@ -162,6 +166,49 @@ public class SuggestionsSettingsActivity extends Activity {
         ));
         root.addView(switchesCard);
 
+        // Section: habits (learned on the Host from this user's own messages and reactions).
+        root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "个性化", "Personalization"), p));
+        LinearLayout habitsCard = UiChrome.makeRowGroup(this, p);
+        mLearningSwitch = new Switch(this);
+        mLearningSwitch.setContentDescription("suggestions_learning_switch");
+        mLearningSwitch.setChecked(mLearningEnabled);
+        mLearningSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (mSuppressToggleEvents) return;
+            saveLearning(isChecked, null);
+        });
+        habitsCard.addView(makeSwitchRow(
+                p,
+                Localize.t(this, "根据习惯学习", "Learn From My Habits"),
+                Localize.t(this, "参考你常发的话和点选记录，让建议更像你会说的话；仅保存在你的 Host 上",
+                        "Use the messages you often send and the suggestions you pick; stored only on your Host"),
+                mLearningSwitch
+        ));
+        habitsCard.addView(UiChrome.makeRowDivider(this, p));
+        mLocalCompletionSwitch = new Switch(this);
+        mLocalCompletionSwitch.setContentDescription("suggestions_local_completion_switch");
+        mLocalCompletionSwitch.setChecked(mLocalCompletionEnabled);
+        mLocalCompletionSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (mSuppressToggleEvents) return;
+            saveLearning(null, isChecked);
+        });
+        habitsCard.addView(makeSwitchRow(
+                p,
+                Localize.t(this, "本地补全", "Local Completion"),
+                Localize.t(this, "输入时匹配常用语和你常发的话，点按填入输入框",
+                        "While typing, match quick phrases and your frequent messages; tap to fill the input"),
+                mLocalCompletionSwitch
+        ));
+        root.addView(habitsCard);
+        TextView clearHabits = UiChrome.makePillButton(this, Localize.t(this, "清空学习记录", "Clear Learned Habits"), false, p,
+                v -> confirmClearHabits());
+        clearHabits.setContentDescription("suggestions_clear_habits_button");
+        LinearLayout.LayoutParams chLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        chLp.topMargin = UiChrome.dp(this, 10);
+        chLp.bottomMargin = UiChrome.dp(this, 6);
+        chLp.gravity = Gravity.START;
+        root.addView(clearHabits, chLp);
+
         // Section 2: Quick Phrases
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "自定义常用语", "Quick Phrases"), p));
 
@@ -250,6 +297,8 @@ public class SuggestionsSettingsActivity extends Activity {
         if (obj.has("enabled")) mEnabled = obj.optBoolean("enabled", true);
         if (obj.has("aiEnabled")) mAiEnabled = obj.optBoolean("aiEnabled", true);
         if (obj.has("completionEnabled")) mCompletionEnabled = obj.optBoolean("completionEnabled", true);
+        if (obj.has("learningEnabled")) mLearningEnabled = obj.optBoolean("learningEnabled", true);
+        if (obj.has("localCompletionEnabled")) mLocalCompletionEnabled = obj.optBoolean("localCompletionEnabled", true);
         JSONArray arr = obj.optJSONArray("quickPhrases");
         if (arr != null) {
             mPhrases.clear();
@@ -273,6 +322,8 @@ public class SuggestionsSettingsActivity extends Activity {
             mEnabledSwitch.setChecked(mEnabled);
             mAiSwitch.setChecked(mAiEnabled);
             mCompletionSwitch.setChecked(mCompletionEnabled);
+            mLearningSwitch.setChecked(mLearningEnabled);
+            mLocalCompletionSwitch.setChecked(mLocalCompletionEnabled);
             mAiSwitch.setEnabled(mEnabled);
             mAiRow.setAlpha(mEnabled ? 1f : 0.45f);
         } finally {
@@ -329,6 +380,55 @@ public class SuggestionsSettingsActivity extends Activity {
                     if (mDestroyed) return;
                     showStatus(Localize.t(this, "保存失败: ", "Save failed: ") + t.getMessage(), true);
                     refreshUi();
+                });
+            }
+        });
+    }
+
+    private void saveLearning(Boolean learningEnabled, Boolean localCompletionEnabled) {
+        mIo.execute(() -> {
+            try {
+                JSONObject res = HostApiClient.updateSuggestionsLearning(this, learningEnabled, localCompletionEnabled);
+                ComposerSuggestionsOverlay.invalidateSettingsCache();
+                mMain.post(() -> {
+                    if (mDestroyed) return;
+                    applyStateFromJson(res);
+                    showStatus("", false);
+                    refreshUi();
+                });
+            } catch (Throwable t) {
+                mMain.post(() -> {
+                    if (mDestroyed) return;
+                    showStatus(Localize.t(this, "保存失败: ", "Save failed: ") + t.getMessage(), true);
+                    refreshUi();
+                });
+            }
+        });
+    }
+
+    private void confirmClearHabits() {
+        new AlertDialog.Builder(this)
+                .setTitle(Localize.t(this, "清空学习记录", "Clear Learned Habits"))
+                .setMessage(Localize.t(this, "将删除 Host 上为每个 Bot 学到的常用说法和点选记录，常用语不受影响。",
+                        "Deletes the habits and pick history learned for every Bot on your Host. Quick phrases are kept."))
+                .setNegativeButton(Localize.t(this, "取消", "Cancel"), null)
+                .setPositiveButton(Localize.t(this, "清空", "Clear"), (d, w) -> clearHabits())
+                .show();
+    }
+
+    private void clearHabits() {
+        mIo.execute(() -> {
+            try {
+                HostApiClient.clearSuggestionHabits(this);
+                ComposerSuggestionsOverlay.clearLearnedHabits();
+                mMain.post(() -> {
+                    if (mDestroyed) return;
+                    showStatus(Localize.t(this, "已清空学习记录", "Learned habits cleared"), false);
+                });
+            } catch (Throwable t) {
+                mMain.post(() -> {
+                    if (mDestroyed) return;
+                    showStatus(Localize.t(this, "清空失败: ", "Clear failed: ") + t.getMessage(), true);
                 });
             }
         });
