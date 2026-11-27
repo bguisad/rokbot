@@ -47,8 +47,13 @@ export async function installBundleIcon({ outResources, icnsPath }) {
   await cp(icnsPath, path.join(outResources, 'icon.icns'));
 }
 
-export function applyRokBotInfoPlist(info) {
+export function applyRokBotInfoPlist(info, { version } = {}) {
   info.CFBundleIdentifier = BUNDLE_IDENTIFIER;
+  if (version) {
+    // Keep an upstream build number; only a CFBundleVersion that mirrors the marketing version follows it.
+    if (info.CFBundleVersion === undefined || info.CFBundleVersion === info.CFBundleShortVersionString) info.CFBundleVersion = version;
+    info.CFBundleShortVersionString = version;
+  }
   // Electron resolves Contents/Frameworks/<CFBundleName> Helper*.app on macOS;
   // keep CFBundleName aligned with CFBundleExecutable / helper bundle names while
   // CFBundleDisplayName and app.setName() rebrand user-facing surfaces.

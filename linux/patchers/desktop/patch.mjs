@@ -12,6 +12,7 @@ import { extractNotificationPolicy } from '../../../mac/patchers/desktop/extract
 import { applyReleaseRecipes } from '../../../mac/patchers/desktop/release-recipes.mjs';
 import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from '../../../mac/patchers/desktop/update-config.mjs';
 import { LINUX_ARCHITECTURES, selectLinuxRelease } from './inputs.mjs';
+import { appVersionArg, resolveAppVersion } from '../../../mac/patchers/desktop/app-version.mjs';
 import { buildDeb, createTarGz, unpackDeb } from './deb.mjs';
 import {
   applyRokBotLinuxAsarIcons,
@@ -32,12 +33,13 @@ async function hashFile(file) { return sha(await readFile(file)); }
 
 function printHelp() {
   console.log(`node linux/patchers/desktop/patch.mjs [--source <grok-bot_1.3.0_<arch>.deb | 安装目录>] [--arch <${LINUX_ARCHITECTURES.join('|')}>]
-    [--output <目录>] [--no-deb] [--no-tar] [--verify-only] [--force]
+    [--output <目录>] [--app-version <x.y.z>] [--no-deb] [--no-tar] [--verify-only] [--force]
     [--update-url <URL> --update-public-key <PEM|Base64> | --update-public-key-file <文件>]
 生成 RokBot Linux 桌面客户端（便携目录、.tar.gz 与 .deb 安装包）。
 --source 指定的官方 Linux .deb 按摘要自动识别架构与版本；省略 --source 时自动下载并校验 --arch（默认当前架构）对应的官方包。
 --verify-only 在临时目录验证官方包、recipe 与更新设置补丁，不生成输出文件。
 --no-deb / --no-tar 可跳过生成对应分发包。
+--app-version 设置 RokBot 对外版本号（package.json、deb control 与文件名），不低于官方输入版本；默认与官方版本相同。
 默认输出到 linux/output/。`);
 }
 
@@ -50,6 +52,7 @@ async function main() {
   const skipDeb = args.includes('--no-deb');
   const skipTar = args.includes('--no-tar');
   const force = args.includes('--force');
+  const requestedAppVersion = appVersionArg(args);
 
   const explicitSource = arg('--source');
   const release = await selectLinuxRelease({
@@ -58,6 +61,7 @@ async function main() {
     version: arg('--version'),
   });
   const { directory: releaseDir, supported, arch } = release;
+  const appVersion = resolveAppVersion(requestedAppVersion, supported.version);
 
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'rokbot-linux-patch-'));
   try {
@@ -140,6 +144,7 @@ async function main() {
         recipesVerified: true,
         recipesCount,
         version: supported.version,
+        appVersion,
         architecture: arch,
         debianArchitecture: supported.debianArchitecture,
         asarSha256: asarSha,
@@ -154,6 +159,7 @@ async function main() {
     const pkgPath = path.join(unpacked, 'package.json');
     const pkg = JSON.parse(await readFile(pkgPath, 'utf8'));
     pkg.main = 'local-client/main.mjs';
+    pkg.version = appVersion; // app.getVersion() and the updater compare against this.
     pkg.name = 'rokbot-local';
     pkg.productName = 'RokBot Local';
     await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
@@ -168,7 +174,7 @@ async function main() {
 
     const outputRoot = path.resolve(arg('--output') ?? path.join(linuxRoot, 'output'));
     await mkdir(outputRoot, { recursive: true });
-    const baseName = `RokBotLocal-${supported.version}-linux-${arch}`;
+    const baseName = `RokBotLocal-${appVersion}-linux-${arch}`;
     const portableDir = path.join(outputRoot, baseName);
     const tarPath = path.join(outputRoot, `${baseName}.tar.gz`);
     const debPath = path.join(outputRoot, `${baseName}.deb`);
@@ -228,7 +234,7 @@ async function main() {
       const debRoot = path.join(temporary, 'deb-out');
       const { controlDir, dataDir } = await stageDebianTree({
         portableDir: stagePortable,
-        version: supported.version,
+        version: appVersion,
         debianArchitecture: supported.debianArchitecture,
         upstreamControlText,
         repoRoot,
@@ -242,7 +248,8 @@ async function main() {
 
     const report = {
       schema: 'rokbot-linux-patch/v1',
-      version: supported.version,
+      version: appVersion,
+      upstreamVersion: supported.version,
       architecture: arch,
       debianArchitecture: supported.debianArchitecture,
       patchedAt: new Date().toISOString(),
