@@ -23,11 +23,12 @@ test('Android companion sources wire scenario models, per-Bot model routes, crea
 
   const groupAct = fs.readFileSync(path.join(SRC, 'CreateGroupActivity.java'), 'utf8');
   assert.ok(groupAct.includes('HostApiClient.createGroup'), 'CreateGroupActivity calls HostApiClient.createGroup');
-  assert.ok(groupAct.includes('新建群组') && groupAct.includes('New Group'), 'CreateGroupActivity localized zh + en');
+  assert.ok(groupAct.includes('创建群聊') && groupAct.includes('New Group Chat'), 'CreateGroupActivity localized zh + en');
   assert.ok(groupAct.includes('RokBotBootstrap.openAgentFromDeepLink'), 'CreateGroupActivity opens created group');
-  assert.ok(groupAct.includes('UiChrome.styleEditText'), 'CreateGroupActivity styles EditTexts via UiChrome');
-  assert.ok(groupAct.includes('RokBotAvatars.makeView'), 'CreateGroupActivity uses RokBotAvatars for member rows');
-  assert.ok(groupAct.includes('CheckBadgeDrawable') && !groupAct.includes('new CheckBox('), 'CreateGroupActivity uses custom vector check badge instead of default CheckBox');
+  assert.ok(groupAct.includes('GroupCreateModel.buildAutoGroupName'), 'CreateGroupActivity auto-names groups like Desktop HRn');
+  assert.ok(groupAct.includes('RokBotAvatars.makeView'), 'CreateGroupActivity uses RokBotAvatars for member rows and chips');
+  assert.ok(groupAct.includes('VectorGlyphDrawable') && !groupAct.includes('new CheckBox('), 'CreateGroupActivity uses custom vector icons instead of default CheckBox');
+  assert.ok(groupAct.includes('FlowChipLayout'), 'CreateGroupActivity renders Desktop-style wrapping recipient chip bar');
 
   const chooserSheet = fs.readFileSync(path.join(SRC, 'NewChatChooserSheet.java'), 'utf8');
   assert.ok(chooserSheet.includes('create_chooser_sheet'), 'NewChatChooserSheet renders custom bottom sheet');
