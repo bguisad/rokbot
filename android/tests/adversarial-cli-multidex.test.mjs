@@ -148,7 +148,7 @@ test('ADV-CLI-3: Read-only output directory exits with code 1 and permission den
   const outApk = path.join(roDir, 'out.apk');
 
   try {
-    const res = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk]);
+    const res = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk, '--dev-signing']);
     assert.equal(res.status, 1);
     assert.ok(res.stderr.includes('EACCES: permission denied'));
   } finally {
@@ -242,6 +242,7 @@ test('ADV-CLI-10: Pairing code accepts valid 6-char code', () => {
     '--input-apk', FIXTURE_APK,
     '--output-apk', '/tmp/out_valid_code.apk',
     '--pairing-code', 'K7M9P2',
+    '--dev-signing',
     '--force'
   ]);
   assert.equal(res.status, 0);
@@ -255,17 +256,17 @@ test('ADV-CLI-10: Pairing code accepts valid 6-char code', () => {
 test('ADV-OUT-1: Output collision protection without --force exits with code 1', () => {
   const outApk = '/tmp/out_collision_test.apk';
   // Step 1: create initial output
-  const r1 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk, '--force']);
+  const r1 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk, '--dev-signing', '--force']);
   assert.equal(r1.status, 0);
 
   // Step 2: run without --force
-  const r2 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk]);
+  const r2 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk, '--dev-signing']);
   assert.equal(r2.status, 1);
   assert.ok(r2.stderr.includes('Output APK already exists at'));
   assert.ok(r2.stderr.includes('Use --force to overwrite'));
 
   // Step 3: run with --force
-  const r3 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk, '--force']);
+  const r3 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', outApk, '--dev-signing', '--force']);
   assert.equal(r3.status, 0);
 });
 
@@ -274,11 +275,11 @@ test('ADV-OUT-2: Repatching generates valid signed APKs at each level', () => {
   const out2 = '/tmp/repatch_lvl2.apk';
   const out3 = '/tmp/repatch_lvl3.apk';
 
-  const r1 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', out1, '--force']);
+  const r1 = runCli(['--input-apk', FIXTURE_APK, '--output-apk', out1, '--dev-signing', '--force']);
   assert.equal(r1.status, 0);
-  const r2 = runCli(['--input-apk', out1, '--output-apk', out2, '--force']);
+  const r2 = runCli(['--input-apk', out1, '--output-apk', out2, '--dev-signing', '--force']);
   assert.equal(r2.status, 0);
-  const r3 = runCli(['--input-apk', out2, '--output-apk', out3, '--force']);
+  const r3 = runCli(['--input-apk', out2, '--output-apk', out3, '--dev-signing', '--force']);
   assert.equal(r3.status, 0);
 
   for (const apkPath of [out1, out2, out3]) {

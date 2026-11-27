@@ -8,7 +8,7 @@ import { MockHostServer } from './mock-host.mjs';
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SRC = path.join(PROJECT_ROOT, 'android/companion/src/main/java/dev/rokbot/nativeapp');
 
-test('Android companion sources wire scenario models, per-Bot model routes, create group, and composer suggestions', () => {
+test('Android companion sources wire scenario models, per-Bot model routes, create group, and suggestions v2', () => {
   const models = fs.readFileSync(path.join(SRC, 'ModelsActivity.java'), 'utf8');
   for (const key of ['suggestions', 'summarization', 'memoryExtraction', 'autoReview', 'subagent', 'automation']) {
     assert.ok(models.includes(`"${key}"`), `ModelsActivity includes scenario ${key}`);
@@ -19,14 +19,16 @@ test('Android companion sources wire scenario models, per-Bot model routes, crea
   assert.ok(models.includes('renderBotRoutesList'), 'ModelsActivity renders per-Bot routes');
   assert.ok(models.includes('payload.put("scenarioRoutes"'), 'ModelsActivity persists scenarioRoutes');
   assert.ok(models.includes('payload.put("botRoutes"'), 'ModelsActivity persists botRoutes');
+  assert.ok(models.includes('SuggestionsSettingsActivity.class'), 'ModelsActivity links to SuggestionsSettingsActivity');
 
   const groupAct = fs.readFileSync(path.join(SRC, 'CreateGroupActivity.java'), 'utf8');
   assert.ok(groupAct.includes('HostApiClient.createGroup'), 'CreateGroupActivity calls HostApiClient.createGroup');
-  assert.ok(groupAct.includes('新建群组') && groupAct.includes('New Group'), 'CreateGroupActivity localized zh + en');
+  assert.ok(groupAct.includes('创建群聊') && groupAct.includes('New Group Chat'), 'CreateGroupActivity localized zh + en');
   assert.ok(groupAct.includes('RokBotBootstrap.openAgentFromDeepLink'), 'CreateGroupActivity opens created group');
-  assert.ok(groupAct.includes('UiChrome.styleEditText'), 'CreateGroupActivity styles EditTexts via UiChrome');
-  assert.ok(groupAct.includes('RokBotAvatars.makeView'), 'CreateGroupActivity uses RokBotAvatars for member rows');
-  assert.ok(groupAct.includes('CheckBadgeDrawable') && !groupAct.includes('new CheckBox('), 'CreateGroupActivity uses custom vector check badge instead of default CheckBox');
+  assert.ok(groupAct.includes('GroupCreateModel.buildAutoGroupName'), 'CreateGroupActivity auto-names groups like Desktop HRn');
+  assert.ok(groupAct.includes('RokBotAvatars.makeView'), 'CreateGroupActivity uses RokBotAvatars for member rows and chips');
+  assert.ok(groupAct.includes('VectorGlyphDrawable') && !groupAct.includes('new CheckBox('), 'CreateGroupActivity uses custom vector icons instead of default CheckBox');
+  assert.ok(groupAct.includes('FlowChipLayout'), 'CreateGroupActivity renders Desktop-style wrapping recipient chip bar');
 
   const chooserSheet = fs.readFileSync(path.join(SRC, 'NewChatChooserSheet.java'), 'utf8');
   assert.ok(chooserSheet.includes('create_chooser_sheet'), 'NewChatChooserSheet renders custom bottom sheet');
@@ -43,19 +45,41 @@ test('Android companion sources wire scenario models, per-Bot model routes, crea
   assert.ok(boot.includes('CreateGroupActivity.class'), 'RokBotBootstrap launches CreateGroupActivity');
   assert.ok(boot.includes('ComposerSuggestionsOverlay.onReactResumed'), 'RokBotBootstrap wires ComposerSuggestionsOverlay');
   assert.ok(boot.includes('BotProfileModelOverlay.onReactResumed'), 'RokBotBootstrap wires BotProfileModelOverlay');
+  assert.ok(boot.includes('SettingsSuggestionsOverlay.onReactResumed'), 'RokBotBootstrap wires SettingsSuggestionsOverlay');
 
   const manifest = fs.readFileSync(path.join(PROJECT_ROOT, 'android/patchers/manifest.mjs'), 'utf8');
   assert.ok(manifest.includes('dev.rokbot.nativeapp.CreateGroupActivity'), 'manifest registers CreateGroupActivity');
+  assert.ok(manifest.includes('dev.rokbot.nativeapp.SuggestionsSettingsActivity'), 'manifest registers SuggestionsSettingsActivity');
 
   const suggestions = fs.readFileSync(path.join(SRC, 'ComposerSuggestionsOverlay.java'), 'utf8');
   assert.ok(suggestions.includes('HostApiClient.getSuggestions'), 'ComposerSuggestionsOverlay fetches /local/suggestions');
-  assert.ok(suggestions.includes('SparkleIconView'), 'ComposerSuggestionsOverlay uses vector icon (no emoji)');
+  assert.ok(suggestions.includes('HostApiClient.getSuggestionsSettings'), 'ComposerSuggestionsOverlay syncs settings');
+  assert.ok(suggestions.includes('composer.hasFocus()'), 'ComposerSuggestionsOverlay activates only on focus');
+  assert.ok(suggestions.includes('sendSuggestion('), 'ComposerSuggestionsOverlay sends directly on tap');
+  assert.ok(suggestions.includes('PhraseIconView') && suggestions.includes('SparkleIconView'), 'ComposerSuggestionsOverlay distinguishes phrases vs AI with vector icons');
+  assert.ok(!suggestions.includes('FALLBACK_ZH_EMPTY') && !suggestions.includes('staticPresets'), 'ComposerSuggestionsOverlay removes static preset fallbacks');
+  assert.doesNotMatch(suggestions, /grok/i, 'ComposerSuggestionsOverlay must not mention Grok');
+  assert.doesNotMatch(suggestions, /[\u{1F300}-\u{1FAFF}]/u, 'ComposerSuggestionsOverlay must not contain emoji');
+
+  const sugSettings = fs.readFileSync(path.join(SRC, 'SuggestionsSettingsActivity.java'), 'utf8');
+  assert.ok(sugSettings.includes('HostApiClient.updateSuggestionsSettings'), 'SuggestionsSettingsActivity updates toggles');
+  assert.ok(sugSettings.includes('HostApiClient.addQuickPhrase'), 'SuggestionsSettingsActivity adds quick phrases');
+  assert.ok(sugSettings.includes('HostApiClient.updateQuickPhrase'), 'SuggestionsSettingsActivity edits quick phrases');
+  assert.ok(sugSettings.includes('HostApiClient.deleteQuickPhrase'), 'SuggestionsSettingsActivity deletes quick phrases');
+  assert.ok(sugSettings.includes('HostApiClient.reorderQuickPhrases'), 'SuggestionsSettingsActivity reorders quick phrases');
+  assert.ok(sugSettings.includes('输入建议') && sugSettings.includes('Input Suggestions'), 'SuggestionsSettingsActivity localized zh + en');
+  assert.doesNotMatch(sugSettings, /grok/i, 'SuggestionsSettingsActivity must not mention Grok');
+  assert.doesNotMatch(sugSettings, /[\u{1F300}-\u{1FAFF}]/u, 'SuggestionsSettingsActivity must not contain emoji');
+
+  const settingsOverlay = fs.readFileSync(path.join(SRC, 'SettingsSuggestionsOverlay.java'), 'utf8');
+  assert.ok(settingsOverlay.includes('SuggestionsSettingsActivity.class'), 'SettingsSuggestionsOverlay opens SuggestionsSettingsActivity');
+  assert.doesNotMatch(settingsOverlay, /grok/i, 'SettingsSuggestionsOverlay must not mention Grok');
 
   const botOverlay = fs.readFileSync(path.join(SRC, 'BotProfileModelOverlay.java'), 'utf8');
   assert.ok(botOverlay.includes('ModelsActivity.EXTRA_AGENT_ID'), 'BotProfileModelOverlay opens ModelsActivity for current Bot');
 });
 
-test('MockHostServer supports scenarioRoutes, botRoutes, /local/suggestions, and /api/createGroup end to end', async t => {
+test('MockHostServer supports scenarioRoutes, botRoutes, suggestions v2 settings/phrases, and /api/createGroup end to end', async t => {
   const host = new MockHostServer();
   await host.start();
   t.after(() => host.stop());
@@ -86,16 +110,55 @@ test('MockHostServer supports scenarioRoutes, botRoutes, /local/suggestions, and
   assert.equal(saved.config.botRoutes['agent-coding'].effort, 'high');
   assert.equal(saved.config.scenarioRoutes.suggestions.effort, 'minimal');
 
-  // Fetch suggestions via POST /local/suggestions
+  // Empty chat with no quick phrases returns empty suggestions (no static presets!)
+  const emptySug = await (await fetch(`${host.canonical}/local/suggestions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ agentId: 'agent-empty-brand-new', locale: 'zh-CN' }),
+  })).json();
+  assert.equal(emptySug.source, 'empty');
+  assert.deepEqual(emptySug.suggestions, []);
+
+  // Add, edit, reorder quick phrases
+  const p1 = (await (await fetch(`${host.canonical}/local/suggestions/phrases`, {
+    method: 'POST', headers, body: JSON.stringify({ text: '继续' }),
+  })).json()).phrase;
+  const p2 = (await (await fetch(`${host.canonical}/local/suggestions/phrases`, {
+    method: 'POST', headers, body: JSON.stringify({ text: '总结一下' }),
+  })).json()).phrase;
+  await fetch(`${host.canonical}/local/suggestions/phrases/reorder`, {
+    method: 'PUT', headers, body: JSON.stringify({ ids: [p2.id, p1.id] }),
+  });
+
+  // Ongoing chat returns quick phrases first, AI suggestions second
   const sugRes = await fetch(`${host.canonical}/local/suggestions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ agentId: 'agent-default', locale: 'zh-CN' }),
+    body: JSON.stringify({
+      agentId: 'agent-default',
+      locale: 'zh-CN',
+      recentMessages: [{ id: 'm1', role: 'assistant', text: '已经完成构建。' }],
+    }),
   });
   assert.equal(sugRes.status, 200);
   const sugBody = await sugRes.json();
   assert.equal(sugBody.lang, 'zh');
-  assert.ok(Array.isArray(sugBody.suggestions) && sugBody.suggestions.length >= 3);
+  assert.equal(sugBody.source, 'model');
+  assert.deepEqual(sugBody.quickPhrases.map(p => p.text), ['总结一下', '继续']);
+  assert.equal(sugBody.items[0].type, 'phrase');
+  assert.equal(sugBody.items.at(-1).type, 'ai');
+
+  // Toggle master switch off -> returns empty
+  await fetch(`${host.canonical}/local/suggestions/settings`, {
+    method: 'PUT', headers, body: JSON.stringify({ enabled: false }),
+  });
+  const disabledBody = await (await fetch(`${host.canonical}/local/suggestions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ agentId: 'agent-default', locale: 'zh-CN', recentMessages: [{ id: 'm1', role: 'assistant', text: 'hi' }] }),
+  })).json();
+  assert.equal(disabledBody.source, 'disabled');
+  assert.deepEqual(disabledBody.suggestions, []);
 
   // Create group via POST /api/createGroup
   const grpRes = await fetch(`${host.canonical}/api/createGroup`, {

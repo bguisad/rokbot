@@ -577,7 +577,11 @@ export function createServices(context) {
       await persistence.writeClientPersistence({ key: notificationKey, value });
       return { ...value };
     },
-    setViewingAgent: ({ agentId }) => native('viewing-agent', { agentId: typeof agentId === 'string' ? agentId : '' }).then(() => null),
+    setViewingAgent: ({ agentId }) => {
+      const normalized = typeof agentId === 'string' ? agentId : '';
+      context.onViewingAgentChanged?.(normalized);
+      return native('viewing-agent', { agentId: normalized }).then(() => null);
+    },
     setComposingAgent: () => null,
     clearLocalToolApprovals: () => null,
     peekUsageWarningAssignment: () => null,

@@ -24,10 +24,17 @@ import {
   entryBytes,
   createEntry,
   writeZip,
-  createSigningIdentity,
   signApk,
-  verifyApk
 } from '../patchers/signing.mjs';
+import {
+  RELEASE_CERTIFICATE_SHA256,
+  SIGNING_PIN_PATH,
+  loadSigningPin,
+  resolveReleaseSigningIdentity,
+  assertSignedApkCertificate,
+} from './signing-guard.mjs';
+
+export { RELEASE_CERTIFICATE_SHA256, SIGNING_PIN_PATH, loadSigningPin };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -210,52 +217,6 @@ function sha256Buffer(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
-function loadOrCreateSigningIdentity(explicitKeystorePath) {
-  const defaultPath = path.join(os.homedir(), '.rokbot-local', 'android-signing.json');
-  const targetPath = path.resolve(explicitKeystorePath || defaultPath);
-
-  if (targetPath === REPO_ANDROID_DIR || targetPath.startsWith(REPO_ANDROID_DIR + path.sep)) {
-    throw new Error(`Security violation: refusing to read or write keystore inside ${REPO_ANDROID_DIR}`);
-  }
-
-  if (fs.existsSync(targetPath)) {
-    const raw = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
-    const pem = raw.privateKey || raw.privateKeyPem;
-    const certB64 = raw.certificate || raw.certificateDerBase64;
-    if (pem && certB64) {
-      return {
-        identity: {
-          privateKey: crypto.createPrivateKey(pem),
-          certificate: Buffer.from(certB64, 'base64'),
-          type: raw.type || 'rsa',
-        },
-        keystorePath: targetPath,
-      };
-    }
-    throw new Error(`Unsupported keystore format at ${targetPath} (expected JSON signing identity)`);
-  }
-
-  const identity = createSigningIdentity({ type: 'rsa', modulusLength: 2048 });
-  const payload = {
-    schema: 'rokbot-android-signing/v1',
-    createdAt: new Date().toISOString(),
-    privateKey: identity.privateKey.export({ type: 'pkcs8', format: 'pem' }),
-    certificate: identity.certificate.toString('base64'),
-  };
-
-  try {
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true, mode: 0o700 });
-    const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2) + '\n', { mode: 0o600 });
-    fs.renameSync(tmpPath, targetPath);
-  } catch (err) {
-    if (explicitKeystorePath) throw err;
-    return { identity, keystorePath: null };
-  }
-
-  return { identity, keystorePath: targetPath };
-}
-
 export function parseCliArgs(args = process.argv.slice(2)) {
   const options = {
     inputApk: null,
@@ -264,6 +225,7 @@ export function parseCliArgs(args = process.argv.slice(2)) {
     pairingCode: null,
     packageName: null,
     keystore: null,
+    devSigning: undefined,
     standalone: false,
     windowsSetup: null,
     shellApk: null,
@@ -296,6 +258,8 @@ export function parseCliArgs(args = process.argv.slice(2)) {
       options.versionName = args[++i];
     } else if (arg === '--keystore') {
       options.keystore = args[++i];
+    } else if (arg === '--dev-signing') {
+      options.devSigning = true;
     } else if (arg === '--standalone' || arg === '--standalone-official') {
       options.standalone = true;
     } else if (arg === '--windows-setup') {
@@ -627,29 +591,69 @@ export async function runPatchPipeline(options) {
   const iconResult = patchLauncherIcons(patchedEntries, options.logoDir || LOGO_ANDROID_DIR);
   patchedEntries = iconResult.entries;
 
-  // 8. Align ZIP (16KB .so, 4B data) and Sign APK
+  // 8. Align ZIP (16KB .so, 4B data), Sign APK, and Post-Verify Output APK Certificate
   const unsignedApk = writeZip(patchedEntries);
+  const outPath = path.resolve(options.outputApk);
   let finalApkBytes;
   let signingMode;
   let usedKeystorePath = null;
+  let devSigningUsed = false;
+  let signingCertificateSha256 = null;
+  let signingVerification = null;
 
   if (options.unsigned) {
     finalApkBytes = unsignedApk;
     signingMode = 'unsigned';
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, finalApkBytes);
   } else {
-    const loaded = loadOrCreateSigningIdentity(options.keystore);
+    const signingSchemes = manifestPin.compatibility?.signingSchemes || ['v2', 'v3'];
+    const signingMinSdk = manifestPin.compatibility?.minSdk || 28;
+    const expectedPinSha256 = options.expectedCertificateSha256 || RELEASE_CERTIFICATE_SHA256;
+    const loaded = resolveReleaseSigningIdentity({
+      keystorePath: options.keystore,
+      devSigning: options.devSigning,
+      expectedCertificateSha256: expectedPinSha256,
+      allowAutoCreate: true,
+      repoAndroidDir: REPO_ANDROID_DIR,
+    });
     usedKeystorePath = loaded.keystorePath;
+    devSigningUsed = loaded.devSigning;
+    signingCertificateSha256 = loaded.certificateSha256;
     finalApkBytes = signApk(unsignedApk, loaded.identity, {
-      schemes: manifestPin.compatibility?.signingSchemes || ['v2', 'v3'],
-      minSdk: manifestPin.compatibility?.minSdk || 28
+      schemes: signingSchemes,
+      minSdk: signingMinSdk,
     });
     signingMode = 'signed-v2-v3';
-  }
 
-  // Ensure output directory exists and write output APK
-  const outPath = path.resolve(options.outputApk);
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, finalApkBytes);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    const tmpOutPath = `${outPath}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      fs.writeFileSync(tmpOutPath, finalApkBytes);
+      const verified = assertSignedApkCertificate({
+        apkPath: tmpOutPath,
+        apkBytes: finalApkBytes,
+        expectedCertificateSha256: loaded.certificateSha256,
+        enforceReleasePin: !loaded.devSigning,
+        releaseCertificateSha256: expectedPinSha256,
+        minSdk: signingMinSdk,
+        keystorePath: loaded.keystorePath,
+      });
+      signingCertificateSha256 = verified.certificateSha256;
+      signingVerification = {
+        verified: verified.verified,
+        verifier: verified.verifier,
+        certificateSha256: verified.certificateSha256,
+        matchesReleasePin: verified.matchesReleasePin,
+      };
+      fs.renameSync(tmpOutPath, outPath);
+    } catch (err) {
+      try {
+        if (fs.existsSync(tmpOutPath)) fs.unlinkSync(tmpOutPath);
+      } catch { /* ignore cleanup error */ }
+      throw err;
+    }
+  }
 
   const durationSeconds = (Date.now() - started) / 1000;
   const outputSha256 = sha256Buffer(finalApkBytes);
@@ -688,6 +692,9 @@ export async function runPatchPipeline(options) {
     outputSha256,
     seconds: Math.round(durationSeconds * 1000) / 1000,
     signing: signingMode,
+    devSigning: devSigningUsed,
+    signingCertificateSha256,
+    signingVerification,
     keystorePath: usedKeystorePath,
     alignment: '16kb-so-4byte-data',
     manifestPatched: true,
@@ -739,7 +746,10 @@ Options:
                           versionName = <upstream>-rokbot.<n>; must grow for in-place upgrades
   --version-code <n>      Explicit output versionCode (overrides --rokbot-build)
   --version-name <s>      Explicit output versionName (overrides --rokbot-build)
-  --keystore <path>       Persistent JSON signing identity path (default ~/.rokbot-local/android-signing.json)
+  --keystore <path>       Release JSON signing identity path (default ~/.rokbot-local/android-signing.json;
+                          release mode requires an existing keystore matching android/release/signing-pin.json)
+  --dev-signing           Explicitly allow temporary / non-release signing key for dev/testing
+                          (or set ROKBOT_ANDROID_DEV_SIGNING=1; prints warning and sets devSigning: true)
   --unsigned              Output aligned unsigned APK
   --verify-only           Validate input APK/XAPK and recipe pins without writing output
   --force                 Overwrite existing output APK

@@ -110,8 +110,10 @@ const attachments = createAttachments({ command: gateway.command, staging,
 
 let deepLinksReady = false;
 let pendingAgent = androidBoot.pendingAgent ?? null;
+let viewingAgentId = '';
 function openAgent(id) {
   pendingAgent = id;
+  viewingAgentId = typeof id === 'string' ? id : viewingAgentId;
   if (!deepLinksReady) return;
   pendingAgent = null;
   showConversation();
@@ -182,6 +184,7 @@ const services = createServices({
     for (const listener of [...voiceListeners]) { try { listener(enabled); } catch {} }
   },
   onSettingsChanged: key => { if (key === 'theme') applyChrome(); },
+  onViewingAgentChanged: id => { viewingAgentId = typeof id === 'string' ? id : ''; },
 });
 
 // ---- the Electron stand-in for the original preload ---------------------------------------
@@ -306,6 +309,12 @@ window.localBot = Object.freeze({
   updateModelConfig: payload => modelBridge.updateModelConfig(payload),
   fetchModelCatalog: payload => modelBridge.fetchModelCatalog(payload),
   testModelConfig: payload => modelBridge.testModelConfig(payload),
+  getSuggestionsSettings: () => gateway.request('/local/suggestions/settings', null, timeout(10000), 'GET'),
+  updateSuggestionsSettings: payload => gateway.request('/local/suggestions/settings', payload, timeout(10000), 'PUT'),
+  addQuickPhrase: text => gateway.request('/local/suggestions/phrases', { text }, timeout(10000), 'POST'),
+  updateQuickPhrase: (id, text) => gateway.request(`/local/suggestions/phrases/${encodeURIComponent(id)}`, { text }, timeout(10000), 'PUT'),
+  deleteQuickPhrase: id => gateway.request(`/local/suggestions/phrases/${encodeURIComponent(id)}`, null, timeout(10000), 'DELETE'),
+  reorderQuickPhrases: ids => gateway.request('/local/suggestions/phrases/reorder', { ids }, timeout(10000), 'PUT'),
   downloadAttachmentsZip: payload => services.call('downloadAttachmentsZip', payload),
 });
 
@@ -322,7 +331,7 @@ globalThis.__rokbotProfile = Object.freeze({
   getAutomations: id => gateway.command('getAgentAutomations', { id }),
 });
 installLayoutFixes();
-installComposerSuggestions({ request: gateway.request, locale });
+installComposerSuggestions({ request: gateway.request, locale, getViewingAgentId: () => viewingAgentId });
 if (anchorFallback) log(`[webview] CSS anchor positioning fallback active (${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'unknown'})`);
 
 // ---- Android shell events and the back gesture --------------------------------------------

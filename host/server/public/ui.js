@@ -174,3 +174,200 @@ export function filePicker(input) {
   update();
   return update;
 }
+
+let selectSerial = 0;
+/**
+ * Sand drop-down that stands in for a native <select>: it keeps <option>/<optgroup> children and the
+ * select surface (value, options, selectedIndex, name, disabled, change/input events) so callers can
+ * keep treating it like one, while the open list is a Sand popover with a check on the chosen row.
+ */
+class SandSelect extends (globalThis.HTMLElement ?? class {}) {
+  static formAssociated = true;
+  #internals = this.attachInternals?.();
+  #label; #list = null; #active = -1; #wasOpen = false; #typed = ''; #typedAt = 0; #onViewportChange = null;
+
+  constructor() {
+    super();
+    const root = this.attachShadow({ mode: 'open' });
+    this.#label = document.createElement('span');
+    this.#label.setAttribute('part', 'label');
+    root.append(this.#label);
+    new MutationObserver(() => { this.#sync(); if (this.#list) this.#renderList(); })
+      .observe(this, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['label', 'disabled', 'selected'] });
+    this.addEventListener('pointerdown', () => { this.#wasOpen = Boolean(this.#list); });
+    this.addEventListener('click', () => {
+      const wasOpen = this.#wasOpen; this.#wasOpen = false;
+      if (this.disabled || wasOpen) return;
+      this.#open();
+    });
+    this.addEventListener('keydown', event => this.#keydown(event));
+    this.addEventListener('blur', () => this.close());
+  }
+
+  static get observedAttributes() { return ['disabled']; }
+  attributeChangedCallback() { this.#syncState(); if (this.disabled) this.close(); }
+  connectedCallback() {
+    if (!this.hasAttribute('role')) this.setAttribute('role', 'combobox');
+    this.setAttribute('aria-haspopup', 'listbox');
+    if (!this.hasAttribute('aria-expanded')) this.setAttribute('aria-expanded', 'false');
+    this.#syncState(); this.#sync();
+  }
+  disconnectedCallback() { this.close(); }
+  formResetCallback() {
+    const options = this.options, fallback = options.find(option => option.defaultSelected) ?? null;
+    for (const option of options) option.selected = option === fallback;
+    this.#sync();
+  }
+
+  get type() { return 'select-one'; }
+  get form() { return this.#internals?.form ?? null; }
+  get name() { return this.getAttribute('name') ?? ''; }
+  set name(value) { this.setAttribute('name', value); }
+  get disabled() { return this.hasAttribute('disabled'); }
+  set disabled(value) { this.toggleAttribute('disabled', Boolean(value)); }
+  get options() { return [...this.querySelectorAll('option')]; }
+  get length() { return this.options.length; }
+  get selectedOptions() { const option = this.#selected(); return option ? [option] : []; }
+  get selectedIndex() { return this.options.indexOf(this.#selected()); }
+  set selectedIndex(index) { this.options.forEach((option, at) => { option.selected = at === index; }); this.#sync(); }
+  get value() { return this.#selected()?.value ?? ''; }
+  set value(value) {
+    const options = this.options, match = options.find(option => option.value === String(value)) ?? null;
+    for (const option of options) option.selected = option === match;
+    this.#sync();
+  }
+  add(option) { this.append(option); }
+  close() {
+    if (!this.#list) return;
+    const list = this.#list; this.#list = null;
+    if (list.matches(':popover-open')) list.hidePopover();
+    list.remove();
+    removeEventListener('resize', this.#onViewportChange); removeEventListener('scroll', this.#onViewportChange, true);
+    this.setAttribute('aria-expanded', 'false'); this.removeAttribute('aria-activedescendant');
+  }
+
+  #selected() {
+    const options = this.options;
+    return options.find(option => option.selected) ?? options.find(option => !option.disabled) ?? null;
+  }
+  #syncState() {
+    if (!this.isConnected) return;
+    this.tabIndex = this.disabled ? -1 : 0;
+    if (this.disabled) this.setAttribute('aria-disabled', 'true'); else this.removeAttribute('aria-disabled');
+  }
+  #sync() {
+    const option = this.#selected();
+    this.#label.textContent = option?.label || option?.textContent || '';
+    this.title = this.#label.textContent;
+    this.#internals?.setFormValue?.(this.name ? this.value : null);
+  }
+  #choose(option) {
+    this.close();
+    this.focus({ preventScroll: true });
+    if (!option || option.disabled || option === this.#selected()) return;
+    for (const entry of this.options) entry.selected = entry === option;
+    this.#sync();
+    this.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    this.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  #renderList() {
+    const list = this.#list, chosen = this.#selected(), options = this.options;
+    list.replaceChildren();
+    const row = option => {
+      const index = options.indexOf(option), entry = node('div', 'select-option');
+      entry.id = `${list.id}-${index}`; entry.dataset.index = index; entry.setAttribute('role', 'option');
+      entry.setAttribute('aria-selected', String(option === chosen));
+      if (option.disabled || option.parentElement?.disabled) entry.setAttribute('aria-disabled', 'true');
+      const check = node('span', 'select-check'); check.innerHTML = option === chosen ? icon('check') : '';
+      entry.append(check, node('span', 'select-option-label', option.label || option.textContent));
+      entry.addEventListener('pointermove', () => this.#setActive(index, false));
+      entry.addEventListener('click', () => { if (entry.getAttribute('aria-disabled') !== 'true') this.#choose(option); });
+      return entry;
+    };
+    for (const child of this.children) {
+      if (child.tagName === 'OPTION') list.append(row(child));
+      else if (child.tagName === 'OPTGROUP') {
+        const group = node('div', 'select-group'), groupId = `${list.id}-g${list.children.length}`;
+        group.setAttribute('role', 'group'); group.setAttribute('aria-labelledby', groupId);
+        const heading = node('div', 'select-group-label', child.label); heading.id = groupId;
+        group.append(heading, ...[...child.querySelectorAll('option')].map(row));
+        list.append(group);
+      }
+    }
+    this.#setActive(this.#active, false);
+  }
+  #enabled() {
+    return this.options.map((option, index) => ({ option, index }))
+      .filter(({ option }) => !option.disabled && !option.parentElement?.disabled).map(({ index }) => index);
+  }
+  #setActive(index, scroll = true) {
+    this.#active = index;
+    if (!this.#list) return;
+    for (const entry of this.#list.querySelectorAll('.select-option')) entry.classList.toggle('active', Number(entry.dataset.index) === index);
+    const current = this.#list.querySelector(`[data-index="${index}"]`);
+    if (current) { this.setAttribute('aria-activedescendant', current.id); if (scroll) current.scrollIntoView({ block: 'nearest' }); }
+    else this.removeAttribute('aria-activedescendant');
+  }
+  #open() {
+    if (this.#list || this.disabled) return;
+    const list = node('div', 'select-menu');
+    list.id = `sand-select-${++selectSerial}`; list.setAttribute('role', 'listbox'); list.popover = 'auto';
+    const name = this.getAttribute('aria-label'); if (name) list.setAttribute('aria-label', name);
+    list.addEventListener('pointerdown', event => event.preventDefault());
+    list.addEventListener('toggle', event => { if (event.newState === 'closed' && this.#list === list) this.close(); });
+    this.#list = list;
+    this.#active = this.selectedIndex;
+    this.#renderList();
+    (this.closest('dialog[open]') ?? document.body).append(list);
+    list.showPopover();
+    this.setAttribute('aria-controls', list.id); this.setAttribute('aria-expanded', 'true');
+    const anchor = this.getBoundingClientRect(), width = Math.max(anchor.width, list.offsetWidth);
+    const below = innerHeight - anchor.bottom - 12, above = anchor.top - 12, up = below < Math.min(list.scrollHeight, 200) && above > below;
+    list.style.minWidth = `${anchor.width}px`;
+    list.style.maxHeight = `${Math.max(120, Math.min(320, up ? above : below))}px`;
+    list.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - width - 8))}px`;
+    list.style.top = up ? `${Math.max(8, anchor.top - 4 - list.offsetHeight)}px` : `${anchor.bottom + 4}px`;
+    this.#setActive(this.#active);
+    this.#onViewportChange = event => { if (event.type === 'resize' || !list.contains(event.target)) this.close(); };
+    addEventListener('resize', this.#onViewportChange); addEventListener('scroll', this.#onViewportChange, true);
+  }
+  #keydown(event) {
+    if (this.disabled || event.altKey && !['ArrowDown', 'ArrowUp'].includes(event.key) || event.ctrlKey || event.metaKey) return;
+    const enabled = this.#enabled(), open = Boolean(this.#list);
+    const move = to => { event.preventDefault(); if (!open) this.#open(); if (to !== undefined) this.#setActive(to); };
+    const at = enabled.indexOf(this.#active);
+    switch (event.key) {
+      case 'ArrowDown': return open ? move(enabled[Math.min(enabled.length - 1, at + 1)] ?? enabled[0]) : move();
+      case 'ArrowUp': return open ? move(enabled[Math.max(0, at - 1)] ?? enabled[0]) : move();
+      case 'Home': return move(enabled[0]);
+      case 'End': return move(enabled.at(-1));
+      case 'PageDown': return move(enabled[Math.min(enabled.length - 1, Math.max(0, at) + 8)]);
+      case 'PageUp': return move(enabled[Math.max(0, at - 8)]);
+      case 'Enter': case ' ':
+        if (event.key === ' ' && this.#typed && Date.now() - this.#typedAt < 600) break;
+        event.preventDefault();
+        if (open) this.#choose(this.options[this.#active]); else this.#open();
+        return;
+      case 'Escape': if (open) { event.preventDefault(); event.stopPropagation(); this.close(); } return;
+      case 'Tab': if (open) this.close(); return;
+    }
+    if (event.key.length !== 1) return;
+    const now = Date.now();
+    this.#typed = now - this.#typedAt < 600 ? this.#typed + event.key.toLowerCase() : event.key.toLowerCase();
+    this.#typedAt = now;
+    const options = this.options, start = Math.max(0, at);
+    const order = [...enabled.slice(start + (this.#typed.length === 1 ? 1 : 0)), ...enabled.slice(0, start + (this.#typed.length === 1 ? 1 : 0))];
+    const found = order.find(index => (options[index].label || options[index].textContent).toLowerCase().startsWith(this.#typed));
+    if (found !== undefined) move(found);
+  }
+}
+
+/** Creates a Sand drop-down (see SandSelect) in place of document.createElement('select'). */
+export function dropdown({ name, label, className } = {}) {
+  if (!customElements.get('sand-select')) customElements.define('sand-select', SandSelect);
+  const element = document.createElement('sand-select');
+  if (name) element.name = name;
+  if (label) element.setAttribute('aria-label', label);
+  if (className) element.className = className;
+  return element;
+}

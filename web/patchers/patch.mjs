@@ -14,6 +14,7 @@ import { applyReleaseRecipes } from '../../mac/patchers/desktop/release-recipes.
 import { acquireDesktopSource } from '../../mac/patchers/desktop/download-original.mjs';
 import { unpackOriginal } from '../../windows/patchers/desktop/original.mjs';
 import { selectWindowsRelease } from '../../windows/patchers/desktop/inputs.mjs';
+import { appVersionArg, resolveAppVersion } from '../../mac/patchers/desktop/app-version.mjs';
 import { withInstallerDiagnostic } from '../../windows/patchers/desktop/input-diagnostic.mjs';
 import { desktopEdges } from '../../mac/clients/desktop/local-services.mjs';
 import { rendererPatches, applyPinnedRendererPatch } from './renderer-patches.mjs';
@@ -183,7 +184,10 @@ async function listFiles(root, prefix = '') {
 export async function bundleFiles({ dist, preload, vncPreload, icon, icon512, build }) {
   const files = new Map();
   const add = (name, bytes) => { if (files.has(name)) throw new Error(`重复的文件：${name}`); files.set(name, Buffer.from(bytes)); };
-  for (const name of await listFiles(path.join(dist, 'renderer'))) add(`renderer/${name}`, await readFile(path.join(dist, 'renderer', name)));
+  for (const name of await listFiles(path.join(dist, 'renderer'))) {
+    const bytes = /^assets\/app-icon-[^/]+\.png$/.test(name) ? icon : await readFile(path.join(dist, 'renderer', name));
+    add(`renderer/${name}`, bytes);
+  }
   for (const name of await listFiles(path.join(webRoot, 'client'))) add(`client/${name}`, await readFile(path.join(webRoot, 'client', name)));
   for (const name of sharedAssets)
     add(`client/desktop/${name.replace(/\.cjs$/, '.js')}`, await readFile(path.join(repo, 'mac/clients/desktop', name)));
@@ -212,16 +216,18 @@ async function main() {
   if (args.includes('--help')) {
     const [recommended, ...older] = accepted;
     console.log(`node web/patchers/patch.mjs [--source <Grok_Bot_${recommended}_Setup.exe | app-64.7z | 安装目录>] [--version <${accepted.join('|')}>]
-    [--output <目录>] [--force] [--verify-only] [--upload <Host 地址>] [--password-file <文件>]
+    [--output <目录>] [--app-version <x.y.z>] [--force] [--verify-only] [--upload <Host 地址>] [--password-file <文件>]
 生成网页版界面包；界面推荐取自 Windows ${recommended}${older.length ? `，${recommended} 用不了时再用 ${older.join('、')}` : ''}。
 --source 指定的官方 Windows 原版按摘要自动识别版本；省略 --source 时自动下载并校验 ${recommended}（或 --version 指定的版本）Windows x64 安装包。
 --verify-only 在临时目录验证原包、Windows recipe、网页入口和界面补丁，不生成文件。
 --upload 生成后用管理员密码登录 Host，把界面包安装到 Host 上；密码取自 ROKBOT_ADMIN_PASSWORD、--password-file，或在终端输入。
+--app-version 设置网页版对外版本号（界面包清单与文件名），不低于官方界面版本；默认与官方版本相同。
 默认输出到 web/output/RokBotLocal-web-<版本>.zip，也可以在管理页「网页版」里上传。`);
     return;
   }
   const verifyOnly = args.includes('--verify-only');
   const uploadTo = arg('--upload');
+  const requestedAppVersion = appVersionArg(args);
   // Ask for the password before the long build, so an unattended upload does not wait at the end.
   const password = uploadTo && !verifyOnly ? await adminPassword(arg('--password-file')) : null;
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'rokbot-web-patch-'));
@@ -229,6 +235,7 @@ async function main() {
     const explicitSource = arg('--source');
     const { directory: windowsDesktop, supported } = await selectWindowsRelease({ source: explicitSource, version: arg('--version'), accepted });
     const renderer = renderers.find(item => item.desktopVersion === supported.version);
+    const appVersion = resolveAppVersion(requestedAppVersion, renderer.desktopVersion);
     const source = await acquireDesktopSource({ source: explicitSource, cacheDirectory: verifyOnly ? path.join(temporary, 'download') : path.join(webRoot, '.cache'), supported,
       onDownload: ({ version }) => console.error(`正在下载 Grok Bot ${version} Windows x64 安装包（网页版使用其中的界面）…`) });
     const app = await withInstallerDiagnostic(unpackOriginal(source, temporary, supported), explicitSource && source, supported, accepted);
@@ -247,15 +254,15 @@ async function main() {
     const recommended = renderer.desktopVersion === accepted[0];
     const checks = { windowsRecipes, rendererPatches: patches.length };
     if (verifyOnly) {
-      console.log(JSON.stringify({ verified: true, rendererVersion: renderer.desktopVersion, recommended, asarSha256, checks }));
+      console.log(JSON.stringify({ verified: true, rendererVersion: appVersion, upstreamRendererVersion: renderer.desktopVersion, recommended, asarSha256, checks }));
       return;
     }
     const outputRoot = path.resolve(arg('--output') ?? path.join(webRoot, 'output'));
-    const zipPath = path.join(outputRoot, `RokBotLocal-web-${renderer.desktopVersion}.zip`);
+    const zipPath = path.join(outputRoot, `RokBotLocal-web-${appVersion}.zip`);
     const force = args.includes('--force');
     const within = (root, file) => { const relative = path.relative(root, file); return !relative.startsWith('..') && !path.isAbsolute(relative); };
     if (within(path.resolve(source), zipPath)) throw new Error(`输出位置与输入重叠：${zipPath}`);
-    const info = { rendererVersion: renderer.desktopVersion, recommended, sourceAsarSha256: asarSha256, builtAt: new Date().toISOString() };
+    const info = { rendererVersion: appVersion, upstreamRendererVersion: renderer.desktopVersion, recommended, sourceAsarSha256: asarSha256, builtAt: new Date().toISOString() };
     const { icon, icon512 } = await readWebIcons(repo);
     const files = await bundleFiles({ dist, preload, vncPreload, icon, icon512, build: info });
     const { zip, manifest } = bundleZip(files, info);

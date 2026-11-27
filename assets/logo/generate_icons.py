@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
@@ -23,6 +25,7 @@ Image.init()
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGO_DIR = Path(__file__).resolve().parent
+MASTER_SVG_PATH = LOGO_DIR / "rokbot-logo.svg"
 HOST_ICON_PATH = ROOT / "host" / "server" / "public" / "rokbot-icon.png"
 
 CANVAS = 1024.0
@@ -30,50 +33,183 @@ BEZIER_STEPS = 96
 ARC_STEPS = 32
 SSAA = 4
 
-# Exact canonical cubic Bezier segments matching assets/logo/rokbot-logo.svg (1024x1024)
-CHASSIS_SEGMENTS = [
-    ((340.0, 148.0), (408.0, 148.0), (476.0, 144.0), (540.0, 144.0)),
-    ((540.0, 144.0), (618.0, 144.0), (664.0, 60.0), (756.0, 56.0)),
-    ((756.0, 56.0), (836.0, 52.0), (892.0, 104.0), (884.0, 176.0)),
-    ((884.0, 176.0), (878.0, 214.0), (932.0, 272.0), (956.0, 368.0)),
-    ((956.0, 368.0), (964.0, 464.0), (960.0, 564.0), (948.0, 656.0)),
-    ((948.0, 656.0), (928.0, 816.0), (820.0, 924.0), (636.0, 944.0)),
-    ((636.0, 944.0), (532.0, 956.0), (424.0, 960.0), (324.0, 952.0)),
-    ((324.0, 952.0), (156.0, 938.0), (76.0, 836.0), (68.0, 668.0)),
-    ((68.0, 668.0), (62.0, 548.0), (64.0, 424.0), (72.0, 336.0)),
-    ((72.0, 336.0), (84.0, 200.0), (184.0, 148.0), (340.0, 148.0)),
-]
+SVG_NS = "{http://www.w3.org/2000/svg}"
 
-# Exact tilted pill eyes: (cx, cy, width, height, radius, angle_deg)
-EYES = [
-    (376.0, 564.0, 144.0, 336.0, 72.0, -26.0),
-    (648.0, 504.0, 144.0, 268.0, 72.0, -26.0),
-]
 
-# Exact crest signal beacon: (cx, cy, radius)
-BEACON = (768.0, 144.0, 42.0)
+def _parse_hex_rgba(color: str, opacity: float = 1.0) -> tuple[int, int, int, int]:
+    hex_str = color.strip().lstrip("#")
+    if len(hex_str) != 6:
+        raise ValueError(f"Expected 6-digit hex color, got {color!r}")
+    return (
+        int(hex_str[0:2], 16),
+        int(hex_str[2:4], 16),
+        int(hex_str[4:6], 16),
+        round(opacity * 255.0),
+    )
 
-# Head palette (matches the master SVG)
-CHASSIS_TOP = (0x24, 0x29, 0x36, 255)
-CHASSIS_BOTTOM = (0x12, 0x14, 0x1B, 255)
-RIM_COLOR = (0x30, 0x37, 0x47, 255)
-EYE_COLOR = (0xF5, 0xF5, 0xF4, 255)
-ACCENT_COLOR = (0x38, 0xBD, 0xF8, 255)
 
-# Tile (master SVG: <rect class="brand-tile" rx="308"> + rim + edge, glyph transform)
-TILE_RADIUS = 308.0  # ~30% of the 1024 side
-TILE_ANGLE_DEG = 160.0
-TILE_TOP = (0xF4, 0xFB, 0xFE, 255)
-TILE_BOTTOM = (0xC9, 0xEE, 0xF7, 255)
-TILE_RIM_COLOR = (0xFF, 0xFF, 0xFF, 230)  # stroke-opacity 0.9
-TILE_RIM_INSET = 12.0  # stroke centre line, 1024 units (rect x="12")
-TILE_RIM_WIDTH = 8.0
-TILE_EDGE_COLOR = (0x0E, 0x4A, 0x5C, 41)  # stroke-opacity 0.16
-TILE_EDGE_WIDTH = 4.0
-GLYPH_SCALE = 0.84
-GLYPH_CENTER_Y = 506.0  # head bbox centre (beacon included) sits on the tile centre
+def _parse_cubic_path(d: str) -> list[tuple[tuple[float, float], tuple[float, float], tuple[float, float], tuple[float, float]]]:
+    tokens = re.findall(r"[MCZ]|-?\d+(?:\.\d+)?", d)
+    if not tokens or tokens[0] != "M":
+        raise ValueError(f"Master SVG path must start with M: {d!r}")
+    cur = (float(tokens[1]), float(tokens[2]))
+    idx = 3
+    segments: list[tuple[tuple[float, float], tuple[float, float], tuple[float, float], tuple[float, float]]] = []
+    while idx < len(tokens):
+        cmd = tokens[idx]
+        if cmd == "Z":
+            break
+        if cmd != "C":
+            raise ValueError(f"Unsupported SVG path command {cmd!r} in master SVG")
+        p1 = (float(tokens[idx + 1]), float(tokens[idx + 2]))
+        p2 = (float(tokens[idx + 3]), float(tokens[idx + 4]))
+        p3 = (float(tokens[idx + 5]), float(tokens[idx + 6]))
+        segments.append((cur, p1, p2, p3))
+        cur = p3
+        idx += 7
+    if not segments:
+        raise ValueError("Master SVG chassis path contains no cubic segments")
+    return segments
 
-# macOS icon grid: 824 px body in a 1024 canvas with a soft drop shadow
+
+def load_master_svg_spec(svg_path: Path = MASTER_SVG_PATH) -> dict[str, object]:
+    """Parse geometry, tile styling, and palette directly from assets/logo/rokbot-logo.svg."""
+    root = ET.fromstring(svg_path.read_text(encoding="utf-8"))
+
+    def by_id(tag: str, elem_id: str) -> ET.Element:
+        for el in root.iter(f"{SVG_NS}{tag}"):
+            if el.attrib.get("id") == elem_id:
+                return el
+        raise ValueError(f"Missing <{tag} id={elem_id!r}> in {svg_path}")
+
+    def by_class(tag: str, cls: str) -> list[ET.Element]:
+        return [
+            el for el in root.iter(f"{SVG_NS}{tag}")
+            if cls in el.attrib.get("class", "").split()
+        ]
+
+    tile_grad = by_id("linearGradient", "rokbot-tile")
+    tx1, ty1 = float(tile_grad.attrib["x1"]), float(tile_grad.attrib["y1"])
+    tx2, ty2 = float(tile_grad.attrib["x2"]), float(tile_grad.attrib["y2"])
+    tile_angle_deg = round((math.degrees(math.atan2(tx2 - tx1, -(ty2 - ty1))) + 360.0) % 360.0, 2)
+    tile_stops = list(tile_grad.findall(f"{SVG_NS}stop"))
+    tile_top = _parse_hex_rgba(tile_stops[0].attrib["stop-color"])
+    tile_bottom = _parse_hex_rgba(tile_stops[-1].attrib["stop-color"])
+
+    chassis_grad = by_id("linearGradient", "rokbot-chassis")
+    chassis_stops = list(chassis_grad.findall(f"{SVG_NS}stop"))
+    chassis_top = _parse_hex_rgba(chassis_stops[0].attrib["stop-color"])
+    chassis_bottom = _parse_hex_rgba(chassis_stops[-1].attrib["stop-color"])
+    chassis_y0 = float(chassis_grad.attrib["y1"])
+    chassis_y1 = float(chassis_grad.attrib["y2"])
+
+    tile_rect = by_class("rect", "brand-tile")[0]
+    tile_radius = float(tile_rect.attrib["rx"])
+
+    rim_rect = by_class("rect", "brand-tile-rim")[0]
+    tile_rim_inset = float(rim_rect.attrib["x"])
+    tile_rim_width = float(rim_rect.attrib["stroke-width"])
+    tile_rim_color = _parse_hex_rgba(
+        rim_rect.attrib["stroke"], float(rim_rect.attrib.get("stroke-opacity", "1")),
+    )
+
+    edge_rect = by_class("rect", "brand-tile-edge")[0]
+    tile_edge_width = float(edge_rect.attrib["stroke-width"])
+    tile_edge_color = _parse_hex_rgba(
+        edge_rect.attrib["stroke"], float(edge_rect.attrib.get("stroke-opacity", "1")),
+    )
+
+    glyph_group = by_class("g", "brand-glyph")[0]
+    tf_match = re.search(
+        r"translate\(\s*([-\d.]+)\s+([-\d.]+)\s*\)\s*scale\(\s*([-\d.]+)\s*\)\s*translate\(\s*([-\d.]+)\s+([-\d.]+)\s*\)",
+        glyph_group.attrib.get("transform", ""),
+    )
+    if not tf_match:
+        raise ValueError(f"Could not parse brand-glyph transform in {svg_path}")
+    glyph_scale = float(tf_match.group(3))
+    glyph_center_y = -float(tf_match.group(5))
+
+    face_path = by_class("path", "brand-face")[0]
+    chassis_segments = _parse_cubic_path(face_path.attrib["d"])
+    rim_color = _parse_hex_rgba(face_path.attrib["stroke"])
+    rim_stroke_width = float(face_path.attrib.get("stroke-width", "20"))
+
+    eyes_group = by_class("g", "brand-eyes")[0]
+    eye_color = _parse_hex_rgba(eyes_group.attrib["fill"])
+    eyes: list[tuple[float, float, float, float, float, float]] = []
+    for eye_el in by_class("rect", "brand-eye"):
+        ex = float(eye_el.attrib["x"])
+        ey = float(eye_el.attrib["y"])
+        ew = float(eye_el.attrib["width"])
+        eh = float(eye_el.attrib["height"])
+        er = float(eye_el.attrib["rx"])
+        rot = re.search(r"rotate\(\s*([-\d.]+)", eye_el.attrib.get("transform", ""))
+        angle = float(rot.group(1)) if rot else 0.0
+        eyes.append((ex + ew / 2.0, ey + eh / 2.0, ew, eh, er, angle))
+
+    accent_el = by_class("circle", "brand-accent")[0]
+    beacon = (
+        float(accent_el.attrib["cx"]),
+        float(accent_el.attrib["cy"]),
+        float(accent_el.attrib["r"]),
+    )
+    accent_color = _parse_hex_rgba(accent_el.attrib["fill"])
+
+    return {
+        "chassis_segments": chassis_segments,
+        "chassis_top": chassis_top,
+        "chassis_bottom": chassis_bottom,
+        "chassis_y0": chassis_y0,
+        "chassis_y1": chassis_y1,
+        "rim_color": rim_color,
+        "rim_stroke_width": rim_stroke_width,
+        "eyes": eyes,
+        "eye_color": eye_color,
+        "beacon": beacon,
+        "accent_color": accent_color,
+        "tile_radius": tile_radius,
+        "tile_angle_deg": tile_angle_deg,
+        "tile_top": tile_top,
+        "tile_bottom": tile_bottom,
+        "tile_rim_color": tile_rim_color,
+        "tile_rim_inset": tile_rim_inset,
+        "tile_rim_width": tile_rim_width,
+        "tile_edge_color": tile_edge_color,
+        "tile_edge_width": tile_edge_width,
+        "glyph_scale": glyph_scale,
+        "glyph_center_y": glyph_center_y,
+    }
+
+
+MASTER_SPEC = load_master_svg_spec(MASTER_SVG_PATH)
+
+# Geometry, palette, and tile parameters loaded directly from assets/logo/rokbot-logo.svg
+CHASSIS_SEGMENTS = MASTER_SPEC["chassis_segments"]
+EYES = MASTER_SPEC["eyes"]
+BEACON = MASTER_SPEC["beacon"]
+
+CHASSIS_TOP = MASTER_SPEC["chassis_top"]
+CHASSIS_BOTTOM = MASTER_SPEC["chassis_bottom"]
+CHASSIS_Y0 = MASTER_SPEC["chassis_y0"]
+CHASSIS_Y1 = MASTER_SPEC["chassis_y1"]
+RIM_COLOR = MASTER_SPEC["rim_color"]
+RIM_STROKE_WIDTH = MASTER_SPEC["rim_stroke_width"]
+EYE_COLOR = MASTER_SPEC["eye_color"]
+ACCENT_COLOR = MASTER_SPEC["accent_color"]
+
+TILE_RADIUS = MASTER_SPEC["tile_radius"]
+TILE_ANGLE_DEG = MASTER_SPEC["tile_angle_deg"]
+TILE_TOP = MASTER_SPEC["tile_top"]
+TILE_BOTTOM = MASTER_SPEC["tile_bottom"]
+TILE_RIM_COLOR = MASTER_SPEC["tile_rim_color"]
+TILE_RIM_INSET = MASTER_SPEC["tile_rim_inset"]
+TILE_RIM_WIDTH = MASTER_SPEC["tile_rim_width"]
+TILE_EDGE_COLOR = MASTER_SPEC["tile_edge_color"]
+TILE_EDGE_WIDTH = MASTER_SPEC["tile_edge_width"]
+GLYPH_SCALE = MASTER_SPEC["glyph_scale"]
+GLYPH_CENTER_Y = MASTER_SPEC["glyph_center_y"]
+
+# macOS Big Sur+ icon grid: 824 px body in a 1024 canvas (100 px standard margin) with a soft drop shadow
 MAC_TILE_FRAC = 824.0 / 1024.0
 SHADOW_ALPHA = 72
 SHADOW_OFFSET_Y = 12.0
@@ -299,7 +435,7 @@ def draw_glyph(img: Image.Image, scale: float, unit: float, cx: float, cy: float
     chassis = []
     for seg in CHASSIS_SEGMENTS:
         chassis.extend(tx(x, y) for x, y in sample_cubic_bezier(*seg, steps=BEZIER_STEPS))
-    rim_half = 10.0 * k
+    rim_half = (RIM_STROKE_WIDTH / 2.0) * k
     outer_pts = offset_polygon(chassis, rim_half)
     inner_pts = offset_polygon(chassis, -rim_half)
 
@@ -309,8 +445,8 @@ def draw_glyph(img: Image.Image, scale: float, unit: float, cx: float, cy: float
 
     mask = Image.new("L", (hi, hi), 0)
     ImageDraw.Draw(mask).polygon(inner_pts, fill=255)
-    _, gy0 = tx(512.0, 56.0)
-    _, gy1 = tx(512.0, 960.0)
+    _, gy0 = tx(512.0, CHASSIS_Y0)
+    _, gy1 = tx(512.0, CHASSIS_Y1)
     grad = vertical_gradient(hi, CHASSIS_TOP, CHASSIS_BOTTOM, gy0, gy1)
     chassis_layer = Image.new("RGBA", (hi, hi), (0, 0, 0, 0))
     chassis_layer.paste(grad, (0, 0), mask)
@@ -543,6 +679,7 @@ def main() -> None:
     manifest = {
         "schema": "rokbot-logo-manifest/v1",
         "masterSvg": "assets/logo/rokbot-logo.svg",
+        "masterSvgSha256": file_sha256(MASTER_SVG_PATH),
         "generator": "assets/logo/generate_icons.py",
         "tile": {
             "radius": TILE_RADIUS,

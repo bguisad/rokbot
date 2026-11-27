@@ -2,7 +2,7 @@
 // Release signing and ECDSA P-256 update-manifest helpers for RokBot.
 // Zero external dependencies; can run locally or on a dedicated signing server.
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
-import { chmod, copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
@@ -12,8 +12,16 @@ import {
   readAsarHeaderInfo,
   sha256File,
 } from '../mac/clients/shared/delta.mjs';
-import { entryBytes, readZip, signApk, verifyApk } from '../android/patchers/signing.mjs';
+import { entryBytes, readZip, signApk } from '../android/patchers/signing.mjs';
 import { extractManifestInfo } from '../android/patchers/manifest.mjs';
+import {
+  RELEASE_CERTIFICATE_SHA256,
+  assertSignedApkCertificate,
+  formatCertificateSha256Colons,
+  formatDevSigningWarning,
+  isDevSigningEnabled,
+  resolveReleaseSigningIdentity,
+} from '../android/release/signing-guard.mjs';
 
 const MANIFEST_KEY_SCHEMA = 'rokbot-release-manifest-key/v1';
 const LEGACY_MANIFEST_KEY_SCHEMA = 'grokbot-release-manifest-key/v1';
@@ -28,9 +36,6 @@ const exists = async filename => {
 };
 
 export const sha256Hex = bytes => createHash('sha256').update(bytes).digest('hex');
-
-const certificateFingerprint = certificate =>
-  createHash('sha256').update(certificate).digest('hex').match(/../g).join(':').toUpperCase();
 
 function readShellManifest(entries) {
   const manifests = entries.filter(e => e.name === 'AndroidManifest.xml');
@@ -215,11 +220,13 @@ async function cli() {
       .sort()
       .slice(-3);
   };
+  const hasFlag = name => rest.includes(name);
+  const devSigningFlag = hasFlag('--dev-signing') ? true : undefined;
   if (!command || command === '--help' || rest.includes('--help')) {
     console.log(`Usage:
   node ci/release-sign.mjs init-manifest-key --key <path>
-  node ci/release-sign.mjs sign-apk --input <unsigned.apk> --output <signed.apk> --signing-key <android-signing.json>
-  node ci/release-sign.mjs publish-android --apk <signed.apk> --out-dir <dir> --base-url <https://.../updates> --manifest-key <path> [--track stable] [--notes <text>]
+  node ci/release-sign.mjs sign-apk --input <unsigned.apk> --output <signed.apk> --signing-key <android-signing.json> [--dev-signing]
+  node ci/release-sign.mjs publish-android --apk <signed.apk> --out-dir <dir> --base-url <https://.../updates> --manifest-key <path> [--track stable] [--notes <text>] [--dev-signing]
   node ci/release-sign.mjs publish-desktop --file <installer> --platform <win32-x64|darwin-arm64> --version <ver> --out-dir <dir> --base-url <https://.../updates> --manifest-key <path> [--track stable]`);
     return;
   }
@@ -237,23 +244,48 @@ async function cli() {
     const output = path.resolve(arg('--output') ?? '');
     const signingPath = path.resolve(arg('--signing-key') ?? '');
     if (!arg('--input') || !arg('--output') || !arg('--signing-key')) throw new Error('Missing --input, --output or --signing-key');
-    const record = JSON.parse(await readFile(signingPath, 'utf8'));
-    if (!['rokbot-android-signing/v1', 'grokbot-android-signing/v1'].includes(record.schema)) {
-      throw new Error(`Invalid Android signing key schema: ${signingPath}`);
-    }
+    const loaded = resolveReleaseSigningIdentity({
+      keystorePath: signingPath,
+      devSigning: devSigningFlag,
+      allowAutoCreate: false,
+      requireSchemas: ['rokbot-android-signing/v1', 'grokbot-android-signing/v1'],
+    });
     const unsignedBytes = await readFile(input);
-    const identity = { privateKey: createPrivateKey(record.privateKey), certificate: Buffer.from(record.certificate, 'base64') };
-    const signedBytes = signApk(unsignedBytes, identity);
-    const verified = verifyApk(signedBytes);
+    const signedBytes = signApk(unsignedBytes, loaded.identity);
+    await mkdir(path.dirname(output), { recursive: true });
+    const tmpOut = `${output}.tmp-${process.pid}-${Date.now()}`;
+    let verified;
+    try {
+      await writeFile(tmpOut, signedBytes);
+      verified = assertSignedApkCertificate({
+        apkPath: tmpOut,
+        apkBytes: signedBytes,
+        expectedCertificateSha256: loaded.certificateSha256,
+        enforceReleasePin: !loaded.devSigning,
+        minSdk: 24,
+        keystorePath: signingPath,
+      });
+      await rename(tmpOut, output);
+    } catch (error) {
+      await unlink(tmpOut).catch(() => {});
+      throw error;
+    }
     const manifest = readShellManifest(readZip(signedBytes).entries);
-    await writeAtomic(output, signedBytes);
     console.log(JSON.stringify({
       output,
       manifest,
       apkSha256: sha256Hex(signedBytes),
       bytes: signedBytes.length,
-      certificateSha256: certificateFingerprint(identity.certificate),
-      subject: verified.certificate.subject.replace(/\n/g, ', '),
+      certificateSha256: formatCertificateSha256Colons(verified.certificateSha256),
+      certificateSha256Hex: verified.certificateSha256,
+      devSigning: loaded.devSigning,
+      signingVerification: {
+        verified: verified.verified,
+        verifier: verified.verifier,
+        certificateSha256: verified.certificateSha256,
+        matchesReleasePin: verified.matchesReleasePin,
+      },
+      subject: verified.subject.replace(/\n/g, ', '),
     }, null, 2));
     return;
   }
@@ -288,7 +320,21 @@ async function cli() {
     }
     if (!['stable', 'nightly', 'dogfood'].includes(track)) throw new Error(`Invalid track: ${track}`);
     const apkBytes = await readFile(apkPath);
-    const verified = verifyApk(apkBytes);
+    const devMode = isDevSigningEnabled({ devSigning: devSigningFlag });
+    const verified = assertSignedApkCertificate({
+      apkPath,
+      apkBytes,
+      enforceReleasePin: !devMode,
+      minSdk: 24,
+    });
+    if (devMode && !verified.matchesReleasePin) {
+      console.warn(formatDevSigningWarning({
+        certificateSha256: verified.certificateSha256,
+        expectedSha256: RELEASE_CERTIFICATE_SHA256,
+        keystorePath: apkPath,
+        ephemeral: false,
+      }));
+    }
     const { entries } = readZip(apkBytes);
     const manifest = readShellManifest(entries);
     const buildEntry = entries.find(e => e.name === 'assets/web/client/build.json');

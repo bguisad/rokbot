@@ -284,7 +284,39 @@ function pixelAt(png, x, y) {
   return [...png.pixels.subarray(i, i + png.bpp)];
 }
 
-test('White-tile master SVG, generator constants and rendered icons agree', () => {
+function extractIcnsPngs(buf) {
+  assert.equal(buf.subarray(0, 4).toString('ascii'), 'icns', 'valid ICNS magic');
+  const pngs = new Map();
+  let off = 8;
+  while (off + 8 <= buf.length) {
+    const type = buf.subarray(off, off + 4).toString('ascii');
+    const len = buf.readUInt32BE(off + 4);
+    assert.ok(len >= 8 && off + len <= buf.length, `valid ICNS chunk ${type}`);
+    const data = buf.subarray(off + 8, off + len);
+    if (data.length >= 8 && data.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') {
+      pngs.set(type, decodePng(data));
+    }
+    off += len;
+  }
+  return pngs;
+}
+
+function extractIcoPngs(buf) {
+  assert.equal(buf.readUInt16LE(0), 0);
+  assert.equal(buf.readUInt16LE(2), 1);
+  const count = buf.readUInt16LE(4);
+  const pngs = new Map();
+  for (let i = 0; i < count; i++) {
+    const entryOff = 6 + i * 16;
+    const w = buf[entryOff] || 256;
+    const bytesInRes = buf.readUInt32LE(entryOff + 8);
+    const imageOffset = buf.readUInt32LE(entryOff + 12);
+    pngs.set(w, decodePng(buf.subarray(imageOffset, imageOffset + bytesInRes)));
+  }
+  return pngs;
+}
+
+test('White-tile master SVG, generator parser and rendered icons agree', () => {
   const svg = readText('assets/logo/rokbot-logo.svg');
   const gen = readText('assets/logo/generate_icons.py');
   const manifest = JSON.parse(readText('assets/logo/manifest.json'));
@@ -304,12 +336,12 @@ test('White-tile master SVG, generator constants and rendered icons agree', () =
   assert.match(svg, /<g class="brand-glyph" transform="translate\(512 512\) scale\(0\.84\) translate\(-512 -506\)">/);
   assert.doesNotMatch(svg, /<image|data:image/, 'master stays pure vector');
 
-  assert.match(gen, /^TILE_RADIUS = 308\.0/m);
-  assert.match(gen, /^TILE_ANGLE_DEG = 160\.0/m);
-  assert.match(gen, /^TILE_TOP = \(0xF4, 0xFB, 0xFE, 255\)/m);
-  assert.match(gen, /^TILE_BOTTOM = \(0xC9, 0xEE, 0xF7, 255\)/m);
-  assert.match(gen, /^GLYPH_SCALE = 0\.84$/m);
-  assert.match(gen, /^GLYPH_CENTER_Y = 506\.0/m);
+  // generate_icons.py loads geometry, palette, and tile spec directly from assets/logo/rokbot-logo.svg.
+  assert.match(gen, /^MASTER_SVG_PATH = LOGO_DIR \/ "rokbot-logo\.svg"$/m);
+  assert.match(gen, /^def load_master_svg_spec\(/m);
+  assert.match(gen, /^MASTER_SPEC = load_master_svg_spec\(MASTER_SVG_PATH\)$/m);
+  assert.equal(manifest.masterSvg, 'assets/logo/rokbot-logo.svg');
+  assert.equal(manifest.masterSvgSha256, createHash('sha256').update(readBytes('assets/logo/rokbot-logo.svg')).digest('hex'));
   assert.deepEqual(manifest.tile, { radius: 308, gradientAngle: 160, gradientStops: ['#F4FBFE', '#C9EEF7'], glyphScale: 0.84 });
 
   const near = (actual, expected, tol, label) =>
@@ -339,4 +371,105 @@ test('White-tile master SVG, generator constants and rendered icons agree', () =
   assert.equal(pixelAt(fg, 2, 2)[3], 0);
   assert.equal(pixelAt(fg, fg.width / 2, fg.height / 2 + 40)[3], 255);
   assert.match(manifest.androidIconBackground, /^#FF[0-9A-F]{6}$/);
+});
+
+test('Desktop icons (macOS ICNS, Windows ICO, Linux PNGs) and mobile icons share the same white-tile RokBot design', () => {
+  const icnsPngs = extractIcnsPngs(readBytes('assets/logo/rokbot.icns'));
+  const icoPngs = extractIcoPngs(readBytes('assets/logo/rokbot.ico'));
+
+  const mac1024 = icnsPngs.get('ic10');
+  const mac512 = icnsPngs.get('ic09');
+  assert.ok(mac1024 && mac1024.width === 1024 && mac1024.height === 1024, 'macOS ICNS contains 1024x1024 ic10 PNG');
+  assert.ok(mac512 && mac512.width === 512 && mac512.height === 512, 'macOS ICNS contains 512x512 ic09 PNG');
+
+  // macOS Big Sur+ spec: 824x824 rounded tile centered in 1024x1024 canvas (~100 px standard margin, never full-bleed).
+  for (const [x, y] of [[0, 0], [16, 16], [512, 24], [24, 512], [1000, 512]]) {
+    assert.equal(pixelAt(mac1024, x, y)[3], 0, `macOS ICNS outer margin (${x},${y}) must be transparent`);
+  }
+  let minX = 1024, minY = 1024, maxX = -1, maxY = -1;
+  for (let y = 0; y < 1024; y++) {
+    for (let x = 0; x < 1024; x++) {
+      if (pixelAt(mac1024, x, y)[3] >= 200) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  const tileW = maxX - minX + 1;
+  const tileH = maxY - minY + 1;
+  assert.ok(tileW >= 816 && tileW <= 832, `macOS ICNS opaque tile width ${tileW} matches 824px Big Sur grid`);
+  assert.ok(tileH >= 816 && tileH <= 832, `macOS ICNS opaque tile height ${tileH} matches 824px Big Sur grid`);
+  assert.ok(Math.abs(minX - 100) <= 4 && Math.abs(minY - 100) <= 4, `macOS ICNS tile centered with ~100px margin (${minX},${minY})`);
+
+  const win256 = icoPngs.get(256);
+  assert.ok(win256 && win256.width === 256 && win256.height === 256, 'Windows ICO contains 256x256 PNG');
+  const linux512 = decodePng(readBytes('assets/logo/rokbot-icon-512.png'));
+  const android192 = decodePng(readBytes('assets/logo/android/mipmap-xxxhdpi/ic_launcher.png'));
+  const ios1024 = decodePng(readBytes('assets/logo/ios/AppIcon-1024.png'));
+
+  for (const [label, png] of [['Windows ICO', win256], ['Linux 512 PNG', linux512], ['Android ic_launcher', android192]]) {
+    assert.equal(pixelAt(png, 2, 2)[3], 0, `${label} outer corner is transparent`);
+  }
+
+  // Canonical landmark points in 1024-tile coordinates:
+  // tileTop, tileBottom, dark chassis head, left tilted eye, upper-right cyan crest beacon.
+  const toGlyph = (x, y) => [512 + (x - 512) * 0.84, 512 + (y - 506) * 0.84];
+  const landmarks = {
+    tileTop: [512, 48],
+    tileBottom: [512, 976],
+    head: toGlyph(512, 760),
+    leftEye: toGlyph(376, 564),
+    beacon: toGlyph(768, 144),
+  };
+
+  const samplePlatform = (png, tileFrac) => {
+    const side = png.width * tileFrac;
+    const x0 = (png.width - side) / 2;
+    const y0 = (png.height - side) / 2;
+    return Object.fromEntries(
+      Object.entries(landmarks).map(([name, [tx, ty]]) => {
+        const px = Math.round(x0 + (tx / 1024) * side);
+        const py = Math.round(y0 + (ty / 1024) * side);
+        return [name, pixelAt(png, px, py)];
+      }),
+    );
+  };
+
+  const samples = {
+    mac: samplePlatform(mac1024, 824 / 1024),
+    windows: samplePlatform(win256, 1.0),
+    linux: samplePlatform(linux512, 1.0),
+    android: samplePlatform(android192, 44 / 48),
+    ios: samplePlatform(ios1024, 1.0),
+  };
+
+  // Every desktop and mobile icon must render the same light-blue tile, dark head, off-white eyes, and cyan beacon.
+  for (const [platform, s] of Object.entries(samples)) {
+    const alphaOf = px => (px.length === 4 ? px[3] : 255);
+    assert.equal(alphaOf(s.tileTop), 255, `${platform} tileTop opaque`);
+    assert.ok(s.tileTop[0] > 220 && s.tileTop[1] > 240 && s.tileTop[2] > 245, `${platform} tileTop is light-blue/white: ${s.tileTop}`);
+    assert.equal(alphaOf(s.tileBottom), 255, `${platform} tileBottom opaque`);
+    assert.ok(s.tileBottom[0] > 190 && s.tileBottom[0] < 235 && s.tileBottom[1] > 230 && s.tileBottom[2] > 240, `${platform} tileBottom is light cyan: ${s.tileBottom}`);
+    assert.ok(s.head[0] < 48 && s.head[1] < 48 && s.head[2] < 64 && alphaOf(s.head) === 255, `${platform} head is dark: ${s.head}`);
+    assert.ok(s.leftEye[0] > 230 && s.leftEye[1] > 230 && s.leftEye[2] > 225 && alphaOf(s.leftEye) === 255, `${platform} leftEye is off-white: ${s.leftEye}`);
+    assert.ok(s.beacon[0] < 90 && s.beacon[1] > 165 && s.beacon[2] > 220 && alphaOf(s.beacon) === 255, `${platform} beacon is cyan #38BDF8: ${s.beacon}`);
+  }
+
+  // Desktop icons (macOS, Windows, Linux) must match mobile (Android, iOS) within tight RGB tolerance at every landmark.
+  for (const desktop of ['mac', 'windows', 'linux']) {
+    for (const mobile of ['android', 'ios']) {
+      for (const name of Object.keys(landmarks)) {
+        const d = samples[desktop][name];
+        const m = samples[mobile][name];
+        for (let c = 0; c < 3; c++) {
+          assert.ok(
+            Math.abs(d[c] - m[c]) <= 16,
+            `${desktop} vs ${mobile} mismatch at ${name}[ch=${c}]: ${d.slice(0, 3)} vs ${m.slice(0, 3)}`,
+          );
+        }
+      }
+    }
+  }
 });

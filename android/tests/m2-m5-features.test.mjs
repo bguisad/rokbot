@@ -234,6 +234,7 @@ test('M3-Pipeline: strips legacy v1 META-INF, keeps resources.arsc uncompressed,
       host: 'http://127.0.0.1:18080',
       pairingCode: 'K7M9P2',
       keystore: tmpKeystore,
+      devSigning: true,
       force: true,
     });
 
@@ -1057,6 +1058,7 @@ test('R2-Patcher: injects 16KB-aligned Tailcat arm64-v8a libs, supports --packag
       host: 'tailcat://connect/tcABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef?port=8000',
       pairingCode: 'K7M9P2',
       keystore: tmpKeystore,
+      devSigning: true,
       force: true,
     });
 
@@ -1617,7 +1619,7 @@ test('Pairip detection, libpairipcore.so stripping, and incomplete split XAPK fa
     assert.equal(soVerify.pairipDetected, true);
     assert.ok(soVerify.pairipMarkers.includes('libpairipcore.so'));
 
-    const patchReport = await runPatchPipeline({ inputApk: nativePairipPath, outputApk: outPath, force: true });
+    const patchReport = await runPatchPipeline({ inputApk: nativePairipPath, outputApk: outPath, devSigning: true, force: true });
     assert.equal(patchReport.pairipDetected, true);
     assert.ok(fs.existsSync(outPath), 'Patched APK must be written when Pairip is cleanly stripped/neutralized');
     const outBytes = fs.readFileSync(outPath);
@@ -3364,6 +3366,7 @@ test('M1.4.2-Logo: replaces res/mipmap-*-v4/*.webp in-place and inserts missing 
       inputApk: inApk,
       outputApk: outApk,
       keystore,
+      devSigning: true,
       force: true,
     });
     assert.equal(report.schema, 'rokbot-android-patch-report/v1');
@@ -3451,6 +3454,7 @@ test(
         host: 'http://127.0.0.1:18080',
         pairingCode: 'K7M9P2',
         keystore,
+        devSigning: true,
         force: true,
       });
 

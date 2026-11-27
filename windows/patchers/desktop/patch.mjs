@@ -16,6 +16,7 @@ import { applyReleaseRecipes } from '../../../mac/patchers/desktop/release-recip
 import { extractNotificationPolicy } from '../../../mac/patchers/desktop/extract-policy.mjs';
 import { acquireDesktopSource } from '../../../mac/patchers/desktop/download-original.mjs';
 import { patchDesktopUpdateSettingsUi, resolveDesktopUpdateConfig } from './update-config.mjs';
+import { appVersionArg, resolveAppVersion, windowsFixedVersion } from '../../../mac/patchers/desktop/app-version.mjs';
 import { replaceAsarIntegrity, replaceResources, stripAuthenticode } from './pe.mjs';
 import {
   APP_DISPLAY_NAME,
@@ -45,13 +46,15 @@ const arg = name => { const index = args.indexOf(name); return index >= 0 ? args
 if (args.includes('--help')) {
   const [recommended, ...older] = releases;
   console.log(`node windows/patchers/desktop/patch.mjs [--source <Grok_Bot_${recommended}_Setup.exe | app-64.7z | 安装目录>] [--version <${releases.join('|')}>]
-    [--output <目录>] [--update-url <URL> (--update-public-key <SPKI Base64|PEM> | --update-public-key-file <文件>)] [--no-installer] [--verify-only] [--allow-cross-platform]
+    [--output <目录>] [--app-version <x.y.z>] [--update-url <URL> (--update-public-key <SPKI Base64|PEM> | --update-public-key-file <文件>)] [--no-installer] [--verify-only] [--allow-cross-platform]
 推荐官方 ${recommended}；${older.length ? `${older.join('、')} 是回退版本，${recommended} 用不了时再用。` : ''}--source 指定的官方原版按摘要自动识别版本。
 省略 --source 时自动下载并校验 ${recommended}（或 --version 指定的版本）Windows x64 原版。默认输出到 windows/output/。
+--app-version 设置 RokBot 对外版本号（package.json、exe 版本资源、安装包与文件名），不低于官方输入版本；默认与官方版本相同。
 --update-url / --update-public-key / --update-public-key-file 为客户端启用签名验证的自动更新。`);
   process.exit(0);
 }
 const updateConfig = await resolveDesktopUpdateConfig(args);
+const requestedAppVersion = appVersionArg(args);
 if (!args.includes('--verify-only') && !args.includes('--allow-cross-platform') && process.platform !== 'win32') throw new Error('Windows 客户端需要在 Windows 上生成。');
 const startedAt = performance.now();
 const outputRoot = path.resolve(arg('--output') ?? path.join(windowsRoot, 'output'));
@@ -78,9 +81,10 @@ let stage, createdRoot;
 async function build() {
   const explicitSource = arg('--source');
   const { directory, supported } = await selectWindowsRelease({ source: explicitSource, version: arg('--version') });
-  const portableZip = path.join(outputRoot, `RokBotLocal-${supported.version}-x64-portable.zip`);
-  const setupExe = path.join(outputRoot, `RokBotLocal-${supported.version}-x64-Setup.exe`);
-  const manifestPath = path.join(outputRoot, `RokBotLocal-${supported.version}-x64.patch.json`);
+  const appVersion = resolveAppVersion(requestedAppVersion, supported.version);
+  const portableZip = path.join(outputRoot, `RokBotLocal-${appVersion}-x64-portable.zip`);
+  const setupExe = path.join(outputRoot, `RokBotLocal-${appVersion}-x64-Setup.exe`);
+  const manifestPath = path.join(outputRoot, `RokBotLocal-${appVersion}-x64.patch.json`);
   const source = await acquireDesktopSource({ source: explicitSource, cacheDirectory: path.join(windowsRoot, '.cache'), supported,
     onDownload: ({ version }) => console.error(`正在下载 Grok Bot ${version} Windows x64…`) });
   const app = await withInstallerDiagnostic(unpackOriginal(source, temporary, supported), explicitSource && source, supported, releases);
@@ -105,7 +109,7 @@ async function build() {
   await applyReleaseRecipes(unpacked, path.join(directory, 'recipes'));
   await patchDesktopUpdateSettingsUi(unpacked);
   const patchSeconds = Number(((performance.now() - patchStarted) / 1000).toFixed(3));
-  console.log(JSON.stringify({ verified: true, recipesVerified: true, version: supported.version, recommended: supported.version === releases[0],
+  console.log(JSON.stringify({ verified: true, recipesVerified: true, version: supported.version, appVersion, recommended: supported.version === releases[0],
     architecture: supported.architecture, asarSha256 }));
   if (args.includes('--verify-only')) return;
   await checkOutputLocation(source, outputRoot, targets);
@@ -118,14 +122,15 @@ async function build() {
   } });
   const previousMain = pkg.main;
   pkg.main = 'local-client/main.mjs';
+  pkg.version = appVersion; // app.getVersion() and the updater compare against this.
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
   const clients = path.join(repo, 'mac/clients');
   await cp(path.join(clients, 'desktop'), path.join(unpacked, 'local-client'), { recursive: true,
     filter: filename => path.basename(filename) !== 'notification-policy.mjs' });
   await writeFile(path.join(unpacked, 'local-client/notification-policy.mjs'), notificationPolicy);
   await cp(path.join(clients, 'shared'), path.join(unpacked, 'shared'), { recursive: true });
-  const { icoPath, iconPngPath } = resolveRokBotWindowsLogoPaths(repo);
-  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath });
+  const { icoPath, iconPngPath, rendererIconPngPath } = resolveRokBotWindowsLogoPaths(repo);
+  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath, rendererIconPngPath });
 
   const outAsar = path.join(stagedApp, 'resources/app.asar');
   await rm(outAsar);
@@ -137,7 +142,7 @@ async function build() {
   const missing = [...originalUnpacked].filter(name => !patchedUnpacked.has(name));
   const extra = [...patchedUnpacked].filter(name => !originalUnpacked.has(name));
   if (missing.length || extra.length) throw new Error(`解包文件与原版不一致：${[...missing, ...extra].slice(0, 5).join(', ')}`);
-  const iconVerification = await verifyRokBotWindowsIcons({ icoPath, iconPngPath, outAsarPath: outAsar, asarModule: asar });
+  const iconVerification = await verifyRokBotWindowsIcons({ icoPath, iconPngPath, rendererIconPngPath, outAsarPath: outAsar, asarModule: asar });
   const headerSha256 = sha(asar.getRawHeader(outAsar).headerString);
 
   // The executable embeds the expected ASAR header hash; its Authenticode signature
@@ -149,7 +154,8 @@ async function build() {
   );
   const exe = replaceResources(exeWithIntegrity, {
     ico: await readFile(icoPath),
-    versionStrings: WINDOWS_PE_VERSION_STRINGS,
+    versionStrings: { ...WINDOWS_PE_VERSION_STRINGS, FileVersion: appVersion, ProductVersion: appVersion },
+    fixedVersion: windowsFixedVersion(appVersion),
   });
   await writeFile(exePath, exe);
   await cp(resolveWindowsTailcatSource(windowsRoot), path.join(stagedApp, 'resources/rokbot-tailcat.exe'));
@@ -159,7 +165,7 @@ async function build() {
   if (updateConfig) {
     await writeFile(path.join(stagedApp, 'resources/rokbot-local-update.json'), JSON.stringify(updateConfig, null, 2) + '\n');
   }
-  const manifest = { patchedAt: new Date().toISOString(), version: supported.version,
+  const manifest = { patchedAt: new Date().toISOString(), version: appVersion, upstreamVersion: supported.version,
     architecture: supported.architecture, originalAsarSha256: asarSha256, patchedAsarSha256: await hashFile(outAsar),
     asarHeaderSha256: headerSha256, originalEntry: previousMain, patchedEntry: pkg.main, appUserModelId: APP_USER_MODEL_ID,
     executable: { originalSha256: exeSha256, patchedSha256: sha(exe), signature: 'removed', resourcesPatched: true },
@@ -169,7 +175,7 @@ async function build() {
   Object.assign(manifest, { source, output: appOutput }); // Machine paths belong only in the local build report.
 
   const staged = name => path.join(stage, path.basename(name));
-  const zip = await writeZip(stagedApp, staged(portableZip), { prefix: APP, comment: supported.version });
+  const zip = await writeZip(stagedApp, staged(portableZip), { prefix: APP, comment: appVersion });
   manifest.portableZip = { path: portableZip, bytes: zip.bytes, entries: zip.entries, sha256: await hashFile(staged(portableZip)) };
   if (!args.includes('--no-installer')) {
     const stub = resolveSetupStubSource(windowsRoot);

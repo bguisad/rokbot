@@ -28,6 +28,7 @@ const paths = {
   edit: '<path d="M14.5 5.5 18.5 9.5M4.5 19.5l1-4.5L16 4.5a2.1 2.1 0 0 1 3 3L8.5 18Z"/>',
   qr: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM14 20h1M20 14v1"/>',
   chevron: '<path d="m9.5 6 6 6-6 6"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   more: '<circle cx="6" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
   external: '<path d="M13.5 4.5h6v6M19.5 4.5l-8 8M18 14v4a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18V7.5A1.5 1.5 0 0 1 5.5 6h4"/>',

@@ -1,7 +1,7 @@
 /* Page-specific details that the shared components do not cover. */
 .row > .compact-select { flex: 0 0 auto; width: auto; min-width: 128px; }
 .inline-field { display: flex; align-items: center; gap: 8px; }
-.inline-field > input, .inline-field > select { flex: 1; min-width: 0; }
+.inline-field > input, .inline-field > select, .inline-field > sand-select { flex: 1; min-width: 0; }
 .foot-check { margin-right: auto; }
 .plain-list { margin: 0; padding-left: 18px; color: var(--sand-text-secondary); font: var(--text-body2); }
 .preview { display: flex; flex-direction: column; gap: 6px; }
@@ -79,7 +79,7 @@
   .route-line > :first-child { grid-column: 1 / -1; }
   .route-labels > :first-child { display: none; }
   .profile-row { flex-wrap: wrap; }
-  .row > input:not([type=checkbox]), .row > select:not(.compact-select), .row > .file-picker, .row > .row-control:not(.auto) { flex-basis: 100%; }
+  .row > input:not([type=checkbox]), .row > select:not(.compact-select), .row > sand-select:not(.compact-select), .row > .file-picker, .row > .row-control:not(.auto) { flex-basis: 100%; }
 }
 .file-picker { display: inline-flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; }
 .row > .file-picker { flex: 0 1 300px; }

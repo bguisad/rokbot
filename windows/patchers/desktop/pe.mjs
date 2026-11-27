@@ -394,8 +394,21 @@ function serializeVersionNode(node) {
   return out;
 }
 
-function updateVersionResource(versionBuffer, versionStrings) {
+const VS_FIXEDFILEINFO_SIGNATURE = 0xfeef04bd;
+
+function writeFixedVersion(root, fixedVersion) {
+  const value = root.value;
+  if (value.length < 52 || value.readUInt32LE(0) !== VS_FIXEDFILEINFO_SIGNATURE) throw new Error('Executable has no VS_FIXEDFILEINFO');
+  const [a, b, c, d] = fixedVersion;
+  for (const at of [8, 16]) { // dwFileVersionMS/LS, dwProductVersionMS/LS
+    value.writeUInt32LE(((a << 16) | b) >>> 0, at);
+    value.writeUInt32LE(((c << 16) | d) >>> 0, at + 4);
+  }
+}
+
+function updateVersionResource(versionBuffer, versionStrings, fixedVersion = null) {
   const root = parseVersionNode(versionBuffer, 0);
+  if (fixedVersion) writeFixedVersion(root, fixedVersion);
   const stringFileInfo = root.children.find(child => child.key === 'StringFileInfo');
   if (stringFileInfo) {
     for (const table of stringFileInfo.children) {
@@ -428,12 +441,23 @@ export function versionInfo(buffer) {
   return result;
 }
 
+/** Read FileVersion/ProductVersion from VS_FIXEDFILEINFO of the first RT_VERSION resource. */
+export function fixedVersionInfo(buffer) {
+  const ver = resources(buffer).get(RT_VERSION);
+  if (!ver?.size) return null;
+  const value = parseVersionNode([...ver.values()][0], 0).value;
+  if (value.length < 52 || value.readUInt32LE(0) !== VS_FIXEDFILEINFO_SIGNATURE) return null;
+  const read = at => [value.readUInt32LE(at) >>> 16, value.readUInt32LE(at) & 0xffff,
+    value.readUInt32LE(at + 4) >>> 16, value.readUInt32LE(at + 4) & 0xffff].join('.');
+  return { fileVersion: read(8), productVersion: read(16) };
+}
+
 /**
  * Replace RT_ICON / RT_GROUP_ICON and/or RT_VERSION strings in a 64-bit PE executable.
  * Strips Authenticode if present, preserves all other resources, and updates PE section
  * sizes and DataDirectory[2] cleanly.
  */
-export function replaceResources(buffer, { ico = null, versionStrings = null } = {}) {
+export function replaceResources(buffer, { ico = null, versionStrings = null, fixedVersion = null } = {}) {
   let peBuffer = hasAuthenticode(buffer) ? stripAuthenticode(buffer) : Buffer.from(buffer);
   const { optional, directories, sectionAlignment, fileAlignment, sections } = headers(peBuffer);
   const rsrcSectionIndex = sections.findIndex(s => s.name === '.rsrc');
@@ -453,10 +477,10 @@ export function replaceResources(buffer, { ico = null, versionStrings = null } =
     nextItems = nextItems.filter(item => item.type !== RT_ICON && item.type !== RT_GROUP_ICON);
     nextItems.push(...icoToResourceEntries(ico, groupId, groupLang));
   }
-  if (versionStrings) {
+  if (versionStrings || fixedVersion) {
     nextItems = nextItems.map(item => (
       item.type === RT_VERSION
-        ? { ...item, data: updateVersionResource(item.data, versionStrings) }
+        ? { ...item, data: updateVersionResource(item.data, versionStrings ?? {}, fixedVersion) }
         : item
     ));
   }

@@ -53,7 +53,7 @@ test('brand-assets applies Info.plist, wires RokBot icons into app.asar & bundle
   t.after(() => rm(dir, { recursive: true, force: true }));
 
   const asar = createRequire(path.join(macRoot, 'patchers/desktop/package.json'))('@electron/asar');
-  const { icnsPath, iconPngPath } = resolveRokBotLogoPaths(repoRoot);
+  const { icnsPath, iconPngPath, rendererIconPngPath } = resolveRokBotLogoPaths(repoRoot);
 
   const info = applyRokBotInfoPlist({
     CFBundleIdentifier: 'com.anysphere.sand',
@@ -79,12 +79,14 @@ test('brand-assets applies Info.plist, wires RokBot icons into app.asar & bundle
   const outResources = path.join(dir, 'RokBot.app/Contents/Resources');
   const outAsar = path.join(outResources, 'app.asar');
   await mkdir(path.join(unpacked, 'local-client'), { recursive: true });
+  await mkdir(path.join(unpacked, 'dist/renderer/assets'), { recursive: true });
   await mkdir(outResources, { recursive: true });
   await writeFile(path.join(unpacked, 'package.json'), JSON.stringify({ name: 'rokbot', main: 'local-client/main.mjs' }));
+  await writeFile(path.join(unpacked, 'dist/renderer/assets/app-icon-B8tEBssC.png'), 'stale-official-about-icon');
   await writeFile(path.join(outResources, 'Assets.car'), 'stale-1.2.3-asset-catalog');
   await writeFile(path.join(outResources, 'icon.icns'), 'stale-official-icns');
 
-  await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath });
+  await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath, rendererIconPngPath });
   await asar.createPackageWithOptions(unpacked, outAsar, {});
   await installBundleIcon({ outResources, icnsPath });
 
@@ -93,6 +95,7 @@ test('brand-assets applies Info.plist, wires RokBot icons into app.asar & bundle
   const verified = await verifyRokBotIcons({
     icnsPath,
     iconPngPath,
+    rendererIconPngPath,
     outIconPath: path.join(outResources, 'icon.icns'),
     outAsarPath: outAsar,
     asarModule: asar,
@@ -100,6 +103,28 @@ test('brand-assets applies Info.plist, wires RokBot icons into app.asar & bundle
   assert.equal(verified.rokbotIconApplied, true);
   assert.equal(verified.iconSha256, sha(await readFile(icnsPath)));
   assert.equal(verified.localIconSha256, sha(await readFile(iconPngPath)));
+  assert.deepEqual(verified.rendererAppIcons, ['dist/renderer/assets/app-icon-B8tEBssC.png']);
+  assert.equal(
+    sha(asar.extractFile(outAsar, 'dist/renderer/assets/app-icon-B8tEBssC.png')),
+    sha(await readFile(rendererIconPngPath)),
+  );
+
+  // Tampered renderer about-dialog icon must fail closed.
+  const tamperedRendererAsar = path.join(outResources, 'tampered-renderer.asar');
+  await writeFile(path.join(unpacked, 'dist/renderer/assets/app-icon-B8tEBssC.png'), 'tampered-about-icon');
+  await asar.createPackageWithOptions(unpacked, tamperedRendererAsar, {});
+  await assert.rejects(
+    verifyRokBotIcons({
+      icnsPath,
+      iconPngPath,
+      rendererIconPngPath,
+      outIconPath: path.join(outResources, 'icon.icns'),
+      outAsarPath: tamperedRendererAsar,
+      asarModule: asar,
+    }),
+    /app-icon-B8tEBssC\.png/,
+  );
+  await stageLocalClientIcon({ unpackedDir: unpacked, iconPngPath, rendererIconPngPath });
 
   // Tampered bundle icon.icns must fail closed.
   await writeFile(path.join(outResources, 'icon.icns'), 'tampered');

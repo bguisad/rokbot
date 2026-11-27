@@ -1,4 +1,5 @@
 require('./workspace-keys.cjs');
+require('./suggestions-settings.cjs');
 require('../dist/electron-preload/preload.cjs');
 const { ipcRenderer, contextBridge } = require('electron');
 contextBridge.exposeInMainWorld('localBot', {
@@ -22,6 +23,12 @@ contextBridge.exposeInMainWorld('localBot', {
   updateModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-put', payload),
   fetchModelCatalog: payload => ipcRenderer.invoke('rokbot-local:model-catalog', payload),
   testModelConfig: payload => ipcRenderer.invoke('rokbot-local:model-test', payload),
+  getSuggestionsSettings: () => ipcRenderer.invoke('rokbot-local:suggestions-settings-get'),
+  updateSuggestionsSettings: payload => ipcRenderer.invoke('rokbot-local:suggestions-settings-put', payload),
+  addQuickPhrase: text => ipcRenderer.invoke('rokbot-local:suggestions-phrase-add', { text }),
+  updateQuickPhrase: (id, text) => ipcRenderer.invoke('rokbot-local:suggestions-phrase-update', { id, text }),
+  deleteQuickPhrase: id => ipcRenderer.invoke('rokbot-local:suggestions-phrase-delete', { id }),
+  reorderQuickPhrases: ids => ipcRenderer.invoke('rokbot-local:suggestions-phrase-reorder', { ids }),
   downloadAttachmentsZip: payload => ipcRenderer.invoke('rokbot-local:download-attachments-zip', payload),
   onConnectionChanged: callback => {
     const listener = (_event, status) => callback(status);
