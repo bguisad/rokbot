@@ -20,11 +20,11 @@ To fetch the original installer from a mirror, set `ROKBOT_DESKTOP_DOWNLOAD_BASE
 
 The patch accepts only the unmodified 1.2.3 Apple Silicon original; the pinned digests are in [`patchers/desktop/supported.json`](patchers/desktop/supported.json). `--source` can also point to an existing `Grok Bot.app`.
 
-`--verify-only` replays the fixed recipes in temporary storage without building a client. A supplied DMG must match the full archive SHA-256, and the Mac tool verifies the input app's signature. This project has not tested installation, launch, pairing or chat on macOS. See [Supported Platforms](../README.en.md#supported-platforms) on the home page for accepted inputs.
+`--verify-only` replays the fixed recipes in temporary storage without building a client. A supplied DMG must match the full archive SHA-256, and the Mac tool verifies the input app's signature. This project has not tested installation, launch, pairing or chat on macOS. See [Supported Platforms](../docs/clients.en.md#supported-platforms) for accepted inputs.
 
 The app is ad-hoc signed by default. For local graphical control, add `--identity auto` to sign with an existing Developer ID Application or Apple Development certificate from your keychain.
 
-This repository does not provide original or generated clients. Use the generated app only on your own devices, or have your Host administrator publish it on the Client updates page; see [Getting the clients](../README.en.md#getting-the-clients).
+This repository does not provide original or generated clients. Use the generated app only on your own devices, or have your Host administrator publish it on the Client updates page; see [Getting the clients](../docs/clients.en.md#getting-the-clients).
 
 Repository: <https://github.com/hongfaqiu/rokbot>
 

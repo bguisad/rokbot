@@ -22,7 +22,7 @@ python3 release/patch-ios.py \
   --bundle-id dev.rokbot.local
 ```
 
-`--output` must be a new directory that does not exist yet. It receives the unsigned `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `patch-report.json`, plus `extension-signing.json` when the extensions are kept. This repository does not provide signed IPAs; use the generated IPA only on your own devices, or have your Host administrator publish it on the Client updates page. See [Getting the clients](../README.en.md#getting-the-clients). Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code (or switch to **Admin Password** pairing).
+`--output` must be a new directory that does not exist yet. It receives the unsigned `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `patch-report.json`, plus `extension-signing.json` when the extensions are kept. This repository does not provide signed IPAs; use the generated IPA only on your own devices, or have your Host administrator publish it on the Client updates page. See [Getting the clients](../docs/clients.en.md#getting-the-clients). Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code (or switch to **Admin Password** pairing).
 
 Push notifications use APNs or Bark, configured in the Host console. Enable realtime voice in the app settings.
 
