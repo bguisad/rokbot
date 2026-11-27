@@ -170,11 +170,16 @@ test('request and usage metadata come from the model that completed the turn', a
   let requests = 0;
   await Array.fromAsync(model.getExecutor([{ role: 'user', content: 'hello' }]).stream({}, 'test', []).fullStream);
   assert.deepEqual(ids, ['successful-backup-id']);
-  assert.equal(usages.length, 1);
-  assert.equal(usages[0].model, 'backup');
-  assert.equal(usages[0].requestId, 'successful-backup-id');
-  assert.equal(usages[0].profileId, 'backup-profile');
-  assert.equal(usages[0].providerId, 'backup-provider');
+  // The failed primary attempt is a failed request without tokens; the backup finished.
+  assert.equal(usages.length, 2);
+  assert.deepEqual({ model: usages[0].model, status: usages[0].status, error: usages[0].error, raw: usages[0].raw },
+    { model: 'primary', status: 'error', error: 'HTTP 503', raw: {} });
+  assert.equal(usages[1].model, 'backup');
+  assert.equal(usages[1].status, 'ok');
+  assert.ok(Number.isInteger(usages[1].durationMs) && usages[1].durationMs >= 0);
+  assert.equal(usages[1].requestId, 'successful-backup-id');
+  assert.equal(usages[1].profileId, 'backup-profile');
+  assert.equal(usages[1].providerId, 'backup-provider');
 });
 
 test('usage observed before a failed stream remains attributed to that attempt', async () => {

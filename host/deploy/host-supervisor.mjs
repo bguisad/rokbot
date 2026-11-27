@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { readJson, writePrivate } from "../server/storage.mjs";
@@ -99,7 +100,14 @@ export class HostSupervisor {
       return null;
     }
   }
+  // The model file the child reads at start (null when the env names none or it is unreadable).
+  modelFile() {
+    const path = this.env?.ROKBOT_MODEL_ENV ?? this.env?.GROKBOT_MODEL_ENV;
+    if (!path) return null;
+    try { return readFileSync(path, "utf8"); } catch { return null; }
+  }
   startHost(revision) {
+    this.startedModel = this.modelFile();
     this.pendingRevision = revision;
     this.lastExit = null;
     this.quiescing = false;
@@ -193,6 +201,12 @@ export class HostSupervisor {
       this.appliedRevision = this.pendingRevision;
       this.pendingRevision = undefined;
       await this.status(this.appliedRevision, "applied");
+    }
+    // A request for the model file the child already started with needs no restart: the save
+    // finished while the child was starting (model.env is written before the request).
+    if (revision !== this.appliedRevision && this.startedModel !== null && this.startedModel !== undefined &&
+        this.modelFile() === this.startedModel) {
+      this.appliedRevision = revision;
     }
     if (revision === this.appliedRevision) {
       await this.status(this.appliedRevision, "applied");

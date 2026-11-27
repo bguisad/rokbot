@@ -58,6 +58,18 @@ function normalizeModelResponse(data) {
   return normalized;
 }
 
+// Only the known report parameters, as strings of bounded length.
+const USAGE_REPORT_KEYS = ['range', 'from', 'to', 'model', 'provider', 'profile', 'kind', 'agent', 'status', 'offset', 'limit'];
+function usageReportQuery(timeZone, report) {
+  const query = new URLSearchParams({ timeZone });
+  for (const key of USAGE_REPORT_KEYS) {
+    const value = report[key];
+    if ((typeof value === 'string' && value) || Number.isFinite(value)) query.set(key, String(value).slice(0, 300));
+  }
+  if (report.export === 'csv') query.set('export', 'csv');
+  return query.toString();
+}
+
 export function createModelBridge({ getGateway, getConnected, text = rokText } = {}) {
   const disconnectedResult = () => ({
     ok: false,
@@ -106,7 +118,11 @@ export function createModelBridge({ getGateway, getConnected, text = rokText } =
         let timeZone = typeof payload?.timeZone === 'string' ? payload.timeZone : '';
         try { if (timeZone) new Intl.DateTimeFormat('en', { timeZone }); } catch { timeZone = ''; }
         if (!timeZone) timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-        const data = await gw.request(`/local/usage?timeZone=${encodeURIComponent(timeZone)}`, undefined, AbortSignal.timeout(20000), 'GET');
+        // `report` asks for the usage report (GET /local/usage/report) with its range, filters,
+        // page or CSV export; without it the original summary.
+        const report = payload?.report && typeof payload.report === 'object' ? payload.report : null;
+        const path = report ? `/local/usage/report?${usageReportQuery(timeZone, report)}` : `/local/usage?timeZone=${encodeURIComponent(timeZone)}`;
+        const data = await gw.request(path, undefined, AbortSignal.timeout(report?.export ? 60000 : 20000), 'GET');
         return { ok: true, ...(data && typeof data === 'object' ? data : {}) };
       } catch (error) {
         return failureResult(error);

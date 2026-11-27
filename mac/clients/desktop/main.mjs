@@ -416,6 +416,25 @@ ipcMain.handle('rokbot-local:suggestions-phrase-reorder', (event, payload) => {
   if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
   return gateway.request('/local/suggestions/phrases/reorder', { ids: Array.isArray(payload?.ids) ? payload.ids : [] }, AbortSignal.timeout(10000), 'PUT');
 });
+// Composer suggestions and inline completion. Each call carries a renderer request id so a newer
+// keystroke (rokbot-local:suggestions-cancel) aborts the Host request it replaces.
+const suggestionCalls = new Map();
+function suggestionCall(event, payload, path, timeoutMs) {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const requestId = typeof payload?.requestId === 'string' ? payload.requestId.slice(0, 64) : '';
+  const body = payload?.body && typeof payload.body === 'object' && !Array.isArray(payload.body) ? payload.body : {};
+  const controller = new AbortController();
+  if (requestId) suggestionCalls.set(requestId, controller);
+  return gateway.request(path, body, AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]), 'POST')
+    .finally(() => { if (requestId && suggestionCalls.get(requestId) === controller) suggestionCalls.delete(requestId); });
+}
+ipcMain.handle('rokbot-local:suggestions-generate', (event, payload) => suggestionCall(event, payload, '/local/suggestions', 18000));
+ipcMain.handle('rokbot-local:suggestions-complete', (event, payload) => suggestionCall(event, payload, '/local/suggestions/complete', 9000));
+ipcMain.on('rokbot-local:suggestions-cancel', (event, requestId) => {
+  if (!trusted(event, mainWindow) || typeof requestId !== 'string') return;
+  suggestionCalls.get(requestId)?.abort();
+  suggestionCalls.delete(requestId);
+});
 ipcMain.handle('rokbot-local:download-attachments-zip', async (event, payload) => {
   if (!trusted(event, mainWindow) || !methodCall) throw new Error('Unexpected renderer');
   return methodCall('downloadAttachmentsZip', payload);

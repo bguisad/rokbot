@@ -21,8 +21,19 @@ export function usageCharts() {
   if (source.split(from).length !== 2) throw new Error('usage-charts.js must import usage-format.js once');
   return source.replace(from, "from './rok-usage-format.js';") + `\nexport const ROK_USAGE_CHART_CSS = ${JSON.stringify(publicFile('usage-charts.css'))};\n`;
 }
+// rok-usage-dashboard.js: usage-dashboard.js importing the renderer's copies of both, with
+// usage-dashboard.css as a string.
+export function usageDashboard() {
+  let source = publicFile('usage-dashboard.js');
+  for (const [from, to] of [["from './usage-format.js';", "from './rok-usage-format.js';"], ["from './usage-charts.js';", "from './rok-usage-charts.js';"]]) {
+    if (source.split(from).length !== 2) throw new Error(`usage-dashboard.js must import ${from} once`);
+    source = source.replace(from, to);
+  }
+  return source + `\nexport const ROK_USAGE_DASHBOARD_CSS = ${JSON.stringify(publicFile('usage-dashboard.css'))};\n`;
+}
 const USAGE_FORMAT = "import { formatCount as rokFormatCount, formatExactCount as rokFormatExactCount, withRequestUnit as rokWithRequestUnit } from './rok-usage-format.js';\n"
-  + "import { usageView as rokUsageView, attachUsageTooltip as rokAttachUsageTooltip, ROK_USAGE_CHART_CSS } from './rok-usage-charts.js';\n";
+  + "import { usageView as rokUsageView, attachUsageTooltip as rokAttachUsageTooltip, ROK_USAGE_CHART_CSS } from './rok-usage-charts.js';\n"
+  + "import { mountUsageDashboard as rokMountUsageDashboard, ROK_USAGE_DASHBOARD_CSS } from './rok-usage-dashboard.js';\n";
 const asset = name => `dist/renderer/assets/${name}`;
 const edit = (name, edits) => ({ path: asset(name), source: asset(name), edits });
 const I18N = "import { grokText } from './grok-local-i18n.js';\n";
@@ -196,6 +207,7 @@ export function specForTarget(target = 'windows') {
     { path: asset('grok-local-i18n.js'), source: null, edits: [{ append: extension('grok-local-i18n.js') }] },
     { path: asset('rok-usage-format.js'), source: null, edits: [{ append: usageFormat() }] },
     { path: asset('rok-usage-charts.js'), source: null, edits: [{ append: usageCharts() }] },
+    { path: asset('rok-usage-dashboard.js'), source: null, edits: [{ append: usageDashboard() }] },
 
     // No crash reports leave the local client.
     edit(chunks.sentrySdk, [

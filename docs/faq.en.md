@@ -31,7 +31,7 @@ Data lives in three volumes: `host-data` (mounted at `/data`), `box-home` and `b
 ## Distribution & compliance
 
 - This project does not distribute binaries of third-party clients. The repository contains only what this project wrote itself: the Host source, image build scripts, patch tools, build scripts and documentation. Users obtain the original installers themselves.
-- RokBot is licensed under the [ProkBot Noncommercial License 1.0](../LICENSE). It permits personal use, self-hosting, study, modification and noncommercial redistribution. All commercial use is prohibited, including:
+- RokBot is licensed under the [RokBot Noncommercial License 1.0](../LICENSE); portions derived from ProkBot also remain under the [ProkBot Noncommercial License 1.0](../LICENSES/ProkBot-Noncommercial-1.0.txt). It permits personal use, self-hosting, study, modification and noncommercial redistribution. All commercial use is prohibited, including:
   - selling or licensing it for payment;
   - paid hosting or paid services;
   - incorporating it into commercial products;

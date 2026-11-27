@@ -1,6 +1,11 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { usageExport, usageReport, UsageReportError } from '../../host/runtime/usage-report.mjs';
+import { DEMO_NAMES, writeDemoLedger } from '../../host/tests/fixtures/usage-demo.mjs';
 
 /**
  * Lightweight RFC 6455 WebSocket helper for node:http server upgrade
@@ -142,9 +147,15 @@ export class MockHostServer {
     this.suggestionsSettings = {
       enabled: true,
       aiEnabled: true,
+      completionEnabled: true,
       quickPhrases: [],
       updatedAt: null,
     };
+    // Optional artificial latency (ms) of /local/suggestions and /local/suggestions/complete, e.g. to
+    // capture the loading shimmer on an emulator.
+    this.suggestionsDelayMs = Number(options.suggestionsDelayMs) || 0;
+    this.completionDelayMs = Number(options.completionDelayMs) || 0;
+    this.completionRequests = [];
     this.profile = {
       displayName: 'Local Test User',
       avatarDataUrl: null,
@@ -156,6 +167,11 @@ export class MockHostServer {
       output: 28900,
       period: '30d',
     };
+    // GET /local/usage/report: the real report code over the demo ledger (host/tests/fixtures/usage-demo.mjs).
+    // usageReportEnabled = false answers 404, as a Host older than the report does.
+    this.usageReportEnabled = options.usageReport !== false;
+    this.usageNow = options.usageNow ? new Date(options.usageNow) : null;
+    this.usageLedgerDir = null;
     this.computers = [
       {
         id: 'comp-main',
@@ -495,6 +511,11 @@ export class MockHostServer {
       try { ws.close(); } catch (_) {}
     }
     this.activeVoiceSessions.clear();
+
+    if (this.usageLedgerDir) {
+      try { fs.rmSync(this.usageLedgerDir, { recursive: true, force: true }); } catch (_) {}
+      this.usageLedgerDir = null;
+    }
 
     return new Promise(resolve => {
       this.server.close(() => resolve());
@@ -914,6 +935,7 @@ export class MockHostServer {
       try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) { return this._json(res, 400, { error: 'Invalid JSON' }); }
       if (typeof body.enabled === 'boolean') this.suggestionsSettings.enabled = body.enabled;
       if (typeof body.aiEnabled === 'boolean') this.suggestionsSettings.aiEnabled = body.aiEnabled;
+      if (typeof body.completionEnabled === 'boolean') this.suggestionsSettings.completionEnabled = body.completionEnabled;
       if (Array.isArray(body.quickPhrases)) {
         this.suggestionsSettings.quickPhrases = body.quickPhrases
           .map((item, i) => ({
@@ -977,11 +999,46 @@ export class MockHostServer {
       return this._json(res, 200, { ok: true, quickPhrases: this.suggestionsSettings.quickPhrases, updatedAt: this.suggestionsSettings.updatedAt });
     }
 
+    // Inline completion (ghost text): POST /local/suggestions/complete. Deterministic fake model:
+    // the rest of a known sentence when the draft is a prefix of it, otherwise a fixed tail.
+    if (pathname === '/local/suggestions/complete' && method === 'POST') {
+      const raw = await this._readBody(req);
+      let body = {};
+      try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {}
+      const text = String(body.text ?? '');
+      const draft = text.trim();
+      const agentId = String(body.agentId || '').trim();
+      this.completionRequests.push({ agentId, text, locale: body.locale || null });
+      const zh = /[\u4e00-\u9fff]/.test(draft) || (!/[A-Za-z]/.test(draft) && /^zh/i.test(String(body.locale || '')));
+      const reply = (completion, source, extra = {}) => this._json(res, 200, {
+        enabled: this.suggestionsSettings.completionEnabled !== false, text, completion, source, cached: false, ...extra,
+      });
+      if (this.suggestionsSettings.completionEnabled === false) return reply('', 'disabled');
+      if (draft.length < 2) return reply('', 'too-short');
+      const transcript = agentId ? (this.transcripts.get(agentId) || []) : [];
+      const hasHistory = transcript.length > 0 || (Array.isArray(body.recentMessages) && body.recentMessages.length > 0);
+      if (!hasHistory) return reply('', 'empty');
+      if (this.completionDelayMs > 0) {
+        const aborted = await new Promise(resolve => {
+          const timer = setTimeout(() => resolve(false), this.completionDelayMs);
+          res.once('close', () => { if (!res.writableEnded) { clearTimeout(timer); resolve(true); } });
+        });
+        if (aborted || res.destroyed) return undefined;
+      }
+      const sentences = zh
+        ? ['帮我总结一下今天的进展和下一步计划', '请检查最新的运行日志并找出报错原因', '把关键结论整理成清单']
+        : ['Can you summarize the latest changes and next steps', 'Please check the build logs for errors', 'List the key takeaways'];
+      const hit = sentences.find(sentence => sentence.startsWith(text) && sentence.length > text.length);
+      const completion = hit ? hit.slice(text.length) : (zh ? '，并给出下一步建议' : ' and suggest the next steps');
+      return reply(completion, 'model', { lang: zh ? 'zh' : 'en' });
+    }
+
     // Local Suggestions: POST /local/suggestions
     if (pathname === '/local/suggestions' && method === 'POST') {
       const raw = await this._readBody(req);
       let body = {};
       try { body = JSON.parse(raw.toString('utf-8') || '{}'); } catch (_) {}
+      if (this.suggestionsDelayMs > 0) await new Promise(resolve => setTimeout(resolve, this.suggestionsDelayMs));
       const zh = /^zh/i.test(String(body.locale || ''));
       const lang = zh ? 'zh' : 'en';
       if (!this.suggestionsSettings.enabled) {
@@ -2053,6 +2110,30 @@ export class MockHostServer {
         this.profile.avatarDataUrl = av;
         this.profile.updatedAtMs = Date.now();
         return this._json(res, 200, this.profile);
+      }
+    }
+
+    // Usage report: GET /local/usage/report (docs/usage-report.md), export=csv included.
+    if (pathname === '/local/usage/report' && method === 'GET') {
+      if (!this.usageReportEnabled) return this._json(res, 404, { error: 'Not found' });
+      const query = url.searchParams;
+      const timeZone = query.get('timeZone') || 'UTC';
+      try { new Intl.DateTimeFormat('en', { timeZone }).format(); } catch { return this._json(res, 400, { error: 'Invalid time zone' }); }
+      const now = this.usageNow ?? new Date();
+      if (!this.usageLedgerDir) {
+        this.usageLedgerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-mock-usage-'));
+        await writeDemoLedger(this.usageLedgerDir, { now });
+      }
+      const filters = Object.fromEntries(['model', 'provider', 'profile', 'kind', 'agent', 'status']
+        .map(key => [key, query.get(key) || undefined]).filter(([, value]) => value));
+      const options = { timeZone, now, range: query.get('range') || '7d', from: query.get('from') || undefined, to: query.get('to') || undefined,
+        filters, offset: Number(query.get('offset') ?? 0), limit: Number(query.get('limit') ?? 50), names: DEMO_NAMES };
+      try {
+        const body = query.get('export') === 'csv' ? await usageExport(this.usageLedgerDir, options) : await usageReport(this.usageLedgerDir, options);
+        return this._json(res, 200, body);
+      } catch (error) {
+        if (error instanceof UsageReportError) return this._json(res, 400, { error: error.message });
+        throw error;
       }
     }
 

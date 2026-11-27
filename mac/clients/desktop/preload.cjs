@@ -1,5 +1,5 @@
 require('./workspace-keys.cjs');
-require('./suggestions-settings.cjs');
+require('./suggestions-composer.cjs');
 require('./migrate-settings.cjs');
 require('../dist/electron-preload/preload.cjs');
 const { ipcRenderer, contextBridge } = require('electron');

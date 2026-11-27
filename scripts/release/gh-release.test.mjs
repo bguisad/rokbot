@@ -182,7 +182,7 @@ test('扫描产物目录：清单作附件，安装包只取校验值', (t) => {
 function fixtureRepo(t) {
   const repo = tmp(t, 'ghr-repo-');
   git(repo, 'init', '-q', '-b', 'main');
-  write(path.join(repo, 'LICENSE'), 'ProkBot Noncommercial License 1.0\n');
+  write(path.join(repo, 'LICENSE'), 'RokBot Noncommercial License 1.0\n');
   write(path.join(repo, 'docs/releases/2026-12-01.md'), SAMPLE);
   write(path.join(repo, 'mac/patchers/desktop/patch.mjs'), 'export {};\n');
   write(path.join(repo, 'windows/patchers/desktop/recipes/manifest.json'), '{}\n');
@@ -242,7 +242,7 @@ test('生成附件清单：只有源码包、补丁清单与 SHA256SUMS', (t) =>
   // 正文：中文、写明安装包 SHA-256 与 Host 更新通道，但不作为附件。
   assert.match(plan.body, /^第二版导语。/);
   assert.match(plan.body, /自建 Host 的「更新」通道/);
-  assert.match(plan.body, /ProkBot Noncommercial License 1\.0/);
+  assert.match(plan.body, /RokBot Noncommercial License 1\.0/);
   const setup = plan.installers.find((i) => i.name === 'RokBotLocal-1.3.1-x64-Setup.exe');
   assert.match(plan.body, new RegExp(`RokBotLocal-1\\.3\\.1-x64-Setup\\.exe\` \\| \`${setup.sha256}`));
   assert.match(plan.body, /RokBot-1\.26\.0-rokbot\.10\.apk/);

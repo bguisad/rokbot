@@ -19,6 +19,8 @@ async function stageClientDir(t) {
   const clientStage = path.join(stageDir, 'client');
   await cp(path.join(repo, 'web/client'), clientStage, { recursive: true });
   await cp(path.join(repo, 'mac/clients/desktop'), path.join(clientStage, 'desktop'), { recursive: true });
+  // The bundle serves shared .cjs scripts as .js (web/patchers/patch.mjs bundleFiles).
+  await cp(path.join(repo, 'mac/clients/desktop/composer-assist.cjs'), path.join(clientStage, 'desktop/composer-assist.js'));
   return { stageDir, clientStage };
 }
 
@@ -344,6 +346,8 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   const clientStage = path.join(stageDir, 'client');
   await cp(path.join(repo, 'web/client'), clientStage, { recursive: true });
   await cp(path.join(repo, 'mac/clients/desktop'), path.join(clientStage, 'desktop'), { recursive: true });
+  // The bundle serves shared .cjs scripts as .js (web/patchers/patch.mjs bundleFiles).
+  await cp(path.join(repo, 'mac/clients/desktop/composer-assist.cjs'), path.join(clientStage, 'desktop/composer-assist.js'));
   await writeFile(path.join(clientStage, 'official-preload.js'), [
     'export const methods = ["listAgents"];',
     'export const edges = { "desktop-mount": ["mountPanel"] };',
@@ -588,6 +592,16 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
     [['gpt-5', 12000, 345, 10000, 0, 12345, 1], ['claude-opus', 900, 100, 0, 50, 1000, 1]]);
   // A time zone the Host rejects falls back to this browser's own.
   assert.equal((await localBot.getUsage({ timeZone: 'Not/AZone' })).ok, true);
+  // The usage report through the web listener: range, filters, a page of requests and CSV.
+  const report = await localBot.getUsage({ timeZone: 'UTC', report: { range: '7d', model: 'gpt-5', limit: 5 } });
+  assert.equal(report.ok, true);
+  assert.equal(report.version, 2);
+  assert.deepEqual([report.totals.requests, report.totals.total, report.requests.items[0].id], [1, 12345, 'u1']);
+  assert.deepEqual(report.options.model.map(item => item.key), ['gpt-5', 'claude-opus']);
+  const exported = await localBot.getUsage({ timeZone: 'UTC', report: { range: 'today', export: 'csv' } });
+  assert.equal(exported.count, 2);
+  assert.match(exported.csv, /^\ufeff时间,Bot,场景,模型/);
+  assert.equal((await localBot.getUsage({ timeZone: 'UTC', report: { range: 'custom', from: '2026-02-30', to: '2026-03-01' } })).status, 400);
 
   // Verify window.localBot model endpoints under admin-web session
   const adminStatus = await localBot.getLocalStatus();

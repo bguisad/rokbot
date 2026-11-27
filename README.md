@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: RokBot Noncommercial License 1.0" /></a>
   <a href="docs/clients.md"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, Linux, iOS, Android, Web" /></a>
   <a href="#快速开始"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
@@ -195,7 +195,7 @@ docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /da
 
 ## 许可
 
-<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot 使用 [ProkBot Noncommercial License 1.0](LICENSE)：允许个人使用、自托管、学习、修改与非商业分发，禁止任何商业用途。衍生关系与第三方声明见 [NOTICE](NOTICE)，合规说明见 [docs/faq.md](docs/faq.md#分发与合规说明)。
+<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot 使用 [RokBot Noncommercial License 1.0](LICENSE)（中文译文见同一文件后半部分，以英文版为准）：允许个人使用、自托管、学习、修改与非商业分发，禁止任何商业用途。源自 ProkBot 的部分同时受 [ProkBot Noncommercial License 1.0](LICENSES/ProkBot-Noncommercial-1.0.txt) 约束；衍生关系与第三方声明见 [NOTICE](NOTICE)，合规说明见 [docs/faq.md](docs/faq.md#分发与合规说明)。
 
 ## 致谢
 

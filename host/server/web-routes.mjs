@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { check, cookie, HttpError, jsonBody, sendJson } from './security.mjs';
 import { webManifest } from './web-client.mjs';
 
-const WEB_DEVICE_PATHS = /^(\/(local\/(device(\/push\/test)?|profile|status|usage|model(\/(?:catalog|test))?|files(\/content)?|computers|connectors(\/.*)?|notification-settings(\/events)?|mobile-rpc\/.*|audio\/transcriptions|voice\/(status|session))|vnc\/(desktop|fork)\/.*|connect\/(status|attachment)|notifications(\/events)?|api\/[a-zA-Z][a-zA-Z0-9]*|events))$/;
+const WEB_DEVICE_PATHS = /^(\/(local\/(device(\/push\/test)?|profile|status|usage(\/report)?|model(\/(?:catalog|test))?|files(\/content)?|computers|connectors(\/.*)?|notification-settings(\/events)?|mobile-rpc\/.*|audio\/transcriptions|voice\/(status|session)|suggestions(\/(settings|complete|phrases(\/(reorder|[A-Za-z0-9_-]{1,64}))?))?)|vnc\/(desktop|fork)\/.*|connect\/(status|attachment)|notifications(\/events)?|api\/[a-zA-Z][a-zA-Z0-9]*|events))$/;
 const VNC_SCRIPT = /^\/vnc\/(desktop|fork)\/__rokbot-(vnc-bridge|vnc-preload)\.js$/;
 
 /** The admin-page assets the sign-in page loads, followed through their static imports. */
