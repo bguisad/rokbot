@@ -154,6 +154,8 @@ docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /da
 
 打开 `http://127.0.0.1:18080/admin`，用初始化密钥设置管理员密码，再到「对话模型」添加模型服务并设为默认路由。
 
+也可以用命令行工具 `rokbot` 一键完成部署、管理员密码设置、环境检查、更新回滚和本地打包：`bash scripts/install-cli.sh` 后运行 `rokbot init`，见 [命令行工具](docs/cli.md)。
+
 参数说明、离线安装、源码构建和 AI 助手自动部署见 [部署指南](docs/deployment.md) · [AI 助手部署手册](docs/AGENT_DEPLOY.md) · [高级运维与备份](docs/AI-INSTALL.md)。
 
 ## 获取客户端
