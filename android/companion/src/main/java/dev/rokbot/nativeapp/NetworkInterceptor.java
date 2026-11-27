@@ -218,7 +218,15 @@ public class NetworkInterceptor implements Interceptor {
                     }
                     newReq.header("x-rokbot-client", "android-native/1.26.0");
 
-                    Response response = chain.proceed(newReq.build());
+                    Response response;
+                    try {
+                        response = chain.proceed(newReq.build());
+                    } catch (IOException e) {
+                        if (Storage.isTailcatEnabled(mContext)) {
+                            TailcatManager.get().onRequestFailure(mContext);
+                        }
+                        throw e;
+                    }
                     if (isVoiceMint && response.isSuccessful() && response.body() != null) {
                         byte[] respBytes;
                         try {
@@ -251,9 +259,20 @@ public class NetworkInterceptor implements Interceptor {
         String token = Storage.getToken(mContext);
         if (url != null && token != null && !token.isEmpty()) {
             String serverOriginUrl = GatewayEndpointRouter.resolveDirectServerOriginIfCandidate(mContext, host);
-            if (GatewayEndpointRouter.matchesServerOrigin(url.toString(), serverOriginUrl)) {
+            String fullUrl = url.toString();
+            String rewrittenTailcatUrl = GatewayEndpointRouter.rewriteStaleTailcatLoopbackUrl(mContext, fullUrl, serverOriginUrl);
+            boolean isDirectServer = rewrittenTailcatUrl != null
+                    || GatewayEndpointRouter.matchesServerOrigin(fullUrl, serverOriginUrl);
+            if (isDirectServer) {
                 Request.Builder directReq = request.newBuilder();
                 boolean modified = false;
+                if (rewrittenTailcatUrl != null) {
+                    HttpUrl rewritten = HttpUrl.parse(rewrittenTailcatUrl);
+                    if (rewritten != null) {
+                        directReq.url(rewritten);
+                        modified = true;
+                    }
+                }
                 String auth = request.header("Authorization");
                 if (auth == null || auth.isEmpty()) {
                     directReq.header("Authorization", "Bearer " + token);
@@ -271,8 +290,14 @@ public class NetworkInterceptor implements Interceptor {
                     directReq.header("x-rokbot-client", "android-native/1.26.0");
                     modified = true;
                 }
-                if (modified) {
-                    return chain.proceed(directReq.build());
+                Request finalReq = modified ? directReq.build() : request;
+                try {
+                    return chain.proceed(finalReq);
+                } catch (IOException e) {
+                    if (Storage.isTailcatEnabled(mContext)) {
+                        TailcatManager.get().onRequestFailure(mContext);
+                    }
+                    throw e;
                 }
             }
         }

@@ -163,7 +163,15 @@ public final class R8OkHttpInterceptor implements oj.v {
                 }
                 newReq.e("x-rokbot-client", "android-native/1.26.0");
 
-                oj.E resp = chain.a(newReq.b());
+                oj.E resp;
+                try {
+                    resp = chain.a(newReq.b());
+                } catch (IOException e) {
+                    if (Storage.isTailcatEnabled(mContext)) {
+                        TailcatManager.get().onRequestFailure(mContext);
+                    }
+                    throw e;
+                }
 
                 if (isVoiceMint && resp.o0() && resp.m() != null) {
                     byte[] respBytes = readBoundedResponseBytes(resp.m(), MAX_VOICE_REQ_BYTES);
@@ -192,9 +200,17 @@ public final class R8OkHttpInterceptor implements oj.v {
         String token = Storage.getToken(mContext);
         if (url != null && token != null && !token.isEmpty()) {
             String serverOriginUrl = GatewayEndpointRouter.resolveDirectServerOriginIfCandidate(mContext, host);
-            if (GatewayEndpointRouter.matchesServerOrigin(url.toString(), serverOriginUrl)) {
+            String fullUrl = url.toString();
+            String rewrittenTailcatUrl = GatewayEndpointRouter.rewriteStaleTailcatLoopbackUrl(mContext, fullUrl, serverOriginUrl);
+            boolean isDirectServer = rewrittenTailcatUrl != null
+                    || GatewayEndpointRouter.matchesServerOrigin(fullUrl, serverOriginUrl);
+            if (isDirectServer) {
                 oj.C.a directReq = request.m();
                 boolean modified = false;
+                if (rewrittenTailcatUrl != null) {
+                    directReq.l(rewrittenTailcatUrl);
+                    modified = true;
+                }
                 String auth = request.h("Authorization");
                 if (auth == null || auth.isEmpty()) {
                     directReq.e("Authorization", "Bearer " + token);
@@ -212,8 +228,14 @@ public final class R8OkHttpInterceptor implements oj.v {
                     directReq.e("x-rokbot-client", "android-native/1.26.0");
                     modified = true;
                 }
-                if (modified) {
-                    return chain.a(directReq.b());
+                oj.C finalReq = modified ? directReq.b() : request;
+                try {
+                    return chain.a(finalReq);
+                } catch (IOException e) {
+                    if (Storage.isTailcatEnabled(mContext)) {
+                        TailcatManager.get().onRequestFailure(mContext);
+                    }
+                    throw e;
                 }
             }
         }

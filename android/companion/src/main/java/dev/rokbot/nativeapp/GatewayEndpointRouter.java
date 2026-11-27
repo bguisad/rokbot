@@ -194,6 +194,75 @@ public final class GatewayEndpointRouter {
         }
     }
 
+    interface PortPredicate {
+        boolean test(int port);
+    }
+
+    /**
+     * If Tailcat is enabled and requestUrl targets a previously active Tailcat loopback port that
+     * differs from the active serverOriginUrl, rewrites scheme+host+port to serverOriginUrl while
+     * preserving the original path, query, and fragment. Unrelated localhost ports are left untouched.
+     */
+    public static String rewriteStaleTailcatLoopbackUrl(Context context, String requestUrl, String serverOriginUrl) {
+        if (context == null || !Storage.isTailcatEnabled(context)) {
+            return null;
+        }
+        return rewriteStaleLoopbackUrlWithKnownPorts(requestUrl, serverOriginUrl,
+                TailcatManager.get()::isKnownTailcatPort);
+    }
+
+    static String rewriteStaleLoopbackUrlWithKnownPorts(String requestUrl, String serverOriginUrl, PortPredicate isKnownPort) {
+        if (requestUrl == null || requestUrl.isEmpty()
+                || serverOriginUrl == null || serverOriginUrl.isEmpty()
+                || isKnownPort == null) {
+            return null;
+        }
+        try {
+            String trimmedReq = requestUrl.trim();
+            URI req = URI.create(stripQueryAndFragment(trimmedReq));
+            URI srv = URI.create(stripQueryAndFragment(serverOriginUrl));
+            String rScheme = req.getScheme();
+            String sScheme = srv.getScheme();
+            String rHost = normalizeHost(req.getHost());
+            String sHost = normalizeHost(srv.getHost());
+            if (rScheme == null || sScheme == null || !isLoopbackHost(rHost) || !isLoopbackHost(sHost)) {
+                return null;
+            }
+            String rSchemeLower = rScheme.toLowerCase(Locale.US);
+            boolean isWs = "ws".equals(rSchemeLower) || "wss".equals(rSchemeLower);
+            boolean isHttp = "http".equals(rSchemeLower) || "https".equals(rSchemeLower);
+            if (!isWs && !isHttp) {
+                return null;
+            }
+            int rPort = effectivePort(req);
+            int sPort = effectivePort(srv);
+            if (rPort <= 0 || sPort <= 0 || rPort == sPort) {
+                return null;
+            }
+            if (!isKnownPort.test(rPort)) {
+                return null;
+            }
+            int schemeEnd = trimmedReq.indexOf("://");
+            if (schemeEnd < 0) return null;
+            int authStart = schemeEnd + 3;
+            int suffixStart = trimmedReq.length();
+            for (int i = authStart; i < trimmedReq.length(); i++) {
+                char c = trimmedReq.charAt(i);
+                if (c == '/' || c == '?' || c == '#') {
+                    suffixStart = i;
+                    break;
+                }
+            }
+            String suffix = trimmedReq.substring(suffixStart);
+            String targetScheme = isWs
+                    ? ("https".equalsIgnoreCase(sScheme) ? "wss" : "ws")
+                    : sScheme.toLowerCase(Locale.US);
+            return targetScheme + "://" + sHost + ":" + sPort + suffix;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     public static String resolveAudioProcessingMode() {
         boolean aecAvail = false;
         try {

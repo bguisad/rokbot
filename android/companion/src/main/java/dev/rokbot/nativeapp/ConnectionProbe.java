@@ -165,6 +165,9 @@ final class ConnectionProbe {
         mMeasured = true;
         mReachable = best >= 0;
         if (best >= 0) mLatency = smooth(mLatency, best);
+        if (!mReachable && Storage.isTailcatEnabled(mContext)) {
+            TailcatManager.get().onRequestFailure(mContext);
+        }
         if (!Storage.isTailcatEnabled(mContext)) {
             String hinted = normalizeHeaderRoute(header[0]);
             if (hinted != null) {
