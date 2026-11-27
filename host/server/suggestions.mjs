@@ -11,10 +11,23 @@ import { recordUsage } from '../runtime/usage-ledger.mjs';
 import { JsonStore } from './storage.mjs';
 import { check } from './security.mjs';
 
-const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_TTL_MS = 10 * 60_000;
+// A suggestion answer is keyed by Bot + the last transcript entry, so it never goes stale while
+// that entry is the last one: keep it for a day in memory and a week on disk (one per Bot).
+const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_TTL_MS = 24 * 60 * 60_000;
+const DEFAULT_PERSIST_TTL_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_MAX_CACHE = 200;
-const MAX_SUGGESTIONS = 4;
+const MAX_PERSISTED_AGENTS = 200;
+const MAX_SUGGESTIONS = 3;
+// Short prompt, short answer: 3 items of at most ~22 characters fit in well under 120 tokens.
+const SUGGESTION_MAX_TOKENS = 120;
+const PROMPT_CONTEXT_MESSAGES = 4;
+const PROMPT_LAST_MESSAGE_CHARS = 360;
+const PROMPT_EARLIER_MESSAGE_CHARS = 140;
+// A Bot's reply notification arrives as the turn ends; give the transcript a moment to settle.
+const REPLY_PREFETCH_DELAY_MS = 800;
+const REQUEST_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_ITEM_CHARS = 72;
 const MAX_CONTEXT_MESSAGES = 6;
 const MAX_MESSAGE_CHARS = 500;
@@ -355,17 +368,31 @@ export function parseSuggestionResponse(rawText) {
   return result;
 }
 
+function clipMiddle(text, max) {
+  const chars = [...text];
+  if (chars.length <= max) return text;
+  const head = Math.ceil(max * 0.6);
+  return `${chars.slice(0, head).join('')}…${chars.slice(chars.length - (max - head)).join('')}`;
+}
+
+/** The prompt only needs the gist: the last few messages, the latest one kept longest. */
+export function compactSuggestionHistory(recentMessages) {
+  const recent = recentMessages.slice(-PROMPT_CONTEXT_MESSAGES);
+  return recent.map((item, index) => ({
+    ...item,
+    text: clipMiddle(item.text, index === recent.length - 1 ? PROMPT_LAST_MESSAGE_CHARS : PROMPT_EARLIER_MESSAGE_CHARS),
+  }));
+}
+
 function buildSuggestionMessages(recentMessages, lang) {
   const isZh = lang === 'zh';
   const systemPrompt = isZh
-    ? '你是聊天输入建议助手。根据最近的对话内容，生成3到4条用户下一步最可能想发出的简短回复或追问。' +
-      '要求：1) 必须是用户视角（第一人称或直接提问/指令）；2) 每条尽量简短自然（6到22个字，不超过32个字）；' +
-      '3) 互相有区分度，贴合当前话题；4) 仅输出一个 JSON 字符串数组，不要包含任何解释、序号、Markdown 代码块或表情符号。'
-    : 'You generate quick reply suggestions for a chat composer. Based on the recent conversation, suggest 3 to 4 short, natural next messages the user might send. ' +
-      'Requirements: 1) Written from the user perspective; 2) Concise (under 10 words, max 60 chars); ' +
-      '3) Distinct and directly relevant to the latest assistant reply; 4) Output ONLY a valid JSON array of strings with no explanation, numbering, markdown, or emojis.';
+    ? '你是聊天输入建议助手。根据最近的对话，给出3条用户下一步最可能发出的简短回复或追问。' +
+      '要求：用户视角；每条6到20个字；互相有区分度并紧扣最后一条回复；只输出一个 JSON 字符串数组，不要解释、序号、Markdown 或表情符号。'
+    : 'Suggest 3 short next messages the user might send in this chat. ' +
+      'Rules: user perspective; under 8 words each; distinct and tied to the latest assistant reply; output ONLY a JSON array of strings, no explanation, numbering, markdown, or emojis.';
 
-  const transcript = recentMessages
+  const transcript = compactSuggestionHistory(recentMessages)
     .map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.text}`)
     .join('\n');
   const userPrompt = isZh
@@ -391,9 +418,11 @@ function historySignature(recentMessages, explicitLastEntryId) {
     .slice(0, 16);
 }
 
+// Suggestions need no reasoning: unless an effort was chosen explicitly (for the scenario or the
+// default route), use the lowest one the model supports.
 function optimizeRouteForLatency(route) {
-  if (!route || route.routeSource === 'scenario') return route;
-  if (route.effort && route.effort !== 'default') return route;
+  if (!route) return route;
+  if (route.effort && route.effort !== 'default' && route.effort !== 'auto') return route;
   const supported = Array.isArray(route.efforts) ? route.efforts : [];
   for (const preferred of ['none', 'minimal', 'low']) {
     if (supported.includes(preferred)) {
@@ -403,7 +432,7 @@ function optimizeRouteForLatency(route) {
   return route;
 }
 
-function buildPayload({ enabled, aiEnabled, quickPhrases, aiSuggestions, source, cached, lang }) {
+function buildPayload({ enabled, aiEnabled, quickPhrases, aiSuggestions, source, cached, lang, agentId = '', historyId = '' }) {
   const phrases = quickPhrases.map(item => ({ id: item.id, text: item.text }));
   const phraseSet = new Set(phrases.map(item => item.text.toLowerCase()));
   const filteredAi = [];
@@ -416,6 +445,7 @@ function buildPayload({ enabled, aiEnabled, quickPhrases, aiSuggestions, source,
     if (phraseSet.has(key) || seenAi.has(key)) continue;
     seenAi.add(key);
     filteredAi.push(cleaned);
+    if (filteredAi.length >= MAX_SUGGESTIONS) break;
   }
   const items = [
     ...phrases.map(item => ({ type: 'phrase', id: item.id, text: item.text })),
@@ -431,6 +461,9 @@ function buildPayload({ enabled, aiEnabled, quickPhrases, aiSuggestions, source,
     source,
     cached,
     lang,
+    // Which conversation the answer belongs to: clients drop an answer for another Bot.
+    agentId,
+    historyId,
   };
 }
 
@@ -507,7 +540,9 @@ export class SuggestionsService {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     completionTimeoutMs = DEFAULT_COMPLETION_TIMEOUT_MS,
     ttlMs = DEFAULT_TTL_MS,
+    persistTtlMs = DEFAULT_PERSIST_TTL_MS,
     maxCache = DEFAULT_MAX_CACHE,
+    replyPrefetchDelayMs = REPLY_PREFETCH_DELAY_MS,
     now = () => Date.now(),
   } = {}) {
     this.models = models;
@@ -518,27 +553,59 @@ export class SuggestionsService {
     this.timeoutMs = timeoutMs;
     this.completionTimeoutMs = completionTimeoutMs;
     this.ttlMs = ttlMs;
+    this.persistTtlMs = persistTtlMs;
     this.maxCache = maxCache;
+    this.replyPrefetchDelayMs = replyPrefetchDelayMs;
     this.now = now;
     this.cache = new Map();
     this.inFlight = new Map();
+    this.prefetching = new Map();
+    this.prefetchTimers = new Map();
     this.completionCache = new Map();
     this.completionInFlight = new Map();
+    // The latest answer per Bot survives a Host restart: reopening a chat shows it at once.
+    this.persisted = dataDir ? new JsonStore(join(dataDir, 'suggestions-cache.json'), { version: 1, agents: {} }) : null;
   }
 
-  #getCached(key) {
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-    if (this.now() - entry.at >= this.ttlMs) {
-      this.cache.delete(key);
-      return null;
+  async load() {
+    if (!this.persisted) return this;
+    try {
+      await this.persisted.load();
+      if (!this.persisted.value.agents || typeof this.persisted.value.agents !== 'object') this.persisted.value.agents = {};
+    } catch (error) {
+      console.warn(`[suggestions] cache file ignored: ${error?.message ?? error}`);
+      this.persisted.value = { version: 1, agents: {} };
     }
-    this.cache.delete(key);
-    this.cache.set(key, entry);
-    return entry;
+    return this;
   }
 
-  #setCached(key, value) {
+  close() {
+    for (const timer of this.prefetchTimers.values()) clearTimeout(timer);
+    this.prefetchTimers.clear();
+  }
+
+  #getCached(key, agentId) {
+    const entry = this.cache.get(key);
+    if (entry) {
+      if (this.now() - entry.at >= this.ttlMs) {
+        this.cache.delete(key);
+      } else {
+        this.cache.delete(key);
+        this.cache.set(key, entry);
+        return entry;
+      }
+    }
+    const stored = agentId ? this.persisted?.value?.agents?.[agentId] : null;
+    if (stored && stored.key === key && Array.isArray(stored.aiSuggestions) && this.now() - stored.at < this.persistTtlMs) {
+      const warm = { aiSuggestions: stored.aiSuggestions.filter(item => typeof item === 'string').slice(0, MAX_SUGGESTIONS),
+        source: 'model', lang: stored.lang, at: stored.at };
+      this.cache.set(key, warm);
+      return warm;
+    }
+    return null;
+  }
+
+  #setCached(key, value, agentId) {
     this.cache.delete(key);
     this.cache.set(key, { ...value, at: this.now() });
     while (this.cache.size > this.maxCache) {
@@ -546,8 +613,22 @@ export class SuggestionsService {
       if (oldest === undefined) break;
       this.cache.delete(oldest);
     }
+    if (!agentId || !this.persisted?.value) return;
+    const at = this.now();
+    this.persisted.mutate(state => {
+      state.agents ??= {};
+      delete state.agents[agentId];
+      state.agents[agentId] = { key, aiSuggestions: value.aiSuggestions, lang: value.lang, at };
+      const ids = Object.keys(state.agents);
+      for (const id of ids.slice(0, Math.max(0, ids.length - MAX_PERSISTED_AGENTS))) delete state.agents[id];
+    }).catch(error => console.warn(`[suggestions] cache write failed: ${error?.message ?? error}`));
   }
 
+  /**
+   * Recent messages of the conversation. With a Bot ID only the Host's own transcript of that
+   * Bot is used: messages a client scraped from its screen may still belong to the previous Bot
+   * right after a switch. Returns null when that transcript cannot be read.
+   */
   async #loadRecentMessages(agentId, providedMessages) {
     if (agentId && typeof this.hostCall === 'function') {
       try {
@@ -555,23 +636,53 @@ export class SuggestionsService {
         const entries = Array.isArray(tail?.entries) ? tail.entries
           : Array.isArray(tail?.transcript?.entries) ? tail.transcript.entries
           : Array.isArray(tail) ? tail : [];
-        const fromHost = extractRecentMessages(entries);
-        if (fromHost.length > 0) return fromHost;
+        return extractRecentMessages(entries);
       } catch (error) {
-        if (!Array.isArray(providedMessages) || providedMessages.length === 0) {
-          console.warn(`[suggestions] getAgentTranscriptTail failed for ${agentId}: ${error?.message ?? error}`);
-        }
+        console.warn(`[suggestions] getAgentTranscriptTail failed for ${agentId}: ${error?.message ?? error}`);
+        return null;
       }
     }
-    if (Array.isArray(providedMessages) && providedMessages.length > 0) {
+    if (!agentId && Array.isArray(providedMessages) && providedMessages.length > 0) {
       return extractRecentMessages(providedMessages);
     }
     return [];
   }
 
+  /**
+   * Starts generating in the background (entering a chat, a Bot's new reply) so the next
+   * request is answered from the cache. Concurrent prefetches of one Bot share one run.
+   */
+  prefetch({ agentId = '', locale = '' } = {}) {
+    if (!agentId || !AGENT_ID_RE.test(agentId)) return false;
+    const cfg = this.settings?.current?.() ?? { enabled: true, aiEnabled: true };
+    if (!cfg.enabled || !cfg.aiEnabled) return false;
+    if (this.prefetching.has(agentId)) return true;
+    const task = this.generate({ agentId, locale })
+      .catch(error => console.warn(`[suggestions] prefetch failed for ${agentId}: ${error?.message ?? error}`))
+      .finally(() => { if (this.prefetching.get(agentId) === task) this.prefetching.delete(agentId); });
+    this.prefetching.set(agentId, task);
+    return true;
+  }
+
+  /** A Bot finished a turn (Host notification 'message' / 'completed'): prepare its suggestions. */
+  onAgentNotification(item) {
+    if (!item || !['message', 'completed'].includes(item.type)) return false;
+    const agentId = typeof item.agentId === 'string' ? item.agentId : '';
+    if (!AGENT_ID_RE.test(agentId)) return false;
+    clearTimeout(this.prefetchTimers.get(agentId));
+    const timer = setTimeout(() => {
+      this.prefetchTimers.delete(agentId);
+      this.prefetch({ agentId });
+    }, this.replyPrefetchDelayMs);
+    timer.unref?.();
+    this.prefetchTimers.set(agentId, timer);
+    return true;
+  }
+
   async generate({ agentId = '', lastEntryId = '', locale = '', recentMessages, force = false } = {}) {
     const cfg = this.settings?.current?.() ?? { enabled: true, aiEnabled: true, quickPhrases: [] };
     const initialLang = detectSuggestionLanguage(locale, []);
+    const payload = fields => buildPayload({ enabled: true, aiEnabled: true, quickPhrases: cfg.quickPhrases, cached: false, agentId, ...fields });
 
     // Master switch off: return empty immediately without touching transcript or model.
     if (!cfg.enabled) {
@@ -583,79 +694,36 @@ export class SuggestionsService {
         source: 'disabled',
         cached: false,
         lang: initialLang,
+        agentId,
       });
     }
 
     // AI suggestions switch off: return custom quick phrases only.
     if (!cfg.aiEnabled) {
-      return buildPayload({
-        enabled: true,
-        aiEnabled: false,
-        quickPhrases: cfg.quickPhrases,
-        aiSuggestions: [],
-        source: 'phrases-only',
-        cached: false,
-        lang: initialLang,
-      });
+      return payload({ aiEnabled: false, aiSuggestions: [], source: 'phrases-only', lang: initialLang });
     }
 
     const history = await this.#loadRecentMessages(agentId, recentMessages);
-    const hasHistory = history.length > 0;
+    if (history === null) return payload({ aiSuggestions: [], source: 'model-error', lang: initialLang });
     const lang = detectSuggestionLanguage(locale, history);
 
     // Empty chat: no LLM call and no hardcoded presets — custom quick phrases only.
-    if (!hasHistory) {
-      return buildPayload({
-        enabled: true,
-        aiEnabled: true,
-        quickPhrases: cfg.quickPhrases,
-        aiSuggestions: [],
-        source: 'empty',
-        cached: false,
-        lang,
-      });
-    }
+    if (history.length === 0) return payload({ aiSuggestions: [], source: 'empty', lang });
 
     const route = await this.#resolveRoute();
-    if (!route) {
-      return buildPayload({
-        enabled: true,
-        aiEnabled: true,
-        quickPhrases: cfg.quickPhrases,
-        aiSuggestions: [],
-        source: 'model-unavailable',
-        cached: false,
-        lang,
-      });
-    }
+    if (!route) return payload({ aiSuggestions: [], source: 'model-unavailable', lang });
 
-    const sig = historySignature(history, lastEntryId);
-    const cacheKey = `${agentId || '_'}:${sig}:${lang}:${route.profileId}:${route.model}:${route.effort}`;
+    // The Host's own transcript decides which message the answer belongs to; a client's
+    // lastEntryId only matters when there is no Bot ID to read it from.
+    const historyId = historySignature(history, agentId ? '' : lastEntryId);
+    const cacheKey = `${agentId || '_'}:${historyId}:${lang}:${route.profileId}:${route.model}:${route.effort}`;
     if (!force) {
-      const hit = this.#getCached(cacheKey);
-      if (hit) {
-        return buildPayload({
-          enabled: true,
-          aiEnabled: true,
-          quickPhrases: cfg.quickPhrases,
-          aiSuggestions: hit.aiSuggestions,
-          source: hit.source,
-          cached: true,
-          lang,
-        });
-      }
+      const hit = this.#getCached(cacheKey, agentId);
+      if (hit) return payload({ aiSuggestions: hit.aiSuggestions, source: hit.source, cached: true, lang, historyId });
       const existing = this.inFlight.get(cacheKey);
       if (existing) {
         const result = await existing;
-        return buildPayload({
-          enabled: true,
-          aiEnabled: true,
-          quickPhrases: cfg.quickPhrases,
-          aiSuggestions: result.aiSuggestions,
-          source: result.source,
-          cached: true,
-          lang: result.lang,
-        });
+        return payload({ aiSuggestions: result.aiSuggestions, source: result.source, cached: true, lang: result.lang, historyId });
       }
     }
 
@@ -663,15 +731,7 @@ export class SuggestionsService {
     this.inFlight.set(cacheKey, task);
     try {
       const outcome = await task;
-      return buildPayload({
-        enabled: true,
-        aiEnabled: true,
-        quickPhrases: cfg.quickPhrases,
-        aiSuggestions: outcome.aiSuggestions,
-        source: outcome.source,
-        cached: false,
-        lang: outcome.lang,
-      });
+      return payload({ aiSuggestions: outcome.aiSuggestions, source: outcome.source, lang: outcome.lang, historyId });
     } finally {
       if (this.inFlight.get(cacheKey) === task) this.inFlight.delete(cacheKey);
     }
@@ -713,7 +773,7 @@ export class SuggestionsService {
         },
         onUsage: async usage => {
           if (!this.usageDirectory) return;
-          await recordUsage(this.usageDirectory, { raw, model, kind, requestId }).catch(() => {});
+          await recordUsage(this.usageDirectory, { ...usage, kind, ...(agentId ? { agentId } : {}) }).catch(() => {});
         },
       });
       const stream = session
@@ -738,7 +798,7 @@ export class SuggestionsService {
   async #generateFromModel(route, history, lang, cacheKey, agentId) {
     try {
       const output = await this.#streamText(route, buildSuggestionMessages(history, lang), {
-        timeoutMs: this.timeoutMs, maxTokens: 256, kind: 'suggestions', label: 'composer-suggestions', agentId,
+        timeoutMs: this.timeoutMs, maxTokens: SUGGESTION_MAX_TOKENS, kind: 'suggestions', label: 'composer-suggestions', agentId,
       });
       const parsed = parseSuggestionResponse(output);
       if (parsed.length === 0) {
@@ -746,7 +806,7 @@ export class SuggestionsService {
         return { aiSuggestions: [], source: 'model-error', lang };
       }
       const entry = { aiSuggestions: parsed, source: 'model', lang };
-      this.#setCached(cacheKey, entry);
+      this.#setCached(cacheKey, entry, agentId);
       return entry;
     } catch (error) {
       console.warn(`[suggestions] model call failed (${route.model}): ${error?.message ?? error}`);
@@ -797,13 +857,14 @@ export class SuggestionsService {
     if (countChars(draft.trim()) < COMPLETION_MIN_CHARS) return result('', 'too-short');
 
     const history = await this.#loadRecentMessages(agentId, recentMessages);
+    if (history === null) return result('', 'model-error');
     if (history.length === 0) return result('', 'empty');
     signal?.throwIfAborted?.();
     const lang = detectSuggestionLanguage(locale, [...history, { text: draft }]);
     const route = await this.#resolveRoute();
     if (!route) return result('', 'model-unavailable');
 
-    const sig = historySignature(history, lastEntryId);
+    const sig = historySignature(history, agentId ? '' : lastEntryId);
     const draftHash = createHash('sha256').update(draft).digest('hex').slice(0, 24);
     const cacheKey = `${agentId || '_'}:${sig}:${lang}:${route.profileId}:${route.model}:${route.effort}:${draftHash}`;
     const hit = this.#completionCached(cacheKey);

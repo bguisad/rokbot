@@ -38,7 +38,11 @@
 
   const MAX_CLIENT_CACHE = 60;
   const FOCUS_FETCH_DEBOUNCE_MS = 100;
-  const DEFAULT_TIMEOUT_MS = 18_000;
+  const DEFAULT_TIMEOUT_MS = 10_000;
+  const MAX_AI_SUGGESTIONS = 3;
+  // After the chat on screen changes (another Bot, a new reply), the answer is prepared in the
+  // background so focusing the composer shows it at once.
+  const PREFETCH_DEBOUNCE_MS = 350;
   const COMPLETION_TIMEOUT_MS = 9_000;
   const COMPLETION_DEBOUNCE_MS = 350;
   const COMPLETION_MIN_CHARS = 2;
@@ -437,7 +441,11 @@
 
   const findComposerInput = form => form?.querySelector('[contenteditable="true"], textarea, input[type="text"]') ?? null;
 
+  // The Bot on screen: what the official renderer reported (setViewingAgent) or a link opened wins
+  // over the sidebar, which can lag behind or be hidden (phone layout).
   function currentAgentId(doc, getViewingAgentId) {
+    const tracked = typeof getViewingAgentId === 'function' ? getViewingAgentId() : '';
+    if (typeof tracked === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(tracked)) return tracked;
     for (const sel of [
       '.sand-agents-sidebar .sand-agent-item[aria-current="page"]',
       '.sand-agents-sidebar .sand-agent-item[data-active="true"]',
@@ -447,8 +455,19 @@
       const id = doc.querySelector(sel)?.dataset?.agentId;
       if (id) return id;
     }
-    const tracked = typeof getViewingAgentId === 'function' ? getViewingAgentId() : '';
-    return typeof tracked === 'string' ? tracked : '';
+    return '';
+  }
+
+  /**
+   * Whether an answer may be shown: it was requested for the chat still on screen (same key and
+   * Bot), it is the latest request, and the Host says it belongs to that Bot.
+   */
+  function acceptSuggestionResponse({ requestedKey, currentKey, requestedAgentId, currentAgentId: agentNow,
+    requestSeq, latestSeq, response }) {
+    if (requestedKey !== currentKey || requestedAgentId !== agentNow) return false;
+    if (Number.isFinite(latestSeq) && requestSeq !== latestSeq) return false;
+    if (response && typeof response.agentId === 'string' && response.agentId !== requestedAgentId) return false;
+    return true;
   }
 
   function extractVisibleMessages(doc) {
@@ -482,6 +501,20 @@
     const entryId = last.getAttribute('data-entry-id') || last.getAttribute('data-message-id') || '';
     const tailText = (last.textContent || '').replace(/\s+/g, ' ').trim().slice(-64);
     return { hasHistory: true, signature: `${items.length}:${entryId || tailText}`, lastEntryId: entryId, streaming, recentMessages: extractVisibleMessages(doc) };
+  }
+
+  /** If the conversation is scrolled to its end, returns a function that scrolls it back there. */
+  function transcriptBottomPin(doc) {
+    let node = doc.querySelector('.sand-virtual-transcript');
+    while (node && node !== doc.body) {
+      const style = doc.defaultView?.getComputedStyle?.(node);
+      if (style && /(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) break;
+      node = node.parentElement;
+    }
+    if (!node || node === doc.body) return null;
+    const scroller = node;
+    if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 48) return null;
+    return () => { scroller.scrollTop = scroller.scrollHeight; };
   }
 
   function isInputFocused(input, doc) {
@@ -658,6 +691,8 @@
         return;
       }
       const zh = zhNow();
+      // The strip takes room above the composer: keep the last message in view when it appears.
+      const pin = el.hidden ? transcriptBottomPin(doc) : null;
       el.setAttribute('aria-label', t(zh, '输入建议', 'Suggested replies'));
       if (showSkeleton) el.setAttribute('aria-busy', 'true'); else el.removeAttribute('aria-busy');
       el.hidden = false;
@@ -711,6 +746,89 @@
       dismiss.innerHTML = ICONS.close;
       dismiss.addEventListener('click', () => { dismissedKey = currentKey; loading.reset(); renderBar(); });
       el.appendChild(dismiss);
+      pin?.();
+    }
+
+    // One request per chat state, shared by the background prefetch and the focused composer.
+    const pendingAi = new Map();
+    const prefetchFailed = new Set();
+    let requestSeq = 0;
+    let foregroundSeq = 0;
+    let prefetchTimer = 0;
+    let lastStreaming = false;
+
+    function requestAi(agentId, state, key) {
+      const existing = pendingAi.get(key);
+      if (existing) return existing;
+      const requestId = `s${Date.now().toString(36)}-${++requestSeq}`;
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = setTimeout(() => controller?.abort(), timeoutMs);
+      const task = (async () => {
+        try {
+          const res = await request('/local/suggestions', {
+            agentId,
+            lastEntryId: state.lastEntryId || '',
+            requestId,
+            locale: doc.documentElement.lang || locale || globalThis.navigator?.language || '',
+            // Without a Bot ID the screen is the only context; with one the Host reads that Bot's
+            // own transcript (the screen may still show the previous Bot right after a switch).
+            ...(!agentId && state.recentMessages?.length ? { recentMessages: state.recentMessages } : {}),
+          }, controller?.signal, 'POST');
+          // An answer for another Bot (or another request) is never used, not even cached.
+          if (res && typeof res.agentId === 'string' && res.agentId !== agentId) return { ok: false, res: null };
+          if (res && typeof res.requestId === 'string' && res.requestId && res.requestId !== requestId) return { ok: false, res: null };
+          if (res && typeof res.enabled === 'boolean') {
+            settingsState = normalizeSettings({
+              ...settingsState,
+              enabled: res.enabled,
+              aiEnabled: res.aiEnabled,
+              quickPhrases: res.quickPhrases ?? settingsState.quickPhrases,
+            });
+            settingsSyncedAt = Date.now();
+            settingsUi?.updateState(settingsState);
+          }
+          const items = Array.isArray(res?.aiSuggestions)
+            ? res.aiSuggestions.filter(item => typeof item === 'string' && item.trim()).slice(0, MAX_AI_SUGGESTIONS)
+            : [];
+          const ok = res?.source === 'model' && items.length > 0;
+          if (ok) setCachedAi(key, items);
+          return { ok, items, res };
+        } catch {
+          return { ok: false, res: null };
+        } finally {
+          clearTimeout(timer);
+          pendingAi.delete(key);
+        }
+      })();
+      pendingAi.set(key, task);
+      return task;
+    }
+
+    function prefetchWanted(state, key) {
+      return settingsState.enabled && settingsState.aiEnabled && state.hasHistory && !state.streaming
+        && !aiCache.has(key) && !pendingAi.has(key) && !prefetchFailed.has(key);
+    }
+
+    function schedulePrefetch() {
+      clearTimeout(prefetchTimer);
+      prefetchTimer = setTimeout(() => {
+        const agentId = currentAgentId(doc, getViewingAgentId);
+        const state = inspectTranscript(doc);
+        const key = `${agentId}:${state.signature}:${zhNow() ? 'zh' : 'en'}`;
+        if (key !== currentKey || !settingsSyncedAt || !prefetchWanted(state, key)) return;
+        void requestAi(agentId, state, key).then(result => {
+          if (!result.ok) {
+            prefetchFailed.add(key);
+            if (prefetchFailed.size > MAX_CLIENT_CACHE) prefetchFailed.delete(prefetchFailed.values().next().value);
+          }
+          // Prepared while the composer was already focused: show it now.
+          if (result.ok && key === currentKey && composerFocused && loading.phase !== 'loading') {
+            activeAiSuggestions = result.items;
+            revealOnNextRender = true;
+            renderBar();
+          }
+        });
+      }, PREFETCH_DEBOUNCE_MS);
     }
 
     async function fetchSuggestions(agentId, state, key) {
@@ -721,46 +839,22 @@
       if (cached) { activeAiSuggestions = cached; loading.reset(); renderBar(); return; }
       if (loading.phase === 'loading') return;
       const token = loading.begin();
-      const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = setTimeout(() => controller?.abort(), timeoutMs);
-      try {
-        const res = await request('/local/suggestions', {
-          agentId,
-          lastEntryId: state.lastEntryId || '',
-          locale: doc.documentElement.lang || locale || globalThis.navigator?.language || '',
-          ...(state.recentMessages?.length ? { recentMessages: state.recentMessages } : {}),
-        }, controller?.signal, 'POST');
-        if (!loading.isCurrent(token)) return;
-        if (res && typeof res.enabled === 'boolean') {
-          settingsState = normalizeSettings({
-            ...settingsState,
-            enabled: res.enabled,
-            aiEnabled: res.aiEnabled,
-            quickPhrases: res.quickPhrases ?? settingsState.quickPhrases,
-          });
-          settingsSyncedAt = Date.now();
-          settingsUi?.updateState(settingsState);
-        }
-        const aiItems = Array.isArray(res?.aiSuggestions)
-          ? res.aiSuggestions.filter(s => typeof s === 'string' && s.trim()).slice(0, 4)
-          : [];
-        if (res?.source === 'model' && aiItems.length > 0) {
-          setCachedAi(key, aiItems);
-          activeAiSuggestions = aiItems;
-          loading.succeed(token, aiItems);
-        } else {
-          // Nothing usable: the placeholders fade away silently; quick phrases stay.
-          activeAiSuggestions = [];
-          failedKey = key;
-          loading.fail(token);
-        }
-      } catch {
-        if (!loading.isCurrent(token)) return;
+      const seq = ++foregroundSeq;
+      const result = await requestAi(agentId, state, key);
+      if (!loading.isCurrent(token)) return;
+      const accepted = acceptSuggestionResponse({
+        requestedKey: key, currentKey, requestedAgentId: agentId, currentAgentId: currentAgentId(doc, getViewingAgentId),
+        requestSeq: seq, latestSeq: foregroundSeq, response: result.res,
+      });
+      if (!accepted) { loading.reset(); renderBar(); return; }
+      if (result.ok) {
+        activeAiSuggestions = result.items;
+        loading.succeed(token, result.items);
+      } else {
+        // Nothing usable: the placeholders fade away silently; quick phrases stay.
         activeAiSuggestions = [];
         failedKey = key;
         loading.fail(token);
-      } finally {
-        clearTimeout(timer);
       }
     }
 
@@ -772,28 +866,41 @@
       const agentId = currentAgentId(doc, getViewingAgentId);
       const state = inspectTranscript(doc);
       const nextKey = `${agentId}:${state.signature}:${zhNow() ? 'zh' : 'en'}`;
+      const replyFinished = lastStreaming && !state.streaming;
+      lastStreaming = state.streaming;
       if (nextKey !== currentKey) {
+        // Another Bot or a new message: the old answer is gone at once, never shown here.
         currentKey = nextKey;
         activeAiSuggestions = aiCache.get(nextKey) ?? [];
+        failedKey = '';
         loading.reset();
+        schedulePrefetch();
+      } else if (replyFinished) {
+        schedulePrefetch();
       }
+      // Prepared in the background (prefetch) since the chat was opened.
+      const prepared = aiCache.get(currentKey);
+      if (prepared && activeAiSuggestions !== prepared && loading.phase !== 'loading') activeAiSuggestions = prepared;
       const focusedNow = !suppressUntilRefocus && (composerFocused || isInputFocused(input, doc));
       if (!focusedNow || extractComposerText(input).length > 0 || dismissedKey === currentKey) { renderBar(); return; }
       renderBar();
       if (state.streaming) return;
       clearTimeout(debounceTimer);
-      const wanted = () => settingsState.enabled && settingsState.aiEnabled && state.hasHistory && !aiCache.has(currentKey)
-        && failedKey !== currentKey && loading.phase !== 'loading';
+      const key = currentKey;
+      const wanted = () => key === currentKey && settingsState.enabled && settingsState.aiEnabled && state.hasHistory
+        && !aiCache.has(key) && failedKey !== key && loading.phase !== 'loading';
       if (!settingsSyncedAt) {
         void syncSettings(true).then(() => {
           if (!composerFocused) return;
           renderBar();
-          if (wanted()) void fetchSuggestions(agentId, state, currentKey);
+          if (wanted()) void fetchSuggestions(agentId, state, key);
         });
         return;
       }
       if (!wanted()) return;
-      debounceTimer = setTimeout(() => { if (composerFocused) void fetchSuggestions(agentId, state, currentKey); }, FOCUS_FETCH_DEBOUNCE_MS);
+      // A prefetch for this chat is already on its way: show the placeholders and join it.
+      if (pendingAi.has(key)) { void fetchSuggestions(agentId, state, key); return; }
+      debounceTimer = setTimeout(() => { if (composerFocused) void fetchSuggestions(agentId, state, key); }, FOCUS_FETCH_DEBOUNCE_MS);
     }
 
     // -- ghost text -------------------------------------------------------------------------------
@@ -980,7 +1087,7 @@
     }
 
     // Prime settings (a tiny GET, no model call) so phrases show immediately on first focus.
-    void syncSettings(true);
+    void syncSettings(true).then(() => schedulePrefetch());
 
     const observer = new MutationObserver(mutations => {
       if (mutations.every(m => m.target instanceof Element && (m.target.closest('.rokbot-suggestions') || m.target.closest('.rokbot-ghost') || m.target.closest('[data-rokbot-suggestions-page]') || m.target.closest('[data-rokbot-suggestions-nav]')))) return;
@@ -992,6 +1099,7 @@
     return () => {
       clearTimeout(debounceTimer);
       clearTimeout(leavingTimer);
+      clearTimeout(prefetchTimer);
       observer.disconnect();
       completion.dispose();
       doc.removeEventListener('selectionchange', onSelectionChange);
@@ -1478,6 +1586,8 @@
     sendSuggestionText,
     caretAtEnd,
     inspectTranscript,
+    currentAgentId,
+    acceptSuggestionResponse,
     installComposerSuggestions,
     installSuggestionsSettingsPage,
   };

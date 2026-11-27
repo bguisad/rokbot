@@ -453,7 +453,7 @@ static void testSuggestionsHelpers(void) {
   CHECK(RBSuggestionsAIFromResponse(@{ @"source" : @"model-error", @"aiSuggestions" : @[ @"x" ] }).count == 0);
   CHECK(RBSuggestionsAIFromResponse(@{ @"source" : @"phrases-only", @"suggestions" : @[ @"继续" ] }).count == 0);
   NSArray *ai = RBSuggestionsAIFromResponse(@{ @"source" : @"model", @"aiSuggestions" : @[ @"a", @"b", @"c", @"d", @"e", @"" ] });
-  CHECK(ai.count == 4);
+  CHECK(ai.count == 3);
   NSArray *items = RBSuggestionsMergeItems(@[ @{ @"text" : @"继续" }, @"Summarize" ], @[ @"summarize", @"列出失败的用例" ]);
   CHECK(items.count == 3);
   CHECK([items[0][@"type"] isEqualToString:@"phrase"] && [items[1][@"type"] isEqualToString:@"phrase"]);
@@ -469,15 +469,62 @@ static void testSuggestionsHelpers(void) {
   CHECK([body[@"agentId"] isEqualToString:@"bot-1"] && [body[@"prompt"] isEqualToString:@"继续"]);
   CHECK([body[@"clientNonce"] isEqualToString:@"nonce-1"] && [body[@"directAddressedAcceptance"] boolValue]);
   CHECK([RBSuggestionsSendBody(@"bot-1", @"x", nil)[@"clientNonce"] length] > 0);
-  BOOL turn = NO;
+  RBSuggestionsSignal signal = RBSuggestionsSignalNone;
   NSData *open = [@"{\"id\":\"bot_A-1\"}" dataUsingEncoding:NSUTF8StringEncoding];
-  CHECK([RBSuggestionsAgentFromRequest(@"/api/openAgentWindowed", open, &turn) isEqualToString:@"bot_A-1"] && turn);
+  CHECK([RBSuggestionsAgentFromRequest(@"/api/openAgentWindowed", open, &signal) isEqualToString:@"bot_A-1"] &&
+        signal == RBSuggestionsSignalActivate);
   NSData *tail = [@"{\"id\":\"bot-2\",\"limit\":12}" dataUsingEncoding:NSUTF8StringEncoding];
-  CHECK([RBSuggestionsAgentFromRequest(@"/api/getAgentTranscriptTail", tail, &turn) isEqualToString:@"bot-2"] && !turn);
+  CHECK([RBSuggestionsAgentFromRequest(@"/api/getAgentTranscriptTail", tail, &signal) isEqualToString:@"bot-2"] &&
+        signal == RBSuggestionsSignalWeak);
   NSData *send = [@"{\"agentId\":\"bot-3\",\"prompt\":\"hi\"}" dataUsingEncoding:NSUTF8StringEncoding];
-  CHECK([RBSuggestionsAgentFromRequest(@"/api/sendPrompt", send, &turn) isEqualToString:@"bot-3"] && turn);
-  CHECK(RBSuggestionsAgentFromRequest(@"/api/listAgents", send, &turn) == nil);
-  CHECK(RBSuggestionsAgentFromRequest(@"/api/getAgent", [@"{\"id\":\"../etc\"}" dataUsingEncoding:NSUTF8StringEncoding], &turn) == nil);
+  CHECK([RBSuggestionsAgentFromRequest(@"/api/sendPrompt", send, &signal) isEqualToString:@"bot-3"] &&
+        signal == RBSuggestionsSignalTurn);
+  CHECK(RBSuggestionsAgentFromRequest(@"/api/listAgents", send, &signal) == nil && signal == RBSuggestionsSignalNone);
+  CHECK(RBSuggestionsAgentFromRequest(@"/api/getAgent", [@"{\"id\":\"../etc\"}" dataUsingEncoding:NSUTF8StringEncoding], &signal) == nil);
+  CHECK([RBSuggestionsAgentFromRequest(@"/api/markAgentViewed", open, &signal) isEqualToString:@"bot_A-1"] &&
+        signal == RBSuggestionsSignalActivate);
+  // Regression: after openAgentWindowed(B), RN refreshing background bot A must not steal the composer.
+  NSString *current = nil;
+  NSData *openB = [@"{\"id\":\"bot-B\"}" dataUsingEncoding:NSUTF8StringEncoding];
+  NSString *seen = RBSuggestionsAgentFromRequest(@"/api/openAgentWindowed", openB, &signal);
+  current = RBSuggestionsResolveAgent(current, seen, signal);
+  CHECK([current isEqualToString:@"bot-B"]);
+  NSArray *weakA = @[
+    @[ @"/api/getAgent", @"{\"id\":\"bot-A\"}" ],
+    @[ @"/api/getAgentTranscriptTail", @"{\"id\":\"bot-A\",\"limit\":20}" ],
+    @[ @"/api/getAgentTranscript", @"{\"agentId\":\"bot-A\"}" ],
+    @[ @"/api/getAgentTranscriptWindow", @"{\"id\":\"bot-A\"}" ],
+    @[ @"/api/markAgentRead", @"{\"id\":\"bot-A\"}" ],
+    @[ @"/api/getForeverBoxStatus", @"{\"agentId\":\"bot-A\"}" ],
+  ];
+  for (NSArray *req in weakA) {
+    seen = RBSuggestionsAgentFromRequest(req[0], [req[1] dataUsingEncoding:NSUTF8StringEncoding], &signal);
+    CHECK([seen isEqualToString:@"bot-A"] && signal == RBSuggestionsSignalWeak);
+    current = RBSuggestionsResolveAgent(current, seen, signal);
+    CHECK([current isEqualToString:@"bot-B"]);
+  }
+  seen = RBSuggestionsAgentFromRequest(@"/api/sendPrompt", [@"{\"agentId\":\"bot-A\"}" dataUsingEncoding:NSUTF8StringEncoding], &signal);
+  CHECK([RBSuggestionsResolveAgent(current, seen, signal) isEqualToString:@"bot-A"]);
+  CHECK([RBSuggestionsResolveAgent(@"bot-B", @"../x", RBSuggestionsSignalActivate) isEqualToString:@"bot-B"]);
+  CHECK(RBSuggestionsResolveAgent(nil, @"bot-A", RBSuggestionsSignalWeak) == nil);
+  // Cache keys are per bot and per bot generation.
+  CHECK([RBSuggestionsCacheKey(@"bot-A", 2, @"zh") isEqualToString:@"bot-A:2:zh"]);
+  CHECK(![RBSuggestionsCacheKey(@"bot-A", 2, @"zh") isEqualToString:RBSuggestionsCacheKey(@"bot-B", 2, @"zh")]);
+  // Late / foreign responses are dropped.
+  NSDictionary *okEcho = @{ @"source" : @"model", @"agentId" : @"bot-B", @"requestId" : @"r-1", @"aiSuggestions" : @[ @"x" ] };
+  CHECK(RBSuggestionsAcceptResponse(okEcho, @"bot-B", @"r-1", @"bot-B", 5, 5));
+  CHECK(!RBSuggestionsAcceptResponse(@{ @"source" : @"model", @"agentId" : @"bot-A" }, @"bot-B", @"r-1", @"bot-B", 5, 5));
+  CHECK(!RBSuggestionsAcceptResponse(@{ @"agentId" : @"bot-B", @"requestId" : @"r-0" }, @"bot-B", @"r-1", @"bot-B", 5, 5));
+  CHECK(!RBSuggestionsAcceptResponse(@{ @"agentId" : @1 }, @"bot-B", @"r-1", @"bot-B", 5, 5));
+  CHECK(!RBSuggestionsAcceptResponse(okEcho, @"bot-B", @"r-1", @"bot-B", 4, 5));   // superseded request
+  CHECK(!RBSuggestionsAcceptResponse(okEcho, @"bot-B", @"r-1", @"bot-A", 5, 5));   // bot switched meanwhile
+  CHECK(!RBSuggestionsAcceptResponse(okEcho, nil, @"r-1", nil, 5, 5));
+  // Older Hosts without echoes stay compatible.
+  CHECK(RBSuggestionsAcceptResponse(@{ @"source" : @"model", @"aiSuggestions" : @[ @"x" ] }, @"bot-B", @"r-1", @"bot-B", 1, 1));
+  NSDictionary *reqBody = RBSuggestionsRequestBody(@"bot-B", @"zh-CN", [@"" stringByPaddingToLength:80 withString:@"r" startingAtIndex:0], YES);
+  CHECK([reqBody[@"agentId"] isEqualToString:@"bot-B"] && [reqBody[@"locale"] isEqualToString:@"zh-CN"]);
+  CHECK([reqBody[@"requestId"] length] == 64 && [reqBody[@"prefetch"] boolValue]);
+  CHECK(RBSuggestionsRequestBody(@"bot-B", nil, nil, NO)[@"prefetch"] == nil);
   NSArray *phrases = @[ @{ @"id" : @"p_1", @"text" : @"继续" }, @{ @"id" : @"p_2", @"text" : @"总结" } ];
   CHECK(RBSuggestionsValidatePhrase(@"  ", phrases, nil, YES) != nil);
   CHECK([RBSuggestionsValidatePhrase(@"继续", phrases, nil, YES) isEqualToString:@"常用语不能重复"]);
@@ -486,7 +533,7 @@ static void testSuggestionsHelpers(void) {
   CHECK(RBSuggestionsValidatePhrase([@"" stringByPaddingToLength:120 withString:@"字" startingAtIndex:0], phrases, nil, YES) == nil);
   CHECK([RBSuggestionsMovedIds(phrases, 1, -1) isEqualToArray:(@[ @"p_2", @"p_1" ])]);
   CHECK(RBSuggestionsMovedIds(phrases, 0, -1) == nil && RBSuggestionsMovedIds(phrases, 1, 1) == nil);
-  puts("PASS: RBSuggestions settings parsing, model-only AI, merge order & de-dup, composer filter, click-to-send body, agent observation & phrase validation");
+  puts("PASS: RBSuggestions settings parsing, model-only AI, merge order & de-dup, composer filter, click-to-send body, agent observation (strong vs weak), late-response guard & phrase validation");
 }
 
 static void testGroupCreateHelpers(void) {

@@ -106,7 +106,9 @@ test('SuggestionsService.complete: gating, scenario route, max tokens, cache, in
   ]);
   assert.equal(requests.length, 2);
   assert.equal(a.completion, ' all checks');
-  assert.equal(b.cached, true);
+  assert.equal(b.completion, ' all checks');
+  // One of the two ran the model call, the other joined it (usage recording may reorder them).
+  assert.deepEqual([a.cached, b.cached].sort(), [false, true]);
 
   // Cancelling (the client went away) aborts the model call and is not cached.
   let release;
@@ -188,10 +190,15 @@ test('HTTP /local/suggestions/complete: device auth, setting, gating and model c
   assert.equal(empty.source, 'empty');
   assert.equal(modelCalls, 0);
 
-  const ok = await (await post(headers, { agentId: 'bot_1', text: '帮我', locale: 'zh-CN', recentMessages })).json();
+  // With a Bot ID only that Bot's transcript counts (this Host core is unreachable): the screen's
+  // messages may still be the previous Bot's, so they are not used.
+  const unreadable = await (await post(headers, { agentId: 'bot_1', text: '帮我', locale: 'zh-CN', recentMessages })).json();
+  assert.equal(unreadable.source, 'model-error');
+  assert.equal(modelCalls, 0);
+  const ok = await (await post(headers, { text: '帮我', locale: 'zh-CN', recentMessages })).json();
   assert.deepEqual([ok.enabled, ok.source, ok.text, ok.completion], [true, 'model', '帮我', '跑一下测试']);
   assert.equal(modelCalls, 1);
-  const cached = await (await post(headers, { agentId: 'bot_1', text: '帮我', locale: 'zh-CN', recentMessages })).json();
+  const cached = await (await post(headers, { text: '帮我', locale: 'zh-CN', recentMessages })).json();
   assert.equal(cached.cached, true);
   assert.equal(modelCalls, 1);
 

@@ -274,3 +274,49 @@ test('composer assist is shared by the Web bundle and the desktop preload', () =
     assert.ok(src.includes(id), id);
   }
 });
+
+// ---- per-Bot isolation (the 小红书 chat showed the RokBot chat's suggestions) ---------------------
+
+test('the Bot on screen comes from the renderer / links first, the sidebar only as a fallback', () => {
+  const sidebar = id => ({ querySelector: sel => (id && sel.includes('aria-current') ? { dataset: { agentId: id } } : null) });
+  // The sidebar still marks RokBot while the renderer already reported 小红书.
+  assert.equal(assist.currentAgentId(sidebar('rokbot'), () => 'xhs'), 'xhs');
+  assert.equal(assist.currentAgentId(sidebar('rokbot'), () => ''), 'rokbot');
+  assert.equal(assist.currentAgentId(sidebar(''), () => 'bad id!'), '');
+  assert.equal(assist.currentAgentId(sidebar(''), undefined), '');
+});
+
+test('a late answer for the previous Bot, an older request, or another Bot is never shown', () => {
+  const accept = assist.acceptSuggestionResponse;
+  const base = { requestedKey: 'xhs:2:xh-1:zh', currentKey: 'xhs:2:xh-1:zh', requestedAgentId: 'xhs', currentAgentId: 'xhs',
+    requestSeq: 4, latestSeq: 4, response: { agentId: 'xhs', aiSuggestions: ['标题再吸睛一点'] } };
+  assert.equal(accept(base), true);
+  // RokBot's request answered after switching to 小红书.
+  assert.equal(accept({ ...base, requestedKey: 'rokbot:2:rk-1:zh', requestedAgentId: 'rokbot',
+    response: { agentId: 'rokbot', aiSuggestions: ['合并完#248后记得更新CHANGELOG'] } }), false);
+  // Same chat key, but the Bot on screen changed meanwhile.
+  assert.equal(accept({ ...base, currentAgentId: 'rokbot' }), false);
+  // An older request of the same chat.
+  assert.equal(accept({ ...base, requestSeq: 3 }), false);
+  // The Host says the answer belongs to another Bot.
+  assert.equal(accept({ ...base, response: { agentId: 'rokbot' } }), false);
+  // An older Host without the echo is still accepted.
+  assert.equal(accept({ ...base, response: { aiSuggestions: ['x'] } }), true);
+});
+
+test('suggestions: the focused request uses the key captured when it was scheduled, prefetch, max 3, Bot transcript only', () => {
+  const source = fs.readFileSync(path.join(REPO, 'mac/clients/desktop/composer-assist.cjs'), 'utf8');
+  const trigger = source.slice(source.indexOf('function triggerIfFocused()'), source.indexOf('// -- ghost text'));
+  // Before: fetchSuggestions(agentId, state, currentKey) read the key when the timer fired, so a
+  // switch in between filed the previous Bot's answer under the new Bot's key.
+  assert.doesNotMatch(trigger, /fetchSuggestions\(agentId, state, currentKey\)/);
+  assert.match(trigger, /const key = currentKey;/);
+  assert.match(trigger, /schedulePrefetch\(\)/);
+  assert.match(source, /const MAX_AI_SUGGESTIONS = 3;/);
+  assert.match(source, /\.\.\.\(!agentId && state\.recentMessages\?\.length \?/);
+  assert.match(source, /res\.agentId !== agentId/);
+  const css = fs.readFileSync(path.join(REPO, 'mac/clients/desktop/workspace.css'), 'utf8');
+  const chip = /\.rokbot-suggestions__chip \{([^}]*)\}/.exec(css)[1];
+  assert.match(chip, /height: 24px/);
+  assert.match(chip, /font-size: 12px/);
+});

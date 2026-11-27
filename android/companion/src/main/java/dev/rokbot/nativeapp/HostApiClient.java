@@ -390,7 +390,20 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    /** Client read timeout of /local/suggestions (was 18 s; the Host answers from cache or gives up sooner). */
+    static final int SUGGESTIONS_TIMEOUT_MS = 9000;
+
     public static JSONObject getSuggestions(Context context, String agentId, String lastEntryId, String locale) throws Exception {
+        return getSuggestions(context, agentId, lastEntryId, locale, null, false);
+    }
+
+    /**
+     * POST /local/suggestions { agentId, lastEntryId?, locale?, requestId? (max 64 chars), prefetch? }.
+     * Response adds agentId / requestId (echoed) and historyId; with prefetch the Host answers
+     * 202 { accepted, agentId, requestId } and generates into its cache in the background.
+     */
+    public static JSONObject getSuggestions(Context context, String agentId, String lastEntryId, String locale,
+                                            String requestId, boolean prefetch) throws Exception {
         JSONObject req = new JSONObject();
         if (agentId != null && !agentId.trim().isEmpty()) {
             req.put("agentId", agentId.trim());
@@ -401,7 +414,12 @@ public class HostApiClient {
         if (locale != null && !locale.trim().isEmpty()) {
             req.put("locale", locale.trim());
         }
-        HttpResult res = authedRequest(context, "POST", "/local/suggestions", req, 18000, null);
+        if (requestId != null && !requestId.trim().isEmpty()) {
+            String rid = requestId.trim();
+            req.put("requestId", rid.length() > 64 ? rid.substring(0, 64) : rid);
+        }
+        if (prefetch) req.put("prefetch", true);
+        HttpResult res = authedRequest(context, "POST", "/local/suggestions", req, SUGGESTIONS_TIMEOUT_MS, null);
         return requireJsonObject(res);
     }
 

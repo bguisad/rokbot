@@ -70,6 +70,14 @@ public final class GatewayEndpointRouter {
     }
 
     public static void observeAgentIdFromJson(byte[] raw) {
+        observeAgentIdFromJson(null, raw);
+    }
+
+    /**
+     * Last agent (notifications, voice, ...) follows every observed request as before; the input
+     * suggestions get the path too and only follow navigation signals (see SuggestionAgentTracker).
+     */
+    public static void observeAgentIdFromJson(String path, byte[] raw) {
         JSONObject obj = parseJsonObject(raw);
         if (obj != null) {
             String id = obj.optString("agentId", "");
@@ -77,9 +85,27 @@ public final class GatewayEndpointRouter {
             if (id.isEmpty()) id = obj.optString("agent_id", "");
             if (!id.isEmpty() && id.length() <= 256) {
                 setLastAgentId(id);
-                ComposerSuggestionsOverlay.notifyAgentActivity(id);
+                ComposerSuggestionsOverlay.onGatewayRequest(path, id);
             }
         }
+    }
+
+    /**
+     * Requests RN sends straight to the paired Host (direct / LAN mode, not a rewritten cloud
+     * endpoint): only the input suggestions follow them, and only for navigation / transcript
+     * paths. The last / viewing agent (notifications, voice) is left as it was.
+     */
+    public static boolean shouldObserveSuggestionsPath(String path) {
+        return SuggestionAgentTracker.isNavigationPath(path) || SuggestionAgentTracker.isTranscriptPath(path);
+    }
+
+    public static void observeSuggestionsAgentFromJson(String path, byte[] raw) {
+        JSONObject obj = parseJsonObject(raw);
+        if (obj == null) return;
+        String id = obj.optString("agentId", "");
+        if (id.isEmpty()) id = obj.optString("id", "");
+        if (id.isEmpty()) id = obj.optString("agent_id", "");
+        if (!id.isEmpty() && id.length() <= 256) ComposerSuggestionsOverlay.onGatewayRequest(path, id);
     }
 
     public static JSONObject parseJsonObject(byte[] data) {
