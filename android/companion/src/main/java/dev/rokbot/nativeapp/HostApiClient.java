@@ -375,12 +375,8 @@ public class HostApiClient {
 
     public static JSONObject createGroup(Context context, String name, String description, List<String> memberAgentIds) throws Exception {
         JSONObject req = new JSONObject();
-        if (name != null && !name.trim().isEmpty()) {
-            req.put("name", name.trim());
-        }
-        if (description != null && !description.trim().isEmpty()) {
-            req.put("description", description.trim());
-        }
+        req.put("name", name != null ? name.trim() : "");
+        req.put("description", description != null ? description.trim() : "");
         JSONArray members = new JSONArray();
         if (memberAgentIds != null) {
             for (String id : memberAgentIds) {
