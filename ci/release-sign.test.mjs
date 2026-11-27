@@ -274,28 +274,83 @@ test('CLI sign-apk and publish-android support rokbot-android-signing/v1, RokBot
     const outDir = path.join(dir, 'out');
     const signedPrev = path.join(outDir, 'GrokBotLocal-0.0.1-android.apk');
     const signedNext = path.join(dir, 'signed-next.apk');
-    await execFileAsync(process.execPath, [
-      releaseSignPath, 'sign-apk', '--input', unsignedPrev, '--output', signedPrev, '--signing-key', legacySigningPath,
-    ]);
-    await execFileAsync(process.execPath, [
-      releaseSignPath, 'sign-apk', '--input', unsignedNext, '--output', signedNext, '--signing-key', signingPath,
-    ]);
+
+    // Release mode (without --dev-signing) must reject missing keyfile and mismatched certificate fingerprint.
+    const missingSigningPath = path.join(dir, 'missing-android-signing.json');
     await assert.rejects(
       () => execFileAsync(process.execPath, [
-        releaseSignPath, 'sign-apk', '--input', unsignedNext, '--output', path.join(dir, 'nope.apk'), '--signing-key', badSigningPath,
+        releaseSignPath, 'sign-apk', '--input', unsignedNext, '--output', path.join(dir, 'nope-missing.apk'), '--signing-key', missingSigningPath,
+      ]),
+      err => {
+        assert.match(err.stderr, /46214d3d1737ebdf1c0cde3ba29671f5ae057c87570e29daaa74da6558e9fe79/);
+        assert.match(err.stderr, /missing/i);
+        assert.ok(err.stderr.includes(missingSigningPath));
+        assert.match(err.stderr, /mini/);
+        assert.match(err.stderr, /~\/\.rokbot-local\/android-signing\.json/);
+        return true;
+      },
+    );
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [
+        releaseSignPath, 'sign-apk', '--input', unsignedNext, '--output', path.join(dir, 'nope-mismatch.apk'), '--signing-key', signingPath,
+      ]),
+      err => {
+        assert.match(err.stderr, /46214d3d1737ebdf1c0cde3ba29671f5ae057c87570e29daaa74da6558e9fe79/);
+        assert.ok(err.stderr.includes(sha256Hex(identity.certificate)));
+        assert.ok(err.stderr.includes(signingPath));
+        assert.match(err.stderr, /mini/);
+        return true;
+      },
+    );
+
+    const prevSign = await execFileAsync(process.execPath, [
+      releaseSignPath, 'sign-apk', '--input', unsignedPrev, '--output', signedPrev, '--signing-key', legacySigningPath, '--dev-signing',
+    ]);
+    assert.match(prevSign.stderr, /DEV SIGNING MODE ENABLED/);
+    const nextSign = await execFileAsync(process.execPath, [
+      releaseSignPath, 'sign-apk', '--input', unsignedNext, '--output', signedNext, '--signing-key', signingPath,
+    ], { env: { ...process.env, ROKBOT_ANDROID_DEV_SIGNING: '1' } });
+    assert.match(nextSign.stderr, /DEV SIGNING MODE ENABLED/);
+    const nextSignJson = JSON.parse(nextSign.stdout);
+    assert.equal(nextSignJson.devSigning, true);
+    assert.equal(nextSignJson.certificateSha256Hex, sha256Hex(identity.certificate));
+    assert.equal(nextSignJson.signingVerification.verified, true);
+
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [
+        releaseSignPath, 'sign-apk', '--input', unsignedNext, '--output', path.join(dir, 'nope.apk'), '--signing-key', badSigningPath, '--dev-signing',
       ]),
       /Invalid Android signing key schema/,
     );
 
     const keyPath = path.join(dir, 'manifest-key.json');
-    const { stdout } = await execFileAsync(process.execPath, [
+    // Release publish-android must also reject APKs signed with a non-release certificate unless --dev-signing is enabled.
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [
+        releaseSignPath,
+        'publish-android',
+        '--apk', signedNext,
+        '--out-dir', outDir,
+        '--base-url', 'https://updates.example',
+        '--manifest-key', keyPath,
+      ]),
+      err => {
+        assert.match(err.stderr, /46214d3d1737ebdf1c0cde3ba29671f5ae057c87570e29daaa74da6558e9fe79/);
+        assert.ok(err.stderr.includes(sha256Hex(identity.certificate)));
+        return true;
+      },
+    );
+
+    const { stdout, stderr } = await execFileAsync(process.execPath, [
       releaseSignPath,
       'publish-android',
       '--apk', signedNext,
       '--out-dir', outDir,
       '--base-url', 'https://updates.example',
       '--manifest-key', keyPath,
+      '--dev-signing',
     ]);
+    assert.match(stderr, /DEV SIGNING MODE ENABLED/);
     const res = JSON.parse(stdout);
     assert.equal(res.published, true);
     assert.equal(res.feed, 'android.json');

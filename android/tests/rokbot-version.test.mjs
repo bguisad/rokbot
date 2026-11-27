@@ -52,13 +52,13 @@ test('Versioning pipeline: --rokbot-build lands in the APK and patch-report', as
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-version-'));
   try {
     const out = path.join(tmp, 'out', 'rokbot.apk');
-    const report = await runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: out, keystore: path.join(tmp, 'k.json'), rokbotBuild: 7, force: true });
+    const report = await runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: out, keystore: path.join(tmp, 'k.json'), devSigning: true, rokbotBuild: 7, force: true });
     assert.equal(report.upstreamVersionCode, 3212);
     assert.equal(report.versionCode, 321207);
     assert.equal(report.versionName, '1.26.0-rokbot.7');
     const axml = entryBytes(readZip(fs.readFileSync(out)).entries.find(e => e.name === 'AndroidManifest.xml'));
     assert.deepEqual(extractManifestInfo(axml), { packageName: 'dev.rokbot.local', versionCode: 321207, versionName: '1.26.0-rokbot.7' });
-    await assert.rejects(runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: out, keystore: path.join(tmp, 'k.json'), versionCode: 100, force: true }),
+    await assert.rejects(runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: out, keystore: path.join(tmp, 'k.json'), devSigning: true, versionCode: 100, force: true }),
       /lower than the upstream 3212/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

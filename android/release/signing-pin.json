@@ -1,0 +1,6 @@
+{
+  "schema": "rokbot-android-signing-pin/v1",
+  "releaseCertificateSha256": "46214d3d1737ebdf1c0cde3ba29671f5ae057c87570e29daaa74da6558e9fe79",
+  "defaultKeystorePath": "~/.rokbot-local/android-signing.json",
+  "recoveryHint": "Copy ~/.rokbot-local/android-signing.json from mini to this machine (or pass --keystore <path> pointing to the official release keystore)."
+}

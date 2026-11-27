@@ -41,12 +41,14 @@ test('Update channel: patched builds publish through the real Host UpdatesManage
     const keystore = path.join(tmp, 'signing.json');
     const apk1 = path.join(tmp, 'out1', 'RokBot-1.26.0-rokbot.1.apk');
     const apk2 = path.join(tmp, 'out2', 'RokBot-1.26.0-rokbot.2.apk');
-    const r1 = await runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: apk1, keystore, rokbotBuild: 1, force: true });
-    const r2 = await runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: apk2, keystore, rokbotBuild: 2, force: true });
+    const r1 = await runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: apk1, keystore, devSigning: true, rokbotBuild: 1, force: true });
+    const r2 = await runPatchPipeline({ inputApk: FIXTURE_APK, outputApk: apk2, keystore, devSigning: true, rokbotBuild: 2, force: true });
     assert.equal(r1.versionCode, 321201);
     assert.equal(r1.versionName, '1.26.0-rokbot.1');
     assert.equal(r1.upstreamVersionCode, 3212);
+    assert.equal(r1.devSigning, true);
     assert.equal(r2.versionCode, 321202);
+    assert.equal(r2.signingCertificateSha256, r1.signingCertificateSha256);
 
     const info1 = inspectApkBuffer(fs.readFileSync(apk1));
     const info2 = inspectApkBuffer(fs.readFileSync(apk2));

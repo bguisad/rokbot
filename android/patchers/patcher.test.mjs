@@ -193,13 +193,15 @@ test('Signing: createSigningIdentity supports RSA 2048 and signApk produces vali
 });
 
 test('Pipeline: runPatchPipeline end-to-end creates patched APK and patch-report.json', async () => {
-  const tmpOut = path.join(os.tmpdir(), `rokbot-test-out-${Date.now()}.apk`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-patcher-e2e-'));
+  const tmpOut = path.join(tmpDir, 'rokbot-test-out.apk');
   try {
     const report = await runPatchPipeline({
       inputApk: FIXTURE_APK,
       outputApk: tmpOut,
       host: 'http://127.0.0.1:18080',
       pairingCode: 'K7M9P2',
+      devSigning: true,
       force: true,
       verbose: false
     });
@@ -210,6 +212,9 @@ test('Pipeline: runPatchPipeline end-to-end creates patched APK and patch-report
     assert.equal(report.bundlePatched, false);
     assert.equal(report.expoUpdatesDisabled, true);
     assert.equal(report.cleartextTrafficAllowed, true);
+    assert.equal(report.devSigning, true);
+    assert.match(report.signingCertificateSha256, /^[0-9a-f]{64}$/);
+    assert.equal(report.signingVerification?.verified, true);
 
     const reportFile = path.join(path.dirname(tmpOut), 'patch-report.json');
     assert.ok(fs.existsSync(reportFile));
@@ -220,7 +225,7 @@ test('Pipeline: runPatchPipeline end-to-end creates patched APK and patch-report
     assert.equal(verifyResult.verified, true);
     assert.equal(verifyResult.hasV3, true);
   } finally {
-    if (fs.existsSync(tmpOut)) fs.unlinkSync(tmpOut);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 
@@ -232,8 +237,9 @@ test('Pipeline: runPatchPipeline accurately sets bundlePatched: true when assets
   entries.push(createEntry('assets/index.android.bundle', dummyBundle, { store: false }));
   const inputWithBundle = writeZip(entries);
 
-  const tmpIn = path.join(os.tmpdir(), `rokbot-bundle-in-${Date.now()}.apk`);
-  const tmpOut = path.join(os.tmpdir(), `rokbot-bundle-out-${Date.now()}.apk`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokbot-patcher-bundle-'));
+  const tmpIn = path.join(tmpDir, 'rokbot-bundle-in.apk');
+  const tmpOut = path.join(tmpDir, 'rokbot-bundle-out.apk');
   try {
     fs.writeFileSync(tmpIn, inputWithBundle);
     const report = await runPatchPipeline({
@@ -241,12 +247,13 @@ test('Pipeline: runPatchPipeline accurately sets bundlePatched: true when assets
       outputApk: tmpOut,
       host: 'http://127.0.0.1:18080',
       pairingCode: 'K7M9P2',
+      devSigning: true,
       force: true,
       verbose: false
     });
     assert.equal(report.bundlePatched, true, 'bundlePatched must be true when bundle is present');
+    assert.equal(report.devSigning, true);
   } finally {
-    if (fs.existsSync(tmpIn)) fs.unlinkSync(tmpIn);
-    if (fs.existsSync(tmpOut)) fs.unlinkSync(tmpOut);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
