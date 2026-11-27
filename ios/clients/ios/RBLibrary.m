@@ -2,12 +2,16 @@
 #import "RBLibrary.h"
 #import "RBConnection.h"
 #import "RBHTTP.h"
+#import "RBChoiceSheet.h"
+#import "RBSuggestions.h"
 #import <QuickLook/QuickLook.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 static NSString *RBCurrentAgent;
 void RBObserveRequest(NSURLRequest *request) {
   NSString *path = request.URL.path;
+  if ([path hasPrefix:@"/api/"] && request.HTTPBody.length)
+    RBSuggestionsNoteRequest(path, request.HTTPBody);
   if (![path hasPrefix:@"/api/"] ||
       ![path.lastPathComponent isEqualToString:@"openAgentWindowed"] ||
       !request.HTTPBody.length)
@@ -230,67 +234,57 @@ void RBObserveRequest(NSURLRequest *request) {
        }];
 }
 - (void)add {
-  UIAlertController *sheet =
-      [UIAlertController alertControllerWithTitle:RBL(@"添加资料", @"Add to library")
-                                          message:nil
-                                   preferredStyle:UIAlertControllerStyleActionSheet];
-  [sheet addAction:[UIAlertAction actionWithTitle:RBL(@"选择文件", @"Choose file")
-                                            style:UIAlertActionStyleDefault
-                                          handler:^(UIAlertAction *a) {
-                                            UIDocumentPickerViewController *picker =
-                                                [[UIDocumentPickerViewController alloc]
-                                                    initForOpeningContentTypes:@[ UTTypeItem ]
-                                                                        asCopy:YES];
-                                            picker.delegate = self;
-                                            [self presentViewController:picker
-                                                               animated:YES
-                                                             completion:nil];
-                                          }]];
-  [sheet
+  NSArray<RBChoiceOption *> *options = @[
+    [RBChoiceOption optionWithValue:@"file" title:RBL(@"选择文件", @"Choose file") subtitle:nil],
+    [RBChoiceOption optionWithValue:@"text" title:RBL(@"添加文本", @"Add text") subtitle:nil],
+  ];
+  [[RBChoiceSheet sheetWithTitle:RBL(@"添加资料", @"Add to library") message:nil options:options selected:nil
+                        onSelect:^(RBChoiceOption *option) {
+                          if ([option.value isEqualToString:@"file"]) [self chooseFile];
+                          else [self addText];
+                        }] presentFrom:self];
+}
+- (void)chooseFile {
+  UIDocumentPickerViewController *picker =
+      [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeItem ] asCopy:YES];
+  picker.delegate = self;
+  [self presentViewController:picker animated:YES completion:nil];
+}
+- (void)addText {
+  UIAlertController *form = [UIAlertController
+      alertControllerWithTitle:RBL(@"添加文本", @"Add text")
+                       message:nil
+                preferredStyle:UIAlertControllerStyleAlert];
+  [form addTextFieldWithConfigurationHandler:^(UITextField *f) {
+    f.placeholder = RBL(@"文件名.txt", @"Filename.txt");
+    f.autocorrectionType = UITextAutocorrectionTypeNo;
+  }];
+  [form addTextFieldWithConfigurationHandler:^(UITextField *f) {
+    f.placeholder = RBL(@"内容", @"Content");
+  }];
+  [form
+      addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel")
+                                         style:UIAlertActionStyleCancel
+                                       handler:nil]];
+  [form
       addAction:[UIAlertAction
-                    actionWithTitle:RBL(@"添加文本", @"Add text")
+                    actionWithTitle:RBL(@"上传", @"Upload")
                               style:UIAlertActionStyleDefault
-                            handler:^(UIAlertAction *a) {
-                              UIAlertController *form = [UIAlertController
-                                  alertControllerWithTitle:RBL(@"添加文本", @"Add text")
-                                                   message:nil
-                                            preferredStyle:UIAlertControllerStyleAlert];
-                              [form addTextFieldWithConfigurationHandler:^(UITextField *f) {
-                                f.placeholder = RBL(@"文件名.txt", @"Filename.txt");
-                                f.autocorrectionType = UITextAutocorrectionTypeNo;
-                              }];
-                              [form addTextFieldWithConfigurationHandler:^(UITextField *f) {
-                                f.placeholder = RBL(@"内容", @"Content");
-                              }];
-                              [form
-                                  addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel")
-                                                                     style:UIAlertActionStyleCancel
-                                                                   handler:nil]];
-                              [form
-                                  addAction:[UIAlertAction
-                                                actionWithTitle:RBL(@"上传", @"Upload")
-                                                          style:UIAlertActionStyleDefault
-                                                        handler:^(UIAlertAction *action) {
-                                                          NSString *name = form.textFields[0].text;
-                                                          NSString *value = form.textFields[1].text;
-                                                          if (name.length && value.length)
-                                                            [self
-                                                                upload:[value
-                                                                           dataUsingEncoding:
-                                                                               NSUTF8StringEncoding]
-                                                                  name:name
-                                                                  mime:@"text/plain"];
-                                                          else
-                                                            self.status.text =
-                                                                RBL(@"文件名和内容不能为空。", @"Enter a filename and content.");
-                                                        }]];
-                              [self presentViewController:form animated:YES completion:nil];
+                            handler:^(UIAlertAction *action) {
+                              NSString *name = form.textFields[0].text;
+                              NSString *value = form.textFields[1].text;
+                              if (name.length && value.length)
+                                [self
+                                    upload:[value
+                                               dataUsingEncoding:
+                                                   NSUTF8StringEncoding]
+                                      name:name
+                                      mime:@"text/plain"];
+                              else
+                                self.status.text =
+                                    RBL(@"文件名和内容不能为空。", @"Enter a filename and content.");
                             }]];
-  [sheet addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel")
-                                            style:UIAlertActionStyleCancel
-                                          handler:nil]];
-  sheet.popoverPresentationController.barButtonItem = self.navigationItem.rightBarButtonItem;
-  [self presentViewController:sheet animated:YES completion:nil];
+  [self presentViewController:form animated:YES completion:nil];
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller
     didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {

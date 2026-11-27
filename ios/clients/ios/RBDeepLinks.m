@@ -191,6 +191,24 @@ void RBInstallDeepLinks(void) {
   }
 }
 
+NSURL *RBAppRouteURL(NSString *route) {
+  if (![route isKindOfClass:NSString.class] || !route.length || route.length > 64 ||
+      [route rangeOfCharacterFromSet:
+                 [[NSCharacterSet characterSetWithCharactersInString:
+                     @"abcdefghijklmnopqrstuvwxyz0123456789-/"] invertedSet]].location != NSNotFound ||
+      [route hasPrefix:@"/"] || [route containsString:@"//"])
+    return nil;
+  // expo-router file routes (for example new-chat.tsx) are reachable on the app's sand-mobile scheme.
+  return [NSURL URLWithString:[@"sand-mobile://" stringByAppendingString:route]];
+}
+
+void RBOpenAppRoute(NSString *route) {
+  NSURL *url = RBAppRouteURL(route);
+  if (!url) return;
+  RBDiagnosticsEvent(@"route.open", @{@"route":route});
+  RBDeliverURL(url);
+}
+
 void RBOpenAgent(NSString *agentId) {
   NSURL *url = RBChatURL(agentId);
   if (!url) return;
