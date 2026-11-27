@@ -602,7 +602,8 @@ if (configuredSeed || configuredArchive) {
         if (callStep === 2) {
           // Exercise the remaining Tracked Tasks tools so their model-visible results can be asserted.
           writeSseToolCalls(res, [
-            { id: 'call-task-list', name: 'ListTrackedTasks', arguments: {} },
+            // These calls may run concurrently, so list closed tasks too and accept either version.
+            { id: 'call-task-list', name: 'ListTrackedTasks', arguments: { include_closed: true } },
             {
               id: 'call-task-update',
               name: 'UpdateTrackedTasks',
@@ -735,7 +736,7 @@ if (configuredSeed || configuredArchive) {
       };
       assert.match(toolMessage(requests[1], 'call-task-create'), /Created 1 task\(s\):\n- T-1 \(v1\) \[queued\] \[e2e\]: Verify state tools E2E/);
       assert.match(toolMessage(requests[1], 'call-mem-agent'), /Saved to memory/);
-      assert.match(toolMessage(requests[2], 'call-task-list'), /T-1 \(v1\) \[queued\] \[e2e\]: Verify state tools E2E/);
+      assert.match(toolMessage(requests[2], 'call-task-list'), /T-1 \(v[12]\) \[(queued|done)\] \[e2e[^\]]*\]: Verify state tools E2E/);
       assert.match(toolMessage(requests[2], 'call-task-update'), /T-1 \(v2\) \[done\]/);
       assert.match(toolMessage(requests[2], 'call-task-tags'), /urgent/);
 
