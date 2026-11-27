@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""iOS canvases: canvas links open RBCanvas (in-app stage + share sheet), the Library lists them,
-and the sources compile with the dylib's flags (the full dylib needs the tailcat archive)."""
+"""iOS canvases: canvas links open RBCanvas (in-app stage + share sheet), the Library lists them
+with RokBot choice sheets, and the sources compile with the dylib's flags."""
 from pathlib import Path
 import re
 import shutil
@@ -28,11 +28,11 @@ class CanvasTest(unittest.TestCase):
         canvas = read("RBCanvas.m")
         for text in [
             "WKWebsiteDataStore.nonPersistentDataStore",
-            "compileContentRuleListForIdentifier:@\"rokbot-canvas-offline\"",
+            'compileContentRuleListForIdentifier:@"rokbot-canvas-offline"',
             "/canvas/app/%@/frame?theme=%@",
             '[request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"]',
             "Content-Security-Policy",
-            "baseURL:[NSURL URLWithString:@\"https://canvas.rokbot.invalid/\"]",
+            'baseURL:[NSURL URLWithString:@"https://canvas.rokbot.invalid/"]',
             "WKNavigationTypeLinkActivated",
         ]:
             self.assertIn(text, canvas)
@@ -48,8 +48,10 @@ class CanvasTest(unittest.TestCase):
         self.assertNotIn("UISwitch", canvas)
         library = read("RBLibrary.m")
         for text in ["/local/canvases?agentId=", "RBCanvasShortTime(", "删除“%@”", "删除画布", "RBPresentCanvasShare(",
-                     "RBPresentCanvas(canvas[@\"id\"], canvas[@\"title\"])", "这个 Bot 创建的画布会显示在这里。"]:
+                     'RBPresentCanvas(canvas[@"id"], canvas[@"title"])', "这个 Bot 创建的画布会显示在这里。",
+                     "RBChoiceSheet sheetWithTitle:"]:
             self.assertIn(text, library)
+        self.assertNotIn("UIMenu", library)
         for name in ["RBCanvas.m", "RBLibrary.m"]:
             src = read(name)
             self.assertIsNone(re.search(r"[\U0001F300-\U0001FAFF☀-➿]", src), name)
