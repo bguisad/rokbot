@@ -599,7 +599,7 @@ export class SuggestionsService {
       }
     }
 
-    const task = this.#generateFromModel(route, history, lang, cacheKey);
+    const task = this.#generateFromModel(route, history, lang, cacheKey, agentId);
     this.inFlight.set(cacheKey, task);
     try {
       const outcome = await task;
@@ -617,7 +617,7 @@ export class SuggestionsService {
     }
   }
 
-  async #generateFromModel(route, history, lang, cacheKey) {
+  async #generateFromModel(route, history, lang, cacheKey, agentId) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error('Suggestions request timed out')), this.timeoutMs);
     timer.unref?.();
@@ -629,9 +629,9 @@ export class SuggestionsService {
           signal?.throwIfAborted();
           return { ...route, requestOptions: reasoningOptions(route.model, route.effort), fallbacks: [] };
         },
-        onUsage: async ({ raw, model, requestId }) => {
+        onUsage: async usage => {
           if (!this.usageDirectory) return;
-          await recordUsage(this.usageDirectory, { raw, model, kind: 'suggestions', requestId }).catch(() => {});
+          await recordUsage(this.usageDirectory, { ...usage, kind: 'suggestions', agentId }).catch(() => {});
         },
       });
       const messages = buildSuggestionMessages(history, lang);

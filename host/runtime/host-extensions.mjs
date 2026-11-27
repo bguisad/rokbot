@@ -148,7 +148,7 @@ export function createInference(config, library, services, { fetchImpl, sessionF
             selectRequest,
             onFallback: event => recordRouting(config.routingDirectory, { kind: 'model-fallback', status: 'fallback', agentId,
               session: usageKind, ...event }),
-            onUsage: usage => recordUsage(config.usageDirectory, { ...usage, kind: usageKind }),
+            onUsage: usage => recordUsage(config.usageDirectory, { ...usage, kind: usageKind, agentId }),
             fetchImpl: observeModelFetch(modelFetch, options),
             mapError: createHarnessModelErrorMapper(library) });
         })(),

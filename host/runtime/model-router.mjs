@@ -102,7 +102,7 @@ export function createModelRouter(config, { fetchImpl = fetch, onDecision = () =
           signal,
           fetchImpl,
         });
-        try { await recordUsage(config.usageDirectory, { raw: result.usage, model: result.model, kind: 'classifier' }); }
+        try { await recordUsage(config.usageDirectory, { raw: result.usage, model: result.model, kind: 'classifier', agentId, durationMs: performance.now() - started, status: 'ok' }); }
         catch (error) { console.warn('[usage] Unable to record classifier usage:', error.code ?? error.name); }
       } catch (error) {
         signal?.throwIfAborted();
@@ -165,7 +165,7 @@ export function createModelRouter(config, { fetchImpl = fetch, onDecision = () =
     let result, fallback = false, errorReason;
     try {
       result = await classifyTask({ apiKey: config.jevApiKey, model: policy.classifierModel, policy, state, signal, fetchImpl });
-      try { await recordUsage(config.usageDirectory, { raw: result.usage, model: result.model, kind: 'classifier' }); }
+      try { await recordUsage(config.usageDirectory, { raw: result.usage, model: result.model, kind: 'classifier', agentId, durationMs: performance.now() - started, status: 'ok' }); }
       catch (error) { console.warn('[usage] Unable to record classifier usage:', error.code ?? error.name); }
     } catch (error) {
       signal?.throwIfAborted(); fallback = true;
