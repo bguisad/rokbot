@@ -59,7 +59,7 @@ import { attachmentDataUrl } from "./attachments.mjs";
 import { DeviceConnections, proxyHttp, proxyWebSocket } from "./proxy.mjs";
 import { proxyLocalExec } from "./local-exec-proxy.mjs";
 import { handleUpdateProxy } from "./update-proxy.mjs";
-import { VncTickets, vncPath, normalizeVncUpgradeUrl } from "./vnc.mjs";
+import { VncTickets, vncPath, normalizeVncUpgradeUrl, vncUpgradeRejectionLog, NATIVE_APP_VNC_PLATFORMS } from "./vnc.mjs";
 import { WebClient, rawBody } from "./web-client.mjs";
 import { createWebRoutes, webMoved } from "./web-routes.mjs";
 import {
@@ -328,7 +328,7 @@ export async function createSelfHostServer(options = {}) {
       request.headers.upgrade?.toLowerCase() === "websocket",
     );
     check(route, 404, "桌面资源不存在");
-    let found, ticket, nativeIosTicket = false;
+    let found, ticket, nativeAppTicket = false;
     if (!web && request.headers.authorization !== undefined) {
       found = device(request, false);
       ticket = tickets.issue(found.id, route.slot);
@@ -339,15 +339,18 @@ export async function createSelfHostServer(options = {}) {
       const value = tickets.validate(ticket, route.slot);
       check(value && (auth.device(value.deviceId)?.platform === "web") === web, 401, "桌面访问票据已失效，请重新打开电脑预览");
       found = { id: value.deviceId };
-      nativeIosTicket =
+      // The official apps' embedded viewers (iOS, and the Android "Bot computer" screen with its
+      // take-over button) load noVNC as inline HTML, so their socket carries `Origin: null`. Accept that
+      // only for a native app's ticket passed in the socket URL itself.
+      nativeAppTicket =
         !web &&
         request.headers.upgrade?.toLowerCase() === "websocket" &&
         url.searchParams.get("ticket") === ticket &&
-        auth.device(value.deviceId)?.platform === "ios";
+        NATIVE_APP_VNC_PLATFORMS.has(auth.device(value.deviceId)?.platform);
     }
     check(
       !request.headers.origin || request.headers.origin === origin ||
-        (request.headers.origin === "null" && nativeIosTicket),
+        (request.headers.origin === "null" && nativeAppTicket),
       403,
       "桌面请求来源不匹配",
     );
@@ -1291,6 +1294,7 @@ export async function createSelfHostServer(options = {}) {
         connections.track(access.deviceId, socket);
         proxyWebSocket(request, socket, head, access);
       } catch (error) {
+        console.warn(vncUpgradeRejectionLog(request, error));
         socket.end(
           `HTTP/1.1 ${error.status ?? 500} Rejected\r\nConnection: close\r\n\r\n`,
         );
