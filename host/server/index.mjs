@@ -80,8 +80,9 @@ import {
   verifyPassword,
 } from "./security.mjs";
 import { readJson } from "./storage.mjs";
-import { CanvasLinkOrigins, CanvasStore } from "./canvas-store.mjs";
+import { CanvasLinkOrigins, CanvasStore, configuredCanvasOrigin } from "./canvas-store.mjs";
 import { routeCanvas } from "./canvas-http.mjs";
+import { routeCanvasApi } from "./canvas-api.mjs";
 import { createSpeedTest } from "./speedtest.mjs";
 import { SuggestionsService, SuggestionsSettings } from "./suggestions.mjs";
 
@@ -775,7 +776,14 @@ export async function createSelfHostServer(options = {}) {
     delete request.headers['x-grokbot-tailcat-ingress'];
     request.rokbotOrigin = origin;
     const url = new URL(request.url, origin);
-    if (await routeCanvas(request, response, path, url, { store: canvasStore })) return;
+    // In-app canvas links need a device credential; public links only need the canvas public.
+    // On the web listener a frame is a plain navigation (no x-rokbot-web header), so the
+    // signed-in browser's session cookie (HttpOnly, SameSite=Strict) is the credential there.
+    if (await routeCanvas(request, response, path, url, { store: canvasStore, authorize: () => {
+      if (federation.role() !== 'primary') return false;
+      if (web) return Boolean(webClient.browserDevice(request)?.device);
+      try { device(request, false); return true; } catch { return false; }
+    } })) return;
     if (web) {
       check(origin !== mainOrigin, 403, "网页版需要与管理页不同的地址");
       if (await webRoute(request, response, path, url, origin, mainOrigin)) return;
@@ -1208,6 +1216,8 @@ export async function createSelfHostServer(options = {}) {
       });
       return response.end(file.bytes);
     }
+    if (await routeCanvasApi(request, response, path, url, { store: canvasStore, origin,
+      device: req => device(req, web), publicOrigin: async () => configuredCanvasOrigin() ?? mainOrigin })) return;
     if (
       path === "/local/files" &&
       ["GET", "POST", "DELETE"].includes(request.method)

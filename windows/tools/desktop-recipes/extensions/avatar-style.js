@@ -763,8 +763,14 @@ function RokAvatarCanvas({ styleId, shape, color, ink, eyeColor, state, sourceId
       setGaze(vec) {
         animRef.current.manualGaze = Array.isArray(vec) && vec.length >= 2
           ? { x: Number(vec[0]) || 0, y: Number(vec[1]) || 0 }
-          : null;
+          : vec && typeof vec === 'object' && Number.isFinite(Number(vec.x)) && Number.isFinite(Number(vec.y))
+            ? { x: Number(vec.x), y: Number(vec.y) }
+            : null;
       },
+      // The 1.3.0 mark controller is { gaze, setExpression, poke }: the Bot list calls gaze while the
+      // pointer is over a row, the computer preview sets a resting gaze and expression.
+      gaze(vec) { handle.setGaze(vec); },
+      setExpression(expression) { animRef.current.expression = typeof expression === 'string' ? expression : null; },
     };
     if (typeof controllerRef === 'function') controllerRef(handle);
     else controllerRef.current = handle;

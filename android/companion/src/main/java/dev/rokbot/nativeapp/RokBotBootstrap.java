@@ -102,6 +102,9 @@ public class RokBotBootstrap {
                     redirectBlockedBrowserToPairing(activity);
                     return;
                 }
+                // Canvas links open in CanvasActivity, from a Custom Tab request or a plain VIEW intent.
+                if (Storage.isPaired(activity) && CanvasLinks.interceptBrowserProxy(activity)) return;
+                if (isReactActivity(activity)) CanvasLinks.install(activity);
                 if (isReactActivity(activity) && !Storage.isPaired(activity)) {
                     boolean explicitSkip = activity.getIntent() != null
                             && activity.getIntent().getBooleanExtra("rokbot_skip_unpaired_redirect", false);

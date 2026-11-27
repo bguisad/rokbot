@@ -30,6 +30,19 @@ contextBridge.exposeInMainWorld('localBot', {
   deleteQuickPhrase: id => ipcRenderer.invoke('rokbot-local:suggestions-phrase-delete', { id }),
   reorderQuickPhrases: ids => ipcRenderer.invoke('rokbot-local:suggestions-phrase-reorder', { ids }),
   downloadAttachmentsZip: payload => ipcRenderer.invoke('rokbot-local:download-attachments-zip', payload),
+  // Canvases (renderer extensions/canvas.js): frames over sand-canvas://, data from /local/canvases.
+  canvasList: ({ agentId } = {}) => ipcRenderer.invoke('rokbot-local:canvas', { action: 'list', agentId }),
+  canvasGet: ({ id } = {}) => ipcRenderer.invoke('rokbot-local:canvas', { action: 'get', id }),
+  canvasSetVisibility: ({ id, visibility } = {}) => ipcRenderer.invoke('rokbot-local:canvas', { action: 'visibility', id, visibility }),
+  canvasRegenerateLink: ({ id } = {}) => ipcRenderer.invoke('rokbot-local:canvas', { action: 'link', id }),
+  canvasDelete: ({ id } = {}) => ipcRenderer.invoke('rokbot-local:canvas', { action: 'delete', id }),
+  canvasOpenExternal: url => ipcRenderer.invoke('rokbot-local:canvas', { action: 'open-external', url }),
+  canvasFrameUrl: ({ id, theme } = {}) => `sand-canvas://rokbot/${encodeURIComponent(String(id ?? ''))}?theme=${theme === 'dark' ? 'dark' : 'light'}`,
+  onOpenCanvas: callback => {
+    const listener = (_event, id) => callback(id);
+    ipcRenderer.on('rokbot-local:open-canvas', listener);
+    return () => ipcRenderer.removeListener('rokbot-local:open-canvas', listener);
+  },
   onConnectionChanged: callback => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on('rokbot-local:connection-changed', listener);

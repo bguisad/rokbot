@@ -7,6 +7,7 @@ const SETTINGS = 'rokbot-web:settings', PERSISTENCE = 'rokbot-web:persistence';
 const SETTING_KEYS = new Set(['theme', 'language', 'realtimeVoice', 'botColor', 'spellCheck', 'timeZone', 'backgroundNotifications']);
 const AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const CANVAS_PATH = /^\/canvas\/([A-Za-z0-9_-]{43})\/?$/;
+const CANVAS_APP_PATH = /^\/canvas\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i;
 const chinese = () => /^zh/i.test(document.documentElement.lang || boot.locale || navigator.language || '');
 const text = (zh, en) => chinese() ? zh : en;
 
@@ -36,6 +37,14 @@ export function localCanvasUrl(value, origin) {
   try { url = new URL(value); } catch { return null; }
   const match = ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && CANVAS_PATH.exec(url.pathname);
   return match ? new URL(`/canvas/${match[1]}`, origin).href : null;
+}
+
+/** The canvas id of an in-app canvas link (/canvas/app/<id>) on any Host address, or null. */
+export function localCanvasAppId(value) {
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  const match = ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && CANVAS_APP_PATH.exec(url.pathname);
+  return match ? match[1].toLowerCase() : null;
 }
 
 async function hostCall(path, body, method = 'POST') {
@@ -145,8 +154,16 @@ const calls = {
   'open-external'({ url }) {
     let target = new URL(url, location.href);
     if (!['http:', 'https:', 'mailto:'].includes(target.protocol) || target.username || target.password) throw new Error('Invalid link');
-    // A local canvas link (/canvas/<token>) opens on this listener, which serves canvases too,
-    // whatever Host address the bot put in the link.
+    // An in-app canvas link opens in the workspace's canvas view (desktop recipe extensions/canvas.js);
+    // without it, on this listener, where the session cookie opens a private canvas.
+    const canvasId = localCanvasAppId(target.href);
+    if (canvasId) {
+      const opening = new CustomEvent('rokbot-local:open-canvas', { detail: { id: canvasId }, cancelable: true });
+      if (!window.dispatchEvent(opening)) return { ok: true };
+      target = new URL(`/canvas/app/${canvasId}`, location.origin);
+    }
+    // A public canvas link (/canvas/<token>) opens on this listener, which serves canvases too,
+    // whatever Host address the link carries.
     target = new URL(localCanvasUrl(target.href, location.origin) ?? target.href);
     if (target.protocol === 'mailto:') location.href = target.href;
     else window.open(target.href, '_blank', 'noopener,noreferrer');

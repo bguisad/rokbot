@@ -1,4 +1,5 @@
 #import "RBDeepLinks.h"
+#import "RBCanvas.h"
 #import "RBConnection.h"
 #import "RBDiagnostics.h"
 #import <objc/message.h>
@@ -91,6 +92,11 @@ static BOOL RBLinkURL(id self, SEL cmd, id application, NSURL *url, NSDictionary
 }
 
 static void RBRCTOpenURL(id self, SEL cmd, NSURL *url, void (^resolve)(id), void (^reject)(NSString *, NSString *, NSError *)) {
+  // A RokBot canvas link opens in the app's canvas view (RBCanvas.m), not in Safari.
+  if (RBOpenCanvasURL(url)) {
+    if (resolve) resolve(@YES);
+    return;
+  }
   if (RBShouldBlockExternalURL(url)) {
     RBDiagnosticsEvent(@"link.blocked", @{@"url": url.absoluteString ?: @""});
     if (resolve) resolve(@NO);
@@ -100,6 +106,10 @@ static void RBRCTOpenURL(id self, SEL cmd, NSURL *url, void (^resolve)(id), void
 }
 
 static void RBUIAppOpenURL(id self, SEL cmd, NSURL *url, NSDictionary *options, void (^completion)(BOOL)) {
+  if (RBOpenCanvasURL(url)) {
+    if (completion) completion(YES);
+    return;
+  }
   if (RBShouldBlockExternalURL(url)) {
     RBDiagnosticsEvent(@"link.blocked", @{@"url": url.absoluteString ?: @""});
     if (completion) completion(NO);

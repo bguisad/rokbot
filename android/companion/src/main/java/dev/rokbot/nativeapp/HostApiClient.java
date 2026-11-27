@@ -515,6 +515,41 @@ public class HostApiClient {
         return reply.optString("dataUrl", "");
     }
 
+    // Canvases (/local/canvases on the Host; CanvasActivity and the Library "画布" section).
+    public static JSONObject listCanvases(Context context, String agentId) throws Exception {
+        return requireJsonObject(authedGet(context, "/local/canvases?agentId=" + encodeQuery(agentId)));
+    }
+
+    public static JSONObject getCanvas(Context context, String canvasId) throws Exception {
+        return requireJsonObject(authedGet(context, "/local/canvases/" + requireCanvasId(canvasId)));
+    }
+
+    public static JSONObject setCanvasVisibility(Context context, String canvasId, boolean isPublic) throws Exception {
+        JSONObject req = new JSONObject().put("visibility", isPublic ? "public" : "private");
+        return requireJsonObject(authedPost(context, "/local/canvases/" + requireCanvasId(canvasId) + "/visibility", req, 20000));
+    }
+
+    public static JSONObject regenerateCanvasLink(Context context, String canvasId) throws Exception {
+        return requireJsonObject(authedPost(context, "/local/canvases/" + requireCanvasId(canvasId) + "/link", new JSONObject(), 20000));
+    }
+
+    public static JSONObject deleteCanvas(Context context, String canvasId) throws Exception {
+        return requireJsonObject(authedRequest(context, "DELETE", "/local/canvases/" + requireCanvasId(canvasId), null, 20000));
+    }
+
+    /** The canvas frame page (self-contained HTML), read with this device's credential. */
+    public static String fetchCanvasFrame(Context context, String canvasId, boolean dark) throws Exception {
+        HttpResult res = authedRequest(context, "GET", "/canvas/app/" + requireCanvasId(canvasId) + "/frame?theme=" + (dark ? "dark" : "light"),
+                null, 30000, java.util.Collections.singletonMap("Accept", "text/html"));
+        if (res.code < 200 || res.code >= 300) throw new ApiException(res.code, Localize.t(context, "画布不存在或已被删除。", "The canvas does not exist or was deleted."));
+        return new String(res.body, StandardCharsets.UTF_8);
+    }
+
+    private static String requireCanvasId(String canvasId) throws ApiException {
+        if (!CanvasModel.isCanvasId(canvasId)) throw new ApiException(404, "Canvas not found");
+        return canvasId;
+    }
+
     public static JSONObject listLibraryFiles(Context context, String agentId) throws Exception {
         HttpResult res = authedGet(context, "/local/files?agentId=" + encodeQuery(agentId));
         return requireJsonObject(res);
