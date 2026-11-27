@@ -8,7 +8,7 @@ import path from 'node:path';
 import tls from 'node:tls';
 import { pathToFileURL } from 'node:url';
 import { parseCommandArgs } from './args.mjs';
-import { DEFAULT_PORT, readInstanceEnv, readState, deployScript, deployGlobalArgs } from './config.mjs';
+import { DEFAULT_PORT, findSourceRoot, readInstanceEnv, readState, deployScript, deployGlobalArgs } from './config.mjs';
 import { docker, serviceContainer } from './docker.mjs';
 import { capture, commandExists, defaultHome, expandHome, out, REPO_ROOT, run } from './util.mjs';
 
@@ -36,6 +36,8 @@ async function signingGuard(repo) {
  */
 export async function checkAndroidSigning({ keystore, devSigning, env = process.env, repo = REPO_ROOT, pinSha256 } = {}) {
   const name = '安卓签名密钥';
+  if (!existsSync(path.join(repo, 'android', 'release', 'signing-guard.mjs')))
+    return warn(name, `${repo} 中没有 android/release/signing-guard.mjs，无法检查签名密钥；在 RokBot 源码目录里运行 rokbot doctor 可检查`);
   const guard = await signingGuard(repo);
   const pin = pinSha256 ?? guard.RELEASE_CERTIFICATE_SHA256;
   if (!pinSha256 && !pin.startsWith(RELEASE_PIN_PREFIX))
@@ -154,6 +156,17 @@ export function checkCertificate(publicUrl, { timeoutMs = 8_000, now = Date.now(
   });
 }
 
+/** Desktop/web packing needs @electron/asar in a full checkout; the npm package has no patchers. */
+export function checkPackDependencies({ home } = {}) {
+  const name = '桌面打包依赖';
+  const source = findSourceRoot('mac/patchers/desktop/package.json', { home });
+  if (!source) return warn(name, '当前安装不含打包补丁脚本（npm 安装版）；需要 rokbot pack 时先用 rokbot init --mode source 获取源码，或在源码目录里运行');
+  const where = source.root === REPO_ROOT ? '' : `（源码目录 ${source.root}）`;
+  return existsSync(path.join(source.root, 'mac/patchers/desktop/node_modules/@electron/asar/package.json'))
+    ? ok(name, `@electron/asar 已安装${where}`)
+    : warn(name, `缺少 @electron/asar${where}；桌面/网页版打包前在源码目录运行 npm install --prefix mac/patchers/desktop`);
+}
+
 function checkTools() {
   const results = [];
   results.push(commandExists('git') ? ok('Git', capture('git', ['--version']).stdout.trim()) : warn('Git', '找不到 git；源码模式和 update 需要它'));
@@ -163,9 +176,6 @@ function checkTools() {
     const tuple = versionTuple(version);
     results.push(tuple && atLeast(tuple, [3, 10, 0]) ? ok('Python', version) : warn('Python', `${version || 'python3'}；源码模式的 host/deploy.py 需要 3.10+`));
   }
-  const asar = existsSync(path.join(REPO_ROOT, 'mac/patchers/desktop/node_modules/@electron/asar/package.json'));
-  results.push(asar ? ok('桌面打包依赖', '@electron/asar 已安装')
-    : warn('桌面打包依赖', '缺少 @electron/asar；桌面/网页版打包前运行 npm install --prefix mac/patchers/desktop'));
   return results;
 }
 
@@ -182,7 +192,7 @@ export async function runChecks(values) {
   const env = readInstanceEnv(home);
   const state = readState(home);
   const project = state?.project ?? env.COMPOSE_PROJECT_NAME ?? env.ROKBOT_PROJECT ?? 'rokbot';
-  const results = [checkNode(), ...checkDocker(), ...checkTools(), checkDisk(home)];
+  const results = [checkNode(), ...checkDocker(), ...checkTools(), checkPackDependencies({ home }), checkDisk(home)];
   results.push(...await checkPorts(env, project));
   results.push(values['skip-network'] ? ok('证书', '已跳过（--skip-network）') : await checkCertificate(env.ROKBOT_PUBLIC_URL || null));
   results.push(await checkAndroidSigning({ keystore: values.keystore, devSigning: values['dev-signing'] }));

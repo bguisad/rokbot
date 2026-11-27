@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Entry point: `rokbot`, `node bin/rokbot.mjs`, or `npx github:hongfaqiu/rokbot`.
+// Entry point: `rokbot` (npm i -g rokbot), `npx rokbot`, or `node bin/rokbot.mjs` in a checkout.
 import { main } from '../scripts/cli/main.mjs';
 
 const [major] = process.versions.node.split('.').map(Number);

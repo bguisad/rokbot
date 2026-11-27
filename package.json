@@ -1,11 +1,45 @@
 {
   "name": "rokbot",
   "version": "0.1.0",
-  "private": true,
   "description": "RokBot self-hosting CLI: deploy the Host, bootstrap the admin, check the environment and pack clients locally",
+  "keywords": [
+    "rokbot",
+    "self-hosted",
+    "cli",
+    "docker",
+    "deploy",
+    "ai-assistant"
+  ],
+  "homepage": "https://rokbot.cosfoc.com",
+  "bugs": {
+    "url": "https://github.com/hongfaqiu/rokbot/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hongfaqiu/rokbot.git"
+  },
+  "author": "hongfaqiu (https://github.com/hongfaqiu)",
   "bin": {
     "rokbot": "bin/rokbot.mjs"
   },
+  "files": [
+    "bin/rokbot.mjs",
+    "scripts/cli/main.mjs",
+    "scripts/cli/lib/",
+    "host/release/docker-compose.images.yml",
+    "host/release/.env.images.example",
+    "host/release/install-images.sh",
+    "host/release/backup.py",
+    "host/server/security.mjs",
+    "android/release/signing-guard.mjs",
+    "android/release/signing-pin.json",
+    "android/patchers/signing.mjs",
+    "docs/cli.md",
+    "LICENSE",
+    "LICENSES/",
+    "NOTICE",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20"
   },
