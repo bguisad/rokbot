@@ -192,7 +192,7 @@ test('SuggestionsService honors toggles, never falls back to static presets, opt
   assert.equal(requests[0].url, 'https://cheap.example/v1/chat/completions');
   assert.equal(requests[0].body.model, 'gpt-suggest');
   assert.equal(requests[0].body.reasoning_effort, 'none');
-  assert.equal(requests[0].body.max_tokens, 256);
+  assert.equal(requests[0].body.max_tokens, 120);
   assert.equal(r1.source, 'model');
   assert.equal(r1.cached, false);
   assert.equal(r2.cached, true);
@@ -319,18 +319,35 @@ test('HTTP endpoints /local/suggestions/settings, /local/suggestions/phrases, an
 
   // Configure model and call POST /local/suggestions with history
   await app.models.save(modelFixture({ suggestions: { profileId: 'mini', effort: 'none' } }));
+  // With a Bot ID only that Bot's transcript counts: this Host core is unreachable, so the
+  // messages the client scraped (maybe still the previous Bot's) are not used.
+  const unreadable = await (await fetch(`${base}/local/suggestions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ agentId: 'bot_123', locale: 'zh-CN', requestId: 'r-1',
+      recentMessages: [{ id: 'm1', role: 'assistant', text: '功能已经实现完毕。' }] }),
+  })).json();
+  assert.equal(unreadable.source, 'model-error');
+  assert.equal(unreadable.agentId, 'bot_123');
+  assert.equal(unreadable.requestId, 'r-1');
+  assert.deepEqual(unreadable.aiSuggestions, []);
+  assert.equal(modelCalls, 0);
+  // Without a Bot ID the client's messages are the context.
   const okRes = await fetch(`${base}/local/suggestions`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      agentId: 'bot_123',
       locale: 'zh-CN',
+      requestId: 'r-2',
       recentMessages: [{ id: 'm1', role: 'assistant', text: '功能已经实现完毕。' }],
     }),
   });
   assert.equal(okRes.status, 200);
   const body = await okRes.json();
   assert.equal(body.source, 'model');
+  assert.equal(body.requestId, 'r-2');
+  assert.equal(body.agentId, '');
+  assert.equal(body.historyId, 'm1');
   assert.deepEqual(body.suggestions, ['总结一下', '请继续', '继续优化性能', '补充单元测试', '查看变更摘要']);
   assert.deepEqual(body.items.map(i => i.type), ['phrase', 'phrase', 'ai', 'ai', 'ai']);
   assert.equal(modelCalls, 1);
@@ -354,4 +371,172 @@ test('HTTP endpoints /local/suggestions/settings, /local/suggestions/phrases, an
   const delRes = await fetch(`${base}/local/suggestions/phrases/${p1.id}`, { method: 'DELETE', headers });
   assert.equal(delRes.status, 200);
   assert.deepEqual((await delRes.json()).quickPhrases.map(p => p.text), ['总结一下']);
+});
+
+// ---- per-Bot isolation, prefetch, persistence and latency limits (suggest4) ---------------------
+
+function twoBotService(dir, { models, settings, delayMs = 0, calls = [], persistTtlMs, now } = {}) {
+  const transcripts = {
+    rokbot: [
+      { id: 'rk-0', kind: 'message', role: 'user', content: '#248 的 review 意见都改完了' },
+      { id: 'rk-1', kind: 'send-message', message: { type: 'text', content: '#248 可以合并了，合并后记得更新 CHANGELOG。' } },
+    ],
+    xhs: [
+      { id: 'xh-0', kind: 'message', role: 'user', content: '帮我想一篇周末咖啡探店的笔记' },
+      { id: 'xh-1', kind: 'send-message', message: { type: 'text', content: '可以写城南三家安静的咖啡馆。' } },
+    ],
+  };
+  const hostCalls = [];
+  const service = new SuggestionsService({
+    models, settings, dataDir: dir, ...(persistTtlMs ? { persistTtlMs } : {}), ...(now ? { now } : {}),
+    replyPrefetchDelayMs: 5,
+    hostCall: async (method, args) => { hostCalls.push([method, args]); return { entries: transcripts[args.id] ?? [] }; },
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      const prompt = JSON.stringify(body.messages);
+      calls.push({ body, xhs: /咖啡/.test(prompt) });
+      if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
+      return sse(JSON.stringify(/咖啡/.test(prompt)
+        ? ['标题再吸睛一点', '配三张图', '加上人均价格', '换个语气']
+        : ['合并完#248后记得更新CHANGELOG', 'v0.2 发版说明', '跑一遍全量测试', '列一下没关的 issue']));
+    },
+  });
+  return { service, hostCalls, transcripts };
+}
+
+test('suggestions are isolated per Bot: B never gets A\'s answer, even with A\'s lastEntryId or messages', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-sug-per-bot-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const models = new Models(dir);
+  await models.save(modelFixture({ suggestions: { profileId: 'mini', effort: 'none' } }));
+  const settings = await new SuggestionsSettings(dir).load();
+  const calls = [];
+  const { service, hostCalls } = twoBotService(dir, { models, settings, calls });
+  await service.load();
+
+  const a = await service.generate({ agentId: 'rokbot', locale: 'zh-CN' });
+  assert.equal(a.agentId, 'rokbot');
+  assert.equal(a.historyId, 'rk-1');
+  assert.ok(a.aiSuggestions[0].includes('CHANGELOG'));
+  // The reported screenshot: the 小红书 chat asked right after leaving RokBot, carrying the stale
+  // lastEntryId and messages of the RokBot chat from the screen. The Host reads 小红书's own
+  // transcript and keys the cache by it, so RokBot's cached answer can never be returned.
+  const b = await service.generate({ agentId: 'xhs', locale: 'zh-CN', lastEntryId: 'rk-1',
+    recentMessages: [{ id: 'rk-1', role: 'assistant', text: '#248 可以合并了，合并后记得更新 CHANGELOG。' }] });
+  assert.equal(b.agentId, 'xhs');
+  assert.equal(b.historyId, 'xh-1');
+  assert.equal(b.cached, false);
+  assert.ok(b.aiSuggestions.every(text => !/CHANGELOG|#248|v0\.2/.test(text)), JSON.stringify(b.aiSuggestions));
+  assert.deepEqual(b.aiSuggestions, ['标题再吸睛一点', '配三张图', '加上人均价格']);
+  assert.deepEqual(hostCalls.map(([, args]) => args.id), ['rokbot', 'xhs']);
+  assert.deepEqual(calls.map(call => call.xhs), [false, true]);
+  // At most 3 AI suggestions, short answer budget, compact prompt.
+  assert.equal(a.aiSuggestions.length, 3);
+  assert.equal(calls[0].body.max_tokens, 120);
+});
+
+test('prefetch (chat opened / Bot replied) fills the cache so the focus request is instant; concurrent requests share one model call', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-sug-prefetch-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const models = new Models(dir);
+  await models.save(modelFixture({ suggestions: { profileId: 'mini', effort: 'none' } }));
+  const settings = await new SuggestionsSettings(dir).load();
+  const calls = [];
+  const { service } = twoBotService(dir, { models, settings, calls, delayMs: 60 });
+  await service.load();
+  t.after(() => service.close());
+
+  assert.equal(service.prefetch({ agentId: 'xhs' }), true);
+  assert.equal(service.prefetch({ agentId: 'xhs' }), true, 'a second prefetch joins the first');
+  assert.equal(service.prefetch({ agentId: 'bad id!' }), false);
+  // Focus while the prefetch is still running: joins it instead of a second model call.
+  const joined = await service.generate({ agentId: 'xhs', locale: 'zh-CN' });
+  assert.equal(joined.source, 'model');
+  assert.equal(calls.length, 1);
+  const t0 = performance.now();
+  const hit = await service.generate({ agentId: 'xhs', locale: 'zh-CN' });
+  assert.equal(hit.cached, true);
+  assert.ok(performance.now() - t0 < 50);
+  assert.equal(calls.length, 1);
+
+  // A Bot's reply notification prefetches that Bot only.
+  assert.equal(service.onAgentNotification({ type: 'attention', agentId: 'rokbot' }), false);
+  assert.equal(service.onAgentNotification({ type: 'message', agentId: 'rokbot' }), true);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.equal(calls.length, 2);
+  const warm = await service.generate({ agentId: 'rokbot', locale: 'zh-CN' });
+  assert.equal(warm.cached, true);
+  assert.equal(calls.length, 2);
+
+  // Switched off: no prefetch.
+  await settings.updateSettings({ aiEnabled: false });
+  assert.equal(service.prefetch({ agentId: 'rokbot' }), false);
+});
+
+test('the latest answer per Bot is persisted and served after a Host restart without a model call', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-sug-persist-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const models = new Models(dir);
+  await models.save(modelFixture({ suggestions: { profileId: 'mini', effort: 'none' } }));
+  const settings = await new SuggestionsSettings(dir).load();
+  const calls = [];
+  const first = twoBotService(dir, { models, settings, calls });
+  await first.service.load();
+  await first.service.generate({ agentId: 'rokbot', locale: 'zh-CN' });
+  await first.service.persisted.tail;
+  assert.equal(calls.length, 1);
+
+  const second = twoBotService(dir, { models, settings, calls });
+  await second.service.load();
+  const again = await second.service.generate({ agentId: 'rokbot', locale: 'zh-CN' });
+  assert.equal(again.cached, true);
+  assert.equal(again.agentId, 'rokbot');
+  assert.ok(again.aiSuggestions[0].includes('CHANGELOG'));
+  assert.equal(calls.length, 1);
+  // Another Bot is not answered from RokBot's stored entry.
+  const other = await second.service.generate({ agentId: 'xhs', locale: 'zh-CN' });
+  assert.equal(other.cached, false);
+  assert.equal(calls.length, 2);
+  // A new last message (new key) is not answered from the stored entry either.
+  second.transcripts.rokbot.push({ id: 'rk-2', kind: 'message', role: 'user', content: '好的，开始合并' });
+  const fresh = await second.service.generate({ agentId: 'rokbot', locale: 'zh-CN' });
+  assert.equal(fresh.cached, false);
+  assert.equal(fresh.historyId, 'rk-2');
+});
+
+test('the prompt is compact: last 4 messages, long replies clipped in the middle', () => {
+  const long = `开头${'中'.repeat(800)}结尾的追问`;
+  const compact = suggestionsMod.compactSuggestionHistory([
+    { role: 'user', text: '1' }, { role: 'assistant', text: '2' }, { role: 'user', text: 'x'.repeat(400) },
+    { role: 'assistant', text: '4' }, { role: 'user', text: '5' }, { role: 'assistant', text: long },
+  ]);
+  assert.equal(compact.length, 4);
+  assert.equal(compact[1].text.length <= 141, true);
+  assert.equal([...compact[3].text].length, 361);
+  assert.ok(compact[3].text.startsWith('开头'));
+  assert.ok(compact[3].text.endsWith('结尾的追问'));
+});
+
+test('POST /local/suggestions with prefetch answers 202 at once and echoes agentId / requestId', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-sug-http-prefetch-'));
+  const app = await createSelfHostServer({ dataDir: dir, hostUrl: 'http://127.0.0.1:19999', modelAutoSync: false,
+    suggestionsFetch: async () => sse('["a1","a2"]') });
+  await app.start(0, '127.0.0.1');
+  t.after(async () => {
+    await Promise.allSettled([...app.suggestions.prefetching.values()]);
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  await app.auth.setup(app.auth.setupKey, 'secret-admin-pass-123');
+  const pairKey = await app.auth.createPairing();
+  const device = await app.auth.pair({ pairingKey: pairKey.pairingKey, deviceName: 'Phone', platform: 'desktop' });
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${device.token}` };
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const res = await fetch(`${base}/local/suggestions`, { method: 'POST', headers,
+    body: JSON.stringify({ agentId: 'xhs', prefetch: true, requestId: 'p-1' }) });
+  assert.equal(res.status, 202);
+  assert.deepEqual(await res.json(), { accepted: true, agentId: 'xhs', requestId: 'p-1' });
+  const bad = await fetch(`${base}/local/suggestions`, { method: 'POST', headers,
+    body: JSON.stringify({ agentId: 'xhs', requestId: 'has spaces' }) });
+  assert.equal((await bad.json()).requestId, '');
 });

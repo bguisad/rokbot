@@ -636,6 +636,7 @@ public class RokBotBootstrap {
             if (agentId != null && !agentId.isEmpty()) {
                 setLastAgentId(agentId);
                 setViewingAgentId(agentId);
+                notifySuggestionsDeepLink(intent, agentId);
                 intent.setData(normalizeDeepLink(data));
                 intent.putExtra("agentId", agentId);
             }
@@ -644,8 +645,26 @@ public class RokBotBootstrap {
             if (agentId != null && !agentId.isEmpty()) {
                 setLastAgentId(agentId);
                 setViewingAgentId(agentId);
+                notifySuggestionsDeepLink(intent, agentId);
             }
         }
+    }
+
+    private static final String EXTRA_SUGGESTIONS_NAV_SEEN = "dev.rokbot.nativeapp.SUGGESTIONS_NAV_SEEN";
+
+    /**
+     * A deep link / notification tap is a navigation signal for the input suggestions, once per
+     * intent: the activity's old launch intent is re-read on every resume and must not pull the
+     * suggestions back to that Bot after the user moved to another chat.
+     */
+    private static void notifySuggestionsDeepLink(Intent intent, String agentId) {
+        try {
+            if (intent.getBooleanExtra(EXTRA_SUGGESTIONS_NAV_SEEN, false)) return;
+            intent.putExtra(EXTRA_SUGGESTIONS_NAV_SEEN, true);
+        } catch (Throwable ignored) {
+            return;
+        }
+        ComposerSuggestionsOverlay.onDeepLinkAgent(agentId);
     }
 
     private static boolean isBootstrapProxy(Object obj) {
@@ -927,6 +946,7 @@ public class RokBotBootstrap {
             intent.setAction(Intent.ACTION_VIEW);
             intent.setData(normalizeDeepLink(uri));
             intent.putExtra("agentId", agentId);
+            notifySuggestionsDeepLink(intent, agentId);
             context.startActivity(intent);
         }
     }

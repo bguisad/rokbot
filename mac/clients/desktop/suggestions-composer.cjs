@@ -39,7 +39,12 @@
     return Promise.reject(new Error(`Unsupported suggestions request: ${method} ${path}`));
   }
 
-  const start = () => assist.installComposerSuggestions({ request, locale, document, window });
+  // The Bot on screen (setViewingAgent of the official renderer, deep links), pushed by main.
+  let viewingAgentId = '';
+  try { viewingAgentId = ipcRenderer.sendSync('rokbot-local:viewing-agent-get') || ''; } catch {}
+  ipcRenderer.on?.('rokbot-local:viewing-agent', (_event, id) => { if (typeof id === 'string') viewingAgentId = id; });
+
+  const start = () => assist.installComposerSuggestions({ request, locale, document, window, getViewingAgentId: () => viewingAgentId });
   if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 })();

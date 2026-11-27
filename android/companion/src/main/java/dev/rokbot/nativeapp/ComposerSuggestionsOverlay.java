@@ -55,7 +55,6 @@ import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Non-invasive native decor overlay above the React Native chat composer. Never mutates the RN
@@ -82,9 +81,16 @@ final class ComposerSuggestionsOverlay {
     private static final String TAG = "RokBotSuggestions";
     private static final long MIN_SCAN_INTERVAL_MS = 120L;
     private static final long SETTINGS_TTL_MS = 15_000L;
-    private static final int BAR_HEIGHT_DP = 42;
-    private static final int MAX_CHIP_WIDTH_DP = 220;
-    private static final int CHIP_HEIGHT_DP = 30;
+    // Compact single-line bar right above the composer (was 42 / 30 / 220 dp, 13 sp, 6 dp gap).
+    static final int BAR_HEIGHT_DP = 32;
+    static final int MAX_CHIP_WIDTH_DP = 200;
+    static final int CHIP_HEIGHT_DP = 26;
+    static final int CHIP_TEXT_SP = 12;
+    static final int BAR_GAP_DP = 2;
+    /** AI suggestions shown at most (quick phrases first, the rest scroll horizontally). */
+    static final int MAX_AI_ITEMS = 3;
+    /** Trailing debounce of "the current Bot's transcript was fetched" before revalidating. */
+    private static final long REPLY_HINT_DEBOUNCE_MS = 2_000L;
     private static final long CHIP_FADE_IN_MS = 200L;
     private static final long CHIP_STAGGER_MS = 45L;
     private static final long SHIMMER_PERIOD_MS = 1250L;
@@ -105,7 +111,21 @@ final class ComposerSuggestionsOverlay {
     private static final ExecutorService CANCEL_IO = Executors.newSingleThreadExecutor(r -> new Thread(r, "rokbot-completion-cancel"));
     private static final WeakHashMap<View, Boolean> HOOKED = new WeakHashMap<>();
     private static final WeakHashMap<EditText, Boolean> WATCHED_INPUTS = new WeakHashMap<>();
-    private static final LruCache<String, List<String>> AI_CACHE = new LruCache<>(40);
+    /** Keyed by {@link SuggestionAgentTracker#cacheKey}: Bot id + that Bot's own generation + language. */
+    private static final LruCache<String, CachedAi> AI_CACHE = new LruCache<>(40);
+
+    /** Suggestions-only "current Bot" (navigation signals only), per-Bot generations, request gate. */
+    static final SuggestionAgentTracker AGENTS = new SuggestionAgentTracker();
+
+    private static final class CachedAi {
+        final List<String> items;
+        final String historyId;
+
+        CachedAi(List<String> items, String historyId) {
+            this.items = items;
+            this.historyId = historyId != null ? historyId : "";
+        }
+    }
 
     static final ChatHistoryHints HISTORY = new ChatHistoryHints();
     static final SuggestionLoadState LOAD_STATE = new SuggestionLoadState();
@@ -119,9 +139,6 @@ final class ComposerSuggestionsOverlay {
     private static boolean sScanScheduled = false;
     private static long sLastScanAt = 0L;
 
-    private static volatile String sObservedAgentId = "";
-    private static final AtomicInteger sTurnGeneration = new AtomicInteger(1);
-    private static String sLastFetchedKey = "";
     private static String sDismissedKey = "";
 
     // Completion state observed on the main thread.
@@ -151,6 +168,7 @@ final class ComposerSuggestionsOverlay {
     };
 
     private static final Runnable COMPLETION_POLL = ComposerSuggestionsOverlay::pollCompletion;
+    private static final Runnable REVALIDATE = () -> prefetchCurrent(false);
 
     private ComposerSuggestionsOverlay() {}
 
@@ -168,28 +186,97 @@ final class ComposerSuggestionsOverlay {
         if (Storage.isPaired(activity)) {
             syncSettingsAsync(activity.getApplicationContext(), false);
         }
+        // RN still shows the chat it showed when it paused (a deep link already overrode it).
+        if (AGENTS.onResumed()) {
+            onCurrentAgentChanged();
+            prefetchCurrent(true);
+        }
         scheduleScan(60L);
     }
 
     static void onReactPaused(Activity activity) {
         MAIN.removeCallbacks(SCAN);
+        MAIN.removeCallbacks(REVALIDATE);
         sScanScheduled = false;
+        // Leaving the RN page: no current Bot for suggestions; in-flight answers become stale.
+        AGENTS.onPaused();
+        LOAD_STATE.cancel();
         hideBar();
         clearCompletion();
     }
 
-    static void notifyAgentActivity(String agentId) {
-        if (agentId == null || agentId.isEmpty()) return;
-        sObservedAgentId = agentId;
-        sTurnGeneration.incrementAndGet();
-        HISTORY.forget(agentId);
+    /**
+     * Every observed RN gateway request with an agentId (any thread). Only navigation signals
+     * (openAgentWindowed, sendPrompt, markAgentViewed) move the suggestions' current Bot;
+     * background requests for other Bots (getAgent, transcript refreshes for list previews,
+     * markAgentRead, getForeverBoxStatus, automations, ...) are ignored.
+     */
+    static void onGatewayRequest(String path, String agentId) {
+        boolean[] changed = new boolean[1];
+        SuggestionAgentTracker.Signal signal = AGENTS.onGatewayRequest(path, agentId, changed);
+        if (signal == SuggestionAgentTracker.Signal.IGNORED && !changed[0]) return;
+        final String id = SuggestionAgentTracker.clean(agentId);
+        final boolean switched = changed[0];
+        MAIN.post(() -> {
+            if (switched) onCurrentAgentChanged();
+            switch (signal) {
+                case SENT:
+                    HISTORY.forget(id);
+                    COMPLETION.clearCache();
+                    scheduleScan(200L);
+                    break;
+                case OPENED:
+                    // Entering the chat: warm the cache before the composer gets focus.
+                    prefetchCurrent(true);
+                    break;
+                case REPLY_HINT:
+                    MAIN.removeCallbacks(REVALIDATE);
+                    MAIN.postDelayed(REVALIDATE, REPLY_HINT_DEBOUNCE_MS);
+                    break;
+                default:
+                    break;
+            }
+        });
+    }
+
+    /** A deep link / notification tap opened this chat (any thread). */
+    static void onDeepLinkAgent(String agentId) {
+        if (!AGENTS.onDeepLink(agentId)) return;
+        MAIN.post(() -> {
+            onCurrentAgentChanged();
+            prefetchCurrent(true);
+        });
+    }
+
+    /** A new reply of this Bot arrived (reply notification, any thread): only its generation moves. */
+    static void onAgentReplied(String agentId) {
+        final String id = SuggestionAgentTracker.clean(agentId);
+        if (id.isEmpty()) return;
+        final boolean current = AGENTS.onReply(id);
+        MAIN.post(() -> {
+            HISTORY.forget(id);
+            if (!current) return;
+            COMPLETION.clearCache();
+            prefetchCurrent(true);
+            scheduleScan(0L);
+        });
+    }
+
+    /** The current Bot changed: drop everything shown or loading for the previous one at once. */
+    private static void onCurrentAgentChanged() {
+        MAIN.removeCallbacks(REVALIDATE);
+        LOAD_STATE.cancel();
+        sDismissedKey = "";
+        if (sBar != null) sBar.reset();
+        hideBar();
+        clearCompletion();
         COMPLETION.clearCache();
-        MAIN.post(() -> scheduleScan(200L));
+        scheduleScan(0L);
     }
 
     static void invalidateSettingsCache() {
         sSettingsSyncedAt = 0L;
-        sLastFetchedKey = "";
+        AGENTS.clearFailures();
         sDismissedKey = "";
         MAIN.post(() -> {
             LOAD_STATE.cancel();
@@ -332,8 +419,9 @@ final class ComposerSuggestionsOverlay {
 
         String agentId = resolveActiveAgentId();
         boolean zh = Localize.isChinese(act);
-        String key = agentId + ":" + sTurnGeneration.get() + ":" + (zh ? "zh" : "en");
-        if (key.equals(sDismissedKey)) {
+        // No current Bot (no navigation signal yet): quick phrases only, never another Bot's AI.
+        String key = agentId.isEmpty() ? "" : AGENTS.cacheKey(agentId, zh ? "zh" : "en");
+        if (!key.isEmpty() && key.equals(sDismissedKey)) {
             hideBar();
             return;
         }
@@ -341,17 +429,29 @@ final class ComposerSuggestionsOverlay {
         long now = SystemClock.uptimeMillis();
         List<String> ai = Collections.emptyList();
         int placeholders = 0;
-        if (sSettingsAiEnabled) {
-            List<String> cached = AI_CACHE.get(key);
+        if (sSettingsAiEnabled && !key.isEmpty()) {
+            CachedAi cached = AI_CACHE.get(key);
             if (cached != null) {
-                if (!key.equals(LOAD_STATE.key()) || LOAD_STATE.phase() != SuggestionLoadState.Phase.READY) {
-                    LOAD_STATE.ready(key, cached);
+                // Prefetched (or revalidated) for this Bot: show at once.
+                if (!key.equals(LOAD_STATE.key()) || LOAD_STATE.phase() != SuggestionLoadState.Phase.READY
+                        || !LOAD_STATE.items().equals(cached.items)) {
+                    LOAD_STATE.ready(key, cached.items);
                 }
-                ai = cached;
-            } else if (!key.equals(sLastFetchedKey)) {
-                sLastFetchedKey = key;
-                int token = LOAD_STATE.begin(key, now);
-                fetchAsync(act, agentId, key, zh, token);
+                ai = cached.items;
+            } else if (!key.equals(LOAD_STATE.key())) {
+                SuggestionAgentTracker.Request inFlight = AGENTS.inFlight(key);
+                if (inFlight != null) {
+                    // A prefetch for this Bot is already on its way: wait for it.
+                    inFlight.loadToken = LOAD_STATE.begin(key, now);
+                } else {
+                    SuggestionAgentTracker.Request req = AGENTS.begin(agentId, key, false, now);
+                    if (req != null) {
+                        req.loadToken = LOAD_STATE.begin(key, now);
+                        fetchAsync(act.getApplicationContext(), req, zh);
+                    } else if (LOAD_STATE.phase() != SuggestionLoadState.Phase.IDLE) {
+                        LOAD_STATE.cancel();
+                    }
+                }
             }
             if (key.equals(LOAD_STATE.key())) {
                 if (LOAD_STATE.phase() == SuggestionLoadState.Phase.READY) ai = LOAD_STATE.items();
@@ -362,6 +462,10 @@ final class ComposerSuggestionsOverlay {
                 }
             }
         } else if (LOAD_STATE.phase() != SuggestionLoadState.Phase.IDLE) {
+            LOAD_STATE.cancel();
+        }
+        if (!key.equals(LOAD_STATE.key()) && LOAD_STATE.phase() != SuggestionLoadState.Phase.IDLE) {
+            // Never show (or keep loading) something that belongs to another Bot / generation.
             LOAD_STATE.cancel();
         }
 
@@ -433,46 +537,98 @@ final class ComposerSuggestionsOverlay {
         });
     }
 
+    /** The Bot the suggestions are for: navigation signals only (never RN's background requests). */
     private static String resolveActiveAgentId() {
-        String id = RokBotBootstrap.getViewingAgentId();
-        if (id == null || id.isEmpty()) id = RokBotBootstrap.getLastAgentId();
-        if (id == null || id.isEmpty()) id = sObservedAgentId;
-        return id != null ? id : "";
+        return AGENTS.current();
     }
 
-    private static void fetchAsync(Activity act, String agentId, String key, boolean zh, int token) {
-        final Context appCtx = act.getApplicationContext();
+    /**
+     * Background prefetch for the current Bot (entering the chat, a new reply, or - debounced and
+     * rate limited - its transcript being refreshed). One request per key at a time; a key that
+     * failed is not retried automatically until the chat changes. The answer lands in AI_CACHE,
+     * so focusing the composer shows it at once.
+     */
+    private static void prefetchCurrent(boolean force) {
+        Activity act = sActivity.get();
+        if (act == null || act.isFinishing() || act.isDestroyed() || !Storage.isPaired(act)) return;
+        if (!sSettingsEnabled || !sSettingsAiEnabled) return;
+        String agentId = AGENTS.current();
+        if (agentId.isEmpty()) return;
+        if (!force && !HISTORY.mayHaveHistory(agentId)) return;
+        boolean zh = Localize.isChinese(act);
+        String key = AGENTS.cacheKey(agentId, zh ? "zh" : "en");
+        long now = SystemClock.uptimeMillis();
+        if (!AGENTS.canRevalidate(key, agentId, force, now)) return;
+        SuggestionAgentTracker.Request req = AGENTS.begin(agentId, key, true, now);
+        if (req != null) fetchAsync(act.getApplicationContext(), req, zh);
+    }
+
+    private static void fetchAsync(Context appCtx, SuggestionAgentTracker.Request req, boolean zh) {
         final String locale = zh ? "zh-CN" : Locale.getDefault().toLanguageTag();
         IO.execute(() -> {
+            if (!req.agentId.equals(AGENTS.current())) {
+                // Queued behind another request and the user moved on: skip the network.
+                MAIN.post(() -> onFetchFailed(req));
+                return;
+            }
             try {
-                JSONObject res = HostApiClient.getSuggestions(appCtx, agentId, "", locale);
+                JSONObject res = HostApiClient.getSuggestions(appCtx, req.agentId, "", locale, req.requestId, false);
                 if (res == null) throw new IllegalStateException("empty response");
                 applySettingsJson(res);
-                String source = res.optString("source", "");
-                HISTORY.record(agentId, source);
+                final String source = res.optString("source", "");
+                final String echoedAgent = res.optString("agentId", "");
+                final String echoedRequest = res.optString("requestId", "");
+                final String historyId = res.optString("historyId", "");
+                final boolean acceptedOnly = res.has("accepted") && !res.has("aiSuggestions");
                 JSONArray arr = res.optJSONArray("aiSuggestions");
-                List<String> aiItems = new ArrayList<>();
+                final List<String> aiItems = new ArrayList<>();
                 if ("model".equals(source) && arr != null) {
-                    for (int i = 0; i < arr.length() && aiItems.size() < 4; i++) {
+                    for (int i = 0; i < arr.length() && aiItems.size() < MAX_AI_ITEMS; i++) {
                         String s = arr.optString(i, "").trim();
                         if (!s.isEmpty() && !"null".equals(s)) {
                             aiItems.add(s);
                         }
                     }
                 }
-                if (!aiItems.isEmpty()) {
-                    AI_CACHE.put(key, Collections.unmodifiableList(aiItems));
-                }
-                MAIN.post(() -> {
-                    if (LOAD_STATE.succeed(token, aiItems)) onLoadSettled(token);
-                });
+                MAIN.post(() -> onFetched(req, echoedAgent, echoedRequest, source, historyId, acceptedOnly, aiItems));
             } catch (Throwable ignored) {
                 // Silent failure: placeholders fade out; custom quick phrases stay visible.
-                MAIN.post(() -> {
-                    if (LOAD_STATE.fail(token)) onLoadSettled(token);
-                });
+                MAIN.post(() -> onFetchFailed(req));
             }
         });
+    }
+
+    /** Main thread. Drops late / foreign answers before anything is cached or shown. */
+    private static void onFetched(SuggestionAgentTracker.Request req, String echoedAgent, String echoedRequest,
+                                  String source, String historyId, boolean acceptedOnly, List<String> aiItems) {
+        int token = req.loadToken;
+        if (!AGENTS.accept(req, echoedAgent, echoedRequest)) {
+            // Stale sequence, another Bot by now, or the Host answered for a different Bot.
+            if (token != 0 && LOAD_STATE.fail(token)) onLoadSettled(token);
+            return;
+        }
+        HISTORY.record(req.agentId, source);
+        if (acceptedOnly) {
+            // 202 of a prefetch: nothing to show yet.
+            if (token != 0 && LOAD_STATE.fail(token)) onLoadSettled(token);
+            return;
+        }
+        if (!aiItems.isEmpty()) {
+            CachedAi old = AI_CACHE.get(req.key);
+            boolean sameHistory = old != null && !historyId.isEmpty() && historyId.equals(old.historyId);
+            if (!sameHistory) AI_CACHE.put(req.key, new CachedAi(Collections.unmodifiableList(aiItems), historyId));
+        }
+        if (token != 0 && LOAD_STATE.succeed(token, aiItems)) {
+            onLoadSettled(token);
+        } else {
+            scheduleScan(0L);
+        }
+    }
+
+    private static void onFetchFailed(SuggestionAgentTracker.Request req) {
+        AGENTS.fail(req);
+        int token = req.loadToken;
+        if (token != 0 && LOAD_STATE.fail(token)) onLoadSettled(token);
     }
 
     /** After READY / FAILED: re-render; FAILED returns to IDLE once the placeholders faded out. */
@@ -612,7 +768,7 @@ final class ComposerSuggestionsOverlay {
         }
         sPill.bind(p, suffix);
         int barH = UiChrome.dp(act, BAR_HEIGHT_DP);
-        int topMargin = Math.max(UiChrome.dp(act, 48), (anchorRect.top - decorLoc[1]) - barH - UiChrome.dp(act, 6));
+        int topMargin = Math.max(UiChrome.dp(act, 48), (anchorRect.top - decorLoc[1]) - barH - UiChrome.dp(act, BAR_GAP_DP));
         FrameLayout.LayoutParams plp = (FrameLayout.LayoutParams) sPill.getLayoutParams();
         if (plp.topMargin != topMargin) {
             plp.topMargin = topMargin;
@@ -779,7 +935,7 @@ final class ComposerSuggestionsOverlay {
         int[] decorLoc = new int[2];
         decor.getLocationOnScreen(decorLoc);
         int barH = UiChrome.dp(act, BAR_HEIGHT_DP);
-        int topMargin = Math.max(UiChrome.dp(act, 48), (anchorRect.top - decorLoc[1]) - barH - UiChrome.dp(act, 6));
+        int topMargin = Math.max(UiChrome.dp(act, 48), (anchorRect.top - decorLoc[1]) - barH - UiChrome.dp(act, BAR_GAP_DP));
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) sBar.getLayoutParams();
         if (lp.topMargin != topMargin) {
             lp.topMargin = topMargin;
@@ -901,8 +1057,8 @@ final class ComposerSuggestionsOverlay {
             setOrientation(HORIZONTAL);
             setGravity(Gravity.CENTER_VERTICAL);
             setContentDescription("composer_suggestions_bar");
-            setPadding(UiChrome.dp(act, 10), UiChrome.dp(act, 2), UiChrome.dp(act, 8), UiChrome.dp(act, 2));
-            setElevation(UiChrome.dp(act, 4));
+            setPadding(UiChrome.dp(act, 10), UiChrome.dp(act, 1), UiChrome.dp(act, 6), UiChrome.dp(act, 1));
+            setElevation(UiChrome.dp(act, 3));
 
             HorizontalScrollView hsv = new HorizontalScrollView(act);
             hsv.setHorizontalScrollBarEnabled(false);
@@ -918,7 +1074,7 @@ final class ComposerSuggestionsOverlay {
 
             closeBtn = new CloseIconView(act);
             closeBtn.setContentDescription(Localize.t(act, "隐藏输入建议", "Dismiss suggestions"));
-            int closeSz = UiChrome.dp(act, 28);
+            int closeSz = UiChrome.dp(act, 24);
             LayoutParams closeLp = new LayoutParams(closeSz, closeSz);
             closeLp.leftMargin = UiChrome.dp(act, 4);
             closeBtn.setOnClickListener(v -> {
@@ -930,6 +1086,16 @@ final class ComposerSuggestionsOverlay {
 
         boolean hasPlaceholders() {
             return !skeletons.isEmpty();
+        }
+
+        /** Another Bot: drop the previous chips and placeholders so nothing of it is ever shown again. */
+        void reset() {
+            stopShimmer();
+            for (SkeletonPillView sk : skeletons) sk.animate().cancel();
+            skeletons.clear();
+            chipsRow.removeAllViews();
+            boundSignature = "";
+            activeKey = "";
         }
 
         void bind(String key, List<SuggestionItem> items, int placeholders) {
@@ -990,7 +1156,7 @@ final class ComposerSuggestionsOverlay {
                 final boolean isPhrase = "phrase".equals(item.type);
                 LinearLayout pill = makeChip(p, item, i);
                 LayoutParams clp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                if (pos > 0) clp.leftMargin = UiChrome.dp(activity, 6);
+                if (pos > 0) clp.leftMargin = UiChrome.dp(activity, 5);
                 pill.setLayoutParams(clp);
                 chipsRow.addView(pill, pos++);
                 if (!isPhrase) {
@@ -1028,7 +1194,7 @@ final class ComposerSuggestionsOverlay {
                     sk.setColors(p.dark, animate);
                     LayoutParams slp = new LayoutParams(UiChrome.dp(activity, widths[k % widths.length]),
                             UiChrome.dp(activity, CHIP_HEIGHT_DP));
-                    if (pos > 0) slp.leftMargin = UiChrome.dp(activity, 6);
+                    if (pos > 0) slp.leftMargin = UiChrome.dp(activity, 5);
                     chipsRow.addView(sk, pos++, slp);
                 }
                 if (animate) startShimmer(); else stopShimmer();
@@ -1041,8 +1207,8 @@ final class ComposerSuggestionsOverlay {
             pill.setOrientation(HORIZONTAL);
             pill.setGravity(Gravity.CENTER_VERTICAL);
             pill.setContentDescription("suggestion_chip_" + item.type + "_" + i);
-            pill.setPadding(UiChrome.dp(activity, 10), UiChrome.dp(activity, 6),
-                    UiChrome.dp(activity, 12), UiChrome.dp(activity, 6));
+            pill.setPadding(UiChrome.dp(activity, 9), UiChrome.dp(activity, 3),
+                    UiChrome.dp(activity, 11), UiChrome.dp(activity, 3));
             pill.setMinimumHeight(UiChrome.dp(activity, CHIP_HEIGHT_DP));
 
             GradientDrawable bg = new GradientDrawable();
@@ -1053,10 +1219,10 @@ final class ComposerSuggestionsOverlay {
                 bg.setColor(p.dark ? 0xEB26262C : 0xF5FFFFFF);
                 bg.setStroke(Math.max(1, UiChrome.dp(activity, 0.75f)), p.border);
             }
-            bg.setCornerRadius(UiChrome.dp(activity, 16));
+            bg.setCornerRadius(UiChrome.dp(activity, CHIP_HEIGHT_DP / 2f));
             pill.setBackground(bg);
 
-            int iconSz = UiChrome.dp(activity, 14);
+            int iconSz = UiChrome.dp(activity, 12);
             View iconView;
             if (isPhrase) {
                 PhraseIconView pv = new PhraseIconView(activity);
@@ -1068,13 +1234,14 @@ final class ComposerSuggestionsOverlay {
                 iconView = sv;
             }
             LayoutParams ilp = new LayoutParams(iconSz, iconSz);
-            ilp.rightMargin = UiChrome.dp(activity, 5);
+            ilp.rightMargin = UiChrome.dp(activity, 4);
             pill.addView(iconView, ilp);
 
             TextView label = new TextView(activity);
             label.setText(item.text);
             label.setTextColor(p.textPrimary);
-            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, CHIP_TEXT_SP);
+            label.setIncludeFontPadding(false);
             label.setSingleLine(true);
             label.setEllipsize(TextUtils.TruncateAt.END);
             label.setMaxWidth(UiChrome.dp(activity, MAX_CHIP_WIDTH_DP));
@@ -1209,7 +1376,7 @@ final class ComposerSuggestionsOverlay {
             pill.setGravity(Gravity.CENTER_VERTICAL);
             pill.setContentDescription("composer_completion_accept");
             pill.setMinimumHeight(UiChrome.dp(act, CHIP_HEIGHT_DP));
-            pill.setPadding(UiChrome.dp(act, 10), UiChrome.dp(act, 6), UiChrome.dp(act, 12), UiChrome.dp(act, 6));
+            pill.setPadding(UiChrome.dp(act, 9), UiChrome.dp(act, 3), UiChrome.dp(act, 11), UiChrome.dp(act, 3));
             pill.setOnClickListener(v -> acceptCompletion());
 
             icon = new TabIconView(act);
@@ -1220,13 +1387,13 @@ final class ComposerSuggestionsOverlay {
 
             label = new TextView(act);
             label.setText(Localize.t(act, "补全", "Complete"));
-            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, CHIP_TEXT_SP);
             label.setTypeface(Typeface.DEFAULT_BOLD);
             label.setSingleLine(true);
             pill.addView(label);
 
             preview = new TextView(act);
-            preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            preview.setTextSize(TypedValue.COMPLEX_UNIT_SP, CHIP_TEXT_SP);
             preview.setSingleLine(true);
             preview.setEllipsize(TextUtils.TruncateAt.END);
             preview.setMaxWidth(UiChrome.dp(act, 240));
@@ -1245,7 +1412,7 @@ final class ComposerSuggestionsOverlay {
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(p.dark ? 0xEB1D2B42 : 0xF5EEF5FF);
             bg.setStroke(Math.max(1, UiChrome.dp(activity, 0.9f)), p.dark ? 0x993B82F6 : 0x661677FF);
-            bg.setCornerRadius(UiChrome.dp(activity, 16));
+            bg.setCornerRadius(UiChrome.dp(activity, CHIP_HEIGHT_DP / 2f));
             pill.setBackground(bg);
             icon.setStrokeColor(p.blueAccent);
             label.setTextColor(p.blueAccent);

@@ -76,7 +76,17 @@ async function showApp() {
   if (!starting) await (transport && config ? showWorkspace() : showConnection());
 }
 function routeLink(url) { const id = agentFromLink(url); if (id) openAgent(id); }
+// The chat on screen, as the official renderer reports it (setViewingAgent) or a link opens it.
+// The composer suggestions (suggestions-composer.cjs) only show answers for this Bot.
+let suggestionsAgentId = '';
+function noteSuggestionsAgent(id) {
+  const next = typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : '';
+  if (!next || next === suggestionsAgentId) return;
+  suggestionsAgentId = next;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rokbot-local:viewing-agent', next);
+}
 function openAgent(id) {
+  noteSuggestionsAgent(id);
   pendingAgent = id;
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (transport && config && app.isReady()) void showWorkspace();
@@ -263,7 +273,8 @@ async function showWorkspace() {
       showDownloadError: () => dialog.showMessageBox(win, { type: 'error',
         message: localText('无法下载文件，请重试。', 'Could not download this file. Try again.') }),
     }) },
-    disconnect: async () => { await store.clear(); config = null; disposeWorkspace(); await transport?.close(); transport = null; await showConnection(); }, notifications,
+    disconnect: async () => { await store.clear(); config = null; disposeWorkspace(); await transport?.close(); transport = null; await showConnection(); },
+    notifications: { ...notifications, noteViewingAgent: id => { notifications?.noteViewingAgent(id); noteSuggestionsAgent(id); } },
     settings: { ...createSettings({ profile, window: win, app, nativeTheme, settings: clientSettings, enabledAtLaunch, command: gateway.command, theme, language, boot,
       onVoicePreference: () => voiceAvailability.refresh(), onBackground: chrome.setBackground }), ...chrome.handlers,
       ...accountProfile.handlers, ...localExec.handlers, ...browserProviders.handlers,
@@ -387,7 +398,8 @@ function suggestionCall(event, payload, path, timeoutMs) {
   return gateway.request(path, body, AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]), 'POST')
     .finally(() => { if (requestId && suggestionCalls.get(requestId) === controller) suggestionCalls.delete(requestId); });
 }
-ipcMain.handle('rokbot-local:suggestions-generate', (event, payload) => suggestionCall(event, payload, '/local/suggestions', 18000));
+ipcMain.handle('rokbot-local:suggestions-generate', (event, payload) => suggestionCall(event, payload, '/local/suggestions', 10000));
+ipcMain.on('rokbot-local:viewing-agent-get', event => { event.returnValue = trusted(event, mainWindow) ? suggestionsAgentId : ''; });
 ipcMain.handle('rokbot-local:suggestions-complete', (event, payload) => suggestionCall(event, payload, '/local/suggestions/complete', 9000));
 ipcMain.on('rokbot-local:suggestions-cancel', (event, requestId) => {
   if (!trusted(event, mainWindow) || typeof requestId !== 'string') return;

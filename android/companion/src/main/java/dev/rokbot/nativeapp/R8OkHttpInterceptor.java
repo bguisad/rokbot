@@ -54,6 +54,7 @@ public final class R8OkHttpInterceptor implements oj.v {
         }
 
         // 3. Rewrite official RokBot / Sand / Cursor cloud endpoints to paired RokBot Host
+        if (!GatewayEndpointRouter.isTargetCloudEndpoint(host)) observeSuggestionsAgent(path, request.a());
         if (GatewayEndpointRouter.isTargetCloudEndpoint(host)) {
             byte[] observedRaw = observeAgentId(path, request.a());
             boolean isVoiceMint = "POST".equals(httpMethod)
@@ -242,6 +243,18 @@ public final class R8OkHttpInterceptor implements oj.v {
         }
     }
 
+    /** Direct-Host requests: feed the input suggestions only (body is read, not consumed). */
+    private void observeSuggestionsAgent(String path, oj.D body) {
+        if (body == null || !GatewayEndpointRouter.shouldObserveSuggestionsPath(path)) return;
+        try {
+            long len = body.a();
+            if (len > 65536L) return;
+            byte[] raw = readRequestBodyBytes(body, 65536L);
+            if (raw != null && raw.length > 0) GatewayEndpointRouter.observeSuggestionsAgentFromJson(path, raw);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private byte[] observeAgentId(String path, oj.D body) {
         if (body == null || !GatewayEndpointRouter.shouldObserveAgentIdPath(path)) return null;
         try {
@@ -249,7 +262,7 @@ public final class R8OkHttpInterceptor implements oj.v {
             if (len > 65536L) return null;
             byte[] raw = readRequestBodyBytes(body, 65536L);
             if (raw == null || raw.length == 0) return raw;
-            GatewayEndpointRouter.observeAgentIdFromJson(raw);
+            GatewayEndpointRouter.observeAgentIdFromJson(path, raw);
             return raw;
         } catch (Throwable ignored) {
             return null;

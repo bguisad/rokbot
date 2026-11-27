@@ -228,7 +228,12 @@ export async function createSelfHostServer(options = {}) {
   const automationWebhooks = await new AutomationWebhooks(dataDir).load();
   const sharing = await new Sharing(dataDir, { skills, plugins, profile, publicUrl: canonical,
     hostCall: internalHostClient(hostUrl, internalToken) }).load();
-  const notifications = await new Notifications(dataDir, { onPublish: item => push.enqueue(item) }).load();
+  // A Bot's reply also prepares the input suggestions of that chat (SuggestionsService.prefetch).
+  let suggestionsForReplies = null;
+  const notifications = await new Notifications(dataDir, { onPublish: item => {
+    try { suggestionsForReplies?.onAgentNotification(item); } catch {}
+    return push.enqueue(item);
+  } }).load();
   const notificationSettings = await new NotificationSettings(dataDir).load();
   const tickets = new VncTickets(auth, options.ticketOptions);
   const connections = new DeviceConnections();
@@ -250,13 +255,15 @@ export async function createSelfHostServer(options = {}) {
   const limiter = options.rateLimit ?? new RateLimit();
   const speedTest = createSpeedTest({ limiter });
   const suggestionsSettings = await new SuggestionsSettings(dataDir).load();
-  const suggestions = new SuggestionsService({
+  const suggestions = await new SuggestionsService({
     models,
     settings: suggestionsSettings,
     hostCall: internalHostClient(hostUrl, internalToken),
     dataDir,
     fetchImpl: options.suggestionsFetch,
-  });
+    ...options.suggestionsOptions,
+  }).load();
+  suggestionsForReplies = suggestions;
   // ?timeZone= (default: the Host's) and an optional ?period=today|7d|30d to return one period.
   const usage = url => {
     const timeZone = url.searchParams.get('timeZone') || process.env.TZ || 'UTC', period = url.searchParams.get('period') || undefined;
@@ -1121,13 +1128,20 @@ export async function createSelfHostServer(options = {}) {
       const lastEntryId = typeof body?.lastEntryId === "string" ? body.lastEntryId.slice(0, 128) : "";
       const locale = typeof body?.locale === "string" ? body.locale.slice(0, 32) : "";
       const recentMessages = Array.isArray(body?.recentMessages) ? body.recentMessages.slice(-8) : undefined;
-      return sendJson(response, 200, await suggestions.generate({
+      // Echoed back so a client can drop a late answer to an older request.
+      const requestId = typeof body?.requestId === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(body.requestId) ? body.requestId : "";
+      if (body?.prefetch === true) {
+        // Entering a chat: generate in the background; the request on focus hits the cache.
+        const accepted = suggestions.prefetch({ agentId, locale });
+        return sendJson(response, 202, { accepted, agentId, requestId });
+      }
+      return sendJson(response, 200, { ...await suggestions.generate({
         agentId,
         lastEntryId,
         locale,
         recentMessages,
         force: body?.force === true,
-      }));
+      }), requestId });
     }
     if (["GET", "PUT"].includes(request.method) && path === "/local/device") {
       const found = device(request, web);
@@ -1445,6 +1459,7 @@ export async function createSelfHostServer(options = {}) {
       await voice.close(); await synthesis.close(); await voiceConfig.close();
       await speech.close();
       notifications.close();
+      suggestions.close();
       notificationSettings.close();
       await push.close();
       await connectors.close();

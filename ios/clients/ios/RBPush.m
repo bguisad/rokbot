@@ -4,6 +4,7 @@
 #import "RBDeviceIdentity.h"
 #import "RBHTTP.h"
 #import "RBDiagnostics.h"
+#import "RBSuggestions.h"
 #import <Security/Security.h>
 #import <UserNotifications/UserNotifications.h>
 #import <dlfcn.h>
@@ -214,6 +215,8 @@ void RBReceiveLocalNotification(NSDictionary *n) {
     // banners. Conversation state continues through the existing Gateway stream.
     // Keep receipts/deduplication without adding a separate completion UI.
     RBDiagnosticsEvent(@"notification.foregroundReceipt", @{ @"agentId": RBPushAsString(dict[@"agentId"]) ?: @"" });
+    // A finished task means a new reply for that bot: refresh its suggestions (no-op for other bots' UI).
+    RBSuggestionsNoteReply(RBPushAsString(dict[@"agentId"]));
   });
 }
 @interface RBPushDelegate : NSObject <UNUserNotificationCenterDelegate>
