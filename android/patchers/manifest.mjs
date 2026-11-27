@@ -969,6 +969,12 @@ export function patchManifest(axmlBuffer, options = {}) {
     makeAttrBool('exported', false),
   ]);
 
+  // Canvases open inside the app (CanvasActivity), not in the browser.
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.CanvasActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.CanvasActivity'),
+    makeAttrBool('exported', false),
+  ]);
+
   upsertAppChild('activity', 'dev.rokbot.nativeapp.UsageActivity', [
     makeAttrStr('name', 'dev.rokbot.nativeapp.UsageActivity'),
     makeAttrBool('exported', false),

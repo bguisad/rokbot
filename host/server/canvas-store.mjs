@@ -1,8 +1,14 @@
 // Local canvas store: the self-hosted counterpart of the official cloud canvas service.
 // A canvas is one `.canvas.tsx` React module written by the bot. The Host keeps its source,
-// a compiled bundle and a random access token under `<dataDir>/canvases/`; the HTTP layer
-// (canvas-http.mjs) serves it at `/canvas/<token>`. Both the bot runtime (which writes) and
-// the selfhost service (which serves) open the same directory.
+// a compiled bundle and a random public token under `<dataDir>/canvases/`. Both the bot runtime
+// (which writes) and the selfhost service (which serves) open the same directory.
+//
+// Visibility follows the official CanvasVisibility (PRIVATE / TEAM_VIEW / PUBLIC; a Host has no
+// team, so private or public). A canvas starts private: it opens inside RokBot at its app link
+// (`/canvas/app/<id>`, signed-in devices only). Publishing it from the share panel makes
+// `/canvas/<token>` readable by anyone with the link; unpublishing makes that link 404 again,
+// and regenerating the link replaces the token so an old public link never comes back.
+// Canvases written before visibility existed carry no `visibility` and are private.
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,6 +19,7 @@ export const CANVAS_TITLE_MAX_CHARS = 120;
 export const CANVAS_DIR_NAME = "canvases";
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const CANVAS_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+export const CANVAS_VISIBILITIES = Object.freeze(["private", "public"]);
 
 // Writes are serialized per root so concurrent tool calls never lose a token entry.
 const locks = new Map();
@@ -39,13 +46,44 @@ function cleanTitle(value) {
   return title.length > 0 ? title.slice(0, CANVAS_TITLE_MAX_CHARS) : undefined;
 }
 
+/** "public" only when the owner published it; anything else (including no field) is private. */
+export function canvasVisibility(meta) {
+  return meta?.visibility === "public" ? "public" : "private";
+}
+
 /**
- * The canonical link path of a canvas. Shaped like the official
- * `/canvas/<storeId>/<canvasId>` links (store = owning bot) with the unguessable
- * token in place of the store id, so possessing the link is the read grant.
+ * The in-app link of a canvas, the RokBot counterpart of the official chat link
+ * `https://cursor.com/canvas/<storeId>/<canvasId>`: clients open it in their canvas view, and a
+ * browser only with a signed-in web session. It names the canvas but grants nothing.
  */
-export function canvasPath(meta) {
+export function canvasAppPath(meta) {
+  return `/canvas/app/${meta.id}`;
+}
+
+/** The public link (the official page_url). It resolves only while the canvas is public. */
+export function canvasPublicPath(meta) {
   return `/canvas/${meta.token}`;
+}
+
+/** @deprecated name kept for older callers: the in-app link. */
+export const canvasPath = canvasAppPath;
+
+/** Canvas meta for clients: never the token unless the canvas is public. */
+export function canvasView(meta, origin) {
+  const visibility = canvasVisibility(meta);
+  const base = typeof origin === "string" ? origin.replace(/\/+$/, "") : "";
+  return {
+    id: meta.id,
+    agentId: meta.agentId ?? null,
+    title: meta.title,
+    version: Number(meta.version) || 1,
+    createdAtMs: meta.createdAtMs,
+    updatedAtMs: meta.updatedAtMs,
+    visibility,
+    appUrl: `${base}${canvasAppPath(meta)}`,
+    publicUrl: visibility === "public" ? `${base}${canvasPublicPath(meta)}` : null,
+    publishedAtMs: visibility === "public" ? meta.publishedAtMs ?? null : null,
+  };
 }
 
 export class CanvasStore {
@@ -68,14 +106,20 @@ export class CanvasStore {
     return await readJson(join(this.root, "tokens.json"), {});
   }
 
-  /** Resolve an access token to the canvas meta, or null. */
-  async byToken(token) {
+  /** Resolve a token to its canvas whatever the visibility (owner-side lookups), or null. */
+  async byAnyToken(token) {
     if (typeof token !== "string" || !CANVAS_TOKEN_RE.test(token)) return null;
     const tokens = await this.readTokens();
     const canvasId = Object.hasOwn(tokens, token) ? tokens[token] : undefined;
     if (!canvasId) return null;
     const meta = await this.readMeta(canvasId);
     return meta && meta.token === token ? meta : null;
+  }
+
+  /** Resolve a public link token to the canvas meta; null unless the canvas is public. */
+  async byToken(token) {
+    const meta = await this.byAnyToken(token);
+    return meta && canvasVisibility(meta) === "public" ? meta : null;
   }
 
   async readSource(canvasId) {
@@ -132,7 +176,8 @@ export class CanvasStore {
           id: randomUUID(),
           agentId: agentId ?? null,
           title: cleanTitle(title) ?? "未命名画布",
-          token: randomBytes(32).toString("base64url"),
+          token: newToken(),
+          visibility: "private",
           version: 1,
           createdAtMs: now,
           updatedAtMs: now,
@@ -150,6 +195,39 @@ export class CanvasStore {
     return { ok: true, meta, created: !existing };
   }
 
+  /** Publish ("public") or unpublish ("private") a canvas. Returns the new meta, or null. */
+  async setVisibility(canvasId, visibility) {
+    if (!CANVAS_VISIBILITIES.includes(visibility)) throw new Error("Invalid canvas visibility");
+    return await serialized(this.root, async () => {
+      const meta = await this.readMeta(canvasId);
+      if (!meta) return null;
+      const next = { ...meta, visibility };
+      if (visibility === "public" && canvasVisibility(meta) !== "public") next.publishedAtMs = Date.now();
+      if (visibility === "private") delete next.publishedAtMs;
+      await this.#writeMeta(next);
+      return next;
+    });
+  }
+
+  /** Replace the public token: the previous public link stops resolving for good. */
+  async regenerateToken(canvasId) {
+    return await serialized(this.root, async () => {
+      const meta = await this.readMeta(canvasId);
+      if (!meta) return null;
+      const next = { ...meta, token: newToken() };
+      const tokens = await this.readTokens();
+      delete tokens[meta.token];
+      tokens[next.token] = next.id;
+      await this.#writeMeta(next);
+      await writePrivate(join(this.root, "tokens.json"), JSON.stringify(tokens, null, 2) + "\n");
+      return next;
+    });
+  }
+
+  async #writeMeta(meta) {
+    await writePrivate(join(this.dir(meta.id), "meta.json"), JSON.stringify(meta, null, 2) + "\n");
+  }
+
   async remove(canvasId) {
     return await serialized(this.root, () => this.#remove(canvasId));
   }
@@ -163,6 +241,10 @@ export class CanvasStore {
     await rm(this.dir(canvasId), { recursive: true, force: true });
     return true;
   }
+}
+
+function newToken() {
+  return randomBytes(32).toString("base64url");
 }
 
 function httpOrigin(value) {
@@ -203,9 +285,14 @@ export class CanvasLinkOrigins {
   }
 }
 
+/** The configured public origin (ROKBOT_PUBLIC_URL), or null. */
+export function configuredCanvasOrigin(env = process.env) {
+  return httpOrigin(env.ROKBOT_PUBLIC_URL ?? env.GROKBOT_PUBLIC_URL);
+}
+
 /** Origin for links the bot hands out: configured public URL, last seen client origin, loopback. */
 export async function resolveCanvasOrigin(dataDir, env = process.env) {
-  const configured = httpOrigin(env.ROKBOT_PUBLIC_URL ?? env.GROKBOT_PUBLIC_URL);
+  const configured = configuredCanvasOrigin(env);
   if (configured) return configured;
   const saved = await readJson(join(canvasRoot(dataDir), "link-origin.json"), {});
   const seen = httpOrigin(saved?.main) ?? httpOrigin(saved?.web);

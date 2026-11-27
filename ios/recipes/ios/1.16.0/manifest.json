@@ -4,7 +4,7 @@
   "build": "23152",
   "hbcVersion": 98,
   "hbcSha256": "9dcbab4683d0e64a7072987c4e8a55ed781092daf23384c4b94fc1e9b8f6d8fe",
-  "dylibSha256": "8aa74469c780885426fbed987a8efad927336c29d45cf5b2d2239a801a751b89",
+  "dylibSha256": "2bb8c6e0d745262cef9665e63d2f02be496806590bc71de74e492ca7c477a0b3",
   "nativeTextSha256": "7cdb10c9eaaa6c0fb002eb372b0a4f976ef315987eaeb3815a8df4531a34f42e",
   "resources": [
     {

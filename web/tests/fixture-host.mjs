@@ -15,6 +15,8 @@ import { join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
 import { createSelfHostServer } from '../../host/server/index.mjs';
 import { RateLimit } from '../../host/server/security.mjs';
+import { CanvasStore } from '../../host/server/canvas-store.mjs';
+import { compileCanvas } from '../../host/server/canvas-compile.mjs';
 
 const AGENT = { id: 'demo', name: 'Demo Bot', title: '', description: '', role: 'assistant',
   harness: 'temporal', avatarShape: 'circle', avatarColor: 'blue', status: 'idle' };
@@ -64,6 +66,8 @@ function api(method, input) {
   }
   if (method === 'listAgents') return agents;
   if (['getAgentTranscriptTail', 'openAgentTail'].includes(method)) return { entries, nextBeforeSeq: null, cloudAgentPeerIds: [] };
+  // The phone app reads the conversation through the windowed transcript API.
+  if (['openAgentWindowed', 'getAgentTranscriptWindow'].includes(method)) return { entries, threadCounts: {} };
   if (method === 'getMcpState') return { servers: [] };
   if (method === 'readAttachmentImage') return { dataUrl: IMAGE };
   if (['skillsCatalog', 'getMcpCatalog', 'getTrays', 'getEffectiveMcpPlugins', 'getAsyncTasks', 'getSubagents',
@@ -104,6 +108,20 @@ const core = http.createServer(async (request, response) => {
       const days = Map.groupBy(rows, row => row.at.slice(0, 10));
       for (const [day, group] of days) await appendFile(join(dataDir, 'usage', `${day}.jsonl`), group.map(row => JSON.stringify(row) + '\n').join(''));
       return json(response, { ok: true, rows: rows.length });
+    }
+    // A canvas as a Bot's WriteCanvas would store it, for the canvas screenshots and tests.
+    if (path === '/__control/canvas') {
+      const { agentId, title, source, visibility, updatedAtMs } = await body(request);
+      const store = new CanvasStore(dataDir, { compile: compileCanvas });
+      const written = await store.write({ agentId, title, source });
+      if (!written.ok) return json(response, written, 400);
+      let meta = written.meta;
+      if (visibility === 'public') meta = await store.setVisibility(meta.id, 'public');
+      if (Number.isFinite(updatedAtMs)) {
+        meta = { ...meta, updatedAtMs, createdAtMs: Math.min(meta.createdAtMs, updatedAtMs) };
+        await writeFile(join(dataDir, 'canvases', meta.id, 'meta.json'), JSON.stringify(meta));
+      }
+      return json(response, { id: meta.id, token: meta.token, visibility: meta.visibility ?? 'private' });
     }
     if (path === '/__control/notify') return json(response, await host.notifications.publish(await body(request)));
     if (path === '/__control/web-client') {

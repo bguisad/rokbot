@@ -36,8 +36,10 @@ python3 deploy.py up --host-archive /path/to/host.tgz --box-archive /path/to/box
 Bot 可以用 `WriteCanvas`、`EditCanvas`、`ReadCanvas`、`ListCanvases` 生成和修改可交互页面（单个 React `.canvas.tsx` 模块，只能 import `cursor/canvas`），参数和官方画布工具一致，但编译、存储、访问都在本机完成：
 
 - Host 用镜像里自带的 esbuild、React 和 RokBot 画布组件库离线编译，不访问网络。源码、编译结果和访问令牌保存在数据目录的 `canvases/` 下，随 `host-data` 一起备份。更新同一个画布时链接不变。
-- 访问地址是 `/canvas/<令牌>`，令牌有 256 位随机熵，持有链接即可查看，不需要设备凭证。画布代码只在 `sandbox` iframe 里运行（不同源、`connect-src 'none'`），读不到 Host 的接口和凭证。
-- 链接里的地址优先取 `ROKBOT_PUBLIC_URL`，未配置时取客户端最近一次访问 Host 用的地址。桌面端会把链接改到当前连接的 Host，在独立的 RokBot 窗口中打开；网页版在本端口的新标签页打开；安卓用系统浏览器打开，所以只走 Tailcat 的 Host 需要配置手机能直接访问的 `ROKBOT_PUBLIC_URL`。
+- **默认私有**（对齐官方 CanvasVisibility 的 PRIVATE / PUBLIC）。工具返回给模型的是软件内链接 `/canvas/app/<画布 id>`：RokBot 各客户端点开后在软件内打开（桌面端 / 网页版是全屏画布视图，安卓 `CanvasActivity`，iOS `RBCanvas`），用设备自己的凭证读取；浏览器直接访问时只有已登录的网页版会话能看，其他一律 404。
+- **分享时公开**：画布右上角「分享」里打开「公开访问」后才有公开链接 `/canvas/<令牌>`（256 位随机令牌），任何人无需登录可看；关闭后该链接立即 404，再次打开沿用同一链接；「重新生成链接」会换令牌，旧链接永久失效。公开状态写在 `canvases/<id>/meta.json`，Host 重启不丢。旧版本生成的画布（没有 `visibility` 字段）一律按私有处理，用户在分享面板里重新打开即可恢复原链接。
+- 设备接口：`GET /local/canvases?agentId=`、`GET /local/canvases/<id>`、`POST /local/canvases/<id>/visibility`、`POST /local/canvases/<id>/link`、`DELETE /local/canvases/<id>`，两个监听端口都需要设备凭证。Bot 详情（桌面端 / 网页版）和 Bot 资料库（安卓 / iOS）里有「画布」列表，可打开、分享、删除。
+- 画布代码只在 `sandbox` 环境里运行（不同源、`connect-src 'none'`），读不到 Host 的接口和凭证。链接里的地址优先取 `ROKBOT_PUBLIC_URL`，未配置时取客户端最近一次访问 Host 用的地址；公开链接要给外部访问时请配置 `ROKBOT_PUBLIC_URL`。
 
 ## 数据与备份
 

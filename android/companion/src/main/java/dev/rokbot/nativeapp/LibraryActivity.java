@@ -42,6 +42,7 @@ public class LibraryActivity extends Activity {
     private String mAgentName;
     private LinearLayout mListContainer;
     private TextView mStatus;
+    private CanvasLibrarySection mCanvases;
     private byte[] mPendingSaveBytes;
     private String mPendingSaveName;
     private final Handler mMain = new Handler(Looper.getMainLooper());
@@ -57,6 +58,13 @@ public class LibraryActivity extends Activity {
 
         buildUi();
         reload();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Back from a canvas or its share sheet: visibility or the list may have changed.
+        if (mCanvases != null) mCanvases.reload();
     }
 
     private void buildUi() {
@@ -81,17 +89,32 @@ public class LibraryActivity extends Activity {
                 Localize.t(this, "资料库: ", "Library: ") + mAgentName,
                 p, v -> finish(), addText, addFile));
 
+        // The Bot's canvases come first (official Library: 页面, then files), then its files.
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        mCanvases = new CanvasLibrarySection(this, mAgentId);
+        content.addView(mCanvases.view);
+
+        TextView filesHeading = new TextView(this);
+        filesHeading.setText(Localize.t(this, "文件", "Files"));
+        filesHeading.setTextColor(p.textPrimary);
+        filesHeading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        filesHeading.setTypeface(Typeface.DEFAULT_BOLD);
+        filesHeading.setPadding(UiChrome.dp(this, 4), UiChrome.dp(this, 14), 0, UiChrome.dp(this, 2));
+        content.addView(filesHeading);
+
         mStatus = new TextView(this);
         mStatus.setText(Localize.t(this, "正在加载资料库…", "Loading library…"));
         mStatus.setTextColor(p.textSecondary);
         mStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         mStatus.setPadding(UiChrome.dp(this, 4), UiChrome.dp(this, 4), UiChrome.dp(this, 4), UiChrome.dp(this, 10));
-        root.addView(mStatus);
+        content.addView(mStatus);
 
-        ScrollView scroll = new ScrollView(this);
         mListContainer = new LinearLayout(this);
         mListContainer.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(mListContainer);
+        content.addView(mListContainer);
+        scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);

@@ -252,6 +252,12 @@ const modelBridge = createModelBridge({
   text: rokText,
 });
 
+function canvasId(value) {
+  const id = String(value ?? '').toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) throw new Error('画布不存在');
+  return id;
+}
+
 window.localBot = Object.freeze({
   locale,
   platform: 'android',
@@ -317,6 +323,15 @@ window.localBot = Object.freeze({
   deleteQuickPhrase: id => gateway.request(`/local/suggestions/phrases/${encodeURIComponent(id)}`, null, timeout(10000), 'DELETE'),
   reorderQuickPhrases: ids => gateway.request('/local/suggestions/phrases/reorder', { ids }, timeout(10000), 'PUT'),
   downloadAttachmentsZip: payload => services.call('downloadAttachmentsZip', payload),
+  // Canvases (desktop recipe extensions/canvas.js): the web listener serves private canvas frames
+  // to this page's session, so frames load from the page's own origin.
+  canvasList: ({ agentId } = {}) => gateway.request(`/local/canvases?agentId=${encodeURIComponent(agentId ?? '')}`, null, timeout(15000), 'GET'),
+  canvasGet: ({ id } = {}) => gateway.request(`/local/canvases/${canvasId(id)}`, null, timeout(15000), 'GET'),
+  canvasSetVisibility: ({ id, visibility } = {}) => gateway.request(`/local/canvases/${canvasId(id)}/visibility`, { visibility }, timeout(15000), 'POST'),
+  canvasRegenerateLink: ({ id } = {}) => gateway.request(`/local/canvases/${canvasId(id)}/link`, {}, timeout(15000), 'POST'),
+  canvasDelete: ({ id } = {}) => gateway.request(`/local/canvases/${canvasId(id)}`, null, timeout(15000), 'DELETE'),
+  canvasOpenExternal: url => native('open-external', { url }),
+  canvasFrameUrl: ({ id, theme } = {}) => `/canvas/app/${canvasId(id)}/frame?theme=${theme === 'dark' ? 'dark' : 'light'}`,
 });
 
 officialPreload(name => {

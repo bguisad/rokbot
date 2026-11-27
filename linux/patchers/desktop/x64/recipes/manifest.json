@@ -132,9 +132,9 @@
       "source": "dist/renderer/assets/index.eager-app-CIV_rOgf.js",
       "newFile": false,
       "recipe": "014.gbp.gz",
-      "sha256": "bd33a10c1079b9079c9a48b8e4895c88bc700cada2626a80c361d812de1258be",
-      "targetBytes": 5830012,
-      "addedBytes": 87561
+      "sha256": "5b811176b83cbbae6f6c0b812ef22d1c5f0555cd9c3e12d3ba0c40869844636f",
+      "targetBytes": 5882929,
+      "addedBytes": 140480
     },
     {
       "path": "dist/renderer/assets/index.eager-common-rGW_2t4Y.js",
