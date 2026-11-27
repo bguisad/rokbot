@@ -77,10 +77,20 @@ public class RokBotBootstrap {
         HostProfile.setListener(RokBotBootstrap::rescanCurrentActivityIdentity);
         installNetworkInterceptor(app);
         NotificationService.createChannels(app);
-        TailcatManager.get().setResetListener(() -> NotificationService.poke(app));
+        TailcatManager.get().setResetListener(() -> {
+            R8OkHttpHook.evictConnections();
+            NotificationService.poke(app);
+        });
+        TailcatManager.get().setRecoveryListener(() -> {
+            R8OkHttpHook.evictConnections();
+            NotificationService.poke(app);
+            HostProfile.refresh(app, true);
+        });
         TailcatManager.get().registerNetworkMonitor(app, hasInternet -> {
-            if (hasInternet && Storage.isPaired(app)) {
-                new Thread(() -> TailcatManager.get().probeAndRecover(app, 2500, true), "RokBotNetRecover").start();
+            if (hasInternet && Storage.isPaired(app) && !Storage.isTailcatEnabled(app)) {
+                R8OkHttpHook.evictConnections();
+                NotificationService.poke(app);
+                HostProfile.refresh(app, true);
             }
         });
 
@@ -175,6 +185,7 @@ public class RokBotBootstrap {
                     HostProfile.refresh(activity, false);
                     AppUpdater.onReactActivityResumed(activity);
                     ListArrangement.onReactResumed(activity);
+                    TailcatManager.get().onForegroundActivityResumed(activity);
                 }
             }
 
@@ -229,6 +240,9 @@ public class RokBotBootstrap {
             HostProfile.refresh(ctx, true);
             // Cold start and every return to the foreground; AppUpdater throttles to once per 6 h.
             AppUpdater.onAppForeground(activity);
+            if (Storage.isPaired(ctx)) {
+                TailcatManager.get().onAppForeground(ctx);
+            }
         }
     }
 
@@ -246,6 +260,7 @@ public class RokBotBootstrap {
             Application app = activity.getApplication();
             Context ctx = app != null ? app : activity.getApplicationContext();
             PushManager.getInstance(ctx).onForegroundChanged(false);
+            TailcatManager.get().onAppBackground();
         }
     }
 
@@ -301,9 +316,13 @@ public class RokBotBootstrap {
         if (token == null || token.isEmpty()) return null;
         String url = Storage.getGatewayUrl(context);
         if (Storage.isTailcatEnabled(context)) {
+            rememberPairedBundleMetaLoopbackPort(metaFile);
             try {
                 String resolved = TailcatManager.get().resolveServerUrl(context);
-                if (resolved != null && !resolved.isEmpty()) url = resolved;
+                if (resolved != null && !resolved.isEmpty()) {
+                    url = resolved;
+                    TailcatManager.get().rememberLoopbackUrl(url);
+                }
             } catch (RuntimeException e) {
                 return pairedBundle.exists() ? pairedBundle : null;
             }
@@ -333,6 +352,19 @@ public class RokBotBootstrap {
         } catch (Throwable ignored) {
             return pairedBundle.exists() ? pairedBundle : null;
         }
+    }
+
+    private static void rememberPairedBundleMetaLoopbackPort(File metaFile) {
+        if (metaFile == null || !metaFile.isFile()) return;
+        try (FileInputStream fis = new FileInputStream(metaFile)) {
+            byte[] buf = new byte[512];
+            int n = fis.read(buf);
+            if (n <= 0) return;
+            String text = new String(buf, 0, n, StandardCharsets.UTF_8);
+            int nl = text.indexOf('\n');
+            String firstLine = (nl >= 0 ? text.substring(0, nl) : text).trim();
+            TailcatManager.get().rememberLoopbackUrl(firstLine);
+        } catch (Throwable ignored) {}
     }
 
     /**

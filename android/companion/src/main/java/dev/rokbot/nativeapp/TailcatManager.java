@@ -2,6 +2,8 @@ package dev.rokbot.nativeapp;
 
 import android.content.Context;
 import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.SystemClock;
@@ -10,22 +12,36 @@ import android.util.Log;
 import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import dev.grokbot.local.TailcatBridge;
 
 /**
- * Native Tailcat forward tunnel lifecycle manager, mirroring iOS GBNetwork.m and shell Tailcat.kt.
- * Provides lazy startup, link normalization, identity persistence, /health probing, backoff, and auto-recovery.
+ * Native Tailcat forward tunnel lifecycle manager, mirroring iOS RBNetwork.m and shell Tailcat.kt.
+ * Provides lazy startup, localPort pinning, stale loopback port tracking, link normalization,
+ * identity persistence, /health probing, capped backoff retry, network monitor, and foreground recovery.
  */
 public final class TailcatManager {
     private static final String TAG = "RokBotTailcat";
     private static final long PEER_INITIAL_GRACE_MS = 25_000L;
     private static final long PEER_RECOVERY_GRACE_MS = 10_000L;
+    private static final int DEFAULT_PROBE_TIMEOUT_MS = 2_500;
+    private static final int POST_RESTART_PROBE_TIMEOUT_MS = 3_500;
+    private static final int MAX_KNOWN_LOOPBACK_PORTS = 32;
     private static final Pattern RAW_ADDRESS = Pattern.compile("^tc[A-Za-z0-9_-]{30,16384}$");
     private static final Pattern PORT_QUERY = Pattern.compile("^port=([1-9][0-9]{0,4})$");
 
@@ -48,10 +64,18 @@ public final class TailcatManager {
     public static final class ProbeResult {
         public final boolean reachable;
         public final boolean restarted;
+        public final String localUrl;
+        public final boolean portChanged;
 
         public ProbeResult(boolean reachable, boolean restarted) {
+            this(reachable, restarted, "", false);
+        }
+
+        public ProbeResult(boolean reachable, boolean restarted, String localUrl, boolean portChanged) {
             this.reachable = reachable;
             this.restarted = restarted;
+            this.localUrl = localUrl != null ? localUrl : "";
+            this.portChanged = portChanged;
         }
     }
 
@@ -70,18 +94,123 @@ public final class TailcatManager {
 
     private final Object lock = new Object();
     private TunnelSession active;
+    private int preferredPort = 0;
+    private final LinkedHashSet<Integer> knownLoopbackPorts = new LinkedHashSet<>();
     private long unhealthySinceMs = 0L;
     private boolean wasReady = false;
     private long lastAttemptMs = 0L;
     private int failures = 0;
     private volatile ResetListener resetListener;
+    private volatile Runnable recoveryListener;
+    private volatile NetworkChangeListener networkChangeListener;
+    private volatile Context appContext;
     private volatile boolean monitorRegistered = false;
-    private volatile String lastNetSignature = null;
+    private volatile ConnectivityManager connectivityManager;
+    private volatile TailcatReconnectStateMachine reconnectEngine;
+    private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "RokBotTailcatRecover");
+        t.setDaemon(true);
+        return t;
+    });
 
     private TailcatManager() {}
 
     public void setResetListener(ResetListener listener) {
         this.resetListener = listener;
+    }
+
+    public void setRecoveryListener(Runnable listener) {
+        this.recoveryListener = listener;
+    }
+
+    private TailcatReconnectStateMachine ensureReconnectEngine(Context context) {
+        if (context != null && this.appContext == null) {
+            Context app = context.getApplicationContext();
+            this.appContext = app != null ? app : context;
+        }
+        TailcatReconnectStateMachine engine = this.reconnectEngine;
+        if (engine != null) return engine;
+        synchronized (lock) {
+            if (this.reconnectEngine == null) {
+                this.reconnectEngine = new TailcatReconnectStateMachine(
+                        SystemClock::elapsedRealtime,
+                        (delayMs, task) -> {
+                            ScheduledFuture<?> f = reconnectExecutor.schedule(task, Math.max(0L, delayMs), TimeUnit.MILLISECONDS);
+                            return () -> f.cancel(false);
+                        },
+                        new TailcatReconnectStateMachine.Actions() {
+                            @Override
+                            public boolean isPaired() {
+                                Context ctx = appContext;
+                                return ctx != null && Storage.isPaired(ctx);
+                            }
+
+                            @Override
+                            public boolean isTailcatEnabled() {
+                                Context ctx = appContext;
+                                return ctx != null && Storage.isTailcatEnabled(ctx);
+                            }
+
+                            @Override
+                            public boolean hasActiveInternet() {
+                                ConnectivityManager cm = resolveConnectivityManager();
+                                if (cm == null) return true;
+                                TailcatReconnectStateMachine.NetworkSnapshot snap = snapshotActiveNetwork(cm);
+                                return snap.available && snap.hasInternet;
+                            }
+
+                            @Override
+                            public TailcatReconnectStateMachine.ProbeOutcome probeAndRecover() {
+                                Context ctx = appContext;
+                                if (ctx == null) {
+                                    return new TailcatReconnectStateMachine.ProbeOutcome(false, false, "", false);
+                                }
+                                ProbeResult res = TailcatManager.this.probeAndRecover(ctx, DEFAULT_PROBE_TIMEOUT_MS, true);
+                                return new TailcatReconnectStateMachine.ProbeOutcome(
+                                        res.reachable, res.restarted, res.localUrl, res.portChanged);
+                            }
+
+                            @Override
+                            public void onRecovered(boolean restarted, String localUrl, boolean portChanged) {
+                                Runnable l = recoveryListener;
+                                if (l != null) {
+                                    try { l.run(); } catch (Throwable ignored) {}
+                                }
+                            }
+
+                            @Override
+                            public void onDirectNetworkRestored() {
+                                Runnable l = recoveryListener;
+                                if (l != null) {
+                                    try { l.run(); } catch (Throwable ignored) {}
+                                }
+                            }
+
+                            @Override
+                            public void onNetworkAvailabilityChanged(boolean hasInternet) {
+                                NetworkChangeListener l = networkChangeListener;
+                                if (l != null) {
+                                    try { l.onNetworkChanged(hasInternet); } catch (Throwable ignored) {}
+                                }
+                            }
+                        }
+                );
+            }
+            return this.reconnectEngine;
+        }
+    }
+
+    private ConnectivityManager resolveConnectivityManager() {
+        ConnectivityManager cm = connectivityManager;
+        if (cm != null) return cm;
+        Context ctx = appContext;
+        if (ctx != null) {
+            try {
+                cm = ctx.getSystemService(ConnectivityManager.class);
+                if (cm != null) connectivityManager = cm;
+            } catch (Throwable ignored) {}
+        }
+        return cm;
     }
 
     public static String normalizeHalfWidth(String input) {
@@ -145,7 +274,67 @@ public final class TailcatManager {
         return "tailcat://connect/" + address + "?port=" + port;
     }
 
+    public static int extractLoopbackPort(String url) {
+        if (url == null || url.isEmpty()) return 0;
+        try {
+            String trimmed = url.trim();
+            int q = trimmed.indexOf('?');
+            if (q >= 0) trimmed = trimmed.substring(0, q);
+            int h = trimmed.indexOf('#');
+            if (h >= 0) trimmed = trimmed.substring(0, h);
+            URI uri = URI.create(trimmed);
+            String host = uri.getHost();
+            if (!GatewayEndpointRouter.isLoopbackHost(host)) return 0;
+            int port = uri.getPort();
+            return (port >= 1 && port <= 65535) ? port : 0;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    public void rememberLoopbackUrl(String url) {
+        int port = extractLoopbackPort(url);
+        if (port > 0) {
+            rememberLoopbackPort(port);
+        }
+    }
+
+    public void rememberLoopbackPort(int port) {
+        if (port < 1 || port > 65535) return;
+        synchronized (lock) {
+            recordLoopbackPortLocked(port);
+            if (preferredPort <= 0) {
+                preferredPort = port;
+            }
+        }
+    }
+
+    public boolean isKnownTailcatPort(int port) {
+        if (port < 1 || port > 65535) return false;
+        synchronized (lock) {
+            if (active != null && extractLoopbackPort(active.localUrl) == port) {
+                return true;
+            }
+            return knownLoopbackPorts.contains(port);
+        }
+    }
+
+    private void recordLoopbackPortLocked(int port) {
+        if (port < 1 || port > 65535) return;
+        knownLoopbackPorts.remove(port);
+        knownLoopbackPorts.add(port);
+        Iterator<Integer> it = knownLoopbackPorts.iterator();
+        while (knownLoopbackPorts.size() > MAX_KNOWN_LOOPBACK_PORTS && it.hasNext()) {
+            it.next();
+            it.remove();
+        }
+    }
+
     public TunnelSession startPending(Context context, String input, String reuseIdentity) {
+        return startTunnelInternal(context, input, reuseIdentity, 0);
+    }
+
+    private TunnelSession startTunnelInternal(Context context, String input, String reuseIdentity, int desiredPort) {
         if (!TailcatBridge.isAvailable()) {
             throw new IllegalStateException(Localize.t(context,
                     "当前设备不支持 Tailcat 原生库。",
@@ -165,11 +354,29 @@ public final class TailcatManager {
                 throw new IllegalStateException("Tailcat identity invalid", e2);
             }
         }
+
+        TunnelSession started = tryStartOnce(link, identityObj, desiredPort);
+        if (started == null && desiredPort > 0) {
+            Log.i(TAG, "Tailcat localPort " + desiredPort + " unavailable; falling back to ephemeral port");
+            started = tryStartOnce(link, identityObj, 0);
+        }
+        if (started == null) {
+            throw new IllegalStateException(Localize.t(context,
+                    "无法连接，请检查 Tailcat 链接后重试。",
+                    "Could not connect. Check the Tailcat link and try again."));
+        }
+        return started;
+    }
+
+    private TunnelSession tryStartOnce(String link, JSONObject identityObj, int localPort) {
         JSONObject config = new JSONObject();
         try {
             config.put("mode", "forward");
             config.put("link", link);
             config.put("identity", identityObj);
+            if (localPort >= 1 && localPort <= 65535) {
+                config.put("localPort", localPort);
+            }
         } catch (Exception e) {
             throw new IllegalStateException("Tailcat config build failed", e);
         }
@@ -178,9 +385,7 @@ public final class TailcatManager {
         try {
             reply = new JSONObject(TailcatBridge.safeStart(config.toString()));
         } catch (Exception e) {
-            throw new IllegalStateException(Localize.t(context,
-                    "无法启动 Tailcat 连接。",
-                    "Could not start Tailcat."));
+            return null;
         }
         int handle = reply.optInt("handle", 0);
         JSONObject status = reply.optJSONObject("status");
@@ -188,9 +393,7 @@ public final class TailcatManager {
         boolean listening = status != null && status.optBoolean("listening", false);
         if (handle <= 0 || !listening || !localUrl.startsWith("http://127.0.0.1:")) {
             if (handle > 0) TailcatBridge.safeStop(handle);
-            throw new IllegalStateException(Localize.t(context,
-                    "无法连接，请检查 Tailcat 链接后重试。",
-                    "Could not connect. Check the Tailcat link and try again."));
+            return null;
         }
         String path = status != null ? status.optString("path", "unknown") : "unknown";
         return new TunnelSession(handle, localUrl, link, identityObj.toString(), path);
@@ -202,10 +405,22 @@ public final class TailcatManager {
         synchronized (lock) {
             old = active;
             active = pending;
+            if (old != null) {
+                recordLoopbackPortLocked(extractLoopbackPort(old.localUrl));
+            }
+            int nextPort = extractLoopbackPort(pending.localUrl);
+            if (nextPort > 0) {
+                recordLoopbackPortLocked(nextPort);
+                preferredPort = nextPort;
+            }
             unhealthySinceMs = 0L;
             wasReady = false;
             lastAttemptMs = 0L;
             failures = 0;
+        }
+        TailcatReconnectStateMachine engine = reconnectEngine;
+        if (engine != null) {
+            engine.onTunnelCommitted();
         }
         if (old != null && old.handle != pending.handle) {
             TailcatBridge.safeStop(old.handle);
@@ -237,6 +452,10 @@ public final class TailcatManager {
         if (!Storage.isTailcatEnabled(context)) {
             return Storage.getHostUrl(context);
         }
+        if (context != null && this.appContext == null) {
+            Context app = context.getApplicationContext();
+            this.appContext = app != null ? app : context;
+        }
         String tailcatLink = Storage.getTailcatLink(context);
         if (tailcatLink.isEmpty()) {
             tailcatLink = Storage.getHostUrl(context);
@@ -250,6 +469,11 @@ public final class TailcatManager {
             long now = SystemClock.elapsedRealtime();
             TunnelSession current = active;
             if (current != null && tailcatLink.equals(current.link)) {
+                int curPort = extractLoopbackPort(current.localUrl);
+                if (curPort > 0) {
+                    recordLoopbackPortLocked(curPort);
+                    if (preferredPort <= 0) preferredPort = curPort;
+                }
                 JSONObject status = parseJson(TailcatBridge.safeStatus(current.handle));
                 boolean listening = status != null && status.optBoolean("listening", false);
                 if (listening) {
@@ -275,14 +499,27 @@ public final class TailcatManager {
                 if (current != null) return current.localUrl;
             }
             lastAttemptMs = now;
-            active = null;
+            int desiredPort = preferredPort;
             if (current != null) {
+                int curPort = extractLoopbackPort(current.localUrl);
+                if (curPort > 0) {
+                    recordLoopbackPortLocked(curPort);
+                    desiredPort = curPort;
+                }
+                active = null;
                 TailcatBridge.safeStop(current.handle);
                 restartedTunnel = true;
+            } else {
+                active = null;
             }
             try {
-                TunnelSession restarted = startPending(context, tailcatLink, storedIdentity);
+                TunnelSession restarted = startTunnelInternal(context, tailcatLink, storedIdentity, desiredPort);
                 active = restarted;
+                int newPort = extractLoopbackPort(restarted.localUrl);
+                if (newPort > 0) {
+                    recordLoopbackPortLocked(newPort);
+                    preferredPort = newPort;
+                }
                 if (storedIdentity.isEmpty() && !restarted.identityJson.isEmpty()) {
                     Storage.saveTailcatIdentity(context, restarted.identityJson);
                 }
@@ -304,20 +541,58 @@ public final class TailcatManager {
     }
 
     public ProbeResult probeAndRecover(Context context, int timeoutMs, boolean notifyOnReset) {
+        int existingHandle;
+        synchronized (lock) {
+            existingHandle = active != null ? active.handle : 0;
+        }
         String base;
         try {
             base = resolveServerUrl(context, notifyOnReset);
         } catch (Exception e) {
-            return new ProbeResult(false, false);
+            return new ProbeResult(false, false, "", false);
         }
-        if (base == null || base.isEmpty()) return new ProbeResult(false, false);
-        if (probeHealth(base, timeoutMs)) return new ProbeResult(true, false);
-        if (!Storage.isTailcatEnabled(context)) return new ProbeResult(false, false);
+        if (base == null || base.isEmpty()) return new ProbeResult(false, false, "", false);
+        int resolvedHandle;
+        synchronized (lock) {
+            resolvedHandle = active != null ? active.handle : 0;
+        }
+        boolean startedFreshInResolve = Storage.isTailcatEnabled(context)
+                && resolvedHandle > 0
+                && resolvedHandle != existingHandle;
+        int initialProbeTimeout = startedFreshInResolve
+                ? Math.max(timeoutMs, POST_RESTART_PROBE_TIMEOUT_MS)
+                : timeoutMs;
+        if (probeHealth(base, initialProbeTimeout)) {
+            synchronized (lock) {
+                unhealthySinceMs = 0L;
+                wasReady = true;
+                failures = 0;
+            }
+            return new ProbeResult(true, startedFreshInResolve, base, false);
+        }
+        if (!Storage.isTailcatEnabled(context)) {
+            return new ProbeResult(false, false, base, false);
+        }
+        if (startedFreshInResolve) {
+            return new ProbeResult(false, true, base, false);
+        }
 
-        Log.i(TAG, "Tailcat /health failed; restarting tunnel");
+        Log.i(TAG, "Tailcat /health failed on " + base + "; restarting tunnel");
+        int oldPort = extractLoopbackPort(base);
         TunnelSession old;
         synchronized (lock) {
             old = active;
+            if (old != null) {
+                int p = extractLoopbackPort(old.localUrl);
+                if (p > 0) {
+                    oldPort = p;
+                    recordLoopbackPortLocked(p);
+                    preferredPort = p;
+                }
+            } else if (oldPort > 0) {
+                recordLoopbackPortLocked(oldPort);
+                preferredPort = oldPort;
+            }
             active = null;
             unhealthySinceMs = 0L;
             wasReady = false;
@@ -325,39 +600,66 @@ public final class TailcatManager {
             failures = 0;
         }
         if (old != null) TailcatBridge.safeStop(old.handle);
-        boolean ok = false;
+
+        String next = "";
         try {
-            String next = resolveServerUrl(context, false);
-            ok = next != null && !next.isEmpty();
-        } catch (Exception ignored) {}
+            String resolved = resolveServerUrl(context, false);
+            if (resolved != null) next = resolved;
+        } catch (Exception e) {
+            Log.w(TAG, "Tailcat restart failed: " + e.getMessage());
+        }
+        int newPort = extractLoopbackPort(next);
+        boolean portChanged = oldPort > 0 && newPort > 0 && oldPort != newPort;
         if (notifyOnReset) {
             ResetListener l = resetListener;
             if (l != null) l.onTunnelReset();
         }
-        return new ProbeResult(ok, true);
+        boolean healthy = !next.isEmpty() && probeHealth(next, Math.max(timeoutMs, POST_RESTART_PROBE_TIMEOUT_MS));
+        if (healthy) {
+            synchronized (lock) {
+                unhealthySinceMs = 0L;
+                wasReady = true;
+                failures = 0;
+            }
+        }
+        return new ProbeResult(healthy, true, next, portChanged);
     }
 
     public void registerNetworkMonitor(Context context, NetworkChangeListener listener) {
-        if (monitorRegistered || context == null) return;
-        ConnectivityManager cm = context.getSystemService(ConnectivityManager.class);
+        if (context == null) return;
+        this.networkChangeListener = listener;
+        Context app = context.getApplicationContext();
+        this.appContext = app != null ? app : context;
+        TailcatReconnectStateMachine engine = ensureReconnectEngine(this.appContext);
+        if (monitorRegistered) return;
+        ConnectivityManager cm = this.appContext.getSystemService(ConnectivityManager.class);
         if (cm == null) return;
+        this.connectivityManager = cm;
         monitorRegistered = true;
-        lastNetSignature = currentNetworkSignature(cm);
+        engine.initNetworkSnapshot(snapshotActiveNetwork(cm));
         try {
             cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
-                    handleNetworkChange(cm, listener);
+                    resetResolverBackoff();
+                    engine.onNetworkAvailable(snapshotForNetwork(cm, network, null, null));
                 }
 
                 @Override
                 public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
-                    handleNetworkChange(cm, listener);
+                    engine.onNetworkCapabilitiesChanged(snapshotForNetwork(cm, network, capabilities, null));
+                }
+
+                @Override
+                public void onLinkPropertiesChanged(Network network, LinkProperties linkProperties) {
+                    engine.onNetworkLinkPropertiesChanged(snapshotForNetwork(cm, network, null, linkProperties));
                 }
 
                 @Override
                 public void onLost(Network network) {
-                    handleNetworkChange(cm, listener);
+                    resetResolverBackoff();
+                    long lostHandle = network != null ? network.getNetworkHandle() : 0L;
+                    engine.onNetworkLost(lostHandle, snapshotActiveNetwork(cm));
                 }
             });
         } catch (Exception e) {
@@ -365,31 +667,115 @@ public final class TailcatManager {
         }
     }
 
-    private void handleNetworkChange(ConnectivityManager cm, NetworkChangeListener listener) {
-        String sig = currentNetworkSignature(cm);
-        if (sig.equals(lastNetSignature)) return;
-        lastNetSignature = sig;
+    public void onAppForeground(Context context) {
+        if (context == null) return;
+        resetResolverBackoff();
+        ensureReconnectEngine(context).onAppForeground();
+    }
+
+    public void onForegroundActivityResumed(Context context) {
+        if (context == null) return;
+        ensureReconnectEngine(context).onForegroundResumed();
+    }
+
+    public void onAppBackground() {
+        TailcatReconnectStateMachine engine = reconnectEngine;
+        if (engine != null) {
+            engine.onAppBackground();
+        }
+    }
+
+    public void onRequestFailure(Context context) {
+        if (context == null || !Storage.isPaired(context) || !Storage.isTailcatEnabled(context)) return;
+        ensureReconnectEngine(context).onRequestFailure();
+    }
+
+    private void resetResolverBackoff() {
         synchronized (lock) {
             unhealthySinceMs = 0L;
             failures = 0;
             lastAttemptMs = 0L;
         }
-        if (listener != null) {
-            listener.onNetworkChanged(!"none".equals(sig));
-        }
     }
 
-    private static String currentNetworkSignature(ConnectivityManager cm) {
-        Network activeNet = cm.getActiveNetwork();
-        if (activeNet == null) return "none";
-        NetworkCapabilities caps = cm.getNetworkCapabilities(activeNet);
-        if (caps == null) return "unknown";
+    private static TailcatReconnectStateMachine.NetworkSnapshot snapshotActiveNetwork(ConnectivityManager cm) {
+        if (cm == null) return TailcatReconnectStateMachine.NetworkSnapshot.offline();
+        Network activeNet;
+        try {
+            activeNet = cm.getActiveNetwork();
+        } catch (Throwable ignored) {
+            return TailcatReconnectStateMachine.NetworkSnapshot.offline();
+        }
+        if (activeNet == null) {
+            return TailcatReconnectStateMachine.NetworkSnapshot.offline();
+        }
+        return snapshotForNetwork(cm, activeNet, null, null);
+    }
+
+    private static TailcatReconnectStateMachine.NetworkSnapshot snapshotForNetwork(
+            ConnectivityManager cm, Network network, NetworkCapabilities capsHint, LinkProperties lpHint) {
+        if (network == null) {
+            return TailcatReconnectStateMachine.NetworkSnapshot.offline();
+        }
+        NetworkCapabilities caps = capsHint;
+        if (caps == null && cm != null) {
+            try {
+                caps = cm.getNetworkCapabilities(network);
+            } catch (Throwable ignored) {}
+        }
+        LinkProperties lp = lpHint;
+        if (lp == null && cm != null) {
+            try {
+                lp = cm.getLinkProperties(network);
+            } catch (Throwable ignored) {}
+        }
         StringBuilder transports = new StringBuilder();
-        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) transports.append('W');
-        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) transports.append('C');
-        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) transports.append('E');
-        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) transports.append('V');
-        return activeNet.getNetworkHandle() + ":" + transports;
+        boolean hasInternet = true;
+        boolean validated = false;
+        if (caps != null) {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) transports.append('W');
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) transports.append('C');
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) transports.append('E');
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) transports.append('V');
+            hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        }
+        String linkFp = buildLinkFingerprint(lp);
+        return new TailcatReconnectStateMachine.NetworkSnapshot(
+                true, network.getNetworkHandle(), transports.toString(), hasInternet, validated, linkFp);
+    }
+
+    private static String buildLinkFingerprint(LinkProperties lp) {
+        if (lp == null) return "";
+        List<String> parts = new ArrayList<>();
+        try {
+            String iface = lp.getInterfaceName();
+            if (iface != null && !iface.isEmpty()) {
+                parts.add("if=" + iface);
+            }
+        } catch (Throwable ignored) {}
+        try {
+            List<LinkAddress> addrs = lp.getLinkAddresses();
+            if (addrs != null) {
+                List<String> ips = new ArrayList<>();
+                for (LinkAddress la : addrs) {
+                    if (la == null) continue;
+                    InetAddress addr = la.getAddress();
+                    if (addr == null || addr.isLoopbackAddress() || addr.isLinkLocalAddress()) continue;
+                    String host = addr.getHostAddress();
+                    if (host != null && !host.isEmpty()) ips.add(host);
+                }
+                Collections.sort(ips);
+                parts.addAll(ips);
+            }
+        } catch (Throwable ignored) {}
+        if (parts.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(parts.get(i));
+        }
+        return sb.toString();
     }
 
     public String getTransportPath(Context context) {
@@ -411,10 +797,16 @@ public final class TailcatManager {
         synchronized (lock) {
             old = active;
             active = null;
+            preferredPort = 0;
+            knownLoopbackPorts.clear();
             unhealthySinceMs = 0L;
             wasReady = false;
             lastAttemptMs = 0L;
             failures = 0;
+        }
+        TailcatReconnectStateMachine engine = reconnectEngine;
+        if (engine != null) {
+            engine.onClear();
         }
         if (old != null) {
             TailcatBridge.safeStop(old.handle);

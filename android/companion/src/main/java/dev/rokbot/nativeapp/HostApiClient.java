@@ -1119,7 +1119,14 @@ public class HostApiClient {
         if (server.isEmpty() || token == null || token.isEmpty()) {
             throw new ApiException(401, Localize.t(context, "设备尚未配对。", "Device is not paired."));
         }
-        return openSseStream(server, token, path, lastEventId, foregroundHeader, active, listener);
+        try {
+            return openSseStream(server, token, path, lastEventId, foregroundHeader, active, listener);
+        } catch (IOException e) {
+            if (Storage.isTailcatEnabled(context)) {
+                TailcatManager.get().onRequestFailure(context);
+            }
+            throw e;
+        }
     }
 
     public static Closeable openSseStream(String server, String token, String path,
@@ -1491,8 +1498,15 @@ public class HostApiClient {
             throw new ApiException(401, Localize.t(context, "设备尚未配对。", "Device is not paired."));
         }
         byte[] payload = body != null ? body.toString().getBytes(StandardCharsets.UTF_8) : null;
-        return rawRequest(server + path, method, token, payload, payload != null ? "application/json" : null,
-                15000, readTimeoutMs, RokBotBootstrap.isForeground(), extraHeaders);
+        try {
+            return rawRequest(server + path, method, token, payload, payload != null ? "application/json" : null,
+                    15000, readTimeoutMs, RokBotBootstrap.isForeground(), extraHeaders);
+        } catch (IOException e) {
+            if (Storage.isTailcatEnabled(context)) {
+                TailcatManager.get().onRequestFailure(context);
+            }
+            throw e;
+        }
     }
 
     public static HttpResult rawRequest(String urlStr, String method, String token, byte[] body, String contentType,

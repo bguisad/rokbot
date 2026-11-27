@@ -62,6 +62,24 @@ public final class R8OkHttpHook {
         install(context, true);
     }
 
+    public static void evictConnections() {
+        if (R8OkHttpHook126.isAvailable()) {
+            R8OkHttpHook126.evictConnections();
+            return;
+        }
+        java.util.List<oj.A> snapshot = new java.util.ArrayList<>();
+        oj.A primary = sHookedClient;
+        oj.A fs = sHookedFsClient;
+        if (primary != null) snapshot.add(primary);
+        if (fs != null) snapshot.add(fs);
+        synchronized (sTrackedClients) {
+            snapshot.addAll(sTrackedClients);
+        }
+        for (oj.A client : snapshot) {
+            evictConnectionPool(client);
+        }
+    }
+
     private static synchronized void install(Context context, boolean forceRefresh) {
         if (context == null) return;
         if (R8OkHttpHook126.isAvailable()) {

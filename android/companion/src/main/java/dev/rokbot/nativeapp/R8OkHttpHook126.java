@@ -60,6 +60,20 @@ public final class R8OkHttpHook126 {
         install(context, true);
     }
 
+    public static void evictConnections() {
+        java.util.List<Tl.B> snapshot = new java.util.ArrayList<>();
+        Tl.B primary = sHookedClient;
+        Tl.B fs = sHookedFsClient;
+        if (primary != null) snapshot.add(primary);
+        if (fs != null) snapshot.add(fs);
+        synchronized (sTrackedClients) {
+            snapshot.addAll(sTrackedClients);
+        }
+        for (Tl.B client : snapshot) {
+            evictConnectionPool(client);
+        }
+    }
+
     public static boolean isAvailable() {
         try {
             Class.forName("t8.f");
@@ -93,6 +107,7 @@ public final class R8OkHttpHook126 {
             if (alreadyInstalled) {
                 if (current instanceof Tl.B) {
                     sHookedClient = (Tl.B) current;
+                    sTrackedClients.add((Tl.B) current);
                     installExecutorGuard((Tl.B) current);
                 }
             } else {

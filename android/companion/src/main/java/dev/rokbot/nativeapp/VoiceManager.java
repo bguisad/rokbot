@@ -177,6 +177,9 @@ public class VoiceManager {
 
                     @Override
                     public void onError(Throwable error) {
+                        if (Storage.isTailcatEnabled(mContext)) {
+                            TailcatManager.get().onRequestFailure(mContext);
+                        }
                         if (mListener != null) mListener.onError(error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName());
                     }
                 });
