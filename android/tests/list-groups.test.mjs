@@ -100,8 +100,11 @@ test('List arrangement: pinned template publishes the live edits; they apply cle
   assert.equal(sort.field, 'lastMessageAt');
   assert.equal(sort.live, 1);
   assert.deepEqual(sort.groups, LIST_GROUP_IDS);
-  assert.equal(sort.edits.length, 4);
+  // recencyOf body + its cache-size header, resolve, toggleSectionCollapsed, SearchButton.
+  assert.equal(sort.edits.length, 5);
   assert.deepEqual(Object.keys(sort.titles).sort(), ['en', 'zh']);
+  // FeedbackSheet body + its cache-size header (WriteCacheSize 0 -> 1 for global.sorted).
+  for (const lang of ['zh', 'en']) assert.equal(sort.titles[lang].length, 2);
   const all = [...sort.edits, ...sort.titles.zh];
   for (const e of [...all, ...sort.titles.en]) {
     assert.equal(e.original.length, e.patched.length);
@@ -290,3 +293,49 @@ test('List arrangement: group headers fold (toggleSectionCollapsed accepts any i
   assert.deepEqual([...p.subarray(15, 17)], [147, 1]);
   assert.ok(p.subarray(17).every(b => b === 126), "padding");
 });
+
+// HBC v98 operand sizes of every opcode the rewritten bodies are made of (BytecodeList.def).
+const BODY_OP_SIZES = {
+  1: 6, 2: 10, 8: 4, 16: 3, 19: 3, 23: 4, 30: 4, 52: 3, 55: 4, 59: 4, 61: 2, 64: 3, 68: 5, 69: 6, 70: 8, 72: 6,
+  74: 6, 82: 4, 90: 4, 93: 4, 108: 4, 110: 5, 111: 6, 112: 7, 118: 2, 126: 1, 132: 5, 137: 3, 139: 3, 140: 6,
+  144: 4, 145: 6, 147: 2, 148: 2, 149: 2, 150: 2, 151: 2, 174: 2, 175: 5, 176: 3, 177: 6, 178: 3, 179: 6,
+  180: 3, 181: 6, 185: 4, 186: 7, 199: 4, 200: 7, 209: 4, 210: 7, 211: 4, 212: 7,
+};
+const READ_CACHE_OPS = new Set([68, 69, 70, 72]);   // GetByIdShort, GetById, GetByIdLong, TryGetById
+const WRITE_CACHE_OPS = new Set([74]);              // PutByIdLoose
+
+// Regression (cold-start crash, rokbot.5b): the new bodies used property cache index 255 as if it
+// disabled caching. Hermes v98 indexes the CodeBlock's cache arrays with it unchecked, so every
+// GetById / PutById read and wrote heap memory past the cache: SIGSEGV in libhermesvm on the JS
+// thread (mqt_v_js) a few seconds into roughly every other paired cold start. Every instruction
+// of every rewritten body (not only the paths the VM runs) must stay inside the function's caches.
+test('List arrangement: every property cache index of the rewritten bodies is inside the function header sizes', { skip }, () => {
+  const { live } = loadTemplate();
+  for (const lang of ['zh', 'en']) {
+    const buf = live[lang];
+    const h = parseHbc(buf);
+    for (const [name, size] of [['recencyOf', 174], ['FeedbackSheet', 2698], ['SearchButton', 263]]) {
+      const f = functionAt(buf, h, fnIndex(buf, name, size));
+      let pc = 0, reads = 0, writes = 0;
+      while (pc < f.size) {
+        const op = buf[f.offset + pc];
+        const len = BODY_OP_SIZES[op];
+        assert.ok(len, `${lang} ${name} +${pc}: opcode ${op} not expected in a rewritten body`);
+        const idx = buf[f.offset + pc + 3];
+        if (READ_CACHE_OPS.has(op)) {
+          reads++;
+          assert.ok(idx < f.readCache, `${lang} ${name} +${pc}: read cache index ${idx} >= ReadCacheSize ${f.readCache}`);
+        }
+        if (WRITE_CACHE_OPS.has(op)) {
+          writes++;
+          assert.ok(idx < f.writeCache, `${lang} ${name} +${pc}: write cache index ${idx} >= WriteCacheSize ${f.writeCache}`);
+        }
+        pc += len;
+      }
+      assert.equal(pc, f.size, `${lang} ${name}: decoded exactly to the end of the body`);
+      if (name === 'FeedbackSheet') assert.ok(reads > 20 && writes === 3 && f.writeCache >= 1, `${name}: ${reads} reads, ${writes} writes`);
+      if (name === 'recencyOf') assert.ok(reads >= 9 && f.readCache >= 9, `${name}: ${reads} reads, ReadCacheSize ${f.readCache}`);
+    }
+  }
+});
+

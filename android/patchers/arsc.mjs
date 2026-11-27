@@ -554,3 +554,141 @@ function patchColorEntries(buf, keyIdx, argb) {
   }
   return patched;
 }
+
+const CONFIG_DENSITY_OFFSET = 14; // ResTable_config.density (after size, imsi, locale, orientation, touchscreen)
+const TYPE_HEADER_CONFIG_OFFSET = 20; // ResTable_type: chunk header (8), id, flags, reserved (4), entryCount, entriesStart
+const SPEC_CONFIG_DENSITY = 0x0100; // ResTable_config::CONFIG_DENSITY in ResTable_typeSpec entry flags
+
+function typeChunkEntries(buf) {
+  const chunkHeaderSize = buf.readUInt16LE(2);
+  const flags = buf[9];
+  const entryCount = buf.readUInt32LE(12);
+  const entriesStart = buf.readUInt32LE(16);
+  const isSparse = (flags & FLAG_SPARSE) !== 0;
+  const isOffset16 = (flags & FLAG_OFFSET16) !== 0;
+  const out = [];
+  for (let i = 0; i < entryCount; i++) {
+    let entryIdx = i;
+    let relOff;
+    if (isSparse) {
+      entryIdx = buf.readUInt16LE(chunkHeaderSize + i * 4);
+      relOff = buf.readUInt16LE(chunkHeaderSize + i * 4 + 2) * 4;
+    } else if (isOffset16) {
+      const o16 = buf.readUInt16LE(chunkHeaderSize + i * 2);
+      if (o16 === 0xffff) continue;
+      relOff = o16 * 4;
+    } else {
+      relOff = buf.readUInt32LE(chunkHeaderSize + i * 4);
+      if (relOff === NO_ENTRY) continue;
+    }
+    const entryPos = entriesStart + relOff;
+    if (entryPos + 8 > buf.length) continue;
+    const sizeOrKey = buf.readUInt16LE(entryPos);
+    const entryFlags = buf.readUInt16LE(entryPos + 2);
+    if ((entryFlags & FLAG_COMPLEX) !== 0) continue;
+    if ((entryFlags & FLAG_COMPACT) !== 0) {
+      out.push({ entryIdx, key: sizeOrKey, dataType: entryFlags >> 8, data: buf.readUInt32LE(entryPos + 4), dataAt: entryPos + 4 });
+    } else {
+      const valuePos = entryPos + sizeOrKey;
+      if (valuePos + 8 > buf.length) continue;
+      out.push({ entryIdx, key: buf.readUInt32LE(entryPos + 4), dataType: buf[valuePos + 3], data: buf.readUInt32LE(valuePos + 4), dataAt: valuePos + 4 });
+    }
+  }
+  return out;
+}
+
+/**
+ * Adds a `density` configuration (e.g. 640 = xxxhdpi) of the file resource `typeName/entryName` next
+ * to every configuration it already has with `fromDensity` (e.g. 160 = mdpi; the night-mdpi one gets
+ * a night-xxxhdpi twin). Each new configuration points at the original file path with the density
+ * qualifier swapped (`-mdpi` -> `-xxxhdpi`); the caller must add those files to the APK. The resource
+ * id is unchanged, so every reference (themes, layouts) keeps working, and Android now picks the
+ * denser file on any screen above `fromDensity` and scales it down instead of up.
+ * `extension` (e.g. '.webp') also gives the new paths and the `fromDensity` ones that file extension
+ * (the caller ships the source configuration's file under its new name: `renamed`).
+ * Returns { buffer, added: [{ from, path }], renamed: [{ from, path }] } (the input buffer when nothing changed).
+ */
+export function addFileResourceDensity(arscBuf, typeName, entryName, { fromDensity = 160, density = 640, fromQualifier = 'mdpi', qualifier = 'xxxhdpi', extension = null } = {}) {
+  const parsed = parseArsc(arscBuf);
+  const pool = parsed.globalStringPool;
+  const added = [];
+  const renamed = [];
+  const withExtension = file => (extension ? file.replace(/\.[^./]+$/, extension) : file);
+  const internString = str => {
+    let idx = pool.strings.indexOf(str);
+    if (idx < 0) {
+      idx = pool.strings.length;
+      pool.strings.push(str);
+    }
+    return idx;
+  };
+  for (const pkg of parsed.packages) {
+    const tid = pkg.typeStrings.strings.indexOf(typeName) + 1;
+    const keyIdx = pkg.keyStrings.strings.indexOf(entryName);
+    if (tid <= 0 || keyIdx < 0) continue;
+    const spec = pkg.chunks.find(c => c.type === RES_TABLE_TYPE_SPEC_TYPE && c.tid === tid);
+    if (!spec) continue;
+    const specEntryCount = spec.raw.readUInt32LE(12);
+    const typeChunks = pkg.chunks.filter(c => c.type === RES_TABLE_TYPE_TYPE && c.tid === tid);
+    const configOf = c => c.raw.subarray(TYPE_HEADER_CONFIG_OFFSET, c.raw.readUInt16LE(2));
+    const newChunks = [];
+    for (const chunk of typeChunks) {
+      const config = configOf(chunk);
+      if (config.length < CONFIG_DENSITY_OFFSET + 2 || config.readUInt16LE(CONFIG_DENSITY_OFFSET) !== fromDensity) continue;
+      const entry = typeChunkEntries(chunk.raw).find(e => e.key === keyIdx);
+      if (!entry || entry.dataType !== VALUE_TYPE_STRING) continue;
+      const from = pool.strings[entry.data];
+      const qualifierRe = new RegExp(`-${fromQualifier}(?=-v\\d+/|/)`);
+      if (typeof from !== 'string' || !qualifierRe.test(from)) continue;
+      const target = Buffer.from(config);
+      target.writeUInt16LE(density, CONFIG_DENSITY_OFFSET);
+      // Already there (patched twice, or the input had the density): leave it alone.
+      if (typeChunks.some(c => configOf(c).equals(target) && typeChunkEntries(c.raw).some(e => e.key === keyIdx))) continue;
+      if (withExtension(from) !== from) {
+        chunk.raw.writeUInt32LE(internString(withExtension(from)), entry.dataAt);
+        renamed.push({ from, path: withExtension(from) });
+      }
+      const path = withExtension(from.replace(qualifierRe, `-${qualifier}`));
+      const strIdx = internString(path);
+      // Dense ResTable_type with one entry: offsets for every id of the type, NO_ENTRY but ours.
+      const headerSize = chunk.raw.readUInt16LE(2);
+      const entriesStart = headerSize + 4 * specEntryCount;
+      const raw = Buffer.alloc(entriesStart + 16);
+      chunk.raw.copy(raw, 0, 0, headerSize);
+      raw.writeUInt32LE(raw.length, 4);
+      raw[9] = 0; // dense, 32-bit offsets
+      raw.writeUInt32LE(specEntryCount, 12);
+      raw.writeUInt32LE(entriesStart, 16);
+      target.copy(raw, TYPE_HEADER_CONFIG_OFFSET);
+      for (let i = 0; i < specEntryCount; i++) raw.writeUInt32LE(i === entry.entryIdx ? 0 : NO_ENTRY, headerSize + 4 * i);
+      raw.writeUInt16LE(8, entriesStart);          // ResTable_entry.size
+      raw.writeUInt16LE(0, entriesStart + 2);      // flags
+      raw.writeUInt32LE(keyIdx, entriesStart + 4); // key
+      raw.writeUInt16LE(8, entriesStart + 8);      // Res_value.size
+      raw[entriesStart + 10] = 0;
+      raw[entriesStart + 11] = VALUE_TYPE_STRING;
+      raw.writeUInt32LE(strIdx, entriesStart + 12);
+      newChunks.push({ type: RES_TABLE_TYPE_TYPE, tid, raw });
+      added.push({ from, path });
+      // The resource now varies by density.
+      const specFlagsAt = spec.raw.readUInt16LE(2) + 4 * entry.entryIdx;
+      spec.raw.writeUInt32LE((spec.raw.readUInt32LE(specFlagsAt) | SPEC_CONFIG_DENSITY) >>> 0, specFlagsAt);
+    }
+    if (newChunks.length) {
+      const last = pkg.chunks.lastIndexOf(typeChunks[typeChunks.length - 1]);
+      pkg.chunks.splice(last + 1, 0, ...newChunks);
+    }
+  }
+  if (!added.length) return { buffer: arscBuf, added, renamed };
+
+  const globalPoolBuf = serializeResStringPool(pool);
+  const pkgBuffers = parsed.packages.map(serializePackage);
+  const totalSize = parsed.headerSize + globalPoolBuf.length + pkgBuffers.reduce((a, b) => a + b.length, 0)
+    + parsed.trailingChunks.reduce((a, b) => a + b.length, 0);
+  const tableHeader = Buffer.alloc(parsed.headerSize);
+  tableHeader.writeUInt16LE(RES_TABLE_TYPE, 0);
+  tableHeader.writeUInt16LE(parsed.headerSize, 2);
+  tableHeader.writeUInt32LE(totalSize, 4);
+  tableHeader.writeUInt32LE(parsed.packages.length, 8);
+  return { buffer: Buffer.concat([tableHeader, globalPoolBuf, ...pkgBuffers, ...parsed.trailingChunks], totalSize), added, renamed };
+}

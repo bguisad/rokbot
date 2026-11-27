@@ -2,7 +2,10 @@
 // rokbot rewritten bodies, and a few official ones they rely on) against JS mocks. It knows only
 // the opcodes those bodies use and fails loudly on anything else. It also enforces the frame's
 // register classes (number / non-pointer / pointer): a string or object in a number or
-// non-pointer register would be invisible to the Hermes GC.
+// non-pointer register would be invisible to the Hermes GC. And it enforces the property cache
+// bounds: Hermes indexes CodeBlock's read / write cache arrays (sized by the function header's
+// ReadCacheSize / WriteCacheSize) with the GetById / TryGetById / PutById operand without a
+// release-build bounds check, so an index past them reads and writes unrelated heap memory.
 
 const HEADER_SIZE = 128;
 const align4 = n => (n + 3) & ~3;
@@ -41,11 +44,13 @@ export function functionAt(buf, h, index) {
   const w1 = buf.readUInt32LE(a), w2 = buf.readUInt32LE(a + 4), flags = buf[a + 11];
   if (!(flags & 0x20)) {
     return { index, offset: w1 & 0x1ffffff, size: w2 & 0x3fff, name: stringAt(buf, h, (w2 >>> 14) & 0xff),
-      numRegs: (w2 >>> 22) & 31, nonPtrRegs: (w2 >>> 27) & 31, frame: buf[a + 8] };
+      numRegs: (w2 >>> 22) & 31, nonPtrRegs: (w2 >>> 27) & 31, frame: buf[a + 8],
+      readCache: buf[a + 9], writeCache: buf[a + 10] & 0x3f };
   }
   const large = ((w1 & 0xffffff) | (((w2 >>> 14) & 0xff) << 24)) >>> 0;
   const u = o => buf.readUInt32LE(large + o);
-  return { index, offset: u(0), size: u(12), name: stringAt(buf, h, u(16)), numRegs: u(20), nonPtrRegs: u(24), frame: u(28) };
+  return { index, offset: u(0), size: u(12), name: stringAt(buf, h, u(16)), numRegs: u(20), nonPtrRegs: u(24), frame: u(28),
+    readCache: buf[large + 32], writeCache: buf[large + 33] };
 }
 
 function decodeLiterals(buf, base, off, n, h) {
@@ -132,6 +137,13 @@ export class HbcVm {
     const u32 = k => b.readUInt32LE(f.offset + pc + k);
     const i8 = k => b.readInt8(f.offset + pc + k);
     const i32 = k => b.readInt32LE(f.offset + pc + k);
+    // Operand 3 of GetById* / TryGetById / PutById* is the property cache index.
+    const readCache = () => {
+      if (u8(3) >= f.readCache) throw new Error(`fn${index} +${pc}: read cache index ${u8(3)} outside the function's ${f.readCache} entries`);
+    };
+    const writeCache = () => {
+      if (u8(3) >= f.writeCache) throw new Error(`fn${index} +${pc}: write cache index ${u8(3)} outside the function's ${f.writeCache} entries`);
+    };
     for (;;) {
       if (++steps > this.maxSteps) throw new Error('runaway');
       if (pc < 0 || pc >= f.size) throw new Error(`fn${index}: pc +${pc} out of the body`);
@@ -170,15 +182,16 @@ export class HbcVm {
         case 64: set(u8(1), new Env(env, u8(2))); next = pc + 3; break;         // CreateFunctionEnvironment
         case 132: set(u8(1), new Closure(this, u16(3), get(u8(2)))); next = pc + 5; break;   // CreateClosure
         case 133: set(u8(1), new Closure(this, u32(3), get(u8(2)))); next = pc + 7; break;
-        case 68: set(u8(1), prop(get(u8(2)), this.str(u8(4)))); next = pc + 5; break;      // GetByIdShort
-        case 69: set(u8(1), prop(get(u8(2)), this.str(u16(4)))); next = pc + 6; break;     // GetById
-        case 70: set(u8(1), prop(get(u8(2)), this.str(u32(4)))); next = pc + 8; break;     // GetByIdLong
+        case 68: readCache(); set(u8(1), prop(get(u8(2)), this.str(u8(4)))); next = pc + 5; break;      // GetByIdShort
+        case 69: readCache(); set(u8(1), prop(get(u8(2)), this.str(u16(4)))); next = pc + 6; break;     // GetById
+        case 70: readCache(); set(u8(1), prop(get(u8(2)), this.str(u32(4)))); next = pc + 8; break;     // GetByIdLong
         case 72: {                                                              // TryGetById
+          readCache();
           const key = this.str(u16(4));
           if (!(key in get(u8(2)))) throw new ReferenceError(`${key} is not defined`);
           set(u8(1), get(u8(2))[key]); next = pc + 6; break;
         }
-        case 74: case 75: get(u8(1))[this.str(u16(4))] = get(u8(2)); next = pc + 6; break;  // PutById
+        case 74: case 75: writeCache(); get(u8(1))[this.str(u16(4))] = get(u8(2)); next = pc + 6; break;  // PutById
         case 93: set(u8(1), prop(get(u8(2)), get(u8(3)))); next = pc + 4; break;          // GetByVal
         case 8: set(u8(1), []); next = pc + 4; break;                           // NewArray
         case 90: get(u8(1))[u8(3)] = get(u8(2)); next = pc + 4; break;          // DefineOwnInDenseArray
