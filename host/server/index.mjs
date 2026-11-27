@@ -61,7 +61,7 @@ import { Connectors, connectorApiMethods, mobileConnectorMethods } from "./conne
 import { attachmentDataUrl } from "./attachments.mjs";
 import { DeviceConnections, proxyHttp, proxyWebSocket } from "./proxy.mjs";
 import { proxyLocalExec } from "./local-exec-proxy.mjs";
-import { handleUpdateProxy } from "./update-proxy.mjs";
+import { handleUpdateProxy, normalizeSelfOrigins } from "./update-proxy.mjs";
 import { VncTickets, vncPath, normalizeVncUpgradeUrl, vncUpgradeRejectionLog, NATIVE_APP_VNC_PLATFORMS } from "./vnc.mjs";
 import { WebClient, rawBody } from "./web-client.mjs";
 import { createWebRoutes, webMoved } from "./web-routes.mjs";
@@ -820,6 +820,28 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, await updates.remove(decodeURIComponent(deleteUpdate[1]), decodeURIComponent(deleteUpdate[2])));
     throw new HttpError(404, "接口不存在");
   }
+  const updateSelfOrigins = process.env.ROKBOT_UPDATE_SELF_ORIGINS ?? process.env.GROKBOT_UPDATE_SELF_ORIGINS ?? "";
+  // Shared by the /local/updates/* routes and the update proxy's self-target short-circuit.
+  // Callers must have authenticated the device already.
+  function matchLocalUpdate(request, path) {
+    const localUpdateFeed = /^\/local\/updates\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
+    const legacyNestedUpdateFeed = /^\/local\/updates\/(?:macos|windows|linux|darwin-arm64|darwin-x64|win32-x64|linux-x64|linux-arm64)\.json\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
+    const updateFeedMatch = localUpdateFeed ?? legacyNestedUpdateFeed;
+    if (request.method === "GET" && updateFeedMatch) return { feed: `${updateFeedMatch[1]}.json` };
+    const localUpdateFile = /^\/local\/updates\/files\/([^/]+)\/([^/]+)$/.exec(path);
+    if (localUpdateFile) return { platform: decodeURIComponent(localUpdateFile[1]), filename: localUpdateFile[2] };
+    return null;
+  }
+  async function serveLocalUpdate(request, response, path, manifestOrigin) {
+    const match = matchLocalUpdate(request, path);
+    if (!match) return false;
+    if (match.feed) {
+      sendJson(response, 200, updates.manifestFor(match.feed, manifestOrigin));
+      return true;
+    }
+    await updates.serveFile(request, response, match.platform, match.filename);
+    return true;
+  }
   async function handle(request, response, web = false) {
     securityHeaders(response);
     check(
@@ -1220,18 +1242,18 @@ export async function createSelfHostServer(options = {}) {
             }),
       );
     }
-    if (await handleUpdateProxy(request, response, path, url, { device, connections })) return;
-    const localUpdateFeed = /^\/local\/updates\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
-    const legacyNestedUpdateFeed = /^\/local\/updates\/(?:macos|windows|linux|darwin-arm64|darwin-x64|win32-x64|linux-x64|linux-arm64)\.json\/([A-Za-z0-9._-]+)\.json$/i.exec(path);
-    const updateFeedMatch = localUpdateFeed ?? legacyNestedUpdateFeed;
-    if (request.method === "GET" && updateFeedMatch) {
+    if (await handleUpdateProxy(request, response, path, url, {
+      device,
+      connections,
+      selfOrigins: normalizeSelfOrigins([canonical, webCanonical, updateSelfOrigins, origin]),
+      // Proxy already authenticated the device; serve the manifest/file in-process with the
+      // same logic as the routes below, keeping URLs on the origin the client asked for.
+      serveSelf: (req, res, selfPath, selfOrigin) => serveLocalUpdate(req, res, selfPath, selfOrigin),
+    })) return;
+    if (matchLocalUpdate(request, path)) {
       device(request);
-      return sendJson(response, 200, updates.manifestFor(`${updateFeedMatch[1]}.json`, updatesOriginFor(request, web)));
-    }
-    const localUpdateFile = /^\/local\/updates\/files\/([^/]+)\/([^/]+)$/.exec(path);
-    if (localUpdateFile) {
-      device(request);
-      return updates.serveFile(request, response, decodeURIComponent(localUpdateFile[1]), localUpdateFile[2]);
+      await serveLocalUpdate(request, response, path, updatesOriginFor(request, web));
+      return;
     }
     const iosPlist = /^\/updates\/ios\/([^/]+)\/manifest\.plist$/.exec(path);
     if (iosPlist) {

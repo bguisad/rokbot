@@ -180,3 +180,99 @@ test('Host /local/updates/fetch reads ROKBOT_UPDATE_UPSTREAM_ORIGIN and ROKBOT_U
   assert.equal(rokbotRes.status, 200);
   assert.deepEqual(await rokbotRes.json(), { version: '2.0' });
 });
+
+test('Host /local/updates/fetch answers self-origin /local/updates/* in-process and still forwards other origins without the device token', async t => {
+  const seenUpstream = [];
+  const upstream = http.createServer((req, res) => {
+    seenUpstream.push({ url: req.url, authorization: req.headers.authorization ?? null });
+    const body = JSON.stringify({ upstream: true, url: req.url });
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) });
+    res.end(body);
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => upstream.close(resolve)));
+  const upstreamOrigin = `http://127.0.0.1:${upstream.address().port}`;
+  const selfOrigin = 'https://self.example';
+
+  const selfCalls = [];
+  const apkBytes = Buffer.from('self-apk-bytes-0123456789');
+  const tracked = [];
+  const server = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      const handled = await handleUpdateProxy(req, res, url.pathname, url, {
+        device: request => {
+          if (request.headers.authorization !== 'Bearer valid-token') throw new HttpError(401, 'Unauthorized');
+          return { id: 'dev-1' };
+        },
+        connections: { track: id => tracked.push(id) },
+        allowOrigin: upstreamOrigin,
+        updateDir: null,
+        selfOrigins: [`${selfOrigin}/`, '', null],
+        serveSelf: async (_req, response, selfPath, origin) => {
+          selfCalls.push({ selfPath, origin });
+          if (selfPath === '/local/updates/android.json') {
+            const body = JSON.stringify({ versionCode: 3, url: `${origin}/local/updates/files/android/app.apk` });
+            response.writeHead(200, { 'content-type': 'application/json' });
+            response.end(body);
+            return true;
+          }
+          if (selfPath === '/local/updates/files/android/app.apk') {
+            response.writeHead(200, { 'content-type': 'application/vnd.android.package-archive', 'content-length': apkBytes.length });
+            response.end(apkBytes);
+            return true;
+          }
+          return false;
+        },
+        lookupImpl: async () => { throw new Error('self-origin fetch must not hit DNS'); },
+      });
+      if (!handled) res.writeHead(404).end('not found');
+    } catch (err) {
+      if (!res.headersSent) {
+        res.writeHead(err.status ?? 500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      } else res.destroy();
+    }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const hostBase = `http://127.0.0.1:${server.address().port}`;
+  const viaProxy = (target, token = 'valid-token') => fetch(`${hostBase}/local/updates/fetch?url=${encodeURIComponent(target)}`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+
+  // Still requires the device token even for self targets.
+  assert.equal((await viaProxy(`${selfOrigin}/local/updates/android.json`, null)).status, 401);
+  assert.equal(selfCalls.length, 0);
+
+  // 1. Same-origin manifest is served in-process with URLs on the requested origin.
+  const manifestRes = await viaProxy(`${selfOrigin}/local/updates/android.json`);
+  assert.equal(manifestRes.status, 200);
+  const manifest = await manifestRes.json();
+  assert.equal(manifest.url, `${selfOrigin}/local/updates/files/android/app.apk`);
+  assert.deepEqual(selfCalls[0], { selfPath: '/local/updates/android.json', origin: selfOrigin });
+
+  // 2. Same-origin file download is served in-process too.
+  const fileRes = await viaProxy(manifest.url);
+  assert.equal(fileRes.status, 200);
+  assert.ok(Buffer.from(await fileRes.arrayBuffer()).equals(apkBytes));
+  assert.equal(selfCalls[1].selfPath, '/local/updates/files/android/app.apk');
+
+  // Unknown self path is a 404 and never falls through to an external request.
+  assert.equal((await viaProxy(`${selfOrigin}/local/updates/nope.txt`)).status, 404);
+  assert.equal(seenUpstream.length, 0);
+
+  // 3. Non-same-origin (and self-origin outside /local/updates/) keep the old forwarding path,
+  //    and the device token is never forwarded upstream.
+  const fwd = await viaProxy(`${upstreamOrigin}/local/updates/android.json`);
+  assert.equal(fwd.status, 200);
+  assert.deepEqual(await fwd.json(), { upstream: true, url: '/local/updates/android.json' });
+  assert.equal(seenUpstream.length, 1);
+  assert.equal(seenUpstream[0].authorization, null);
+  assert.equal(selfCalls.length, 3);
+
+  const outside = await viaProxy(`${selfOrigin}/updates/android.json`);
+  assert.equal(outside.status, 500); // goes to the regular resolver (our lookupImpl throws), not serveSelf
+  assert.equal(selfCalls.length, 3);
+  assert.ok(tracked.includes('dev-1'));
+});
