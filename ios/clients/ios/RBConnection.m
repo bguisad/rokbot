@@ -84,12 +84,15 @@ static UIViewController *RBTop(void) {
 @property(nonatomic, strong) UITextField *key;
 @property(nonatomic, strong) UILabel *status;
 @property(nonatomic, strong) UIButton *connect;
+@property(nonatomic, strong) UIButton *disconnectButton;
 @property(nonatomic, strong) UISwitch *tailcat;
 @property(nonatomic, strong) UILabel *networkLabel;
 @property(nonatomic, strong) NSTimer *networkTimer;
 @property(nonatomic, strong) NSURLSession *pairSession;
 @property(nonatomic, assign) BOOL editingConnection;
 @property(nonatomic, assign) BOOL cancelled;
+@property(nonatomic, assign) BOOL required;
+- (void)renderConnection;
 @end
 @interface RBConnection ()
 @property(nonatomic, readwrite) NSString *serverURL;
@@ -101,6 +104,7 @@ static UIViewController *RBTop(void) {
   NSString *_serverURL;
   NSString *_deviceToken;
   _Atomic(BOOL) _paired;
+  _Atomic(BOOL) _disconnecting;
   NSURL *_gatewayBundleURL;
 }
 + (instancetype)shared {
@@ -170,7 +174,7 @@ static UIViewController *RBTop(void) {
   }
   [RBTop() presentViewController:nav animated:YES completion:nil];
 }
-- (void)disconnect {
+- (void)finishDisconnect {
   RBNetworkClear();
   RBClearProfileCache();
   RBClearModelOnboardingState();
@@ -194,12 +198,104 @@ static UIViewController *RBTop(void) {
   self.gatewayBundleURL = nil;
   self.serverURL = nil;
   self.deviceToken = nil;
+  atomic_store_explicit(&_disconnecting, NO, memory_order_release);
   RBSyncAppIntentCredentials();
   if (self.didDisconnect)
     self.didDisconnect();
+  RBPairController *controller = self.controller;
+  if (controller) {
+    controller.editingConnection = NO;
+    controller.required = YES;
+    controller.navigationController.modalInPresentation = YES;
+    [controller renderConnection];
+  } else if (!RBShowRequiredPairing()) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(300 * NSEC_PER_MSEC)),
+                   dispatch_get_main_queue(), ^{
+                     RBShowRequiredPairing();
+                   });
+  }
   RBReloadReactHost();
 }
+- (void)disconnect {
+  BOOL expected = NO;
+  if (!atomic_compare_exchange_strong_explicit(&_disconnecting, &expected, YES,
+                                               memory_order_acq_rel, memory_order_acquire)) {
+    return;
+  }
+  NSString *base = self.serverURL;
+  NSString *token = self.deviceToken;
+  NSURL *revokeURL = base.length
+      ? [NSURL URLWithString:[base stringByAppendingString:@"/local/device/revoke"]]
+      : nil;
+  if (!revokeURL || !token.length) {
+    if ([NSThread isMainThread])
+      [self finishDisconnect];
+    else
+      dispatch_async(dispatch_get_main_queue(), ^{ [self finishDisconnect]; });
+    return;
+  }
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:revokeURL];
+  request.HTTPMethod = @"POST";
+  request.timeoutInterval = 5.0;
+  [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
+  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+  request.HTTPBody = [@"{}" dataUsingEncoding:NSUTF8StringEncoding];
+
+  __block _Atomic(BOOL) completed = NO;
+  __weak RBConnection *weakSelf = self;
+  void (^completeOnce)(NSInteger, NSError *) = ^(NSInteger status, NSError *error) {
+    BOOL done = NO;
+    if (!atomic_compare_exchange_strong_explicit(&completed, &done, YES,
+                                                 memory_order_acq_rel, memory_order_acquire)) {
+      return;
+    }
+    RBDiagnosticsEvent(@"connection.revoke", @{
+      @"status" : @(status),
+      @"error" : @(error ? error.code : 0)
+    });
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf finishDisconnect];
+    });
+  };
+  NSURLSessionDataTask *task =
+      [RBHTTPSession() dataTaskWithRequest:request
+                         completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                           NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
+                               ? ((NSHTTPURLResponse *)response).statusCode
+                               : 0;
+                           completeOnce(status, error);
+                         }];
+  [task resume];
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.5 * NSEC_PER_SEC)),
+                 dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                   if (!atomic_load_explicit(&completed, memory_order_acquire)) {
+                     [task cancel];
+                     completeOnce(0, [NSError errorWithDomain:NSURLErrorDomain
+                                                         code:NSURLErrorTimedOut
+                                                     userInfo:nil]);
+                   }
+                 });
+}
 @end
+BOOL RBShowRequiredPairing(void) {
+  RBConnection *connection = RBConnection.shared;
+  if (connection.isPaired) return YES;
+  if (connection.controller) return YES;
+  UIViewController *top = RBTop();
+  if (!top || !top.view.window) return NO;
+  if (top.isBeingPresented || top.isBeingDismissed) return NO;
+  RBPairController *vc = [RBPairController new];
+  vc.required = YES;
+  connection.controller = vc;
+  UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+  // Unpaired installs open on the RokBot pairing page instead of the stock
+  // account sign-in screen; it is not swipe-dismissable until a Host is paired.
+  nav.modalPresentationStyle = UIModalPresentationFullScreen;
+  nav.modalInPresentation = YES;
+  RBDiagnosticsEvent(@"connection.pairing.required", @{});
+  [top presentViewController:nav animated:NO completion:nil];
+  return YES;
+}
 @implementation RBPairController
 - (void)URLSession:(NSURLSession *)session
                           task:(NSURLSessionTask *)task
@@ -267,7 +363,8 @@ static UIViewController *RBTop(void) {
   self.navigationController.navigationBar.tintColor = UIColor.labelColor;
   self.title = RBL(@"连接设置", @"Connection");
   self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
-  self.navigationItem.rightBarButtonItem =
+  BOOL lockedToPairing = self.required && !RBConnection.shared.isPaired;
+  self.navigationItem.rightBarButtonItem = lockedToPairing ? nil :
       [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
                                                     target:self action:@selector(close)];
   UIScrollView *scroll = [UIScrollView new];
@@ -405,6 +502,7 @@ static UIViewController *RBTop(void) {
     disconnect.configuration = config; disconnect.accessibilityIdentifier = @"rokbot.host.disconnect";
     [disconnect.heightAnchor constraintEqualToConstant:50].active = YES;
     [disconnect addTarget:self action:@selector(disconnect) forControlEvents:UIControlEventTouchUpInside];
+    self.disconnectButton = disconnect;
     [stack addArrangedSubview:disconnect];
     return;
   }
@@ -494,8 +592,8 @@ static UIViewController *RBTop(void) {
   [self dismissViewControllerAnimated:YES completion:nil];
 }
 - (void)disconnect {
+  self.disconnectButton.enabled = NO;
   [RBConnection.shared disconnect];
-  self.editingConnection = NO; [self renderConnection];
 }
 - (void)fail:(NSString *)message {
   RBNetworkRollback();

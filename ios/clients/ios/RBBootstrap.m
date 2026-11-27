@@ -54,6 +54,13 @@ static void RBLoad(id self, SEL cmd, NSURL *url, id progress, id completion) {
   ((void (*)(id, SEL, NSURL *, id, id))RBOriginalLoad)(self, cmd, loaded, progress,
                                                        completion);
 }
+static void RBPresentRequiredPairing(NSUInteger attempt) {
+  if (RBConnection.shared.isPaired) return;
+  if (RBShowRequiredPairing() || attempt >= 20) return;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / 4)), dispatch_get_main_queue(), ^{
+    RBPresentRequiredPairing(attempt + 1);
+  });
+}
 void RBReloadReactHost(void) {
   dispatch_async(dispatch_get_main_queue(), ^{
     RBDiagnosticsEvent(@"react.reload", @{});
@@ -823,6 +830,42 @@ static IMP RBOriginalSimpleTask;
 static IMP RBOriginalTouches;
 static IMP RBOriginalRecycle;
 static IMP RBOriginalLayout;
+static IMP RBOriginalActionWithTitle;
+static IMP RBOriginalMenuWithChildren;
+static IMP RBOriginalMenuElementTitle;
+static void RBLocalizeMenuElements(NSArray<UIMenuElement *> *elements) {
+  if (!elements.count || !RBIsChinese()) return;
+  for (UIMenuElement *element in elements) {
+    if ([element isKindOfClass:UIAction.class]) {
+      UIAction *action = (UIAction *)element;
+      if ([action.title isEqualToString:@"Scan Document"])
+        action.title = @"扫描文稿";
+    } else if ([element isKindOfClass:UIMenu.class]) {
+      RBLocalizeMenuElements(((UIMenu *)element).children);
+    }
+  }
+}
+static UIAction *RBActionWithTitle(id self, SEL selector, NSString *title, UIImage *image,
+                                   UIActionIdentifier identifier, UIActionHandler handler) {
+  if (RBIsChinese() && [title isEqualToString:@"Scan Document"])
+    title = @"扫描文稿";
+  return ((UIAction *(*)(id, SEL, NSString *, UIImage *, UIActionIdentifier, UIActionHandler))
+              RBOriginalActionWithTitle)(self, selector, title, image, identifier, handler);
+}
+static UIMenu *RBMenuWithChildren(id self, SEL selector, NSString *title, UIImage *image,
+                                  UIMenuIdentifier identifier, UIMenuOptions options,
+                                  NSArray<UIMenuElement *> *children) {
+  RBLocalizeMenuElements(children);
+  return ((UIMenu *(*)(id, SEL, NSString *, UIImage *, UIMenuIdentifier, UIMenuOptions,
+                       NSArray<UIMenuElement *> *))RBOriginalMenuWithChildren)(
+      self, selector, title, image, identifier, options, children);
+}
+static NSString *RBMenuElementTitle(UIMenuElement *self, SEL selector) {
+  NSString *title = ((NSString *(*)(id, SEL))RBOriginalMenuElementTitle)(self, selector);
+  if (RBIsChinese() && [title isEqualToString:@"Scan Document"])
+    return @"扫描文稿";
+  return title;
+}
 static NSTimer *RBPresenceTimer;
 static NSTimer *RBNetworkHealthTimer;
 static BOOL RBStartupRefreshed;
@@ -1068,6 +1111,23 @@ static void RBInstall(void) {
     if (method)
       RBOriginalLoad = method_setImplementation(method, (IMP)RBLoad);
   }
+  if (!RBOriginalActionWithTitle) {
+    Method method = class_getClassMethod(
+        UIAction.class, @selector(actionWithTitle:image:identifier:handler:));
+    if (method)
+      RBOriginalActionWithTitle = method_setImplementation(method, (IMP)RBActionWithTitle);
+  }
+  if (!RBOriginalMenuWithChildren) {
+    Method method = class_getClassMethod(
+        UIMenu.class, @selector(menuWithTitle:image:identifier:options:children:));
+    if (method)
+      RBOriginalMenuWithChildren = method_setImplementation(method, (IMP)RBMenuWithChildren);
+  }
+  if (!RBOriginalMenuElementTitle) {
+    Method method = class_getInstanceMethod(UIMenuElement.class, @selector(title));
+    if (method)
+      RBOriginalMenuElementTitle = method_setImplementation(method, (IMP)RBMenuElementTitle);
+  }
 }
 __attribute__((constructor)) static void RBInitialize(void) {
   @autoreleasepool {
@@ -1123,6 +1183,7 @@ __attribute__((constructor)) static void RBInitialize(void) {
                         RBPushRefresh();
                         RBCheckUpdatesInBackgroundIfNeeded();
                         RBStartForegroundTimers();
+                        RBPresentRequiredPairing(0);
                       }];
       [center addObserverForName:UIApplicationDidEnterBackgroundNotification
                           object:nil
@@ -1133,12 +1194,16 @@ __attribute__((constructor)) static void RBInitialize(void) {
                         RBPushSetForeground(NO);
                       }];
       for (NSString *name in @[@"RokBotProfileChanged", @"RokBotPushStateChanged", @"RokBotModelConfigChanged", @"RCTContentDidAppearNotification"])
-        [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { [RBInterface refresh]; }];
+        [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+          [RBInterface refresh];
+          RBPresentRequiredPairing(0);
+        }];
       if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive)
         RBStartForegroundTimers();
       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (restored && RBHost && !RBLoadedPairedBundle) RBReloadReactHost();
         [RBInterface refresh];
+        RBPresentRequiredPairing(0);
         if (!RBStartupRefreshed) {
           RBStartupRefreshed = YES;
           if (restored) {
