@@ -277,6 +277,7 @@ export async function usageReport(directory, request = {}) {
     version: 2, timeZone: zone, generatedAt: now.toISOString(), today,
     range: { id: range.id, from: range.from, to: range.to, days: range.days, unit: range.unit },
     previous: range.previous, filters: applied, priced: Boolean(priced),
+    currency: priced && typeof priced.currency === 'string' && /^[A-Z]{3}$/.test(priced.currency) ? priced.currency : null,
     totals, previousTotals, changes: usageChanges(totals, previousTotals),
     series, buckets, dimensions, options, recorded,
     requests: { total: newest.length, offset: start, limit: size, items: newest.slice(start, start + size).map(row => requestItem(row, labels, priced)) },
