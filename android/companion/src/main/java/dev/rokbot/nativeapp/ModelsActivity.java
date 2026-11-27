@@ -340,6 +340,19 @@ public class ModelsActivity extends Activity {
         mScenariosContainer.setOrientation(LinearLayout.VERTICAL);
         root.addView(mScenariosContainer);
 
+        LinearLayout sugNavGroup = UiChrome.makeRowGroup(this, p);
+        LinearLayout.LayoutParams sugNavLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sugNavLp.topMargin = UiChrome.dp(this, 8);
+        sugNavGroup.setLayoutParams(sugNavLp);
+        TextView sugNavRow = UiChrome.makeNavRow(this,
+                Localize.t(this, "输入建议开关与常用语", "Input Suggestions & Quick Phrases"),
+                p.textPrimary, true, p,
+                v -> startActivity(new Intent(this, SuggestionsSettingsActivity.class)));
+        sugNavRow.setContentDescription("open_suggestions_settings_row");
+        sugNavGroup.addView(sugNavRow);
+        root.addView(sugNavGroup);
+
         // Per-Bot Model Routes Section
         root.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "Bot 独立模型 (Bot Routes)", "Per-Bot Model Routes"), p));
         mBotRoutesContainer = new LinearLayout(this);

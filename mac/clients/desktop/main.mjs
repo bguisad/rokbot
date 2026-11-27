@@ -336,6 +336,32 @@ ipcMain.handle('rokbot-local:model-test', (event, payload) => {
   if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
   return modelBridge.testModelConfig(payload);
 });
+ipcMain.handle('rokbot-local:suggestions-settings-get', event => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  return gateway.request('/local/suggestions/settings', null, AbortSignal.timeout(10000), 'GET');
+});
+ipcMain.handle('rokbot-local:suggestions-settings-put', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  return gateway.request('/local/suggestions/settings', payload ?? {}, AbortSignal.timeout(10000), 'PUT');
+});
+ipcMain.handle('rokbot-local:suggestions-phrase-add', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  return gateway.request('/local/suggestions/phrases', { text: payload?.text ?? '' }, AbortSignal.timeout(10000), 'POST');
+});
+ipcMain.handle('rokbot-local:suggestions-phrase-update', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const id = String(payload?.id ?? '');
+  return gateway.request(`/local/suggestions/phrases/${encodeURIComponent(id)}`, { text: payload?.text ?? '' }, AbortSignal.timeout(10000), 'PUT');
+});
+ipcMain.handle('rokbot-local:suggestions-phrase-delete', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const id = String(payload?.id ?? '');
+  return gateway.request(`/local/suggestions/phrases/${encodeURIComponent(id)}`, null, AbortSignal.timeout(10000), 'DELETE');
+});
+ipcMain.handle('rokbot-local:suggestions-phrase-reorder', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  return gateway.request('/local/suggestions/phrases/reorder', { ids: Array.isArray(payload?.ids) ? payload.ids : [] }, AbortSignal.timeout(10000), 'PUT');
+});
 ipcMain.handle('rokbot-local:download-attachments-zip', async (event, payload) => {
   if (!trusted(event, mainWindow) || !methodCall) throw new Error('Unexpected renderer');
   return methodCall('downloadAttachmentsZip', payload);

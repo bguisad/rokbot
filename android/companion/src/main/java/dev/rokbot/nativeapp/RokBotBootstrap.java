@@ -166,6 +166,7 @@ public class RokBotBootstrap {
                 if (isReactActivity(activity)) ImageViewerTakeover.onReactResumed(activity);
                 if (isReactActivity(activity)) ComposerSuggestionsOverlay.onReactResumed(activity);
                 if (isReactActivity(activity)) BotProfileModelOverlay.onReactResumed(activity);
+                if (isReactActivity(activity)) SettingsSuggestionsOverlay.onReactResumed(activity);
                 if (isReactActivity(activity) && Storage.isPaired(activity)) {
                     // Returning from ProfileActivity or another app: repaint, then re-fetch.
                     getMainHandler().post(() -> rescanActivityIdentity(activity));
@@ -184,6 +185,7 @@ public class RokBotBootstrap {
                     ImageViewerTakeover.onReactPaused(activity);
                     ComposerSuggestionsOverlay.onReactPaused(activity);
                     BotProfileModelOverlay.onReactPaused(activity);
+                    SettingsSuggestionsOverlay.onReactPaused(activity);
                 }
             }
 

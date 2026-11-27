@@ -6,3 +6,209 @@
     max-width: max(80%, calc(100% - 8rem)) !important;
   }
 }
+
+/* Input suggestions settings section inside General settings (desktop). */
+.rokbot-sug-settings {
+  margin-top: 20px;
+  display: grid;
+  gap: 8px;
+}
+.rokbot-sug-settings__heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.72;
+}
+.rokbot-sug-settings__card {
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, currentColor 3%, transparent);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.rokbot-sug-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+.rokbot-sug-settings__row--disabled {
+  opacity: 0.48;
+}
+.rokbot-sug-settings__copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.rokbot-sug-settings__label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.rokbot-sug-settings__desc {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.65;
+}
+.rokbot-sug-settings__switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border: 0;
+  border-radius: 11px;
+  padding: 2px;
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  cursor: pointer;
+  flex: none;
+  transition: background-color 160ms ease;
+}
+.rokbot-sug-settings__switch[aria-checked="true"] {
+  background: #1677ff;
+}
+.rokbot-sug-settings__switch:disabled {
+  cursor: not-allowed;
+}
+.rokbot-sug-settings__switch-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 160ms ease;
+}
+.rokbot-sug-settings__switch[aria-checked="true"] .rokbot-sug-settings__switch-thumb {
+  transform: translateX(18px);
+}
+.rokbot-sug-settings__phrases {
+  padding: 12px 14px 14px;
+  display: grid;
+  gap: 10px;
+}
+.rokbot-sug-settings__phrases-head {
+  display: grid;
+  gap: 2px;
+}
+.rokbot-sug-settings__add,
+.rokbot-sug-settings__edit-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.rokbot-sug-settings__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.rokbot-sug-settings__input:focus {
+  border-color: #1677ff;
+}
+.rokbot-sug-settings__add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 0;
+  background: #1677ff;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex: none;
+}
+.rokbot-sug-settings__add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.rokbot-sug-settings__error {
+  margin: 0;
+  font-size: 12px;
+  color: #df6464;
+}
+.rokbot-sug-settings__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.rokbot-sug-settings__empty {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+  font-size: 12px;
+  opacity: 0.6;
+  text-align: center;
+}
+.rokbot-sug-settings__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  background: color-mix(in srgb, currentColor 2.5%, transparent);
+}
+.rokbot-sug-settings__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1677ff;
+  flex: none;
+}
+.rokbot-sug-settings__item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rokbot-sug-settings__item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.rokbot-sug-settings__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.rokbot-sug-settings__icon-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.rokbot-sug-settings__icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.rokbot-sug-settings__icon-btn--primary {
+  border-color: #1677ff;
+  background: #1677ff;
+  color: #fff;
+}
+.rokbot-sug-settings__icon-btn--danger:hover:not(:disabled) {
+  color: #df6464;
+  border-color: rgba(223, 100, 100, 0.4);
+}

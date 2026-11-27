@@ -80,7 +80,7 @@ import {
 } from "./security.mjs";
 import { readJson } from "./storage.mjs";
 import { createSpeedTest } from "./speedtest.mjs";
-import { SuggestionsService } from "./suggestions.mjs";
+import { SuggestionsService, SuggestionsSettings } from "./suggestions.mjs";
 
 const publicDir = fileURLToPath(new URL("./public/", import.meta.url));
 const assetTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
@@ -244,8 +244,10 @@ export async function createSelfHostServer(options = {}) {
   let executionRevision = executionNode.active()?.revision;
   const limiter = options.rateLimit ?? new RateLimit();
   const speedTest = createSpeedTest({ limiter });
+  const suggestionsSettings = await new SuggestionsSettings(dataDir).load();
   const suggestions = new SuggestionsService({
     models,
+    settings: suggestionsSettings,
     hostCall: internalHostClient(hostUrl, internalToken),
     dataDir,
     fetchImpl: options.suggestionsFetch,
@@ -648,6 +650,19 @@ export async function createSelfHostServer(options = {}) {
     }
     if (path === '/admin/api/notification-settings' && ['GET', 'PUT'].includes(method))
       return sendJson(response, 200, method === 'GET' ? notificationSettings.current() : await notificationSettings.save(await jsonBody(request)));
+    if (path === '/admin/api/suggestions/settings' && ['GET', 'PUT'].includes(method))
+      return sendJson(response, 200, method === 'GET' ? suggestionsSettings.current() : await suggestionsSettings.updateSettings(await jsonBody(request, 64 * 1024)));
+    if (path === '/admin/api/suggestions/phrases' && method === 'GET')
+      return sendJson(response, 200, suggestionsSettings.listPhrases());
+    if (path === '/admin/api/suggestions/phrases' && method === 'POST')
+      return sendJson(response, 201, await suggestionsSettings.addPhrase(await jsonBody(request, 16 * 1024)));
+    if (path === '/admin/api/suggestions/phrases/reorder' && ['PUT', 'POST'].includes(method))
+      return sendJson(response, 200, await suggestionsSettings.reorderPhrases(await jsonBody(request, 32 * 1024)));
+    const adminPhraseMatch = /^\/admin\/api\/suggestions\/phrases\/([A-Za-z0-9_-]{1,64})$/.exec(path);
+    if (adminPhraseMatch && ['PUT', 'PATCH'].includes(method))
+      return sendJson(response, 200, await suggestionsSettings.updatePhrase(adminPhraseMatch[1], await jsonBody(request, 16 * 1024)));
+    if (adminPhraseMatch && method === 'DELETE')
+      return sendJson(response, 200, await suggestionsSettings.deletePhrase(adminPhraseMatch[1]));
     if (path === "/admin/api/push" && ["GET", "PUT"].includes(method))
       return sendJson(response, 200, method === "GET" ? push.config.publicConfig() : await push.config.save(await jsonBody(request)));
     const devicePush = /^\/admin\/api\/devices\/([A-Za-z0-9-]+)\/push(\/test)?$/.exec(path);
@@ -981,6 +996,42 @@ export async function createSelfHostServer(options = {}) {
       limiter.check(`local-model-test:${found.id}`, 10);
       return sendJson(response, 200, await models.test(await jsonBody(request)));
     }
+    if (["GET", "PUT"].includes(request.method) && path === "/local/suggestions/settings") {
+      const found = device(request, web);
+      limiter.check(`suggestions-settings:${found.id}`, 60);
+      return sendJson(
+        response,
+        200,
+        request.method === "GET"
+          ? suggestionsSettings.current()
+          : await suggestionsSettings.updateSettings(await jsonBody(request, 64 * 1024)),
+      );
+    }
+    if (path === "/local/suggestions/phrases" && request.method === "GET") {
+      device(request, web);
+      return sendJson(response, 200, suggestionsSettings.listPhrases());
+    }
+    if (path === "/local/suggestions/phrases" && request.method === "POST") {
+      const found = device(request, web);
+      limiter.check(`suggestions-phrases:${found.id}`, 60);
+      return sendJson(response, 201, await suggestionsSettings.addPhrase(await jsonBody(request, 16 * 1024)));
+    }
+    if (path === "/local/suggestions/phrases/reorder" && ["PUT", "POST"].includes(request.method)) {
+      const found = device(request, web);
+      limiter.check(`suggestions-phrases:${found.id}`, 60);
+      return sendJson(response, 200, await suggestionsSettings.reorderPhrases(await jsonBody(request, 32 * 1024)));
+    }
+    const localPhraseMatch = /^\/local\/suggestions\/phrases\/([A-Za-z0-9_-]{1,64})$/.exec(path);
+    if (localPhraseMatch && ["PUT", "PATCH"].includes(request.method)) {
+      const found = device(request, web);
+      limiter.check(`suggestions-phrases:${found.id}`, 60);
+      return sendJson(response, 200, await suggestionsSettings.updatePhrase(localPhraseMatch[1], await jsonBody(request, 16 * 1024)));
+    }
+    if (localPhraseMatch && request.method === "DELETE") {
+      const found = device(request, web);
+      limiter.check(`suggestions-phrases:${found.id}`, 60);
+      return sendJson(response, 200, await suggestionsSettings.deletePhrase(localPhraseMatch[1]));
+    }
     if (request.method === "POST" && path === "/local/suggestions") {
       const found = device(request, web);
       limiter.check(`suggestions:${found.id}`, 60);
@@ -1272,6 +1323,7 @@ export async function createSelfHostServer(options = {}) {
     profile,
     webClient,
     suggestions,
+    suggestionsSettings,
     dataDir,
     async start(
       port = Number(process.env.ROKBOT_PORT ?? process.env.GROKBOT_PORT ?? 8000),
@@ -1323,6 +1375,7 @@ export async function createSelfHostServer(options = {}) {
         updates.store.tail,
         notifications.store.tail,
         notificationSettings.store.tail,
+        suggestionsSettings.store.tail,
         library.tail,
         library.index.tail,
         profile.store.tail,
