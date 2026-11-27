@@ -1,0 +1,112 @@
+# 推送 vYYYY.MM.DD(.N) 标签时生成 GitHub Release。
+#
+# 附件只有 RokBot 自己的补丁内容（补丁器与配方源码包、各平台 *.patch.json 清单、SHA256SUMS.txt），
+# 由 scripts/release/gh-release.mjs 生成和上传。CI 会尝试用官方原版重新打补丁，只为得到 *.patch.json；
+# 打完补丁的完整安装包含上游 Grok Bot 闭源二进制，绝不离开 runner，也不会作为附件上传。
+# 某个平台构建失败不影响发布，Release 仍会附上源码包和其余平台的清单。
+#
+# 可选仓库变量 ROKBOT_DESKTOP_APP_VERSION：桌面端对外版本号（传给各补丁器的 --app-version）。
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v20*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  manifests:
+    name: patch.json (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            patch: node linux/patchers/desktop/patch.mjs --arch x64 --output "$OUT"
+          - name: linux-arm64
+            os: ubuntu-latest
+            patch: node linux/patchers/desktop/patch.mjs --arch arm64 --output "$OUT"
+          - name: windows
+            os: windows-latest
+            patch: node windows/patchers/desktop/patch.mjs --no-installer --output "$OUT"
+          - name: mac
+            os: macos-latest
+            patch: node mac/patchers/desktop/patch.mjs --output "$OUT/RokBot.app" --backup "$RUNNER_TEMP/backup/RokBot.app"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: 用官方原版打补丁（仅为生成 patch.json）
+        shell: bash
+        env:
+          APP_VERSION: ${{ vars.ROKBOT_DESKTOP_APP_VERSION }}
+        run: |
+          set -euo pipefail
+          export OUT="$RUNNER_TEMP/out"
+          mkdir -p "$OUT"
+          extra=()
+          if [ -n "${APP_VERSION:-}" ]; then extra+=(--app-version "$APP_VERSION"); fi
+          ${{ matrix.patch }} ${extra[@]+"${extra[@]}"}
+      - name: 只收集 patch.json
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const [from, to] = process.argv.slice(1);
+            fs.mkdirSync(to, { recursive: true });
+            const found = fs.readdirSync(from).filter((n) => n.endsWith(".patch.json"));
+            for (const n of found) { fs.copyFileSync(path.join(from, n), path.join(to, n)); console.log(n); }
+            if (!found.length) { console.error("没有生成 patch.json"); process.exit(1); }
+          ' "$RUNNER_TEMP/out" "$RUNNER_TEMP/manifests"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: patch-json-${{ matrix.name }}
+          path: ${{ runner.temp }}/manifests/*.patch.json
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: manifests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: node --test scripts/release/gh-release.test.mjs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          pattern: patch-json-*
+          path: ${{ runner.temp }}/manifests
+          merge-multiple: true
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/manifests"
+          node scripts/release/gh-release.mjs "$GITHUB_REF_NAME" "$RUNNER_TEMP/manifests" \
+            --manifests-only --repo "$GITHUB_REPOSITORY" --out "$RUNNER_TEMP/release"
