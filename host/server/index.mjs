@@ -158,6 +158,29 @@ export async function createSelfHostServer(options = {}) {
   };
   const requestOrigin = (request, web = false) =>
     originFor(request, network.isIngress(request) || isDirectLoopback(request) ? "" : (web ? webCanonical : canonical));
+  const updatesOriginFor = (request, web = false) => {
+    if (network.isIngress(request) || isDirectLoopback(request)) {
+      return originFor(request, "");
+    }
+    const proxied = Boolean(
+      request.headers["x-forwarded-host"] ||
+      request.headers["x-forwarded-for"] ||
+      request.headers["forwarded"] ||
+      request.headers["x-forwarded-proto"] === "https",
+    );
+    if (!proxied) {
+      const reqOrigin = originFor(request, "");
+      const configured = web ? webCanonical : canonical;
+      try {
+        if (!configured || new URL(reqOrigin).host !== new URL(configured).host) {
+          return reqOrigin;
+        }
+      } catch {
+        return reqOrigin;
+      }
+    }
+    return requestOrigin(request, web);
+  };
   const webhookOrigin = (request, origin) =>
     resolveWebhookOrigin({ canonical, requestOrigin: origin, isIngress: network.isIngress(request) });
   const hostDataDir = resolve(
@@ -1179,7 +1202,7 @@ export async function createSelfHostServer(options = {}) {
     const updateFeedMatch = localUpdateFeed ?? legacyNestedUpdateFeed;
     if (request.method === "GET" && updateFeedMatch) {
       device(request);
-      return sendJson(response, 200, updates.manifestFor(`${updateFeedMatch[1]}.json`, origin));
+      return sendJson(response, 200, updates.manifestFor(`${updateFeedMatch[1]}.json`, updatesOriginFor(request, web)));
     }
     const localUpdateFile = /^\/local\/updates\/files\/([^/]+)\/([^/]+)$/.exec(path);
     if (localUpdateFile) {

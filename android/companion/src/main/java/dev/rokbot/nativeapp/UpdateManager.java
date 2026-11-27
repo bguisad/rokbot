@@ -174,20 +174,73 @@ public final class UpdateManager {
         }
     }
 
-    public static String resolveDefaultFeedUrl(Context context) {
-        String saved = Storage.getUpdateFeedUrl(context);
-        if (saved != null && !saved.isEmpty()) return saved;
+    private static String readBundledUpdateConfigUrl(Context context) {
+        if (context == null) return "";
         try (InputStream is = context.getAssets().open("recipes/update-config.json")) {
             byte[] raw = readAllBytes(is, 64 * 1024);
             JSONObject obj = new JSONObject(new String(raw, StandardCharsets.UTF_8));
             String url = UiChrome.jsonStr(obj, "updateFeedUrl").trim();
-            if (!url.isEmpty()) return url;
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                return url;
+            }
         } catch (Throwable ignored) {}
-        if (Storage.isPaired(context)) {
+        return "";
+    }
+
+    private static boolean isLoopbackHttpUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.trim().isEmpty()) return false;
+        try {
+            URI u = URI.create(rawUrl.trim());
+            return GatewayEndpointRouter.isLoopbackHost(u.getHost());
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static String resolveExternalFallbackFeedUrl(Context context) {
+        if (context == null) return "";
+        String saved = Storage.getUpdateFeedUrl(context);
+        if (saved != null) {
+            String trimmed = saved.trim();
+            if ((trimmed.startsWith("http://") || trimmed.startsWith("https://")) && !isLoopbackHttpUrl(trimmed)) {
+                return trimmed;
+            }
+        }
+        String bundled = readBundledUpdateConfigUrl(context);
+        if (!bundled.isEmpty()) return bundled;
+        if (!Storage.isTailcatEnabled(context)) {
+            String gw = Storage.getGatewayUrl(context);
+            if (gw != null) {
+                String trimmed = gw.trim();
+                if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                    while (trimmed.endsWith("/")) trimmed = trimmed.substring(0, trimmed.length() - 1);
+                    return trimmed + "/local/updates/android.json";
+                }
+            }
+        }
+        String reported = Storage.getReportedGatewayUrl(context);
+        if (reported != null) {
+            String trimmed = reported.trim();
+            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                while (trimmed.endsWith("/")) trimmed = trimmed.substring(0, trimmed.length() - 1);
+                return trimmed + "/local/updates/android.json";
+            }
+        }
+        return "";
+    }
+
+    public static String resolveDefaultFeedUrl(Context context) {
+        if (context != null && Storage.isPaired(context)) {
             String base = resolvePairedHostBase(context);
             if (!base.isEmpty()) {
                 return base + "/local/updates/android.json";
             }
+        }
+        String external = resolveExternalFallbackFeedUrl(context);
+        if (!external.isEmpty()) return external;
+        if (context != null) {
+            String saved = Storage.getUpdateFeedUrl(context);
+            if (saved != null && !saved.trim().isEmpty()) return saved.trim();
         }
         return "";
     }
@@ -202,6 +255,17 @@ public final class UpdateManager {
             if (!base.isEmpty()) {
                 return base + trimmed;
             }
+            String fallback = resolveExternalFallbackFeedUrl(context);
+            if (!fallback.isEmpty()) {
+                return resolveRelativeUrl(fallback, trimmed);
+            }
+            return trimmed;
+        }
+        if (context != null && Storage.isPaired(context) && isPairedHostUrl(context, trimmed)) {
+            String base = resolvePairedHostBase(context);
+            if (!base.isEmpty()) {
+                return rewriteUrlToBase(trimmed, base);
+            }
         }
         return trimmed;
     }
@@ -212,7 +276,7 @@ public final class UpdateManager {
         try {
             base = HostApiClient.resolveServer(context);
         } catch (Throwable ignored) {}
-        if (base == null || base.isEmpty()) {
+        if ((base == null || base.isEmpty()) && !Storage.isTailcatEnabled(context)) {
             base = Storage.getGatewayUrl(context);
         }
         if (base == null) return "";
@@ -401,7 +465,7 @@ public final class UpdateManager {
                 String dSha = UiChrome.jsonStr(d, "sha256").trim().toLowerCase(Locale.US);
                 long dSize = d.optLong("size", -1L);
                 if (fromSha.equalsIgnoreCase(installedSha) && !dUrl.isEmpty() && dSha.length() == 64 && dSize > 0) {
-                    deltaUrl = resolveRelativeUrl(feedUrl, dUrl);
+                    deltaUrl = resolveManifestResourceUrl(ctx, feedUrl, dUrl);
                     deltaSha = dSha;
                     deltaSize = dSize;
                     break;
@@ -409,7 +473,7 @@ public final class UpdateManager {
             }
         }
 
-        String resolvedFull = fullUrl.isEmpty() ? "" : resolveRelativeUrl(feedUrl, fullUrl);
+        String resolvedFull = fullUrl.isEmpty() ? "" : resolveManifestResourceUrl(ctx, feedUrl, fullUrl);
         UpdateManifestInfo info = new UpdateManifestInfo(
                 getCurrentVersionLabel(ctx),
                 installedVersionCode,
@@ -662,6 +726,39 @@ public final class UpdateManager {
         }
     }
 
+    private static boolean isLocalUpdatesPath(String urlStr) {
+        if (urlStr == null || urlStr.isEmpty()) return false;
+        try {
+            String path = URI.create(urlStr.trim()).getRawPath();
+            return path != null && (path.equals("/local/updates") || path.startsWith("/local/updates/"));
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    static String resolveManifestResourceUrl(Context ctx, String feedUrl, String rawResourceUrl) {
+        String resolved = resolveRelativeUrl(feedUrl, rawResourceUrl);
+        if (ctx != null && Storage.isPaired(ctx)) {
+            String activeBase = resolvePairedHostBase(ctx);
+            if (!activeBase.isEmpty() && (isPairedHostUrl(ctx, resolved)
+                    || (isPairedHostUrl(ctx, feedUrl) && isLocalUpdatesPath(resolved)))) {
+                return rewriteUrlToBase(resolved, activeBase);
+            }
+        }
+        return resolved;
+    }
+
+    private static boolean isReportedGatewayUrl(Context ctx, String targetUrl) {
+        if (ctx == null || targetUrl == null || targetUrl.isEmpty()) return false;
+        try {
+            String reported = Storage.getReportedGatewayUrl(ctx);
+            if (reported != null && (reported.startsWith("http://") || reported.startsWith("https://"))) {
+                return sameOrigin(URI.create(targetUrl.trim()), URI.create(reported.trim()));
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     public static boolean isPairedHostUrl(Context ctx, String targetUrl) {
         if (ctx == null || targetUrl == null || targetUrl.isEmpty() || !Storage.isPaired(ctx)) {
             return false;
@@ -679,6 +776,20 @@ public final class UpdateManager {
             }
             String reported = Storage.getReportedGatewayUrl(ctx);
             if (reported != null && (reported.startsWith("http://") || reported.startsWith("https://")) && sameOrigin(target, URI.create(reported))) {
+                return true;
+            }
+            String bundled = readBundledUpdateConfigUrl(ctx);
+            if (!bundled.isEmpty() && sameOrigin(target, URI.create(bundled)) && isLocalUpdatesPath(targetUrl)) {
+                return true;
+            }
+            String saved = Storage.getUpdateFeedUrl(ctx);
+            if (saved != null && !saved.isEmpty() && !isLoopbackHttpUrl(saved)
+                    && (saved.startsWith("http://") || saved.startsWith("https://"))
+                    && sameOrigin(target, URI.create(saved)) && isLocalUpdatesPath(targetUrl)) {
+                return true;
+            }
+            int port = TailcatManager.extractLoopbackPort(targetUrl);
+            if (port > 0 && TailcatManager.get().isKnownTailcatPort(port) && isLocalUpdatesPath(targetUrl)) {
                 return true;
             }
             if (target.getScheme() == null && target.getHost() == null
@@ -701,28 +812,78 @@ public final class UpdateManager {
         return pa == pb;
     }
 
-    private static String rewriteUrlToResolvedHost(Context ctx, String targetUrl) {
-        String resolved = resolvePairedHostBase(ctx);
-        if (resolved.isEmpty()) return targetUrl;
+    private static String rewriteUrlToBase(String targetUrl, String baseOrigin) {
+        if (baseOrigin == null || baseOrigin.isEmpty()) return targetUrl;
+        String cleanBase = baseOrigin.trim();
+        while (cleanBase.endsWith("/")) cleanBase = cleanBase.substring(0, cleanBase.length() - 1);
         try {
+            URI baseUri = URI.create(cleanBase);
+            String origin = baseUri.getScheme() + "://" + baseUri.getHost()
+                    + (baseUri.getPort() != -1 ? (":" + baseUri.getPort()) : "");
             URI target = URI.create(targetUrl.trim());
             String path = target.getRawPath();
             if (path == null || path.isEmpty()) path = "/";
             String query = target.getRawQuery();
-            return resolved + path + (query != null && !query.isEmpty() ? ("?" + query) : "");
+            return origin + path + (query != null && !query.isEmpty() ? ("?" + query) : "");
         } catch (Throwable ignored) {
             return targetUrl;
         }
     }
 
+    private static String rewriteUrlToResolvedHost(Context ctx, String targetUrl) {
+        String resolved = resolvePairedHostBase(ctx);
+        return rewriteUrlToBase(targetUrl, resolved);
+    }
+
+    private static String resolveExternalFallbackUrlForTarget(Context ctx, String targetUrl, String activeBase) {
+        String externalFeed = resolveExternalFallbackFeedUrl(ctx);
+        if (externalFeed.isEmpty()) return "";
+        try {
+            URI extUri = URI.create(externalFeed);
+            if (!activeBase.isEmpty() && sameOrigin(extUri, URI.create(activeBase))) {
+                return "";
+            }
+            if (isLocalUpdatesPath(targetUrl)) {
+                return rewriteUrlToBase(targetUrl, externalFeed);
+            }
+        } catch (Throwable ignored) {}
+        return "";
+    }
+
+    private static boolean isTerminalHostStatus(IOException err) {
+        if (!(err instanceof HttpStatusException)) return false;
+        int status = ((HttpStatusException) err).status;
+        return status == 401 || status == 403 || status == 404;
+    }
+
     private static byte[] fetchBytesWithHostFallback(Context ctx, String targetUrl, int maxBytes) throws IOException {
         if (isPairedHostUrl(ctx, targetUrl)) {
+            String token = Storage.getToken(ctx);
             String resolved = resolvePairedHostBase(ctx);
-            if (resolved.isEmpty()) {
-                throw new IOException("Paired Host unavailable");
+            if (!resolved.isEmpty()) {
+                String directHostUrl = rewriteUrlToBase(targetUrl, resolved);
+                try {
+                    return fetchBytesDirect(directHostUrl, token, maxBytes);
+                } catch (IOException hostErr) {
+                    if (isTerminalHostStatus(hostErr)) throw hostErr;
+                    String extUrl = resolveExternalFallbackUrlForTarget(ctx, targetUrl, resolved);
+                    if (!extUrl.isEmpty()) {
+                        try {
+                            return fetchBytesDirect(extUrl, token, maxBytes);
+                        } catch (IOException ignored) {}
+                    }
+                    throw hostErr;
+                }
             }
-            String directHostUrl = rewriteUrlToResolvedHost(ctx, targetUrl);
-            return fetchBytesDirect(directHostUrl, Storage.getToken(ctx), maxBytes);
+            boolean tailcatBlockedReported = Storage.isTailcatEnabled(ctx)
+                    && isReportedGatewayUrl(ctx, targetUrl)
+                    && readBundledUpdateConfigUrl(ctx).isEmpty()
+                    && (Storage.getUpdateFeedUrl(ctx) == null || Storage.getUpdateFeedUrl(ctx).trim().isEmpty());
+            String extUrl = tailcatBlockedReported ? "" : resolveExternalFallbackUrlForTarget(ctx, targetUrl, "");
+            if (!extUrl.isEmpty()) {
+                return fetchBytesDirect(extUrl, token, maxBytes);
+            }
+            throw new IOException("Paired Host unavailable");
         }
         IOException lastErr = null;
         if (Storage.isPaired(ctx) && Storage.isTailcatEnabled(ctx)) {
@@ -733,7 +894,7 @@ public final class UpdateManager {
             }
         }
         try {
-            return fetchBytesDirect(targetUrl, null, maxBytes);
+            return fetchBytesDirect(targetUrl, isPairedHostUrl(ctx, targetUrl) ? Storage.getToken(ctx) : null, maxBytes);
         } catch (IOException directErr) {
             if (Storage.isPaired(ctx) && !Storage.isTailcatEnabled(ctx)) {
                 try {
@@ -748,13 +909,35 @@ public final class UpdateManager {
             Context ctx, String targetUrl, long expectedSize, File outFile,
             DeltaPatcher.ProgressListener listener) throws IOException {
         if (isPairedHostUrl(ctx, targetUrl)) {
+            String token = Storage.getToken(ctx);
             String resolved = resolvePairedHostBase(ctx);
-            if (resolved.isEmpty()) {
-                throw new IOException("Paired Host unavailable");
+            if (!resolved.isEmpty()) {
+                String directHostUrl = rewriteUrlToBase(targetUrl, resolved);
+                try {
+                    downloadDirect(directHostUrl, token, expectedSize, outFile, listener);
+                    return;
+                } catch (IOException hostErr) {
+                    if (isTerminalHostStatus(hostErr)) throw hostErr;
+                    String extUrl = resolveExternalFallbackUrlForTarget(ctx, targetUrl, resolved);
+                    if (!extUrl.isEmpty()) {
+                        try {
+                            downloadDirect(extUrl, token, expectedSize, outFile, listener);
+                            return;
+                        } catch (IOException ignored) {}
+                    }
+                    throw hostErr;
+                }
             }
-            String directHostUrl = rewriteUrlToResolvedHost(ctx, targetUrl);
-            downloadDirect(directHostUrl, Storage.getToken(ctx), expectedSize, outFile, listener);
-            return;
+            boolean tailcatBlockedReported = Storage.isTailcatEnabled(ctx)
+                    && isReportedGatewayUrl(ctx, targetUrl)
+                    && readBundledUpdateConfigUrl(ctx).isEmpty()
+                    && (Storage.getUpdateFeedUrl(ctx) == null || Storage.getUpdateFeedUrl(ctx).trim().isEmpty());
+            String extUrl = tailcatBlockedReported ? "" : resolveExternalFallbackUrlForTarget(ctx, targetUrl, "");
+            if (!extUrl.isEmpty()) {
+                downloadDirect(extUrl, token, expectedSize, outFile, listener);
+                return;
+            }
+            throw new IOException("Paired Host unavailable");
         }
         IOException lastErr = null;
         if (Storage.isPaired(ctx) && Storage.isTailcatEnabled(ctx)) {
@@ -766,7 +949,7 @@ public final class UpdateManager {
             }
         }
         try {
-            downloadDirect(targetUrl, null, expectedSize, outFile, listener);
+            downloadDirect(targetUrl, isPairedHostUrl(ctx, targetUrl) ? Storage.getToken(ctx) : null, expectedSize, outFile, listener);
         } catch (IOException directErr) {
             if (Storage.isPaired(ctx) && !Storage.isTailcatEnabled(ctx)) {
                 try {
