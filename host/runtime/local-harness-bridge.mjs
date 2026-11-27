@@ -1,11 +1,32 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withLocalLibraryRunner } from './host-library-files.mjs';
 import { BackgroundRecovery, pendingWakeFilePath, resolveBackgroundRecoveryConfig } from './background-recovery.mjs';
 import { AUTO_REVIEW_AWAITING_TAB_ID, autoReviewModesFor, rokbotCardText } from './host-auto-review.mjs';
+import {
+  applyLocalBotResourceRemoval,
+  createLocalAgentActivityPort,
+  createLocalAgentManagementPort,
+  createLocalAgentStatePort,
+  createLocalAutomationRunLogPort,
+  createLocalBotFileCopyPort,
+  createLocalBotReferencePort,
+  createLocalBotResourcesPorts,
+  createLocalBoxHandoffPort,
+  createLocalConnectorFilesPort,
+  createLocalEffortToolPort,
+  createLocalGroupChatPorts,
+  createLocalRunnerGates,
+  createLocalTrackedTasksPort,
+  createLocalTranscriptReaderPort,
+  createLocalUserFormPort,
+  createLocalUserMemoryStore,
+  createSelfHostedTurnAgentComposition,
+  wrapInferenceForSelfHosted,
+} from './local-state-tools.mjs';
 
 const patchedLibraries = new WeakSet();
 
@@ -559,6 +580,8 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
   const settingsExt = extApi('settings');
   const federationExt = extApi('remote-agent-messaging');
   const teamAdminPolicyExt = extApi('team-admin-policy');
+  const sessionExt = extApi('session');
+  const automationsExt = extApi('automations');
 
   const pt = library.getPromptToolsRecoveryBindings?.() ?? {};
   const hostFlowBindings = library.getHostFlowRecoveryBindings?.() ?? {};
@@ -567,6 +590,8 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
 
   const agentId = session.id;
   const agentDir = tm.sessionStore?.getAgentDir?.(agentId) ?? '';
+  const dataDir = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '';
+  const sandRoot = library.getSandRootDir?.() ?? (dataDir ? join(dataDir, 'host-data') : '');
   const remoteBox = foreverBoxExt?.box;
   if (localExecExt && !localExecExt.box) {
     throw new Error('local-exec extension is missing box; refusing to fall back to forever-box');
@@ -575,14 +600,12 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
   const memoryStore = memoryExt?.createAgentStore
     ? memoryExt.createAgentStore(agentDir)
     : createLocalAgentMemoryStore(library, agentDir);
+  const userMemory = memoryExt?.userMemory ?? createLocalUserMemoryStore(library, sandRoot);
 
   const baseGates = typeof pt.defaultSandRunnerGates === 'function'
     ? pt.defaultSandRunnerGates('local-host')
     : {};
-  const gates = {
-    ...baseGates,
-    cloudAgentsDisabledByTeam: () => teamAdminPolicyExt?.isCloudAgentsDisabled?.() ?? true,
-  };
+  const gates = createLocalRunnerGates(baseGates, { teamAdminPolicyExt });
 
   let lastSentMessageId = null;
   let lastReactionApplied = false;
@@ -641,6 +664,7 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
             boxInstruction: update.boxHandoff.instruction,
             ...(update.boxHandoff.reason != null ? { boxReason: update.boxHandoff.reason } : {}),
           } : {}),
+          ...(update.userForm?.requestId ? { formRequestId: update.userForm.requestId } : {}),
         };
         persistTranscriptEntry(tm, session, entry);
         lastSentMessageId = sendId;
@@ -682,12 +706,111 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     lastReactionApplied: () => lastReactionApplied,
   };
 
+  const agentState = createLocalAgentStatePort({
+    library, tm, session, agentId, agentDir, memoryStore, userMemory, remoteBox, automationsExt,
+  });
+  const automationRunLog = createLocalAutomationRunLogPort({ session });
+  const botReference = agentDir ? createLocalBotReferencePort({ agentDir, agentId, remoteBox, library }) : undefined;
+  const { botResources, botResourceRemoval } = createLocalBotResourcesPorts({
+    agentId, dataDir, session, tm, mcpExt,
+  });
+  const trackedTasks = agentDir ? createLocalTrackedTasksPort({ library, agentDir }) : undefined;
+  const agentManagement = createLocalAgentManagementPort({ tm, dataDir });
+  const { messagingGroupBots, messagingGroupRead, messagingGroupPost } = createLocalGroupChatPorts({ tm, agentId });
+  const transcriptReader = createLocalTranscriptReaderPort({ tm, session, agentId });
+  const agentActivity = createLocalAgentActivityPort({ tm, agentId });
+  const boxHandoff = createLocalBoxHandoffPort({ sessionExt });
+  const userForm = createLocalUserFormPort({ sessionExt });
+  const botFileCopy = createLocalBotFileCopyPort({ dataDir, agentId, remoteBox, library });
+  const connectorFiles = createLocalConnectorFilesPort({ agentId, agentDir, remoteBox, mcpExt, library });
+  const effortTool = createLocalEffortToolPort({ session });
+  const rawSkillStore = session.skills ?? { list: () => [], listAll: () => [] };
+  const withReferenceSkill = (items) => {
+    const list = Array.isArray(items) ? items : [];
+    const refSkill = botReference?.getReferenceSkill?.();
+    if (!refSkill || list.some((s) => s?.id === 'reference')) return list;
+    return [...list, refSkill];
+  };
+  const skillStore = new Proxy(rawSkillStore, {
+    get(target, key) {
+      if (key === 'virtualSkillFiles') return true;
+      if (key === 'list') return () => withReferenceSkill(target.list?.());
+      if (key === 'listAll') return () => withReferenceSkill(target.listAll?.() ?? target.list?.());
+      if (key === 'get') {
+        return (id) => {
+          const found = target.get?.(id);
+          if (found) return found;
+          if (id === 'reference') return botReference?.getReferenceSkill?.() ?? null;
+          return null;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+
+  const readManagedSkill = (args) => {
+    const rawPath = typeof args?.path === 'string' ? args.path.trim() : '';
+    if (!rawPath) return undefined;
+    const allSkills = skillStore.listAll?.() ?? skillStore.list?.() ?? [];
+    if (!Array.isArray(allSkills) || allSkills.length === 0) return undefined;
+    const normalized = resolve(rawPath);
+    let matchedPath;
+    for (const skill of allSkills) {
+      const skillFile = typeof skill?.filePath === 'string' ? skill.filePath.trim() : '';
+      if (!skillFile) continue;
+      const skillFileResolved = resolve(skillFile);
+      if (normalized === skillFileResolved || isPathInside(dirname(skillFileResolved), normalized)) {
+        matchedPath = normalized;
+        break;
+      }
+    }
+    if (!matchedPath) return undefined;
+    if (!existsSync(matchedPath)) {
+      return { result: { case: 'fileNotFound', value: { path: args.path } } };
+    }
+    try {
+      const content = readFileSync(matchedPath, 'utf8');
+      return {
+        result: {
+          case: 'success',
+          value: {
+            path: args.path,
+            output: { case: 'content', value: content },
+            totalLines: content.split('\n').length,
+            fileSize: BigInt(Buffer.byteLength(content, 'utf8')),
+          },
+        },
+      };
+    } catch (error) {
+      return { result: { case: 'error', value: { error: error?.message ?? String(error) } } };
+    }
+  };
+
+  let lastOfferedTools = [];
+  const getInstalledSkillIds = () => new Set((skillStore.list?.() ?? []).map((s) => s.id).filter(Boolean));
+  const getSanitizeOpts = () => ({
+    offeredTools: new Set(lastOfferedTools),
+    installedSkillIds: getInstalledSkillIds(),
+  });
+  const wrappedInference = wrapInferenceForSelfHosted(inferenceExt?.port, {
+    getOfferedTools: () => lastOfferedTools,
+    getInstalledSkillIds,
+  });
+  const createTurnAgentComposition = createSelfHostedTurnAgentComposition(
+    library,
+    (names) => { lastOfferedTools = names; },
+    getSanitizeOpts,
+  );
+
   const runner = new RunnerClass({
     agentStore: session.agentStore,
-    inference: inferenceExt?.port,
+    inference: wrappedInference,
+    ...(createTurnAgentComposition ? { createTurnAgentComposition } : {}),
     box,
     remoteBox,
     ...remoteBoxDesktopOptions(remoteBox),
+    isOwnerDirectChat: true,
     userComputers: localExecExt?.userComputers,
     rejectUnknownMachineIds: Boolean(localExecExt?.userComputers),
     mcp: mcpExt?.mcp,
@@ -695,11 +818,30 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     gates,
     streamTuning: library.resolveSandStreamTuning?.(process.env),
     streamDeadlineConfig: () => ({ rollingIdleEnabled: false }),
+    agentState,
     memoryStore,
+    ...(userMemory ? { userMemory } : {}),
     memorySnapshots: session.db,
     profilePromptSnapshots: session.db,
     automationStore: session.automations,
-    skillStore: session.skills ?? { list: () => [], listAll: () => [] },
+    automationRunLog,
+    ...(botReference ? { botReference } : {}),
+    botResources,
+    botResourceRemoval,
+    ...(trackedTasks ? { trackedTasks } : {}),
+    agentManagement,
+    messagingGroupBots,
+    messagingGroupRead,
+    messagingGroupPost,
+    transcriptReader,
+    agentActivity,
+    ...(boxHandoff ? { boxHandoff } : {}),
+    ...(userForm ? { userForm } : {}),
+    botFileCopy,
+    connectorFiles,
+    effortTool,
+    skillStore,
+    readManagedSkill,
     ...localAutoReviewOptions({ tm, session, autoReviewExt, settingsExt,
       postCard: (message) => transport.onUpdate({ type: 'send-message', message, timestampMs: Date.now() }) }),
     localToolPermission: createLocalToolPermissionAdapter(localToolPermissionExt),
@@ -1057,14 +1199,42 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
           const prompt = `[automation:${automation.id}:${runUuid}] ${automation.prompt}`;
           let outcome = 'ok';
           const runTask = async () => {
-            const result = await runner.run(prompt, {
-              hidden: true,
-              requestSource: 'automation',
-              automationId: automation.id,
-              advanceChainOnDelivery: false,
-            }, { kind: 'all' });
-            outcome = result?.aborted ? 'interrupted' : 'ok';
-            return outcome;
+            const startedAt = Date.now();
+            session.automations?.beginRun?.({
+              id: automation.id,
+              trigger: 'cron',
+              at: startedAt,
+              runId: runUuid,
+            });
+            let status = 'ok';
+            let detail;
+            try {
+              const result = await runner.run(prompt, {
+                hidden: true,
+                inAutomationRun: true,
+                requestSource: 'automation',
+                automationId: automation.id,
+                advanceChainOnDelivery: false,
+              }, { kind: 'all' });
+              outcome = result?.aborted ? 'interrupted' : 'ok';
+              status = result?.aborted ? 'interrupted' : 'ok';
+              return outcome;
+            } catch (error) {
+              status = 'error';
+              detail = error?.message ?? String(error);
+              throw error;
+            } finally {
+              const finishedAt = Date.now();
+              session.automations?.finishRunDefinition?.({
+                id: automation.id,
+                runId: runUuid,
+                status,
+                at: finishedAt,
+                ...(detail ? { detail } : {}),
+              });
+              session.automations?.recordRunDefinition?.(automation.id, finishedAt);
+              try { this.automationRuntime?.emitAutomations?.(session); } catch {}
+            }
           };
           if (this.runLifecycle?.enqueueExclusiveRun) {
             await this.runLifecycle.enqueueExclusiveRun(agentId, runTask, {
@@ -1085,14 +1255,43 @@ export function installLocalHarnessBridge(library, { extensions, emitGatewayEven
           const prompt = `[webhook:${automation.id}:${runUuid}] ${event?.context ? `${event.context}\n\n` : ''}${automation.prompt}${event?.body ? `\n\nPayload:\n${event.body}` : ''}`;
           let outcome = 'ok';
           const runTask = async () => {
-            const result = await runner.run(prompt, {
-              hidden: true,
-              requestSource: 'event',
-              automationId: automation.id,
-              advanceChainOnDelivery: false,
-            }, { kind: 'all' });
-            outcome = result?.aborted ? 'interrupted' : 'ok';
-            return outcome;
+            const startedAt = Date.now();
+            session.automations?.beginRun?.({
+              id: automation.id,
+              trigger: 'webhook',
+              at: startedAt,
+              runId: runUuid,
+              ...(event?.body ? { event: String(event.body).slice(0, 500) } : {}),
+            });
+            let status = 'ok';
+            let detail;
+            try {
+              const result = await runner.run(prompt, {
+                hidden: true,
+                inAutomationRun: true,
+                requestSource: 'event',
+                automationId: automation.id,
+                advanceChainOnDelivery: false,
+              }, { kind: 'all' });
+              outcome = result?.aborted ? 'interrupted' : 'ok';
+              status = result?.aborted ? 'interrupted' : 'ok';
+              return outcome;
+            } catch (error) {
+              status = 'error';
+              detail = error?.message ?? String(error);
+              throw error;
+            } finally {
+              const finishedAt = Date.now();
+              session.automations?.finishRunDefinition?.({
+                id: automation.id,
+                runId: runUuid,
+                status,
+                at: finishedAt,
+                ...(detail ? { detail } : {}),
+              });
+              session.automations?.recordRunDefinition?.(automation.id, finishedAt);
+              try { this.automationRuntime?.emitAutomations?.(session); } catch {}
+            }
           };
           if (this.runLifecycle?.enqueueExclusiveRun) {
             await this.runLifecycle.enqueueExclusiveRun(agentId, runTask, {
@@ -1365,6 +1564,38 @@ export function decorateHostExtensionsFor2bb5e41(extension, api, { context, libr
     }
     if (typeof api.runServerAutomationForEvent !== 'function' && api.automationRuntime?.runServerAutomationForEvent) {
       api.runServerAutomationForEvent = (...args) => api.automationRuntime.runServerAutomationForEvent(...args);
+    }
+    if (api.widgetResponses && typeof api.widgetResponses.respondToWidget === 'function' && !api.widgetResponses.respondToWidget.__rokbotResourceRemoval) {
+      const origRespondToWidget = api.widgetResponses.respondToWidget.bind(api.widgetResponses);
+      const wrappedRespondToWidget = async (entryId, value, agentId) => {
+        const trimmed = String(value ?? '').trim();
+        if (trimmed === 'bot-resource:remove') {
+          try {
+            await api.sessions.ensureActionTarget(agentId);
+            const targetSession = api.sessions.activeSession;
+            const entries = targetSession ? readSessionTranscriptEntries(api, targetSession) : [];
+            const widgetEntry = entries.find((e) => e?.id === entryId);
+            const removal = widgetEntry?.message?.widget?.resourceRemoval;
+            if (targetSession && removal) {
+              const dataDir = process.env.ROKBOT_DATA_DIR ?? process.env.GROKBOT_DATA_DIR ?? process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '';
+              const removed = await applyLocalBotResourceRemoval({ dataDir, session: targetSession, tm: api, removal });
+              if (!api.widgetResponses.recordWidgetResponse?.(entryId, trimmed)) {
+                return { accepted: false };
+              }
+              const summary = removed
+                ? `Removed ${removal.kind} "${removal.name}".`
+                : `Could not remove ${removal.kind} "${removal.name}" (it may have already been removed).`;
+              await api.sendPrompt(summary, { agentId: targetSession.id });
+              return { accepted: true };
+            }
+          } catch (error) {
+            api.hostLog?.(`bot resource removal widget failed: ${error?.message ?? error}`, 'error');
+          }
+        }
+        return await origRespondToWidget(entryId, value, agentId);
+      };
+      wrappedRespondToWidget.__rokbotResourceRemoval = true;
+      api.widgetResponses.respondToWidget = wrappedRespondToWidget;
     }
     if (api.backgroundWakes?.agentToAgent && typeof api.backgroundWakes.agentToAgent.runAgentInboundWake !== 'function') {
       // Ensure prototype or instance has runAgentInboundWake
