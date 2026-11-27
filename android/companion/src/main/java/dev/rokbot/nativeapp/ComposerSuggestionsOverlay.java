@@ -655,7 +655,7 @@ final class ComposerSuggestionsOverlay {
                 if ("model".equals(source) && arr != null) {
                     for (int i = 0; i < arr.length() && aiItems.size() < MAX_AI_ITEMS; i++) {
                         String s = arr.optString(i, "").trim();
-                        if (!s.isEmpty() && !"null".equals(s)) {
+                        if (!s.isEmpty() && !"null".equals(s) && !SuggestionVoice.isAssistantOfferPhrase(s)) {
                             aiItems.add(s);
                         }
                     }
@@ -682,7 +682,8 @@ final class ComposerSuggestionsOverlay {
         if (arr == null) return out;
         for (int i = 0; i < arr.length() && out.size() < max; i++) {
             String s = arr.optString(i, "").trim();
-            if (!s.isEmpty() && !"null".equals(s)) out.add(s);
+            // Frequent items / completion candidates: never the Bot's voice (SuggestionVoice).
+            if (!s.isEmpty() && !"null".equals(s) && !SuggestionVoice.isAssistantOfferPhrase(s)) out.add(s);
         }
         return out;
     }
@@ -818,7 +819,7 @@ final class ComposerSuggestionsOverlay {
             }
             try {
                 JSONObject res = HostApiClient.complete(appCtx, req.agentId, req.draft, locale, handle);
-                String completion = res.optString("completion", "");
+                String completion = SuggestionVoice.voiceSafeCompletion(req.draft, res.optString("completion", ""));
                 String source = res.optString("source", "");
                 if (res.has("enabled") && !res.optBoolean("enabled", true)) {
                     sSettingsCompletionEnabled = false;

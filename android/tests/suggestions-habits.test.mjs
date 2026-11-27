@@ -58,7 +58,7 @@ test('SuggestionHabitMatcher (JVM): prefix > substring > in-order, dedupe, never
     fs.writeFileSync(path.join(dir, 'HabitMatcherHarness.java'), HARNESS);
     const out = path.join(tmp, 'classes');
     cp.execFileSync(javacBin, ['--release', '17', '-encoding', 'UTF-8', '-d', out,
-      path.join(SRC, 'SuggestionHabitMatcher.java'), path.join(dir, 'HabitMatcherHarness.java')], { stdio: 'pipe' });
+      path.join(SRC, 'SuggestionHabitMatcher.java'), path.join(SRC, 'SuggestionVoice.java'), path.join(dir, 'HabitMatcherHarness.java')], { stdio: 'pipe' });
     const res = cp.execFileSync(javaBin, ['-cp', out, 'dev.rokbot.nativeapp.HabitMatcherHarness'], { encoding: 'utf8' });
     assert.match(res, /HABIT_MATCHER_OK/);
   } finally {
