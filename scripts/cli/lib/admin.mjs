@@ -7,7 +7,7 @@
 // one-shot container on the Host image. The plaintext password never leaves this process except as
 // an environment variable of `docker compose exec` during setup; it is never written to disk or logs.
 import { randomInt } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseCommandArgs } from './args.mjs';
@@ -37,7 +37,9 @@ export function validatePassword(password) {
 
 let security;
 async function hostSecurity(repo = REPO_ROOT) {
-  security ??= await import(pathToFileURL(path.join(repo, 'host', 'server', 'security.mjs')).href);
+  const filename = path.join(repo, 'host', 'server', 'security.mjs');
+  if (!existsSync(filename)) fail(`当前安装缺少 ${filename}，无法计算管理员密码哈希。请重新安装 rokbot（npm i -g rokbot），或在 RokBot 源码目录里运行。`);
+  security ??= await import(pathToFileURL(filename).href);
   return security;
 }
 
