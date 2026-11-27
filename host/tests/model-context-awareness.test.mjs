@@ -1374,7 +1374,6 @@ test('Codex manifest probe is OFF by default, only runs when enabled, and draft 
 test('HTTP endpoints: autoSync toggle stops all background requests and sync-contexts updates effectiveContext', { skip: !dependencies && 'run npm ci --prefix host/server' }, async t => {
   const { createSelfHostServer } = await import('../server/index.mjs');
   const dir = await mkdtemp(join(os.tmpdir(), 'grokbot-sync-http-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
 
   let catalogFetchCount = 0;
   const app = await createSelfHostServer({
@@ -1391,7 +1390,8 @@ test('HTTP endpoints: autoSync toggle stops all background requests and sync-con
     rateLimit: { check() {} },
   });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
-  t.after(() => app.close());
+  // Close first: the Host finishes its pending writes (canvas link origin, stores) on close.
+  t.after(async () => { await app.close(); await rm(dir, { recursive: true, force: true }); });
 
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const setupRes = await fetch(`${base}/admin/api/setup`, {
