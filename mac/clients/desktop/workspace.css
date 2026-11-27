@@ -163,6 +163,32 @@
 @keyframes rokbot-skeleton-out {
   to { opacity: 0; transform: scale(0.96); }
 }
+/* The strip itself: fade + 3px rise in, fade + drop out, a soft refresh when its items change. */
+.rokbot-suggestions--enter {
+  animation: rokbot-bar-in 170ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.rokbot-suggestions--swap {
+  animation: rokbot-bar-swap 170ms ease-out both;
+}
+.rokbot-suggestions--leaving {
+  animation: rokbot-bar-out 170ms ease-in both;
+  pointer-events: none;
+}
+.rokbot-suggestions__chip--match {
+  border-style: dashed;
+}
+@keyframes rokbot-bar-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rokbot-bar-swap {
+  from { opacity: 0.4; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rokbot-bar-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(3px); }
+}
 @keyframes rokbot-chip-in {
   from { opacity: 0; transform: translateY(3px) scale(0.97); }
   to { opacity: 1; transform: none; }
@@ -219,6 +245,9 @@ html.rokbot-phone .rokbot-ghost__key {
   .rokbot-suggestions__skeleton,
   .rokbot-suggestions__skeleton--leaving,
   .rokbot-suggestions__chip--enter,
+  .rokbot-suggestions--enter,
+  .rokbot-suggestions--swap,
+  .rokbot-suggestions--leaving,
   .rokbot-ghost {
     animation: none !important;
   }
@@ -377,6 +406,9 @@ html.rokbot-phone .rokbot-ghost__key {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  flex: none;
+}
+.rokbot-sug-settings__danger-btn {
   flex: none;
 }
 .rokbot-sug-settings__add-btn:disabled {

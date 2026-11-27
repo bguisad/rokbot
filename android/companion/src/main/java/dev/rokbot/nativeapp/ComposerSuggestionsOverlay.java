@@ -96,7 +96,7 @@ final class ComposerSuggestionsOverlay {
     private static final long SHIMMER_PERIOD_MS = 1250L;
 
     static final class SuggestionItem {
-        final String type; // "phrase" or "ai"
+        final String type; // "phrase", "ai", "frequent" (the user's own habit) or "match" (local completion)
         final String text;
 
         SuggestionItem(String type, String text) {
@@ -113,6 +113,12 @@ final class ComposerSuggestionsOverlay {
     private static final WeakHashMap<EditText, Boolean> WATCHED_INPUTS = new WeakHashMap<>();
     /** Keyed by {@link SuggestionAgentTracker#cacheKey}: Bot id + that Bot's own generation + language. */
     private static final LruCache<String, CachedAi> AI_CACHE = new LruCache<>(40);
+    /** Same key: the messages the user often sends to that Bot (Host habit profile). */
+    private static final LruCache<String, List<String>> FREQUENT_CACHE = new LruCache<>(40);
+    /** Per Bot id: local completion pool (quick phrases + habits) from the last answer. */
+    private static final LruCache<String, List<String>> CANDIDATES = new LruCache<>(40);
+    /** Bar show / hide / change: fade + 3dp rise. */
+    static final long BAR_FADE_MS = 170L;
 
     /** Suggestions-only "current Bot" (navigation signals only), per-Bot generations, request gate. */
     static final SuggestionAgentTracker AGENTS = new SuggestionAgentTracker();
@@ -150,6 +156,8 @@ final class ComposerSuggestionsOverlay {
     private static volatile boolean sSettingsEnabled = true;
     private static volatile boolean sSettingsAiEnabled = true;
     private static volatile boolean sSettingsCompletionEnabled = true;
+    private static volatile boolean sSettingsLearningEnabled = true;
+    private static volatile boolean sSettingsLocalCompletionEnabled = true;
     private static volatile List<String> sQuickPhrases = Collections.emptyList();
     private static volatile long sSettingsSyncedAt = 0L;
     private static final AtomicBoolean sSettingsLoading = new AtomicBoolean(false);
@@ -274,6 +282,16 @@ final class ComposerSuggestionsOverlay {
         scheduleScan(0L);
     }
 
+    /** 清空学习记录: forget the habits cached on this device too. */
+    static void clearLearnedHabits() {
+        MAIN.post(() -> {
+            FREQUENT_CACHE.evictAll();
+            CANDIDATES.evictAll();
+            AI_CACHE.evictAll();
+        });
+        invalidateSettingsCache();
+    }
+
     static void invalidateSettingsCache() {
         sSettingsSyncedAt = 0L;
         AGENTS.clearFailures();
@@ -324,6 +342,12 @@ final class ComposerSuggestionsOverlay {
         if (res.has("completionEnabled")) {
             sSettingsCompletionEnabled = res.optBoolean("completionEnabled", true);
             COMPLETION.setEnabled(sSettingsCompletionEnabled);
+        }
+        if (res.has("learningEnabled")) {
+            sSettingsLearningEnabled = res.optBoolean("learningEnabled", true);
+        }
+        if (res.has("localCompletionEnabled")) {
+            sSettingsLocalCompletionEnabled = res.optBoolean("localCompletionEnabled", true);
         }
         JSONArray phrasesArr = res.optJSONArray("quickPhrases");
         if (phrasesArr != null) {
@@ -404,10 +428,16 @@ final class ComposerSuggestionsOverlay {
         CharSequence currentText = composer.getText();
         boolean hasDraft = currentText != null && currentText.toString().replace("​", "").trim().length() > 0;
         if (hasDraft) {
-            hideBar();
             observeComposer(composer);
             Rect anchorRect = resolveComposerAnchorRect(act, composer);
             renderCompletion(act, (ViewGroup) decor, composer, anchorRect);
+            // Local completion: the user's quick phrases / habits matching the draft, no network.
+            List<SuggestionItem> matches = sShownSuffix.isEmpty() ? localMatches(currentText.toString()) : Collections.emptyList();
+            if (matches.isEmpty() || anchorRect == null || anchorRect.top < UiChrome.dp(act, 60)) {
+                hideBar();
+            } else {
+                showBar(act, (ViewGroup) decor, anchorRect, "match:" + resolveActiveAgentId(), matches, 0);
+            }
             return;
         }
         clearCompletion();
@@ -469,7 +499,12 @@ final class ComposerSuggestionsOverlay {
             LOAD_STATE.cancel();
         }
 
-        List<SuggestionItem> merged = mergeItems(sQuickPhrases, ai);
+        List<String> frequent = Collections.emptyList();
+        if (sSettingsLearningEnabled && !key.isEmpty()) {
+            List<String> f = FREQUENT_CACHE.get(key);
+            if (f != null) frequent = f;
+        }
+        List<SuggestionItem> merged = mergeItems(sQuickPhrases, ai, frequent);
         boolean fading = sBar != null && sBar.getVisibility() == View.VISIBLE && LOAD_STATE.isFadingOut()
                 && key.equals(LOAD_STATE.key());
         if (merged.isEmpty() && placeholders == 0 && !fading) {
@@ -486,7 +521,24 @@ final class ComposerSuggestionsOverlay {
         showBar(act, (ViewGroup) decor, anchorRect, key, merged, placeholders);
     }
 
+    private static List<SuggestionItem> localMatches(String draft) {
+        if (!sSettingsEnabled || !sSettingsLocalCompletionEnabled) return Collections.emptyList();
+        String agentId = resolveActiveAgentId();
+        List<String> candidates = agentId.isEmpty() ? null : CANDIDATES.get(agentId);
+        List<String> pool = SuggestionHabitMatcher.pool(sQuickPhrases, candidates);
+        List<SuggestionItem> out = new ArrayList<>();
+        for (String text : SuggestionHabitMatcher.match(draft, pool, SuggestionHabitMatcher.MAX_MATCHES)) {
+            out.add(new SuggestionItem("match", text));
+        }
+        return out;
+    }
+
     private static List<SuggestionItem> mergeItems(List<String> phrases, List<String> ai) {
+        return mergeItems(phrases, ai, null);
+    }
+
+    /** Quick phrases, then the model's items, then the user's own frequent messages to fill. */
+    private static List<SuggestionItem> mergeItems(List<String> phrases, List<String> ai, List<String> frequent) {
         List<SuggestionItem> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         if (phrases != null) {
@@ -511,7 +563,25 @@ final class ComposerSuggestionsOverlay {
                 }
             }
         }
+        if (frequent != null) {
+            int room = Math.max(0, MAX_AI_ITEMS - (out.size() - countType(out, "phrase")));
+            for (String s : frequent) {
+                if (room <= 0 || s == null) break;
+                String trimmed = s.trim();
+                if (trimmed.isEmpty()) continue;
+                if (seen.add(trimmed.toLowerCase(Locale.ROOT))) {
+                    out.add(new SuggestionItem("frequent", trimmed));
+                    room--;
+                }
+            }
+        }
         return out;
+    }
+
+    private static int countType(List<SuggestionItem> items, String type) {
+        int n = 0;
+        for (SuggestionItem item : items) if (type.equals(item.type)) n++;
+        return n;
     }
 
     private static void attachTextWatcher(EditText input) {
@@ -590,10 +660,51 @@ final class ComposerSuggestionsOverlay {
                         }
                     }
                 }
-                MAIN.post(() -> onFetched(req, echoedAgent, echoedRequest, source, historyId, acceptedOnly, aiItems));
+                final List<String> frequent = stringList(res.optJSONArray("frequentSuggestions"), MAX_AI_ITEMS);
+                final List<String> candidates = res.has("completionCandidates")
+                        ? stringList(res.optJSONArray("completionCandidates"), 60) : null;
+                MAIN.post(() -> {
+                    if (req.agentId.equals(echoedAgent) || echoedAgent.isEmpty()) {
+                        if (!acceptedOnly) FREQUENT_CACHE.put(req.key, Collections.unmodifiableList(frequent));
+                        if (candidates != null) CANDIDATES.put(req.agentId, Collections.unmodifiableList(candidates));
+                    }
+                    onFetched(req, echoedAgent, echoedRequest, source, historyId, acceptedOnly, aiItems);
+                });
             } catch (Throwable ignored) {
                 // Silent failure: placeholders fade out; custom quick phrases stay visible.
                 MAIN.post(() -> onFetchFailed(req));
+            }
+        });
+    }
+
+    static List<String> stringList(JSONArray arr, int max) {
+        List<String> out = new ArrayList<>();
+        if (arr == null) return out;
+        for (int i = 0; i < arr.length() && out.size() < max; i++) {
+            String s = arr.optString(i, "").trim();
+            if (!s.isEmpty() && !"null".equals(s)) out.add(s);
+        }
+        return out;
+    }
+
+    /** Tap / dismiss of shown suggestions -> the Host's habit learning (fire and forget). */
+    private static void sendFeedback(Context ctx, String action, String text, List<SuggestionItem> shown) {
+        if (ctx == null || !sSettingsLearningEnabled) return;
+        String agentId = AGENTS.current();
+        if (agentId.isEmpty()) return;
+        final Context appCtx = ctx.getApplicationContext();
+        final List<String> shownTexts = new ArrayList<>();
+        if (shown != null) {
+            for (SuggestionItem item : shown) {
+                if ("ai".equals(item.type) || "frequent".equals(item.type)) shownTexts.add(item.text);
+            }
+        }
+        if (shownTexts.isEmpty() && "dismiss".equals(action)) return;
+        IO.execute(() -> {
+            try {
+                HostApiClient.suggestionsFeedback(appCtx, agentId, action, text, shownTexts);
+            } catch (Throwable ignored) {
+                // Learning is best effort.
             }
         });
     }
@@ -915,10 +1026,32 @@ final class ComposerSuggestionsOverlay {
     }
 
     private static void hideBar() {
-        if (sBar != null) {
-            sBar.setVisibility(View.GONE);
-            sBar.stopShimmer();
+        OverlayBar bar = sBar;
+        if (bar == null || bar.getVisibility() != View.VISIBLE || bar.hiding) return;
+        bar.stopShimmer();
+        if (!animationsEnabled(bar.activity) || !bar.isAttachedToWindow()) {
+            bar.animate().cancel();
+            bar.setAlpha(1f);
+            bar.setTranslationY(0f);
+            bar.setVisibility(View.GONE);
+            return;
         }
+        // Fade out with a 3dp drop, then GONE (a show in between cancels it).
+        bar.hiding = true;
+        bar.animate().cancel();
+        bar.animate().alpha(0f).translationY(UiChrome.dp(bar.activity, 3)).setStartDelay(0L).setDuration(BAR_FADE_MS)
+                .setListener(new AnimatorListenerAdapter() {
+                    private boolean cancelled;
+                    @Override public void onAnimationCancel(Animator animation) { cancelled = true; }
+                    @Override public void onAnimationEnd(Animator animation) {
+                        bar.animate().setListener(null);
+                        if (cancelled || !bar.hiding) return;
+                        bar.hiding = false;
+                        bar.setVisibility(View.GONE);
+                        bar.setAlpha(1f);
+                        bar.setTranslationY(0f);
+                    }
+                }).start();
     }
 
     private static void showBar(Activity act, ViewGroup decor, Rect anchorRect, String key, List<SuggestionItem> items,
@@ -930,7 +1063,10 @@ final class ComposerSuggestionsOverlay {
             lp.gravity = Gravity.TOP;
             decor.addView(sBar, lp);
         }
+        String before = sBar.boundSignature();
+        boolean wasShown = sBar.getVisibility() == View.VISIBLE && !sBar.hiding;
         sBar.bind(key, items, placeholders);
+        boolean changed = !before.equals(sBar.boundSignature());
 
         int[] decorLoc = new int[2];
         decor.getLocationOnScreen(decorLoc);
@@ -941,7 +1077,28 @@ final class ComposerSuggestionsOverlay {
             lp.topMargin = topMargin;
             sBar.setLayoutParams(lp);
         }
-        sBar.setVisibility(View.VISIBLE);
+        boolean animate = animationsEnabled(act);
+        if (!wasShown) {
+            // Appear: fade in + 3dp rise (also takes over a running hide).
+            sBar.hiding = false;
+            sBar.animate().cancel();
+            sBar.animate().setListener(null);
+            sBar.setVisibility(View.VISIBLE);
+            if (animate) {
+                sBar.setAlpha(0f);
+                sBar.setTranslationY(UiChrome.dp(act, 3));
+                sBar.animate().alpha(1f).translationY(0f).setStartDelay(0L).setDuration(BAR_FADE_MS).start();
+            } else {
+                sBar.setAlpha(1f);
+                sBar.setTranslationY(0f);
+            }
+        } else if (changed && animate && !sBar.hasPlaceholders() && sBar.lastBoundWithoutPlaceholders) {
+            // Content swapped (another set of items): a quick soft refresh instead of a jump.
+            sBar.setAlpha(0.35f);
+            sBar.setTranslationY(UiChrome.dp(act, 3));
+            sBar.animate().alpha(1f).translationY(0f).setStartDelay(0L).setDuration(BAR_FADE_MS).start();
+        }
+        sBar.lastBoundWithoutPlaceholders = placeholders == 0;
     }
 
     /**
@@ -958,6 +1115,20 @@ final class ComposerSuggestionsOverlay {
             triggerSendWithRetry(act, target, 0);
         } catch (Throwable t) {
             Log.w(TAG, "sendSuggestion failed: " + t.getClass().getSimpleName());
+        }
+    }
+
+    /** Replaces the composer text with a local completion; the user still sends it. */
+    private static void fillDraft(String text) {
+        EditText target = sActiveInput.get();
+        if (target == null || !target.isAttachedToWindow()) return;
+        try {
+            target.requestFocus();
+            target.setText(text);
+            target.setSelection(text.length());
+            hideBar();
+        } catch (Throwable t) {
+            Log.w(TAG, "fillDraft failed: " + t.getClass().getSimpleName());
         }
     }
 
@@ -1050,6 +1221,13 @@ final class ComposerSuggestionsOverlay {
         private ValueAnimator shimmer;
         private String boundSignature = "";
         private String activeKey = "";
+        private List<SuggestionItem> boundItems = Collections.emptyList();
+        boolean hiding = false;
+        boolean lastBoundWithoutPlaceholders = false;
+
+        String boundSignature() {
+            return boundSignature;
+        }
 
         OverlayBar(Activity act) {
             super(act);
@@ -1078,7 +1256,11 @@ final class ComposerSuggestionsOverlay {
             LayoutParams closeLp = new LayoutParams(closeSz, closeSz);
             closeLp.leftMargin = UiChrome.dp(act, 4);
             closeBtn.setOnClickListener(v -> {
-                sDismissedKey = activeKey;
+                // Local matches only hide until the draft changes; the suggestions strip stays dismissed.
+                if (!activeKey.startsWith("match:")) {
+                    sDismissedKey = activeKey;
+                    sendFeedback(activity, "dismiss", "", boundItems);
+                }
                 hideBar();
             });
             addView(closeBtn, closeLp);
@@ -1100,6 +1282,7 @@ final class ComposerSuggestionsOverlay {
 
         void bind(String key, List<SuggestionItem> items, int placeholders) {
             this.activeKey = key;
+            this.boundItems = new ArrayList<>(items);
             UiChrome.Palette p = UiChrome.palette(activity);
             boolean animate = animationsEnabled(activity);
             StringBuilder sb = new StringBuilder(p.dark ? "D:" : "L:");
@@ -1224,7 +1407,7 @@ final class ComposerSuggestionsOverlay {
 
             int iconSz = UiChrome.dp(activity, 12);
             View iconView;
-            if (isPhrase) {
+            if (isPhrase || "frequent".equals(item.type) || "match".equals(item.type)) {
                 PhraseIconView pv = new PhraseIconView(activity);
                 pv.setStrokeColor(p.blueAccent);
                 iconView = pv;
@@ -1246,7 +1429,15 @@ final class ComposerSuggestionsOverlay {
             label.setEllipsize(TextUtils.TruncateAt.END);
             label.setMaxWidth(UiChrome.dp(activity, MAX_CHIP_WIDTH_DP));
             pill.addView(label);
-            pill.setOnClickListener(v -> sendSuggestion(activity, item.text));
+            if ("match".equals(item.type)) {
+                // Local completion: replace the draft, do not send.
+                pill.setOnClickListener(v -> fillDraft(item.text));
+            } else {
+                pill.setOnClickListener(v -> {
+                    if (!"phrase".equals(item.type)) sendFeedback(activity, "tap", item.text, boundItems);
+                    sendSuggestion(activity, item.text);
+                });
+            }
             return pill;
         }
 

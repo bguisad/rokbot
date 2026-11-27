@@ -9,6 +9,7 @@ import {
   extractComposerText,
   insertSuggestionText,
   isZhLocale,
+  matchCompletions,
   mergeSuggestionItems,
   sendSuggestionText,
 } from '../client/suggestions.js';
@@ -113,4 +114,44 @@ test('extractComposerText, insertSuggestionText, and sendSuggestionText send imm
     true,
   );
   assert.equal(submitted, 1);
+});
+
+test('habits: frequent messages fill after the model items (max 3), local completion matching', () => {
+  const merged = mergeSuggestionItems([{ id: 'p1', text: '提个 PR' }], ['先修 upload.spec', '两个一起修'], ['跑一下 e2e', '提个 PR', '看下 CI']);
+  assert.deepEqual(merged.map(item => [item.type, item.text]), [
+    ['phrase', '提个 PR'], ['ai', '先修 upload.spec'], ['ai', '两个一起修'], ['frequent', '跑一下 e2e'],
+  ]);
+  assert.deepEqual(mergeSuggestionItems([], [], ['a1', 'a2', 'a3', 'a4']).map(item => item.type), ['frequent', 'frequent', 'frequent']);
+
+  const pool = ['跑一下全量测试', '帮我跑一下 lint', '提个 PR 吧', '跑测试并截图', 'Deploy staging'];
+  assert.deepEqual(matchCompletions('跑一', pool), ['跑一下全量测试', '帮我跑一下 lint']);
+  assert.deepEqual(matchCompletions('跑测', pool), ['跑测试并截图', '跑一下全量测试']);
+  assert.deepEqual(matchCompletions('deploy', pool), ['Deploy staging']);
+  assert.deepEqual(matchCompletions('提个 PR 吧', pool), []);
+  assert.deepEqual(matchCompletions('', pool), []);
+});
+
+test('habits: settings defaults, strip motion, feedback / clear wiring', () => {
+  const assist = globalThis.RokBotComposerAssist;
+  const defaults = assist.normalizeSettings({});
+  assert.equal(defaults.learningEnabled, true);
+  assert.equal(defaults.localCompletionEnabled, true);
+  assert.equal(assist.normalizeSettings({ learningEnabled: false }).learningEnabled, false);
+  assert.ok(assist.BAR_FADE_MS >= 150 && assist.BAR_FADE_MS <= 200);
+
+  const src = fs.readFileSync(path.join(REPO, 'mac/clients/desktop/composer-assist.cjs'), 'utf8');
+  assert.ok(src.includes("request('/local/suggestions/feedback', { agentId, action, text, shown }, undefined, 'POST')"));
+  assert.ok(src.includes("if (!settingsState.learningEnabled) return;"), 'no feedback when learning is off');
+  assert.ok(src.includes("sendFeedback('tap', item.text, items)") && src.includes("sendFeedback('dismiss', '', items)"));
+  assert.ok(src.includes("request('/local/suggestions/habits', null, undefined, 'DELETE')"), '清空学习记录');
+  assert.ok(src.includes("'根据习惯学习'") && src.includes("'本地补全'") && src.includes("'清空学习记录'"));
+  assert.ok(src.includes('insertSuggestionText(findComposerInput(liveForm), item.text, doc);'), 'a local match fills, not sends');
+  assert.ok(src.includes('res.frequentSuggestions') && src.includes('res.completionCandidates'));
+
+  const css = fs.readFileSync(path.join(REPO, 'mac/clients/desktop/workspace.css'), 'utf8');
+  assert.match(css, /\.rokbot-suggestions--enter \{\s*animation: rokbot-bar-in 170ms/);
+  assert.match(css, /\.rokbot-suggestions--leaving \{\s*animation: rokbot-bar-out 170ms/);
+  assert.match(css, /@keyframes rokbot-bar-in \{\s*from \{ opacity: 0; transform: translateY\(3px\); \}/);
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+  assert.ok(reduced.includes('.rokbot-suggestions--enter') && reduced.includes('.rokbot-suggestions--leaving'), 'reduced motion: none');
 });

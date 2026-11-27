@@ -73,7 +73,9 @@ test('SuggestionsSettings supports defaults, toggle updates, and quick phrases C
   t.after(() => rm(dir, { recursive: true, force: true }));
 
   const store = await new SuggestionsSettings(dir).load();
-  assert.deepEqual(store.current(), { enabled: true, aiEnabled: true, completionEnabled: true, quickPhrases: [], updatedAt: null });
+  assert.deepEqual(store.current(), {
+    enabled: true, aiEnabled: true, completionEnabled: true, learningEnabled: true, localCompletionEnabled: true, quickPhrases: [], updatedAt: null,
+  });
 
   const added1 = await store.addPhrase({ text: '  继续  ' });
   const added2 = await store.addPhrase({ text: '好的，开始吧' });
@@ -428,7 +430,9 @@ test('suggestions are isolated per Bot: B never gets A\'s answer, even with A\'s
   assert.equal(b.cached, false);
   assert.ok(b.aiSuggestions.every(text => !/CHANGELOG|#248|v0\.2/.test(text)), JSON.stringify(b.aiSuggestions));
   assert.deepEqual(b.aiSuggestions, ['标题再吸睛一点', '配三张图', '加上人均价格']);
-  assert.deepEqual(hostCalls.map(([, args]) => args.id), ['rokbot', 'xhs']);
+  // Each Bot: its own transcript tail, and its own habit profile (transcript window).
+  assert.deepEqual(hostCalls.filter(([method]) => method === 'getAgentTranscriptTail').map(([, args]) => args.id), ['rokbot', 'xhs']);
+  assert.deepEqual(hostCalls.filter(([method]) => method === 'getAgentTranscriptWindow').map(([, args]) => args.id), ['rokbot', 'xhs']);
   assert.deepEqual(calls.map(call => call.xhs), [false, true]);
   // At most 3 AI suggestions, short answer budget, compact prompt.
   assert.equal(a.aiSuggestions.length, 3);
@@ -512,7 +516,7 @@ test('the prompt is compact: last 4 messages, long replies clipped in the middle
   ]);
   assert.equal(compact.length, 4);
   assert.equal(compact[1].text.length <= 141, true);
-  assert.equal([...compact[3].text].length, 361);
+  assert.equal([...compact[3].text].length, 481);
   assert.ok(compact[3].text.startsWith('开头'));
   assert.ok(compact[3].text.endsWith('结尾的追问'));
 });

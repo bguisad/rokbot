@@ -541,7 +541,9 @@ export function applyConnectionEntry(hbcBuffer) {
 }
 
 // ---------------------------------------------------------------------------
-// rokbot.6: one rokbot section right under the account card (rokbot.7: + Input Suggestions).
+// rokbot.6: one rokbot section right under the account card (rokbot.7: + Input Suggestions,
+// rokbot.8: + Data Migration — the official "Data" message + 迁移 / " Migration"; the English words
+// come from bundle strings via slice() to fit the 688-byte block).
 //
 // rokbot.3 gave the former "Send Feedback" InsetGroup one row, "Connection & Diagnostics";
 // rokbot.5 turned it into a titled section (+ model settings, software update) near the bottom of
@@ -557,6 +559,7 @@ export function applyConnectionEntry(hbcBuffer) {
 //     用量 / Usage                      official UsageGroup element (memo slot 19), moved here
 //     模型配置 / Model Settings         native ModelsActivity
 //     输入建议 / Input Suggestions      native SuggestionsSettingsActivity
+//     数据迁移 / Data Migration         native MigrateActivity (rokbot.8; was a row of 连接与诊断)
 //     连接与诊断 / <Connection> & Diagnostics   native PairingActivity (rokbot.3 label)
 //     应用更新 / App Updates            native UpdateActivity
 //   [official groups: Connect apps, Bot, Notifications + Haptics, ..., Sign out, About]
@@ -594,19 +597,24 @@ const MENU_PROLOGUE_END = 3722;
 const MENU_TAIL = 3778;
 const MENU_TAIL_END = 3788;
 export const MENU_LABELS = {
-  zh: { avatar: 'Bot 图标样式', models: '模型配置', suggestions: '输入建议', update: '应用更新' },
-  en: { avatar: 'Bot Icon Style', models: 'Model Settings', suggestions: 'Input Suggestions', update: 'App Updates' },
+  zh: { avatar: 'Bot 图标样式', models: '模型配置', suggestions: '输入建议', migrate: '数据迁移', update: '应用更新' },
+  en: { avatar: 'Bot Icon Style', models: 'Model Settings', suggestions: 'Input Suggestions', migrate: 'Data Migration', update: 'App Updates' },
 };
 // English labels reuse strings of the bundle (cheaper than char codes); { m } is an official
 // i18n message id (en catalog: "Suggestions").
+// rokbot.8: { cap, w } is a capital letter string + word.slice(1) (r32 = String.prototype.slice once
+// the avatar label is built: 13 bytes instead of 16 per two letters of String.fromCharCode).
 const MENU_EN_PIECES = {
   avatar: ['Bot', { s: ' ' }, { s: 'Icon' }, { s: ' ' }, { s: 'Style' }],
-  models: ['Model', { s: ' ' }, { s: 'Settings' }],
-  suggestions: ['Input', { s: ' ' }, { m: '8J32PY' }],
-  update: [{ s: 'App' }, ' Updates'],
+  models: [{ cap: 'M', w: 'model' }, { s: ' ' }, { s: 'Settings' }],
+  suggestions: [{ cap: 'I', w: 'input' }, { s: ' ' }, { m: '8J32PY' }],
+  update: [{ s: 'App' }, { s: ' ' }, { cap: 'U', w: 'updates' }],
 };
 export const SUGGESTIONS_MESSAGE = { id: '8J32PY', literal: 382263 };
-export const MENU_ORDER = ['avatar', 'appearance', 'language', 'usage', 'models', 'suggestions', 'connection', 'update'];
+// Official i18n message "Data" (zh 数据, zh-Hant 資料): the first word of the Data Migration row.
+export const DATA_MESSAGE = { id: 'HKH-W-', literal: 354894 };
+const MIGRATION_SOURCE = 'previousSessionMigration';
+export const MENU_ORDER = ['avatar', 'appearance', 'language', 'usage', 'models', 'suggestions', 'migrate', 'connection', 'update'];
 const NATIVE_ROWS = ['avatar', 'models', 'suggestions', 'update'];
 // Memo cache slots of the official row elements (SettingsSheet stores them before +2993).
 const MEMO_SLOTS = { usage: 19, appearance: 60, language: 71 };
@@ -661,6 +669,16 @@ function emitLabel(emit, dst, pieces, call4 = 'none') {
     return 9;
   };
   for (const piece of pieces) {
+    if (typeof piece !== 'string' && piece.cap !== undefined) {
+      // dst += cap + word.slice(1); r32 = slice, r0 = 1 (set up by the caller).
+      const target = put();
+      emit(loadStr(target, piece.cap));
+      if (target !== dst) emit(ins(OPX.Add, dst, dst, 9));
+      emit(loadStr(9, piece.w));
+      emit(ins(OPX.Call2, 9, 32, 9, 0));
+      emit(ins(OPX.Add, dst, dst, 9));
+      continue;
+    }
     if (typeof piece !== 'string') {
       const target = put();
       if (piece.lit !== undefined) {
@@ -730,16 +748,16 @@ export function applySettingsMenu(hbcBuffer) {
   const S = rel => settings.offset + rel;
   const expectAt = (abs, bytes) => buf.subarray(abs, abs + bytes.length).equals(bytes);
 
-  const words = ['Icon', 'Style', 'Settings', 'App'];
+  const words = ['Icon', 'Style', 'Settings', 'App', 'M', 'I', 'U', 'model', 'input', 'updates', MIGRATION_SOURCE, 'slice'];
   const wanted = new Set([BRAND_NAME, 'jsxs', 'charCodeAt', 'String', 'fromCharCode', ' ', '&', 'Diagnostics', 'string', 'push',
-    SUGGESTIONS_MESSAGE.id, ...words]);
+    SUGGESTIONS_MESSAGE.id, DATA_MESSAGE.id, ...words]);
   const ids = findStringIds(buf, L, wanted);
   const sid = {};
   for (const name of wanted) {
     if (ids.get(name).length !== 1) return skip(`string "${name}" not found exactly once`);
     sid[name] = ids.get(name)[0];
   }
-  if (sid.jsxs >= 256 || sid.charCodeAt >= 256 || sid.push >= 256 || sid.String >= 65536 || sid.fromCharCode >= 65536) {
+  if (sid.jsxs >= 256 || sid.charCodeAt >= 256 || sid.push >= 256 || sid.slice >= 256 || sid.String >= 65536 || sid.fromCharCode >= 65536) {
     return skip('string ids out of range');
   }
   for (const name of [' ', '&', 'Diagnostics', 'string']) if (sid[name] >= 65536) return skip(`string "${name}" needs a long index`);
@@ -797,10 +815,14 @@ export function applySettingsMenu(hbcBuffer) {
   if (!expectAt(L.lvOff + SUGGESTIONS_MESSAGE.literal, Buffer.concat([Buffer.from([0x41]), u32le(sid[SUGGESTIONS_MESSAGE.id])]))) {
     return skip(`{id:${SUGGESTIONS_MESSAGE.id}} literal not found`);
   }
+  if (!expectAt(L.lvOff + DATA_MESSAGE.literal, Buffer.concat([Buffer.from([0x41]), u32le(sid[DATA_MESSAGE.id])]))) {
+    return skip(`{id:${DATA_MESSAGE.id}} literal not found`);
+  }
 
   const resolve = pieces => pieces.map(p => {
     if (typeof p === 'string') return p;
     if (p.m) return { lit: SUGGESTIONS_MESSAGE.literal };
+    if (p.cap) return { cap: sid[p.cap], w: sid[p.w] };
     return { id: sid[p.s] };
   });
   const POS = key => MENU_ORDER.indexOf(key);
@@ -834,7 +856,8 @@ export function applySettingsMenu(hbcBuffer) {
   }
   emitLabel(A.emit, 39, ['连接与诊断'], 'all');
   emitLabel(A.emit, 40, [MENU_LABELS.zh.update], 'first');         // stored by T
-  A.far(OPX.JmpLong, 'tail');
+  emitLabel(A.emit, 19, ['迁移'], 'none');                         // r19 = suffix of the migrate label (M)
+  A.far(OPX.JmpLong, 'migrate');
   A.here('en');
   A.emit(ins(OPX.LoadConstString, 9, u16le(sid[' '])));
   A.emit(ins(OPX.Add, 39, 39, 9));
@@ -846,7 +869,23 @@ export function applySettingsMenu(hbcBuffer) {
   for (const key of NATIVE_ROWS) {
     emitLabel(A.emit, 40, resolve(MENU_EN_PIECES[key]), 'first');
     if (key !== 'update') A.emit(ins(90, 34, 40, POS(key)));
+    if (key === 'avatar') {                                       // the last String.fromCharCode call
+      A.emit(ins(OPX.GetByIdShort, 32, 9, 45, sid.slice));        // r32 = String.prototype.slice
+      A.emit(ins(139, 0, 1));                                     // r0 = 1 (word.slice(1))
+    }
   }
+  // r19 = " Migration": ' ' + 'previousSessionMigration'.slice(15) (no "Migration" string in the bundle).
+  A.emit(ins(OPX.LoadConstString, 19, u16le(sid[' '])));
+  A.emit(ins(OPX.LoadConstString, 9, u16le(sid[MIGRATION_SOURCE])));
+  A.emit(ins(139, 0, MIGRATION_SOURCE.indexOf('Migration')));
+  A.emit(ins(OPX.Call2, 9, 32, 9, 0));
+  A.emit(ins(OPX.Add, 19, 19, 9));
+  // M (both branches): r9 = i18n._({id:'HKH-W-'}) + r19 ("数据迁移" / "資料迁移" / "Data Migration"),
+  // stored into the spec by T.
+  A.here('migrate');
+  A.emit(ins(OPX.NewObjectWithBufferLong, 9, u32le(347), u32le(DATA_MESSAGE.literal)));
+  A.emit(ins(OPX.Call2, 9, 31, 1, 9));
+  A.emit(ins(OPX.Add, 9, 9, 19));
   A.far(OPX.JmpLong, 'tail');
 
   // B: rows (entered from +3809 with r34 = spec incl. the connection row, r38 = no-op onPress,
@@ -889,6 +928,7 @@ export function applySettingsMenu(hbcBuffer) {
   // T: shared tail of both label branches (+3778, falls into +3788).
   const T = rangeAsm(MENU_TAIL);
   T.emit(ins(90, 34, 40, POS('update')));
+  T.emit(ins(90, 34, 9, POS('migrate')));
   const tail = T.build({});
   // +3809: the connection row into the spec, then B.
   const C = rangeAsm(3809);

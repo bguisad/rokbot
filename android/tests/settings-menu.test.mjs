@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { patchHermesBundleSafely } from '../patchers/hermes.mjs';
 import {
-  MENU_LABELS, MENU_ORDER, SHEET_CHILD_INDEX, SUGGESTIONS_MESSAGE, applyConnectionEntry, applySettingsMenu, applySettingsRebrand,
+  DATA_MESSAGE, MENU_LABELS, MENU_ORDER, SHEET_CHILD_INDEX, SUGGESTIONS_MESSAGE, applyConnectionEntry, applySettingsMenu, applySettingsRebrand,
 } from '../patchers/hermes-settings.mjs';
 import { entryBytes, readZip } from '../patchers/signing.mjs';
 
@@ -144,6 +144,10 @@ function runFeedbackGroup(fn, messages, sid, memo) {
           out = self.push(args[0]);
         } else if (callee.kind === 'charCodeAt') {
           out = rd(u8(3)).charCodeAt(args[0]);
+        } else if (callee.name === 'slice') {
+          const self = rd(u8(3));
+          assert.equal(typeof self, 'string', `slice on a string at +${pc}`);
+          out = self.slice(args[0]);
         } else if (callee.name === 'fromCharCode') {
           out = String.fromCharCode(...args);
         } else if (callee.name === 'jsx' || callee.name === 'jsxs') {
@@ -179,7 +183,7 @@ test('Settings menu: fail closed on anything but the rokbot.3 settings sheet', (
 
 test('Settings menu: labels match the companion routing and the native page titles', () => {
   const boot = fs.readFileSync(path.join(SRC, 'RokBotBootstrap.java'), 'utf8');
-  for (const key of ['models', 'update', 'avatar', 'suggestions']) {
+  for (const key of ['models', 'update', 'avatar', 'suggestions', 'migrate']) {
     assert.ok(boot.includes(`matchesLabelOrCommaPrefix(s, "${MENU_LABELS.zh[key]}", false) || matchesLabelOrCommaPrefix(s, "${MENU_LABELS.en[key]}", true)`), key);
   }
   const row = '\\(paired && isInteractiveTarget && effW >= 240f && effH >= 40f && effH <= 140f\\)';
@@ -187,6 +191,7 @@ test('Settings menu: labels match the companion routing and the native page titl
   assert.match(boot, new RegExp(`matchesSoftwareUpdateLabel\\(s\\)\\) \\{\\s*return ${row} \\? UpdateActivity\\.class`));
   assert.match(boot, new RegExp(`matchesAvatarStyleLabel\\(s\\)\\) \\{\\s*return ${row} \\? AvatarStyleActivity\\.class`));
   assert.match(boot, new RegExp(`matchesSuggestionsSettingsLabel\\(s\\)\\) \\{\\s*return ${row} \\? SuggestionsSettingsActivity\\.class`));
+  assert.match(boot, new RegExp(`matchesDataMigrationLabel\\(s\\)\\) \\{\\s*return ${row} \\? MigrateActivity\\.class`));
   // Same wording as the pages they open.
   assert.ok(fs.readFileSync(path.join(SRC, 'ModelsActivity.java'), 'utf8').includes(`Localize.t(this, "${MENU_LABELS.zh.models}", "${MENU_LABELS.en.models}")`));
   const titles = file => {
@@ -249,7 +254,7 @@ test('Settings menu: the connection page no longer repeats first-level entries',
   const end = page.indexOf('private void confirmUnpair()');
   const body = page.slice(start, end);
   for (const gone of ['通知设置', '个人资料', '资料库', 'Bot 电脑', '"用量"', '模型设置', '检查更新', '回到 RokBot', '按最后消息排序', '"更多"',
-    'makePillButton(this, Localize.t(this, "修改连接"', 'Bot 动态图标', 'avatar style', '外观', '应用更新']) {
+    'makePillButton(this, Localize.t(this, "修改连接"', 'Bot 动态图标', 'avatar style', '外观', '应用更新', '数据迁移', 'MigrateActivity']) {
     assert.ok(!body.includes(gone), `connection page still has ${gone}`);
   }
   for (const kept of ['连接历史', '诊断', '测速', '修改连接', '断开并解除配对']) {
@@ -340,7 +345,8 @@ test('Settings menu: real 1.26.0 bundle gets the rokbot section, decoded and exe
       const n = Number(id);
       return { 44: 'String', 87: 'charCodeAt', 182: 'jsx', 183: 'jsxs', 12628: 'fromCharCode', 13382: ' ', 14250: '&', 38602: 'Diagnostics',
         37606: 'InsetGroup', 40009: 'InsetGroupNavRow', 75365: 'rokbot', 11408: 'Icon', 65679: 'Style', 11627: 'Settings',
-        14015: 'App', 13238: 'string', 214: 'push' }[n];
+        14015: 'App', 13238: 'string', 214: 'push', 175: 'slice', 11466: 'M', 11401: 'I', 12098: 'U',
+        25055: 'model', 148: 'input', 16022: 'updates', 13579: 'previousSessionMigration' }[n];
     },
   });
   const memo = [];
@@ -352,16 +358,17 @@ test('Settings menu: real 1.26.0 bundle gets the rokbot section, decoded and exe
   // The {id:'8J32PY'} literal ("Suggestions" / "建议") the English Input Suggestions label uses.
   assert.equal(SUGGESTIONS_MESSAGE.literal, 382263);
   const cases = [
-    ['连接', '连接与诊断', MENU_LABELS.zh, '建议'],
-    ['連線', '连接与诊断', MENU_LABELS.zh, '建議'],
-    ['Connection', 'Connection & Diagnostics', MENU_LABELS.en, 'Suggestions'],
-    ['Verbindung', 'Verbindung & Diagnostics', { ...MENU_LABELS.en, suggestions: 'Input Vorschläge' }, 'Vorschläge'],
+    ['连接', '连接与诊断', MENU_LABELS.zh, '建议', '数据'],
+    ['連線', '连接与诊断', { ...MENU_LABELS.zh, migrate: '資料迁移' }, '建議', '資料'],
+    ['Connection', 'Connection & Diagnostics', MENU_LABELS.en, 'Suggestions', 'Data'],
+    ['Verbindung', 'Verbindung & Diagnostics', { ...MENU_LABELS.en, suggestions: 'Input Vorschläge', migrate: 'Daten Migration' }, 'Vorschläge', 'Daten'],
   ];
-  assert.deepEqual(MENU_ORDER, ['avatar', 'appearance', 'language', 'usage', 'models', 'suggestions', 'connection', 'update']);
+  assert.equal(DATA_MESSAGE.literal, 354894);
+  assert.deepEqual(MENU_ORDER, ['avatar', 'appearance', 'language', 'usage', 'models', 'suggestions', 'migrate', 'connection', 'update']);
   // The former memo check (+3689) is the prologue now: the memoized group (slot 106) is never reused.
   assert.ok(!fn.subarray(3689, 3722).includes(Buffer.from([0x5e, 0x09, 0x07, 0x6a])), 'no GetByIndex r9, r7, 106 left');
-  for (const [i18nLabel, connLabel, labels, suggestionsWord] of cases) {
-    const messages = { [EXY_LITERAL]: i18nLabel, [SUGGESTIONS_MESSAGE.literal]: suggestionsWord };
+  for (const [i18nLabel, connLabel, labels, suggestionsWord, dataWord] of cases) {
+    const messages = { [EXY_LITERAL]: i18nLabel, [SUGGESTIONS_MESSAGE.literal]: suggestionsWord, [DATA_MESSAGE.literal]: dataWord };
     const { group, visited } = runFeedbackGroup(fn, messages, sid, memo);
     assert.ok(visited.has(3722) && visited.has(3788) && visited.has(3809), 'prologue, rokbot.3 row and tail all run');
     assert.notEqual(group, memo[106]);
@@ -369,18 +376,18 @@ test('Settings menu: real 1.26.0 bundle gets the rokbot section, decoded and exe
     assert.equal(group.props.shape, 10320, '{header, children}');
     assert.equal(group.props.slots[0], 'rokbot');
     const rows = group.props.slots[1];
-    assert.equal(rows.length, 8);
+    assert.equal(rows.length, 9);
     assert.equal(rows[1], memo[60], 'official Appearance row');
     assert.equal(rows[2], memo[71], 'official Language row');
     assert.equal(rows[3], memo[19], 'official Usage row');
-    const native = [0, 4, 5, 6, 7].map(i => rows[i]);
+    const native = [0, 4, 5, 6, 7, 8].map(i => rows[i]);
     for (const row of native) {
       assert.equal(row.element, 'InsetGroupNavRow');
       assert.equal(row.props.shape, 11202, '{label, onPress}: chevron row like the official ones');
       assert.equal(row.props.slots[1].kind, 'closure');
     }
     assert.deepEqual(native.map(row => row.props.slots[0]),
-      [labels.avatar, labels.models, labels.suggestions, connLabel, labels.update], i18nLabel);
+      [labels.avatar, labels.models, labels.suggestions, labels.migrate, connLabel, labels.update], i18nLabel);
     // One shared onPress: the rokbot.3 no-op.
     assert.ok(native.every(row => row.props.slots[1] === native[0].props.slots[1]));
   }

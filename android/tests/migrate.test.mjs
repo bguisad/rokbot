@@ -10,10 +10,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'companion/src/main/java/dev/rokbot/nativeapp');
 const read = name => fs.readFileSync(path.join(SRC, name), 'utf8');
 
-test('android migration: connection page entry opens the native migration page', () => {
+test('android migration: first-level settings row opens the native migration page', () => {
+  // rokbot.8: 数据迁移 / Data Migration is a row of the rokbot settings section (hermes-settings.mjs
+  // MENU_LABELS.migrate), routed by RokBotBootstrap; the connection page no longer repeats it.
+  const boot = read('RokBotBootstrap.java');
+  assert.match(boot, /matchesDataMigrationLabel\(s\)\) \{\s*return \(paired && isInteractiveTarget[^?]+\? MigrateActivity\.class/);
+  assert.match(boot, /matchesDataMigrationLabel\(s\)\) \{\s*return MigrateActivity\.class/);
   const pairing = read('PairingActivity.java');
-  assert.match(pairing, /new android\.content\.Intent\(this, MigrateActivity\.class\)/);
-  assert.match(pairing, /open_migrate_row/);
+  assert.doesNotMatch(pairing, /MigrateActivity|open_migrate_row/);
   const manifest = fs.readFileSync(path.join(ROOT, 'patchers/manifest.mjs'), 'utf8');
   assert.match(manifest, /upsertAppChild\('activity', 'dev\.rokbot\.nativeapp\.MigrateActivity'/);
 });

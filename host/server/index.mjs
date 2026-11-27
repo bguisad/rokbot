@@ -742,6 +742,10 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, method === 'GET' ? notificationSettings.current() : await notificationSettings.save(await jsonBody(request)));
     if (path === '/admin/api/suggestions/settings' && ['GET', 'PUT'].includes(method))
       return sendJson(response, 200, method === 'GET' ? suggestionsSettings.current() : await suggestionsSettings.updateSettings(await jsonBody(request, 64 * 1024)));
+    if (path === '/admin/api/suggestions/habits' && method === 'GET')
+      return sendJson(response, 200, suggestions.habitsSummary());
+    if ((path === '/admin/api/suggestions/habits' && method === 'DELETE') || (path === '/admin/api/suggestions/habits/clear' && method === 'POST'))
+      return sendJson(response, 200, await suggestions.clearHabits());
     if (path === '/admin/api/suggestions/phrases' && method === 'GET')
       return sendJson(response, 200, suggestionsSettings.listPhrases());
     if (path === '/admin/api/suggestions/phrases' && method === 'POST')
@@ -1176,6 +1180,30 @@ export async function createSelfHostServer(options = {}) {
       const found = device(request, web);
       limiter.check(`suggestions-phrases:${found.id}`, 60);
       return sendJson(response, 200, await suggestionsSettings.deletePhrase(localPhraseMatch[1]));
+    }
+    if (request.method === "POST" && path === "/local/suggestions/feedback") {
+      // A tapped suggestion or a dismissed strip: kept on this Host to rank this Bot's suggestions.
+      const found = device(request, web);
+      limiter.check(`suggestions-feedback:${found.id}`, 240);
+      const body = await jsonBody(request, 16 * 1024, { allowEmpty: true });
+      const rawAgentId = typeof body?.agentId === "string" ? body.agentId.trim() : "";
+      check(/^[A-Za-z0-9_-]{1,128}$/.test(rawAgentId), 400, "Bot ID 无效");
+      return sendJson(response, 200, await suggestions.feedback({
+        agentId: rawAgentId,
+        action: typeof body?.action === "string" ? body.action : "",
+        text: typeof body?.text === "string" ? body.text : "",
+        shown: Array.isArray(body?.shown) ? body.shown : [],
+      }));
+    }
+    if (path === "/local/suggestions/habits" && request.method === "GET") {
+      device(request, web);
+      return sendJson(response, 200, suggestions.habitsSummary());
+    }
+    if ((path === "/local/suggestions/habits" && request.method === "DELETE")
+      || (path === "/local/suggestions/habits/clear" && request.method === "POST")) {
+      const found = device(request, web);
+      limiter.check(`suggestions-habits:${found.id}`, 20);
+      return sendJson(response, 200, await suggestions.clearHabits());
     }
     if (request.method === "POST" && path === "/local/suggestions/complete") {
       const found = device(request, web);

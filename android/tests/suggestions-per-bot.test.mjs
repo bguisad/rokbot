@@ -299,7 +299,7 @@ test('Overlay: suggestions use the tracker only, validate answers before caching
   assert.ok(src.includes('static final int CHIP_TEXT_SP = 12;') && src.includes('static final int BAR_GAP_DP = 2;'));
   assert.ok(src.includes('label.setTextSize(TypedValue.COMPLEX_UNIT_SP, CHIP_TEXT_SP);'));
   assert.ok(src.includes('HorizontalScrollView') && src.includes('label.setSingleLine(true);'), 'one horizontally scrolling line');
-  assert.ok(src.includes('sBar.setVisibility(View.GONE);'), 'takes no space when hidden');
+  assert.ok(src.includes('bar.setVisibility(View.GONE);'), 'takes no space when hidden');
   assert.doesNotMatch(src, /grok/i);
   assert.doesNotMatch(src, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u, 'no emoji');
 

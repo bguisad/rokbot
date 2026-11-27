@@ -40,6 +40,8 @@
   const FOCUS_FETCH_DEBOUNCE_MS = 100;
   const DEFAULT_TIMEOUT_MS = 10_000;
   const MAX_AI_SUGGESTIONS = 3;
+  /** Strip show / hide / change: fade + 3px rise (matches .rokbot-suggestions--enter in workspace.css). */
+  const BAR_FADE_MS = 170;
   // After the chat on screen changes (another Bot, a new reply), the answer is prepared in the
   // background so focusing the composer shows it at once.
   const PREFETCH_DEBOUNCE_MS = 350;
@@ -63,6 +65,8 @@
       enabled: raw?.enabled !== false,
       aiEnabled: raw?.aiEnabled !== false,
       completionEnabled: raw?.completionEnabled !== false,
+      learningEnabled: raw?.learningEnabled !== false,
+      localCompletionEnabled: raw?.localCompletionEnabled !== false,
       quickPhrases: Array.isArray(raw?.quickPhrases)
         ? raw.quickPhrases
           .map(item => ({ id: String(item?.id ?? ''), text: String(item?.text ?? '').trim() }))
@@ -72,7 +76,8 @@
     };
   }
 
-  function mergeSuggestionItems(quickPhrases = [], aiSuggestions = []) {
+  /** Quick phrases, the model's items, then the user's own frequent messages (habits) to fill. */
+  function mergeSuggestionItems(quickPhrases = [], aiSuggestions = [], frequentSuggestions = []) {
     const items = [];
     const seen = new Set();
     for (const raw of Array.isArray(quickPhrases) ? quickPhrases : []) {
@@ -91,7 +96,54 @@
       seen.add(key);
       items.push({ type: 'ai', text });
     }
+    let room = MAX_AI_SUGGESTIONS - items.filter(item => item.type === 'ai').length;
+    for (const raw of Array.isArray(frequentSuggestions) ? frequentSuggestions : []) {
+      if (room <= 0) break;
+      const text = typeof raw === 'string' ? raw.trim() : String(raw?.text ?? '').trim();
+      if (!text) continue;
+      const key = text.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ type: 'frequent', text });
+      room--;
+    }
     return items;
+  }
+
+  const normalizeMatchKey = text => String(text ?? '').replace(/\u200b/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  /**
+   * Local completion while typing (no network): quick phrases and the messages the user often
+   * sends to this Bot that complete the draft. Prefix, then substring, then characters in order;
+   * never the draft itself. Same ranking as the Host's matchCompletions.
+   */
+  function matchCompletions(draft, pool = [], max = 3) {
+    const q = normalizeMatchKey(draft);
+    if (!q || !Array.isArray(pool) || max <= 0) return [];
+    const prefix = [];
+    const substring = [];
+    const fuzzy = [];
+    const seen = new Set();
+    for (const raw of pool) {
+      const text = typeof raw === 'string' ? raw.trim() : String(raw?.text ?? '').trim();
+      const key = normalizeMatchKey(text);
+      if (!key || key === q || key.length <= q.length || seen.has(key)) continue;
+      seen.add(key);
+      if (key.startsWith(q)) prefix.push(text);
+      else if (key.includes(q)) substring.push(text);
+      else if ([...q].length >= 2) {
+        let at = 0;
+        let ok = true;
+        for (const ch of q) {
+          if (ch === ' ') continue;
+          const found = key.indexOf(ch, at);
+          if (found < 0) { ok = false; break; }
+          at = found + ch.length;
+        }
+        if (ok) fuzzy.push(text);
+      }
+    }
+    return [...prefix, ...substring, ...fuzzy].slice(0, max);
   }
 
   function prefersReducedMotion(win = globalThis.window) {
@@ -588,6 +640,11 @@
     const motion = () => !prefersReducedMotion(win);
 
     const aiCache = new Map();
+    // Same keys: the user's frequent messages for that chat; per Bot: the local completion pool.
+    const frequentCache = new Map();
+    const candidatesByAgent = new Map();
+    let barSignature = '';
+    let barLeavingTimer = 0;
     let settingsState = normalizeSettings({});
     let settingsSyncedAt = 0;
     let settingsInFlight = null;
@@ -648,7 +705,43 @@
 
     const computeVisibleItems = () => {
       if (!settingsState.enabled) return [];
-      return mergeSuggestionItems(settingsState.quickPhrases, settingsState.aiEnabled ? activeAiSuggestions : []);
+      const frequent = settingsState.learningEnabled ? frequentCache.get(currentKey) ?? [] : [];
+      return mergeSuggestionItems(settingsState.quickPhrases, settingsState.aiEnabled ? activeAiSuggestions : [], frequent);
+    };
+
+    const localMatchItems = draft => {
+      if (!settingsState.enabled || !settingsState.localCompletionEnabled || completion.ghost) return [];
+      const agentId = currentAgentId(doc, getViewingAgentId);
+      const pool = [...settingsState.quickPhrases.map(item => item.text), ...(candidatesByAgent.get(agentId) ?? [])];
+      return matchCompletions(draft, pool, 3).map(text => ({ type: 'match', text }));
+    };
+
+    // Tap / dismiss -> the Host's habit learning (best effort, never blocks the UI).
+    const sendFeedback = (action, text, items) => {
+      if (!settingsState.learningEnabled) return;
+      const agentId = currentAgentId(doc, getViewingAgentId);
+      if (!agentId) return;
+      const shown = items.filter(item => item.type === 'ai' || item.type === 'frequent').map(item => item.text);
+      if (action === 'dismiss' && !shown.length) return;
+      try {
+        void Promise.resolve(request('/local/suggestions/feedback', { agentId, action, text, shown }, undefined, 'POST')).catch(() => {});
+      } catch {}
+    };
+
+    // Hide with a short fade + 3px drop (instant with reduced motion); a show in between cancels it.
+    const hideBarAnimated = el => {
+      if (el.hidden) return;
+      if (!motion()) { el.hidden = true; el.classList.remove('rokbot-suggestions--leaving'); barSignature = ''; return; }
+      if (el.classList.contains('rokbot-suggestions--leaving')) return;
+      el.classList.remove('rokbot-suggestions--enter', 'rokbot-suggestions--swap');
+      el.classList.add('rokbot-suggestions--leaving');
+      clearTimeout(barLeavingTimer);
+      barLeavingTimer = setTimeout(() => {
+        if (!el.classList.contains('rokbot-suggestions--leaving')) return;
+        el.classList.remove('rokbot-suggestions--leaving');
+        el.hidden = true;
+        barSignature = '';
+      }, BAR_FADE_MS);
     };
 
     function skeletonList(count = 3) {
@@ -682,19 +775,36 @@
       attachComposerListeners(form, input);
 
       const focusedNow = !suppressUntilRefocus && (composerFocused || isInputFocused(input, doc));
-      const hasDraft = extractComposerText(input).length > 0;
-      const items = computeVisibleItems();
-      const showSkeleton = loading.phase === 'loading' && settingsState.enabled && settingsState.aiEnabled;
-      if (!focusedNow || !settingsState.enabled || hasDraft || dismissedKey === currentKey || (items.length === 0 && !showSkeleton)) {
-        el.hidden = true;
+      const draftText = extractComposerText(input);
+      const hasDraft = draftText.length > 0;
+      const matchMode = hasDraft && focusedNow;
+      const items = matchMode ? localMatchItems(draftText) : computeVisibleItems();
+      const showSkeleton = !matchMode && loading.phase === 'loading' && settingsState.enabled && settingsState.aiEnabled;
+      if (!focusedNow || !settingsState.enabled || (!matchMode && dismissedKey === currentKey)
+        || (matchMode && dismissedKey === `match:${draftText}`) || (items.length === 0 && !showSkeleton)) {
+        hideBarAnimated(el);
         el.removeAttribute('aria-busy');
         return;
       }
+      const signature = `${showSkeleton ? 'S' : ''}${items.map(item => `${item.type}=${item.text}`).join('\u001f')}`;
+      const wasHidden = el.hidden || el.classList.contains('rokbot-suggestions--leaving');
+      if (!wasHidden && signature === barSignature) return;   // nothing changed: no re-render, no motion
       const zh = zhNow();
       // The strip takes room above the composer: keep the last message in view when it appears.
       const pin = el.hidden ? transcriptBottomPin(doc) : null;
       el.setAttribute('aria-label', t(zh, '输入建议', 'Suggested replies'));
       if (showSkeleton) el.setAttribute('aria-busy', 'true'); else el.removeAttribute('aria-busy');
+      clearTimeout(barLeavingTimer);
+      el.classList.remove('rokbot-suggestions--leaving', 'rokbot-suggestions--enter', 'rokbot-suggestions--swap');
+      if (motion()) {
+        // Appear: fade in + 3px rise. Another set of items (not the skeleton -> chips reveal): soft swap.
+        const swapped = !wasHidden && barSignature && !barSignature.startsWith('S') && !showSkeleton;
+        if (wasHidden || swapped) {
+          void el.offsetWidth;
+          el.classList.add(wasHidden ? 'rokbot-suggestions--enter' : 'rokbot-suggestions--swap');
+        }
+      }
+      barSignature = signature;
       el.hidden = false;
       el.textContent = '';
       clearTimeout(leavingTimer);
@@ -715,16 +825,32 @@
         }
         const iconSpan = doc.createElement('span');
         iconSpan.className = 'rokbot-suggestions__chip-icon';
-        iconSpan.innerHTML = item.type === 'phrase' ? ICONS.phrase : ICONS.sparkle;
+        iconSpan.innerHTML = item.type === 'ai' ? ICONS.sparkle : ICONS.phrase;
         const labelSpan = doc.createElement('span');
         labelSpan.className = 'rokbot-suggestions__chip-text';
         labelSpan.textContent = item.text;
         chip.append(iconSpan, labelSpan);
+        if (item.type === 'match') {
+          chip.title = t(zh, '填入输入框', 'Fill the input');
+          // Local completion: replace the draft, do not send.
+          chip.addEventListener('click', () => {
+            const liveForm = doc.querySelector('.sand-prompt-form');
+            completion.clear();
+            hideGhost();
+            insertSuggestionText(findComposerInput(liveForm), item.text, doc);
+            barSignature = '';
+            el.hidden = true;
+          });
+          scroller.appendChild(chip);
+          continue;
+        }
         chip.addEventListener('click', () => {
           const liveForm = doc.querySelector('.sand-prompt-form');
+          if (item.type !== 'phrase') sendFeedback('tap', item.text, items);
           composerFocused = false;
           suppressUntilRefocus = true;
           el.hidden = true;
+          barSignature = '';
           completion.clear();
           sendSuggestionText(liveForm, findComposerInput(liveForm), item.text, doc);
         });
@@ -744,7 +870,13 @@
       dismiss.className = 'rokbot-suggestions__dismiss';
       dismiss.setAttribute('aria-label', t(zh, '隐藏建议', 'Dismiss suggestions'));
       dismiss.innerHTML = ICONS.close;
-      dismiss.addEventListener('click', () => { dismissedKey = currentKey; loading.reset(); renderBar(); });
+      dismiss.addEventListener('click', () => {
+        if (matchMode) { dismissedKey = `match:${draftText}`; renderBar(); return; }
+        sendFeedback('dismiss', '', items);
+        dismissedKey = currentKey;
+        loading.reset();
+        renderBar();
+      });
       el.appendChild(dismiss);
       pin?.();
     }
@@ -790,6 +922,19 @@
           const items = Array.isArray(res?.aiSuggestions)
             ? res.aiSuggestions.filter(item => typeof item === 'string' && item.trim()).slice(0, MAX_AI_SUGGESTIONS)
             : [];
+          if (Array.isArray(res?.frequentSuggestions)) {
+            frequentCache.delete(key);
+            frequentCache.set(key, res.frequentSuggestions.filter(item => typeof item === 'string' && item.trim()).slice(0, MAX_AI_SUGGESTIONS));
+            while (frequentCache.size > MAX_CLIENT_CACHE) frequentCache.delete(frequentCache.keys().next().value);
+          }
+          if (Array.isArray(res?.completionCandidates)) {
+            candidatesByAgent.set(agentId, res.completionCandidates.filter(item => typeof item === 'string' && item.trim()).slice(0, 60));
+          }
+          if (res && (typeof res.learningEnabled === 'boolean' || typeof res.localCompletionEnabled === 'boolean')) {
+            settingsState = normalizeSettings({ ...settingsState,
+              learningEnabled: res.learningEnabled ?? settingsState.learningEnabled,
+              localCompletionEnabled: res.localCompletionEnabled ?? settingsState.localCompletionEnabled });
+          }
           const ok = res?.source === 'model' && items.length > 0;
           if (ok) setCachedAi(key, items);
           return { ok, items, res };
@@ -1075,6 +1220,7 @@
         locale,
         document: doc,
         getState: () => settingsState,
+        onHabitsCleared: () => { frequentCache.clear(); candidatesByAgent.clear(); aiCache.clear(); renderBar(); },
         onStateChange: next => {
           settingsState = normalizeSettings(next);
           settingsSyncedAt = Date.now();
@@ -1099,6 +1245,7 @@
     return () => {
       clearTimeout(debounceTimer);
       clearTimeout(leavingTimer);
+      clearTimeout(barLeavingTimer);
       clearTimeout(prefetchTimer);
       observer.disconnect();
       completion.dispose();
@@ -1117,7 +1264,7 @@
   // (close button, pane header, .sand-settings-panel__body). The entry is one more nav button with the
   // official classes; while it is selected the official header and body are hidden and the page shows.
 
-  function installSuggestionsSettingsPage({ request, locale = '', getState, onStateChange, document: doc = globalThis.document } = {}) {
+  function installSuggestionsSettingsPage({ request, locale = '', getState, onStateChange, onHabitsCleared, document: doc = globalThis.document } = {}) {
     if (!doc || typeof request !== 'function') return { updateState() {}, destroy() {} };
     let state = normalizeSettings(getState?.() ?? {});
     let loadingSettings = false;
@@ -1125,6 +1272,8 @@
     let editingId = null;
     let editingValue = '';
     let statusError = '';
+    let statusNote = '';
+    let clearArmed = false;
     let open = false;
     let page = null;
     let navButton = null;
@@ -1336,6 +1485,51 @@
         switchRow('rokbot-setting-completion-enabled', t(isZh, '输入补全', 'Inline completion'),
           t(isZh, '打字时以灰色文字预测后半句，按 Tab 或右方向键接受', 'Predict the rest of your sentence as gray text; press Tab or Right Arrow to accept'),
           state.completionEnabled, false, () => save({ completionEnabled: !state.completionEnabled }, t(isZh, '保存失败', 'Could not save setting'))),
+      ));
+
+      // Habits: learned on the Host from this user's own messages and picks.
+      const clearRow = doc.createElement('div');
+      clearRow.className = 'rokbot-sug-settings__row rokbot-sug-settings__row--action';
+      const clearCopy = doc.createElement('div');
+      clearCopy.className = 'rokbot-sug-settings__copy';
+      const clearTitle = doc.createElement('div');
+      clearTitle.className = 'rokbot-sug-settings__label';
+      clearTitle.textContent = t(isZh, '清空学习记录', 'Clear learned habits');
+      const clearDesc = doc.createElement('div');
+      clearDesc.className = 'rokbot-sug-settings__desc';
+      clearDesc.textContent = statusNote || t(isZh, '删除 Host 上为每个 Bot 学到的常用说法和点选记录，常用语不受影响',
+        'Delete the habits and picks learned for every Bot on your Host; quick phrases are kept');
+      clearCopy.append(clearTitle, clearDesc);
+      const clearBtn = doc.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.id = 'rokbot-setting-suggestions-clear-habits';
+      clearBtn.className = 'rokbot-sug-settings__add-btn rokbot-sug-settings__danger-btn';
+      clearBtn.textContent = clearArmed ? t(isZh, '确认清空', 'Confirm') : t(isZh, '清空', 'Clear');
+      clearBtn.addEventListener('click', async () => {
+        if (!clearArmed) { clearArmed = true; statusNote = ''; renderPage(); return; }
+        clearArmed = false;
+        clearBtn.disabled = true;
+        try {
+          await request('/local/suggestions/habits', null, undefined, 'DELETE');
+          statusNote = t(isZh, '已清空学习记录', 'Learned habits cleared');
+          onHabitsCleared?.();
+        } catch (err) {
+          statusError = err?.message || t(isZh, '清空失败', 'Could not clear');
+        }
+        renderPage();
+      });
+      clearRow.append(clearCopy, clearBtn);
+      body.appendChild(section(
+        t(isZh, '个性化', 'Personalization'),
+        switchRow('rokbot-setting-suggestions-learning', t(isZh, '根据习惯学习', 'Learn from my habits'),
+          t(isZh, '参考你常发的话和点选记录，让建议更像你会说的话；仅保存在你的 Host 上',
+            'Use the messages you often send and the suggestions you pick; stored only on your Host'),
+          state.learningEnabled, !state.enabled, () => save({ learningEnabled: !state.learningEnabled }, t(isZh, '保存失败', 'Could not save setting'))),
+        switchRow('rokbot-setting-suggestions-local-completion', t(isZh, '本地补全', 'Local completion'),
+          t(isZh, '输入时匹配常用语和你常发的话，点击填入输入框（不发送）',
+            'While typing, match quick phrases and your frequent messages; click to fill the input (not sent)'),
+          state.localCompletionEnabled, !state.enabled, () => save({ localCompletionEnabled: !state.localCompletionEnabled }, t(isZh, '保存失败', 'Could not save setting'))),
+        clearRow,
       ));
 
       const phrases = doc.createElement('div');
@@ -1576,6 +1770,8 @@
     countChars,
     normalizeSettings,
     mergeSuggestionItems,
+    matchCompletions,
+    BAR_FADE_MS,
     prefersReducedMotion,
     createLoadingMachine,
     createCompletionController,

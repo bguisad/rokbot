@@ -503,6 +503,36 @@ public class HostApiClient {
         return requireJsonObject(res);
     }
 
+    /** PUT /local/suggestions/settings with the habit switches (null = unchanged). */
+    public static JSONObject updateSuggestionsLearning(Context context, Boolean learningEnabled,
+                                                       Boolean localCompletionEnabled) throws Exception {
+        JSONObject req = new JSONObject();
+        if (learningEnabled != null) req.put("learningEnabled", learningEnabled.booleanValue());
+        if (localCompletionEnabled != null) req.put("localCompletionEnabled", localCompletionEnabled.booleanValue());
+        HttpResult res = authedRequest(context, "PUT", "/local/suggestions/settings", req, 10000, null);
+        return requireJsonObject(res);
+    }
+
+    /** POST /local/suggestions/feedback: a suggestion was tapped, or the strip dismissed. */
+    public static JSONObject suggestionsFeedback(Context context, String agentId, String action, String text,
+                                                 java.util.List<String> shown) throws Exception {
+        JSONObject req = new JSONObject();
+        req.put("agentId", agentId != null ? agentId : "");
+        req.put("action", action != null ? action : "");
+        req.put("text", text != null ? text : "");
+        JSONArray arr = new JSONArray();
+        if (shown != null) for (String s : shown) arr.put(s);
+        req.put("shown", arr);
+        HttpResult res = authedRequest(context, "POST", "/local/suggestions/feedback", req, 8000, null);
+        return requireJsonObject(res);
+    }
+
+    /** DELETE /local/suggestions/habits: 清空学习记录. */
+    public static JSONObject clearSuggestionHabits(Context context) throws Exception {
+        HttpResult res = authedRequest(context, "DELETE", "/local/suggestions/habits", null, 10000, null);
+        return requireJsonObject(res);
+    }
+
     public static JSONObject addQuickPhrase(Context context, String text) throws Exception {
         JSONObject req = new JSONObject();
         req.put("text", text != null ? text : "");
