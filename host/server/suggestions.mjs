@@ -659,7 +659,7 @@ export class SuggestionsService {
       }
     }
 
-    const task = this.#generateFromModel(route, history, lang, cacheKey);
+    const task = this.#generateFromModel(route, history, lang, cacheKey, agentId);
     this.inFlight.set(cacheKey, task);
     try {
       const outcome = await task;
@@ -694,7 +694,7 @@ export class SuggestionsService {
   }
 
   /** Streams one short model answer; aborts after timeoutMs or when `signal` aborts. */
-  async #streamText(route, messages, { timeoutMs, maxTokens, kind, label, signal }) {
+  async #streamText(route, messages, { timeoutMs, maxTokens, kind, label, signal, agentId }) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`${label} request timed out`)), timeoutMs);
     timer.unref?.();
@@ -711,7 +711,7 @@ export class SuggestionsService {
           inner?.throwIfAborted();
           return { ...route, requestOptions: reasoningOptions(route.model, route.effort), fallbacks: [] };
         },
-        onUsage: async ({ raw, model, requestId }) => {
+        onUsage: async usage => {
           if (!this.usageDirectory) return;
           await recordUsage(this.usageDirectory, { raw, model, kind, requestId }).catch(() => {});
         },
@@ -735,10 +735,10 @@ export class SuggestionsService {
     }
   }
 
-  async #generateFromModel(route, history, lang, cacheKey) {
+  async #generateFromModel(route, history, lang, cacheKey, agentId) {
     try {
       const output = await this.#streamText(route, buildSuggestionMessages(history, lang), {
-        timeoutMs: this.timeoutMs, maxTokens: 256, kind: 'suggestions', label: 'composer-suggestions',
+        timeoutMs: this.timeoutMs, maxTokens: 256, kind: 'suggestions', label: 'composer-suggestions', agentId,
       });
       const parsed = parseSuggestionResponse(output);
       if (parsed.length === 0) {
@@ -819,6 +819,7 @@ export class SuggestionsService {
           kind: 'suggestions',
           label: 'composer-completion',
           signal,
+          agentId,
         });
         const completion = parseCompletionResponse(output, draft);
         this.#setCompletionCached(cacheKey, completion);

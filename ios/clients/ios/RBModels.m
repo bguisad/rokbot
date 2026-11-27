@@ -354,14 +354,92 @@ NSDictionary *RBModelsBuildSavePayload(
   return payload;
 }
 
+NSArray<NSString *> *RBModelsScenarioKeys(void) {
+  return @[ @"suggestions", @"summarization", @"memoryExtraction", @"autoReview", @"subagent", @"automation" ];
+}
+
+NSDictionary *RBModelsCleanScenarioRoutes(NSDictionary *routes, NSArray<NSDictionary *> *profiles) {
+  if (![routes isKindOfClass:NSDictionary.class]) return @{};
+  NSMutableDictionary<NSString *, NSArray *> *effortsById = [NSMutableDictionary dictionary];
+  for (NSDictionary *profile in [profiles isKindOfClass:NSArray.class] ? profiles : @[]) {
+    if (![profile isKindOfClass:NSDictionary.class]) continue;
+    NSString *pid = RBModelsTrimmedString(profile[@"id"]);
+    if (pid.length) effortsById[pid] = RBModelsAsArray(profile[@"efforts"]) ?: @[];
+  }
+  NSMutableDictionary *out = [NSMutableDictionary dictionary];
+  for (NSString *key in RBModelsScenarioKeys()) {
+    NSDictionary *route = RBModelsAsDict(routes[key]);
+    NSString *pid = RBModelsTrimmedString(route[@"profileId"]);
+    if (!pid.length || !effortsById[pid]) continue;
+    NSString *effort = RBModelsTrimmedString(route[@"effort"]);
+    if (!effort.length || (![effort isEqualToString:@"default"] && ![effortsById[pid] containsObject:effort]))
+      effort = @"default";
+    out[key] = @{ @"profileId" : pid, @"effort" : effort };
+  }
+  return out;
+}
+
+NSDictionary *RBModelsAttachRoutingExtras(NSDictionary *payload, NSDictionary *scenarioRoutes,
+                                          NSDictionary *adaptiveRouting, NSArray<NSDictionary *> *profiles) {
+  if (![payload isKindOfClass:NSDictionary.class]) return payload;
+  NSMutableDictionary *out = [payload mutableCopy];
+  // Always send scenarioRoutes so a save from iOS never silently drops scenarios set elsewhere.
+  out[@"scenarioRoutes"] = RBModelsCleanScenarioRoutes(scenarioRoutes, profiles);
+  NSDictionary *adaptive = RBModelsAsDict(adaptiveRouting);
+  if (adaptive.count) out[@"adaptiveRouting"] = adaptive;
+  return out;
+}
+
+NSString *RBModelsRouteSummary(NSDictionary *route, NSArray<NSDictionary *> *profiles, BOOL chinese) {
+  NSString *pid = RBModelsTrimmedString(RBModelsAsDict(route)[@"profileId"]);
+  if (!pid.length) return chinese ? @"跟随默认" : @"Follow default";
+  NSDictionary *found = nil;
+  for (NSDictionary *profile in [profiles isKindOfClass:NSArray.class] ? profiles : @[])
+    if ([RBModelsTrimmedString(RBModelsAsDict(profile)[@"id"]) isEqualToString:pid]) found = profile;
+  NSString *name = RBModelsTrimmedString(found[@"name"]);
+  NSString *model = RBModelsTrimmedString(found[@"model"]);
+  NSString *base = name.length ? name : pid;
+  if (model.length) base = [NSString stringWithFormat:@"%@ · %@", base, model];
+  NSString *effort = RBModelsTrimmedString(route[@"effort"]);
+  return (!effort.length || [effort isEqualToString:@"default"]) ? base : [NSString stringWithFormat:@"%@ (%@)", base, effort];
+}
+
 #if TARGET_OS_IOS
 
+#import "RBChoiceSheet.h"
+#import "RBGroupCreate.h"
+#import "RBHostAPI.h"
+#import "RBTheme.h"
 #import "RBConnection.h"
 #import "RBHTTP.h"
 #import "RBLocalize.h"
 #import "RBNetwork.h"
 #import <CommonCrypto/CommonDigest.h>
 #import <UIKit/UIKit.h>
+
+static NSString *RBModelsFormatTitle(NSString *format) {
+  if ([format isEqualToString:@"openai-responses"]) return @"OpenAI Responses";
+  if ([format isEqualToString:@"anthropic"]) return @"Anthropic Messages";
+  return @"OpenAI Chat Completions";
+}
+
+// RokBot choice row: title, value and a vector chevron; opens an RBChoiceSheet on tap.
+static UITableViewCell *RBModelsChoiceCell(NSString *title, NSString *value) {
+  UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
+  cell.textLabel.text = title;
+  cell.textLabel.font = RBThemeFont(15, UIFontWeightRegular);
+  cell.textLabel.adjustsFontForContentSizeCategory = YES;
+  cell.textLabel.textColor = RBThemeTextPrimary();
+  cell.detailTextLabel.text = value;
+  cell.detailTextLabel.font = RBThemeFont(15, UIFontWeightRegular);
+  cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
+  cell.detailTextLabel.textColor = RBThemeTextSecondary();
+  UIImageView *chevron = [[UIImageView alloc] initWithImage:RBGlyphImage(RBGlyphChevronDown, 18, 1.8)];
+  chevron.tintColor = RBThemeTextMuted();
+  cell.accessoryView = chevron;
+  cell.accessibilityTraits |= UIAccessibilityTraitButton;
+  return cell;
+}
 
 static BOOL RBOnboardingPromptVisible = NO;
 static BOOL RBOnboardingCheckInFlight = NO;
@@ -591,6 +669,9 @@ void RBCheckModelOnboardingIfNeeded(void) {
 @property(nonatomic, strong) NSMutableArray<NSMutableDictionary *> *profiles;
 @property(nonatomic, strong) NSMutableDictionary *defaultRoute;
 @property(nonatomic, copy) NSDictionary *botRoutes;
+@property(nonatomic, strong) NSMutableDictionary *scenarioRoutes;
+@property(nonatomic, copy) NSDictionary *adaptiveRouting;
+@property(nonatomic, copy) NSArray<NSDictionary *> *agents;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *pendingApiKeys;
 @property(nonatomic, assign) BOOL routingMigrated;
 @property(nonatomic, assign) BOOL legacyAdaptiveRouting;
@@ -625,7 +706,7 @@ void RBCheckModelOnboardingIfNeeded(void) {
 @property(nonatomic, strong) NSMutableDictionary *provider;
 @property(nonatomic, assign) BOOL isNew;
 @property(nonatomic, strong) UITextField *nameField;
-@property(nonatomic, strong) UISegmentedControl *formatControl;
+@property(nonatomic, copy) NSString *selectedFormat;
 @property(nonatomic, strong) UITextField *baseUrlField;
 @property(nonatomic, strong) UITextField *apiKeyField;
 @property(nonatomic, copy) void (^onSave)(NSMutableDictionary *provider, NSString *newApiKey);
@@ -676,11 +757,7 @@ void RBCheckModelOnboardingIfNeeded(void) {
                        placeholder:RBL(@"例如 OpenAI / DeepSeek", @"e.g. OpenAI / DeepSeek")
                             secure:NO];
   NSString *fmt = RBModelsAsString(self.provider[@"apiFormat"]) ?: @"openai";
-  self.formatControl = [[UISegmentedControl alloc] initWithItems:@[ @"OpenAI", @"Responses", @"Anthropic" ]];
-  self.formatControl.translatesAutoresizingMaskIntoConstraints = NO;
-  NSInteger idx = [RBModelsValidFormats() indexOfObject:fmt];
-  self.formatControl.selectedSegmentIndex = idx == NSNotFound ? 0 : idx;
-  [self.formatControl addTarget:self action:@selector(formatChanged) forControlEvents:UIControlEventValueChanged];
+  self.selectedFormat = [RBModelsValidFormats() containsObject:fmt] ? fmt : @"openai";
 
   self.baseUrlField = [self makeField:RBModelsAsString(self.provider[@"baseUrl"]) ?: @""
                           placeholder:RBModelsDefaultBaseURLForFormat(fmt)
@@ -697,7 +774,7 @@ void RBCheckModelOnboardingIfNeeded(void) {
                               secure:YES];
 }
 - (void)formatChanged {
-  NSString *selected = RBModelsValidFormats()[self.formatControl.selectedSegmentIndex];
+  NSString *selected = self.selectedFormat ?: @"openai";
   NSString *current = RBModelsTrimmedString(self.baseUrlField.text);
   if (!current.length || [current isEqualToString:@"https://api.openai.com/v1"] ||
       [current isEqualToString:@"https://api.anthropic.com"]) {
@@ -707,7 +784,7 @@ void RBCheckModelOnboardingIfNeeded(void) {
 }
 - (void)doneTapped {
   NSString *name = RBModelsTrimmedString(self.nameField.text);
-  NSString *fmt = RBModelsValidFormats()[self.formatControl.selectedSegmentIndex];
+  NSString *fmt = self.selectedFormat ?: @"openai";
   NSString *baseUrl = RBModelsTrimmedString(self.baseUrlField.text);
   while ([baseUrl hasSuffix:@"/"])
     baseUrl = [baseUrl substringToIndex:baseUrl.length - 1];
@@ -790,15 +867,8 @@ void RBCheckModelOnboardingIfNeeded(void) {
     if (indexPath.row == 0)
       return [self layoutField:self.nameField inTitle:RBL(@"名称", @"Name")];
     if (indexPath.row == 1) {
-      UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-      cell.selectionStyle = UITableViewCellSelectionStyleNone;
-      [cell.contentView addSubview:self.formatControl];
-      [NSLayoutConstraint activateConstraints:@[
-        [self.formatControl.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor],
-        [self.formatControl.trailingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
-        [self.formatControl.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:8],
-        [self.formatControl.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-8]
-      ]];
+      UITableViewCell *cell = RBModelsChoiceCell(RBL(@"接口格式", @"API Format"), RBModelsFormatTitle(self.selectedFormat));
+      cell.accessibilityIdentifier = @"rokbot.models.provider-format";
       return cell;
     }
     if (indexPath.row == 2)
@@ -813,9 +883,21 @@ void RBCheckModelOnboardingIfNeeded(void) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
   [tableView deselectRowAtIndexPath:indexPath animated:YES];
+  if (indexPath.section == 0 && indexPath.row == 1) {
+    NSMutableArray<RBChoiceOption *> *options = [NSMutableArray array];
+    for (NSString *format in RBModelsValidFormats())
+      [options addObject:[RBChoiceOption optionWithValue:format title:RBModelsFormatTitle(format) subtitle:RBModelsDefaultBaseURLForFormat(format)]];
+    [[RBChoiceSheet sheetWithTitle:RBL(@"接口格式", @"API Format") message:nil options:options selected:self.selectedFormat
+                          onSelect:^(RBChoiceOption *option) {
+                            self.selectedFormat = option.value;
+                            [self formatChanged];
+                            [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+                          }] presentFrom:self];
+    return;
+  }
   if (indexPath.section != 1)
     return;
-  NSString *fmt = RBModelsValidFormats()[self.formatControl.selectedSegmentIndex];
+  NSString *fmt = self.selectedFormat ?: @"openai";
   NSString *baseUrl = RBModelsTrimmedString(self.baseUrlField.text);
   while ([baseUrl hasSuffix:@"/"])
     baseUrl = [baseUrl substringToIndex:baseUrl.length - 1];
@@ -1023,11 +1105,9 @@ void RBCheckModelOnboardingIfNeeded(void) {
     if (indexPath.row == 0)
       return [self layoutField:self.nameField inTitle:RBL(@"名称", @"Name")];
     if (indexPath.row == 1) {
-      UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-      cell.textLabel.text = RBL(@"模型服务", @"Provider");
       NSDictionary *p = [self providerForId:self.selectedProviderId];
-      cell.detailTextLabel.text = RBModelsAsString(p[@"name"]) ?: RBL(@"请选择", @"Select");
-      cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+      UITableViewCell *cell = RBModelsChoiceCell(RBL(@"模型服务", @"Provider"), RBModelsAsString(p[@"name"]) ?: RBL(@"请选择", @"Select"));
+      cell.accessibilityIdentifier = @"rokbot.models.profile-provider";
       return cell;
     }
     if (indexPath.row == 2)
@@ -1061,24 +1141,19 @@ void RBCheckModelOnboardingIfNeeded(void) {
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
   [tableView deselectRowAtIndexPath:indexPath animated:YES];
   if (indexPath.section == 0 && indexPath.row == 1) {
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:RBL(@"选择模型服务", @"Select Provider")
-                                                                   message:nil
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    NSMutableArray<RBChoiceOption *> *options = [NSMutableArray array];
     for (NSDictionary *p in self.parentModels.providers) {
       NSString *pid = RBModelsAsString(p[@"id"]) ?: @"";
-      NSString *title = RBModelsAsString(p[@"name"]) ?: pid;
-      [sheet addAction:[UIAlertAction actionWithTitle:title
-                                                style:UIAlertActionStyleDefault
-                                              handler:^(UIAlertAction *a) {
-                                                self.selectedProviderId = pid;
-                                                [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
-                                              }]];
+      [options addObject:[RBChoiceOption optionWithValue:pid
+                                                   title:RBModelsAsString(p[@"name"]) ?: pid
+                                                subtitle:RBModelsFormatTitle(RBModelsAsString(p[@"apiFormat"]))]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-    sheet.popoverPresentationController.sourceView = cell ?: self.view;
-    sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
-    [self presentViewController:sheet animated:YES completion:nil];
+    [[RBChoiceSheet sheetWithTitle:RBL(@"选择模型服务", @"Select Provider") message:nil options:options
+                          selected:self.selectedProviderId
+                          onSelect:^(RBChoiceOption *option) {
+                            self.selectedProviderId = option.value;
+                            [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+                          }] presentFrom:self];
     return;
   }
   if (indexPath.section == 0 && indexPath.row == 3) {
@@ -1158,6 +1233,8 @@ void RBCheckModelOnboardingIfNeeded(void) {
     _profiles = [NSMutableArray array];
     _defaultRoute = [@{ @"profileId" : @"", @"effort" : @"default", @"fallbacks" : @[] } mutableCopy];
     _botRoutes = @{};
+    _scenarioRoutes = [NSMutableDictionary dictionary];
+    _agents = @[];
     _pendingApiKeys = [NSMutableDictionary dictionary];
     _reloadState = @{};
   }
@@ -1187,6 +1264,56 @@ void RBCheckModelOnboardingIfNeeded(void) {
   [refresh addTarget:self action:@selector(loadModelConfig) forControlEvents:UIControlEventValueChanged];
   self.refreshControl = refresh;
   [self loadModelConfig];
+  [self loadAgents];
+}
+
+- (void)loadAgents {
+  RBHostRequest(@"POST", @"/api/listAgents", @{}, 20, ^(NSInteger status, id json, NSError *error) {
+    if (status < 200 || status >= 300) return;
+    self.agents = RBGroupEligibleBots(json);
+    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:3] withRowAnimation:UITableViewRowAnimationNone];
+  });
+}
+
+- (NSArray<NSDictionary *> *)botRouteEntries {
+  NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+  NSMutableSet<NSString *> *seen = [NSMutableSet set];
+  for (NSDictionary *agent in self.agents) {
+    NSString *agentId = RBModelsAsString(agent[@"id"]) ?: @"";
+    if (!agentId.length || [seen containsObject:agentId]) continue;
+    [seen addObject:agentId];
+    [entries addObject:@{ @"id" : agentId, @"name" : RBModelsAsString(agent[@"name"]) ?: agentId }];
+  }
+  for (NSString *agentId in [self.botRoutes.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+    if ([seen containsObject:agentId]) continue;
+    [seen addObject:agentId];
+    [entries addObject:@{ @"id" : agentId, @"name" : agentId }];
+  }
+  return entries;
+}
+
+- (NSString *)scenarioTitle:(NSString *)key {
+  NSDictionary *titles = @{
+    @"suggestions" : RBL(@"输入建议", @"Input Suggestions"),
+    @"summarization" : RBL(@"上下文压缩与摘要", @"Summarization & Compaction"),
+    @"memoryExtraction" : RBL(@"记忆提取", @"Memory Extraction"),
+    @"autoReview" : RBL(@"自动审核分类器", @"Auto-Review Classifier"),
+    @"subagent" : RBL(@"子任务 Agent", @"Subagents"),
+    @"automation" : RBL(@"定时任务与自动化", @"Automations & Routines"),
+  };
+  return titles[key] ?: key;
+}
+
+- (NSString *)scenarioSubtitle:(NSString *)key {
+  NSDictionary *titles = @{
+    @"suggestions" : RBL(@"聊天输入框快捷建议生成，推荐轻量快速模型", @"Chat composer quick suggestions; a fast model is recommended"),
+    @"summarization" : RBL(@"长对话历史压缩与摘要生成", @"Long conversation compaction and summaries"),
+    @"memoryExtraction" : RBL(@"对话后自动提炼长期记忆", @"Post-turn long-term memory extraction"),
+    @"autoReview" : RBL(@"敏感工具调用的风险自动判定", @"Safety classification for risky tool calls"),
+    @"subagent" : RBL(@"后台子代理与并发任务执行", @"Background subagent and helper runs"),
+    @"automation" : RBL(@"定时触发的自动运行任务", @"Scheduled routine and automation runs"),
+  };
+  return titles[key] ?: @"";
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -1360,6 +1487,8 @@ void RBCheckModelOnboardingIfNeeded(void) {
     self.defaultRoute = [@{ @"profileId" : firstProfile, @"effort" : @"default", @"fallbacks" : @[] } mutableCopy];
   }
   self.botRoutes = RBModelsAsDict(cfg[@"botRoutes"]) ?: @{};
+  self.scenarioRoutes = [(RBModelsAsDict(cfg[@"scenarioRoutes"]) ?: @{}) mutableCopy];
+  self.adaptiveRouting = RBModelsAsDict(cfg[@"adaptiveRouting"]);
   [self updateBannerFromReloadState];
   [self.tableView reloadData];
 }
@@ -1487,6 +1616,7 @@ void RBCheckModelOnboardingIfNeeded(void) {
     [self showAlertTitle:RBL(@"配置不完整", @"Invalid Configuration") message:errMsg onClose:nil];
     return;
   }
+  payload = RBModelsAttachRoutingExtras(payload, self.scenarioRoutes, self.adaptiveRouting, self.profiles);
   self.saving = YES;
   self.navigationItem.rightBarButtonItem.enabled = NO;
   self.statusBannerText = RBL(@"正在保存模型配置…", @"Saving model configuration…");
@@ -1737,6 +1867,9 @@ void RBCheckModelOnboardingIfNeeded(void) {
 - (BOOL)isProfileReferenced:(NSString *)pid {
   if ([RBModelsAsString(self.defaultRoute[@"profileId"]) isEqualToString:pid])
     return YES;
+  for (NSString *key in self.scenarioRoutes)
+    if ([RBModelsAsString(RBModelsAsDict(self.scenarioRoutes[key])[@"profileId"]) isEqualToString:pid])
+      return YES;
   NSArray *fbs = RBModelsAsArray(self.defaultRoute[@"fallbacks"]) ?: @[];
   for (id item in fbs) {
     NSDictionary *fb = RBModelsAsDict(item);
@@ -1766,24 +1899,95 @@ void RBCheckModelOnboardingIfNeeded(void) {
   return NO;
 }
 
+- (NSArray<RBChoiceOption *> *)profileOptionsIncludingFollow:(BOOL)follow {
+  NSMutableArray<RBChoiceOption *> *options = [NSMutableArray array];
+  if (follow)
+    [options addObject:[RBChoiceOption optionWithValue:@"" title:RBL(@"跟随默认", @"Follow default")
+                                              subtitle:RBL(@"使用默认路由的模型与推理强度", @"Use the default route's model and effort")]];
+  for (NSDictionary *prof in self.profiles) {
+    NSString *pid = RBModelsAsString(prof[@"id"]) ?: @"";
+    NSString *provider = RBModelsAsString([self providerById:RBModelsAsString(prof[@"providerId"]) ?: @""][@"name"]);
+    NSString *model = RBModelsAsString(prof[@"model"]) ?: @"";
+    NSString *subtitle = provider.length ? [NSString stringWithFormat:@"%@ · %@", model, provider] : model;
+    [options addObject:[RBChoiceOption optionWithValue:pid title:RBModelsAsString(prof[@"name"]) ?: pid subtitle:subtitle]];
+  }
+  return options;
+}
+
+- (NSArray<RBChoiceOption *> *)effortOptionsForProfile:(NSDictionary *)profile {
+  NSMutableArray<RBChoiceOption *> *options = [NSMutableArray arrayWithObject:
+      [RBChoiceOption optionWithValue:@"default" title:@"default" subtitle:RBL(@"由模型服务决定", @"Provider default")]];
+  for (id item in RBModelsAsArray(profile[@"efforts"]) ?: @[]) {
+    NSString *effort = RBModelsAsString(item);
+    if (effort.length && ![effort isEqualToString:@"default"])
+      [options addObject:[RBChoiceOption optionWithValue:effort title:effort subtitle:nil]];
+  }
+  return options;
+}
+
+- (void)editRouteTitled:(NSString *)title route:(NSDictionary *)route apply:(void (^)(NSDictionary *route))apply {
+  if (!self.profiles.count) {
+    [self showAlertTitle:RBL(@"暂无档案", @"No Profiles")
+                 message:RBL(@"请先添加至少一个模型档案。", @"Add at least one model profile first.")
+                 onClose:nil];
+    return;
+  }
+  NSString *current = RBModelsAsString(route[@"profileId"]) ?: @"";
+  [[RBChoiceSheet sheetWithTitle:title
+                         message:RBL(@"选择模型档案", @"Choose a model profile")
+                         options:[self profileOptionsIncludingFollow:YES]
+                        selected:current
+                        onSelect:^(RBChoiceOption *option) {
+                          if (!option.value.length) {
+                            apply(nil);
+                            return;
+                          }
+                          NSDictionary *profile = [self profileById:option.value];
+                          NSArray *efforts = RBModelsAsArray(profile[@"efforts"]) ?: @[];
+                          NSString *effort = RBModelsAsString(route[@"effort"]) ?: @"default";
+                          if (![effort isEqualToString:@"default"] && ![efforts containsObject:effort]) effort = @"default";
+                          if (!efforts.count) {
+                            apply(@{ @"profileId" : option.value, @"effort" : @"default" });
+                            return;
+                          }
+                          [[RBChoiceSheet sheetWithTitle:title
+                                                 message:RBL(@"选择推理强度", @"Choose reasoning effort")
+                                                 options:[self effortOptionsForProfile:profile]
+                                                selected:effort
+                                                onSelect:^(RBChoiceOption *effortOption) {
+                                                  apply(@{ @"profileId" : option.value, @"effort" : effortOption.value });
+                                                }] presentFrom:self];
+                        }] presentFrom:self];
+}
+
 #pragma mark - Table View
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-  return 4;
+  return 6;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
   if (section == 0) return self.statusBannerText.length ? 2 : 1; // Status / Test Default
   if (section == 1) return 3; // Default profile, effort, fallbacks
-  if (section == 2) return (NSInteger)self.profiles.count + 1;
+  if (section == 2) return (NSInteger)RBModelsScenarioKeys().count;
+  if (section == 3) return MAX((NSInteger)[self botRouteEntries].count, 1);
+  if (section == 4) return (NSInteger)self.profiles.count + 1;
   return (NSInteger)self.providers.count + 1;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
   if (section == 0) return RBL(@"状态与验证", @"Status & Test");
   if (section == 1) return RBL(@"默认路由", @"Default Route");
-  if (section == 2) return RBL(@"模型档案", @"Model Profiles");
+  if (section == 2) return RBL(@"场景模型", @"Scenario Models");
+  if (section == 3) return RBL(@"单 Bot 模型路由", @"Per-Bot Routes");
+  if (section == 4) return RBL(@"模型档案", @"Model Profiles");
   return RBL(@"模型服务", @"Providers");
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+  if (section == 2) return RBL(@"按调用场景单独指定模型与推理强度，未设置则跟随默认路由。", @"Assign a model and effort per scenario. Unset scenarios follow the default route.");
+  if (section == 3) return RBL(@"点击任意 Bot 单独指定对话模型与推理强度，保存后生效。", @"Tap a Bot to give it its own model profile and effort. Applies after saving.");
+  return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -1805,24 +2009,70 @@ void RBCheckModelOnboardingIfNeeded(void) {
   }
 
   if (indexPath.section == 1) {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     NSDictionary *active = [self profileById:RBModelsAsString(self.defaultRoute[@"profileId"]) ?: @""];
     if (indexPath.row == 0) {
-      cell.textLabel.text = RBL(@"当前模型档案", @"Active Profile");
-      cell.detailTextLabel.text = RBModelsAsString(active[@"name"]) ?: RBL(@"未设置", @"Unset");
-    } else if (indexPath.row == 1) {
-      cell.textLabel.text = RBL(@"推理强度", @"Reasoning Effort");
-      cell.detailTextLabel.text = RBModelsAsString(self.defaultRoute[@"effort"]) ?: @"default";
-    } else {
-      cell.textLabel.text = RBL(@"备用回退模型", @"Fallback Profiles");
-      NSArray *fbs = RBModelsAsArray(self.defaultRoute[@"fallbacks"]) ?: @[];
-      cell.detailTextLabel.text = fbs.count ? [NSString stringWithFormat:@"%lu", (unsigned long)fbs.count] : RBL(@"无", @"None");
+      UITableViewCell *cell = RBModelsChoiceCell(RBL(@"当前模型档案", @"Active Profile"), RBModelsAsString(active[@"name"]) ?: RBL(@"未设置", @"Unset"));
+      cell.accessibilityIdentifier = @"rokbot.models.default-profile";
+      return cell;
     }
+    if (indexPath.row == 1) {
+      UITableViewCell *cell = RBModelsChoiceCell(RBL(@"推理强度", @"Reasoning Effort"), RBModelsAsString(self.defaultRoute[@"effort"]) ?: @"default");
+      cell.accessibilityIdentifier = @"rokbot.models.default-effort";
+      return cell;
+    }
+    NSArray *fbs = RBModelsAsArray(self.defaultRoute[@"fallbacks"]) ?: @[];
+    UITableViewCell *cell = RBModelsChoiceCell(RBL(@"备用回退模型", @"Fallback Profiles"),
+                                               fbs.count ? [NSString stringWithFormat:@"%lu", (unsigned long)fbs.count] : RBL(@"无", @"None"));
+    cell.accessibilityIdentifier = @"rokbot.models.default-fallbacks";
     return cell;
   }
 
   if (indexPath.section == 2) {
+    NSString *key = RBModelsScenarioKeys()[indexPath.row];
+    NSDictionary *route = RBModelsAsDict(self.scenarioRoutes[key]);
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    cell.textLabel.text = [self scenarioTitle:key];
+    cell.textLabel.font = RBThemeFont(15, UIFontWeightMedium);
+    cell.textLabel.adjustsFontForContentSizeCategory = YES;
+    BOOL custom = [RBModelsAsString(route[@"profileId"]) length] > 0;
+    UIFont *detailFont = RBThemeFont(12.5, UIFontWeightRegular);
+    NSMutableAttributedString *detail = [[NSMutableAttributedString alloc]
+        initWithString:[[self scenarioSubtitle:key] stringByAppendingString:@"\n"]
+            attributes:@{ NSFontAttributeName : detailFont, NSForegroundColorAttributeName : RBThemeTextSecondary() }];
+    [detail appendAttributedString:[[NSAttributedString alloc]
+        initWithString:RBModelsRouteSummary(route, self.profiles, RBIsChinese())
+            attributes:@{ NSFontAttributeName : custom ? RBThemeFont(12.5, UIFontWeightSemibold) : detailFont,
+                          NSForegroundColorAttributeName : custom ? RBThemeAccent() : RBThemeTextMuted() }]];
+    cell.detailTextLabel.attributedText = detail;
+    cell.detailTextLabel.numberOfLines = 0;
+    cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:RBGlyphImage(RBGlyphChevronRight, 18, 1.8)];
+    chevron.tintColor = RBThemeTextMuted();
+    cell.accessoryView = chevron;
+    cell.accessibilityIdentifier = [@"rokbot.models.scenario." stringByAppendingString:key];
+    return cell;
+  }
+
+  if (indexPath.section == 3) {
+    NSArray<NSDictionary *> *entries = [self botRouteEntries];
+    if (!entries.count) {
+      UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+      cell.selectionStyle = UITableViewCellSelectionStyleNone;
+      cell.textLabel.text = RBL(@"暂无可配置的 Bot。", @"No Bots available yet.");
+      cell.textLabel.textColor = RBThemeTextMuted();
+      cell.textLabel.font = RBThemeFont(13, UIFontWeightRegular);
+      return cell;
+    }
+    NSDictionary *entry = entries[indexPath.row];
+    NSDictionary *route = RBModelsAsDict(self.botRoutes[entry[@"id"]]);
+    BOOL custom = [RBModelsAsString(route[@"profileId"]) length] > 0;
+    UITableViewCell *cell = RBModelsChoiceCell(entry[@"name"], RBModelsRouteSummary(route, self.profiles, RBIsChinese()));
+    cell.detailTextLabel.textColor = custom ? RBThemeAccent() : RBThemeTextSecondary();
+    cell.accessibilityIdentifier = [@"rokbot.models.bot-route." stringByAppendingString:entry[@"id"]];
+    return cell;
+  }
+
+  if (indexPath.section == 4) {
     if (indexPath.row == (NSInteger)self.profiles.count) {
       UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
       cell.textLabel.text = RBL(@"+ 添加模型档案", @"+ Add Profile");
@@ -1837,8 +2087,9 @@ void RBCheckModelOnboardingIfNeeded(void) {
     NSString *profName = RBModelsAsString(prof[@"name"]) ?: @"";
     NSString *profModel = RBModelsAsString(prof[@"model"]) ?: @"";
     BOOL isDefault = [RBModelsAsString(self.defaultRoute[@"profileId"]) isEqualToString:profId];
-    cell.textLabel.text = isDefault ? [NSString stringWithFormat:@"★ %@", profName] : profName;
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ · %@", profModel, RBModelsAsString(prov[@"name"]) ?: profPid];
+    cell.textLabel.text = profName;
+    NSString *detail = [NSString stringWithFormat:@"%@ · %@", profModel, RBModelsAsString(prov[@"name"]) ?: profPid];
+    cell.detailTextLabel.text = isDefault ? [NSString stringWithFormat:@"%@ · %@", RBL(@"默认", @"Default"), detail] : detail;
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
@@ -1866,9 +2117,9 @@ void RBCheckModelOnboardingIfNeeded(void) {
 }
 
 - (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
-  if (indexPath.section == 2 && indexPath.row < (NSInteger)self.profiles.count)
+  if (indexPath.section == 4 && indexPath.row < (NSInteger)self.profiles.count)
     return YES;
-  if (indexPath.section == 3 && indexPath.row < (NSInteger)self.providers.count)
+  if (indexPath.section == 5 && indexPath.row < (NSInteger)self.providers.count)
     return YES;
   return NO;
 }
@@ -1878,11 +2129,11 @@ void RBCheckModelOnboardingIfNeeded(void) {
      forRowAtIndexPath:(NSIndexPath *)indexPath {
   if (editingStyle != UITableViewCellEditingStyleDelete)
     return;
-  if (indexPath.section == 2 && indexPath.row < (NSInteger)self.profiles.count) {
+  if (indexPath.section == 4 && indexPath.row < (NSInteger)self.profiles.count) {
     NSString *pid = RBModelsAsString(self.profiles[indexPath.row][@"id"]) ?: @"";
     if ([self isProfileReferenced:pid]) {
       [self showAlertTitle:RBL(@"无法删除", @"Cannot Delete")
-                   message:RBL(@"此模型档案正在被默认路由或 Bot 路由使用。", @"This profile is referenced by the default route or a bot route.")
+                   message:RBL(@"此模型档案正在被默认路由、场景模型或 Bot 路由使用。", @"This profile is used by the default route, a scenario or a Bot route.")
                    onClose:nil];
       return;
     }
@@ -1890,7 +2141,7 @@ void RBCheckModelOnboardingIfNeeded(void) {
     [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
     return;
   }
-  if (indexPath.section == 3 && indexPath.row < (NSInteger)self.providers.count) {
+  if (indexPath.section == 5 && indexPath.row < (NSInteger)self.providers.count) {
     NSString *pid = RBModelsAsString(self.providers[indexPath.row][@"id"]) ?: @"";
     if ([self isProviderReferenced:pid]) {
       [self showAlertTitle:RBL(@"无法删除", @"Cannot Delete")
@@ -1925,100 +2176,94 @@ void RBCheckModelOnboardingIfNeeded(void) {
                      onClose:nil];
         return;
       }
-      UIAlertController *sheet = [UIAlertController alertControllerWithTitle:RBL(@"选择默认模型档案", @"Select Active Profile")
-                                                                     message:nil
-                                                              preferredStyle:UIAlertControllerStyleActionSheet];
-      for (NSDictionary *prof in self.profiles) {
-        NSString *profName = RBModelsAsString(prof[@"name"]) ?: @"";
-        NSString *profModel = RBModelsAsString(prof[@"model"]) ?: @"";
-        NSString *profId = RBModelsAsString(prof[@"id"]) ?: @"";
-        NSString *title = [NSString stringWithFormat:@"%@ (%@)", profName, profModel];
-        [sheet addAction:[UIAlertAction actionWithTitle:title
-                                                  style:UIAlertActionStyleDefault
-                                                handler:^(UIAlertAction *a) {
-                                                  self.defaultRoute[@"profileId"] = profId;
-                                                  NSArray *efforts = RBModelsAsArray(prof[@"efforts"]) ?: @[];
-                                                  NSString *curEffort = RBModelsAsString(self.defaultRoute[@"effort"]) ?: @"default";
-                                                  if (![efforts containsObject:curEffort])
-                                                    self.defaultRoute[@"effort"] = @"default";
-                                                  [self.tableView reloadData];
-                                                }]];
-      }
-      [sheet addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-      UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-      sheet.popoverPresentationController.sourceView = cell ?: self.view;
-      sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
-      [self presentViewController:sheet animated:YES completion:nil];
+      [[RBChoiceSheet sheetWithTitle:RBL(@"选择默认模型档案", @"Select Active Profile") message:nil
+                             options:[self profileOptionsIncludingFollow:NO]
+                            selected:RBModelsAsString(self.defaultRoute[@"profileId"])
+                            onSelect:^(RBChoiceOption *option) {
+                              self.defaultRoute[@"profileId"] = option.value;
+                              NSArray *efforts = RBModelsAsArray([self profileById:option.value][@"efforts"]) ?: @[];
+                              NSString *curEffort = RBModelsAsString(self.defaultRoute[@"effort"]) ?: @"default";
+                              if (![efforts containsObject:curEffort])
+                                self.defaultRoute[@"effort"] = @"default";
+                              [self.tableView reloadData];
+                            }] presentFrom:self];
     } else if (indexPath.row == 1) {
       NSDictionary *active = [self profileById:RBModelsAsString(self.defaultRoute[@"profileId"]) ?: @""];
-      NSArray *efforts = RBModelsAsArray(active[@"efforts"]) ?: @[];
-      NSMutableArray *options = [NSMutableArray arrayWithObject:@"default"];
-      for (id item in efforts) {
-        NSString *s = RBModelsAsString(item);
-        if (s.length)
-          [options addObject:s];
-      }
-      UIAlertController *sheet = [UIAlertController alertControllerWithTitle:RBL(@"选择推理强度", @"Select Reasoning Effort")
-                                                                     message:nil
-                                                              preferredStyle:UIAlertControllerStyleActionSheet];
-      for (NSString *opt in options) {
-        [sheet addAction:[UIAlertAction actionWithTitle:opt
-                                                  style:UIAlertActionStyleDefault
-                                                handler:^(UIAlertAction *a) {
-                                                  self.defaultRoute[@"effort"] = opt;
-                                                  [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
-                                                }]];
-      }
-      [sheet addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-      UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-      sheet.popoverPresentationController.sourceView = cell ?: self.view;
-      sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
-      [self presentViewController:sheet animated:YES completion:nil];
+      [[RBChoiceSheet sheetWithTitle:RBL(@"选择推理强度", @"Select Reasoning Effort") message:nil
+                             options:[self effortOptionsForProfile:active]
+                            selected:RBModelsAsString(self.defaultRoute[@"effort"]) ?: @"default"
+                            onSelect:^(RBChoiceOption *option) {
+                              self.defaultRoute[@"effort"] = option.value;
+                              [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+                            }] presentFrom:self];
     } else if (indexPath.row == 2) {
       NSString *primaryId = RBModelsAsString(self.defaultRoute[@"profileId"]) ?: @"";
-      NSMutableArray *candidates = [NSMutableArray array];
-      for (NSDictionary *p in self.profiles)
-        if (![RBModelsAsString(p[@"id"]) isEqualToString:primaryId])
-          [candidates addObject:p];
+      NSMutableArray<RBChoiceOption *> *candidates = [NSMutableArray array];
+      for (RBChoiceOption *option in [self profileOptionsIncludingFollow:NO])
+        if (![option.value isEqualToString:primaryId]) [candidates addObject:option];
       if (!candidates.count) {
         [self showAlertTitle:RBL(@"无可用备用模型", @"No Fallback Candidates")
                      message:RBL(@"添加第二个模型档案后即可配置回退链。", @"Add another profile to configure fallbacks.")
                      onClose:nil];
         return;
       }
-      UIAlertController *sheet = [UIAlertController alertControllerWithTitle:RBL(@"切换备用模型", @"Toggle Fallback Profile")
-                                                                     message:RBL(@"点击可添加或移除备用回退档案。", @"Tap to add or remove a fallback profile.")
-                                                              preferredStyle:UIAlertControllerStyleActionSheet];
-      NSMutableArray *fbs = [(RBModelsAsArray(self.defaultRoute[@"fallbacks"]) ?: @[]) mutableCopy];
-      for (NSDictionary *cand in candidates) {
-        NSString *candId = RBModelsAsString(cand[@"id"]) ?: @"";
-        NSString *candName = RBModelsAsString(cand[@"name"]) ?: candId;
-        NSUInteger existingIdx = [fbs indexOfObjectPassingTest:^BOOL(id obj, NSUInteger i, BOOL *stop) {
-          NSDictionary *d = RBModelsAsDict(obj);
-          return d && [RBModelsAsString(d[@"profileId"]) isEqualToString:candId];
-        }];
-        NSString *prefix = existingIdx != NSNotFound ? @"✓ " : @"";
-        [sheet addAction:[UIAlertAction actionWithTitle:[prefix stringByAppendingString:candName]
-                                                  style:UIAlertActionStyleDefault
-                                                handler:^(UIAlertAction *a) {
-                                                  if (existingIdx != NSNotFound)
-                                                    [fbs removeObjectAtIndex:existingIdx];
-                                                  else if (fbs.count < 8)
-                                                    [fbs addObject:@{ @"profileId" : candId, @"effort" : @"default", @"order" : @(fbs.count) }];
-                                                  self.defaultRoute[@"fallbacks"] = fbs;
-                                                  [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
-                                                }]];
+      NSArray *existing = RBModelsAsArray(self.defaultRoute[@"fallbacks"]) ?: @[];
+      NSMutableArray<NSString *> *selected = [NSMutableArray array];
+      for (id item in existing) {
+        NSString *fid = RBModelsAsString(RBModelsAsDict(item)[@"profileId"]);
+        if (fid.length) [selected addObject:fid];
       }
-      [sheet addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-      UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-      sheet.popoverPresentationController.sourceView = cell ?: self.view;
-      sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
-      [self presentViewController:sheet animated:YES completion:nil];
+      [[RBChoiceSheet multiSheetWithTitle:RBL(@"备用回退模型", @"Fallback Profiles")
+                                  message:RBL(@"按选择顺序依次回退，最多 8 个。", @"Used in the order selected, up to 8.")
+                                  options:candidates
+                                 selected:selected
+                                   onDone:^(NSArray<NSString *> *values) {
+                                     NSMutableArray *next = [NSMutableArray array];
+                                     for (NSString *value in values) {
+                                       NSString *effort = @"default";
+                                       for (id item in existing)
+                                         if ([RBModelsAsString(RBModelsAsDict(item)[@"profileId"]) isEqualToString:value])
+                                           effort = RBModelsAsString(RBModelsAsDict(item)[@"effort"]) ?: @"default";
+                                       [next addObject:@{ @"profileId" : value, @"effort" : effort, @"order" : @(next.count) }];
+                                     }
+                                     self.defaultRoute[@"fallbacks"] = next;
+                                     [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+                                   }] presentFrom:self];
     }
     return;
   }
 
   if (indexPath.section == 2) {
+    NSString *key = RBModelsScenarioKeys()[indexPath.row];
+    [self editRouteTitled:[self scenarioTitle:key] route:RBModelsAsDict(self.scenarioRoutes[key]) apply:^(NSDictionary *route) {
+      if (route) self.scenarioRoutes[key] = route;
+      else [self.scenarioRoutes removeObjectForKey:key];
+      [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+    }];
+    return;
+  }
+
+  if (indexPath.section == 3) {
+    NSArray<NSDictionary *> *entries = [self botRouteEntries];
+    if (indexPath.row >= (NSInteger)entries.count) return;
+    NSDictionary *entry = entries[indexPath.row];
+    NSDictionary *existing = RBModelsAsDict(self.botRoutes[entry[@"id"]]);
+    [self editRouteTitled:entry[@"name"] route:existing apply:^(NSDictionary *route) {
+      NSMutableDictionary *routes = [self.botRoutes mutableCopy] ?: [NSMutableDictionary dictionary];
+      if (route) {
+        NSMutableDictionary *merged = [route mutableCopy];
+        merged[@"fallbacks"] = RBModelsAsArray(existing[@"fallbacks"]) ?: @[];
+        routes[entry[@"id"]] = merged;
+      } else {
+        [routes removeObjectForKey:entry[@"id"]];
+      }
+      self.botRoutes = routes;
+      [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+    }];
+    return;
+  }
+
+  if (indexPath.section == 4) {
     BOOL isNew = (indexPath.row == (NSInteger)self.profiles.count);
     if (isNew && !self.providers.count) {
       [self showAlertTitle:RBL(@"请先添加模型服务", @"Add a Provider First")
@@ -2045,7 +2290,7 @@ void RBCheckModelOnboardingIfNeeded(void) {
     return;
   }
 
-  if (indexPath.section == 3) {
+  if (indexPath.section == 5) {
     BOOL isNew = (indexPath.row == (NSInteger)self.providers.count);
     NSMutableDictionary *existing = isNew ? nil : self.providers[indexPath.row];
     RBModelProviderEditorController *editor = [[RBModelProviderEditorController alloc]

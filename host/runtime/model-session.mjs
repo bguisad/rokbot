@@ -22,6 +22,14 @@ function readCacheOnce(contextCachePath) {
   return contextCachePath ? readContextCacheSync(contextCachePath) : undefined;
 }
 
+// A short failure code for the usage ledger: never the provider's message, which may quote input.
+function usageErrorCode(error) {
+  if (Number.isInteger(error?.status)) return `HTTP ${error.status}`;
+  if (error?.name === 'TimeoutError') return 'timeout';
+  const code = typeof error?.code === 'string' ? error.code : typeof error?.name === 'string' ? error.name : 'error';
+  return code.replace(/[^\w.-]/g, '').slice(0, 40) || 'error';
+}
+
 function resolveCandidateContext(candidate, observedCeilings, cache, { maxTokens, now = Date.now() } = {}) {
   const resolved = resolveEffectiveContext(candidate, {
     cache,
@@ -295,21 +303,34 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
         let notified = false;
         let recordedUsage, reportedModel = model, reportedId, selectedEffort, reportedCandidate;
         let usageWrite, usagePending = false;
+        // The open attempt: its start (for durationMs) until its usage is taken with a status.
+        let attemptStartedAt;
         const attemptUsages = [];
-        const snapshotUsage = () => {
-          if (!recordedUsage) return;
+        const snapshotUsage = (status, error) => {
+          if (attemptStartedAt === undefined) return;
+          const durationMs = Date.now() - attemptStartedAt;
+          attemptStartedAt = undefined;
+          // A finished attempt without usage (a provider that reports none) is not a request to count.
+          if (!recordedUsage && status === 'ok') return;
           attemptUsages.push({
-            raw: recordedUsage,
+            raw: recordedUsage ?? {},
             model: reportedModel,
             requestId: reportedId,
             effort: selectedEffort,
             profileId: reportedCandidate?.profileId,
             providerId: reportedCandidate?.providerId,
+            durationMs, status,
+            ...(status === 'error' ? { error: usageErrorCode(error) } : {}),
           });
           recordedUsage = undefined;
         };
-        const recordUsage = () => {
-          snapshotUsage();
+        // `ok` once the response finished; otherwise an open attempt was stopped: by a timeout
+        // (a failure) or by the caller (cancelled).
+        const recordUsage = (finished = false) => {
+          const reason = controller.signal.reason;
+          if (finished) snapshotUsage('ok');
+          else if (reason?.name === 'TimeoutError') snapshotUsage('error', reason);
+          else snapshotUsage('cancelled');
           if (!usageWrite || usagePending) {
             usagePending = true;
             const queued = usageWrite ?? Promise.resolve();
@@ -377,6 +398,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
             }
             selectedEffort = resolvedEffort;
             reportedCandidate = candidate;
+            attemptStartedAt = Date.now();
             try {
               const iterator = format.turn({ fetchImpl, endpoint: format.endpoint(candidate.baseUrl), apiKey: candidate.apiKey,
                 headers, model: candidate.model, messages: requestMessages, tools,
@@ -401,6 +423,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
               // A cancellation can arrive while onFallback() is still awaiting. Do
               // not attach another request to an already-canceled controller.
               controller.signal.throwIfAborted();
+              snapshotUsage('error', idleTimedOut ? { name: 'TimeoutError' } : error);
               if (isInputTokenLimitError(error)) {
                 const parsedLimit = parseContextLimitDetailsFromError(error.message);
                 const recorded = recordObservedCeiling(candidate, parsedLimit, observedCeilings, contextCachePath, { maxTokens: options.maxTokens });
@@ -471,7 +494,7 @@ export function createModelSession({ baseUrl, apiKey, model, onRequestId, apiFor
           settled = true;
           // A consumer may stop on finish without ever asking for the iterator's done step.
           signal?.removeEventListener('abort', onAbort);
-          recordUsage();
+          recordUsage(true);
           yield { type: 'finish', finishReason: turn.toolCalls ? 'tool-calls' : 'stop',
             usage: values.usage, response: { id: responseId, timestamp, modelId: turn.model } };
         } catch (error) {

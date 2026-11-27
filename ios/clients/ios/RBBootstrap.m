@@ -9,8 +9,10 @@
 #import "RBConnectors.h"
 #import "RBDeepLinks.h"
 #import "RBDiagnostics.h"
+#import "RBGroupCreate.h"
 #import "RBLocalize.h"
 #import "RBModels.h"
+#import "RBSuggestions.h"
 #import "RBUpdater.h"
 #import "RBUsage.h"
 #import "RBNetwork.h"
@@ -203,6 +205,8 @@ static NSSet<NSString *> *RBAllInterestingLabels(void) {
     [all addObject:@"語言"];
     [all addObject:@"Account"];
     [all addObject:@"Language"];
+    // React Native "+" new-chat control (opens the RokBot New Bot / New Group chooser).
+    [all addObjectsFromArray:@[@"新建对话", @"新增聊天", @"新建聊天", @"New chat", @"New Chat", @"新建 Bot", @"New Bot"]];
     set = [all copy];
   });
   return set;
@@ -638,6 +642,8 @@ static void RBNoteSettingsMarkerOnView(UIView *view) {
         remove = YES;
       } else if (tag == 731999 && ![computerLabels containsObject:label]) {
         remove = YES;
+      } else if (tag == 731995 && !RBGroupIsNewChatLabel(label)) {
+        remove = YES;
       }
       if (remove) {
         if (!stale) stale = [NSMutableArray array];
@@ -793,6 +799,8 @@ static void RBNoteSettingsMarkerOnView(UIView *view) {
     }
     return;
   }
+  if (isFabricView && paired && RBReplaceNewChatView(view, label))
+    return;
   if (isFabricView && [usageLabels containsObject:label])
     RBReplaceUsageView(view);
 }
@@ -1021,6 +1029,7 @@ static id RBTask(id self, SEL selector, NSURLRequest *request, id completion) {
 }
 static void RBInstall(void) {
   RBInstallDeepLinks();
+  RBInstallSuggestions();
   if (!RBOriginalLayout) {
     Class cls = NSClassFromString(@"RCTViewComponentView");
     Method method = class_getInstanceMethod(cls, @selector(layoutSubviews));

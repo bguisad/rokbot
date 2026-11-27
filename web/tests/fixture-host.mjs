@@ -8,7 +8,7 @@
 // address creates pairing codes, publishes notifications, reports what the core received,
 // replaces the demo Bots and conversation (/scene) and adds usage rows (/usage) for documentation screenshots.
 import { randomBytes } from 'node:crypto';
-import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -95,8 +95,11 @@ const core = http.createServer(async (request, response) => {
       return json(response, { ok: true });
     }
     // Usage ledger rows (host/runtime/usage-ledger.mjs) for the usage screenshots.
+    // Optional `routing` (model.env, for profile and provider names) and `prices` (usage-prices.json).
     if (path === '/__control/usage') {
-      const { rows = [] } = await body(request);
+      const { rows = [], routing, prices } = await body(request);
+      if (routing) await writeFile(join(dataDir, 'model.env'), `ROKBOT_MODEL_ROUTING=${JSON.stringify(routing)}\n`);
+      if (prices) await writeFile(join(dataDir, 'usage-prices.json'), JSON.stringify(prices));
       await mkdir(join(dataDir, 'usage'), { recursive: true });
       const days = Map.groupBy(rows, row => row.at.slice(0, 10));
       for (const [day, group] of days) await appendFile(join(dataDir, 'usage', `${day}.jsonl`), group.map(row => JSON.stringify(row) + '\n').join(''));

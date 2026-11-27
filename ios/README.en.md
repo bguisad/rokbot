@@ -22,7 +22,7 @@ python3 release/patch-ios.py \
   --bundle-id dev.rokbot.local
 ```
 
-`--output` must be a new directory that does not exist yet. It receives the unsigned `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `patch-report.json`, plus `extension-signing.json` when the extensions are kept. This repository does not provide signed IPAs; use the generated IPA only on your own devices, or have your Host administrator publish it on the Client updates page. See [Getting the clients](../README.en.md#getting-the-clients). Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code (or switch to **Admin Password** pairing).
+`--output` must be a new directory that does not exist yet. It receives the unsigned `RokBot-Local-resignable.ipa`, `RokBotLocal.dylib` and `patch-report.json`, plus `extension-signing.json` when the extensions are kept. This repository does not provide signed IPAs; use the generated IPA only on your own devices, or have your Host administrator publish it on the Client updates page. See [Getting the clients](../docs/clients.en.md#getting-the-clients). Sign and install it with your own tools as described below, then enter your Host address and 6-character pairing code (or switch to **Admin Password** pairing).
 
 Push notifications use APNs or Bark, configured in the Host console. Enable realtime voice in the app settings.
 
@@ -47,6 +47,19 @@ The patch keeps the Widgets, Share and NotificationService extensions by default
 - On pairing or restored launch, the app queries `GET /local/status`. If `needsModel` is true, a non-blocking onboarding prompt guides you to **Model Config**.
 - You can also open **Model Config** anytime from the Connection screen to view, add, edit, or switch providers (`openai`, `openai-responses`, `anthropic`) and profiles, fetch remote model catalogs (`POST /local/model/catalog`), and run live preflight tests (`POST /local/model/test`, 125s timeout).
 - Leaving the API Key blank on an existing provider preserves the stored key on the Host. If the device was not paired with an admin password and the Host returns `403`, the app prompts for an admin password held in memory only (`X-RokBot-Admin-Password`) and never persisted to disk.
+- **Scenario models and per-Bot routes**: the model page adds Scenario Models (input suggestions, summarization, memory extraction, auto-review, subagents, automations) and Per-Bot Routes. Unset entries follow the default route. Saving always sends `scenarioRoutes` and keeps any existing `adaptiveRouting`, so scenarios set on other clients are not dropped.
+- **Pickers**: default profile, effort, fallbacks, API format and provider use the RokBot bottom choice sheet (`RBChoiceSheet`) instead of system action sheets or segmented controls, in light and dark mode and with Dynamic Type.
+
+## Input suggestions (`RBSuggestions`)
+
+- When the chat composer is focused and empty, a bar above it shows your quick phrases first, then up to 4 suggestions the model generated from the conversation. Tapping one sends it right away through `POST /api/sendPrompt`; if sending fails, the text goes into the composer instead.
+- Empty chats, or chats where the Host returns no model suggestions, only show quick phrases. There are no preset texts, and failures are not cached.
+- Input Suggestions on the connection page turns suggestions and AI suggestions on or off and adds, edits, deletes and reorders quick phrases. Settings live on the Host (`/local/suggestions/settings`, `/local/suggestions/phrases`) and sync with desktop, web and Android.
+
+## New group chat (`RBGroupCreate`)
+
+- The "+" button in the chat list opens a RokBot bottom sheet with New Bot and New Group Chat. The connection page also has a New Group Chat entry.
+- The flow matches desktop 1.3.0: one page, recipients picked in a "To:" bar, up to 6 Bots, new Bots created inline by typing a name, the group name generated with the desktop rules (max 72 characters) and an empty description. You can write the first message, and the app opens the new group when it is created. If creation fails, Bots created inline are deleted and the draft and recipients are kept.
 
 ## In-App Updates & iOS Sandbox Constraints (`RBUpdater`)
 

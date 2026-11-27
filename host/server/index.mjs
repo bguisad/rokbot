@@ -48,6 +48,7 @@ import { clientCompatMethods, handleClientCompatRpc } from './client-compat-api.
 import { adminExtensions } from './admin-extensions.mjs';
 import { recentRouting } from '../runtime/routing-log.mjs';
 import { usageSummary, USAGE_PERIODS } from "../runtime/usage-ledger.mjs";
+import { usageExport, usageReport, UsageReportError } from "../runtime/usage-report.mjs";
 import { Profile } from "./profile.mjs";
 import { Library, validateAgentId } from "./library.mjs";
 import { deleteAgentsWithLibrary } from "./host-api.mjs";
@@ -59,7 +60,7 @@ import { attachmentDataUrl } from "./attachments.mjs";
 import { DeviceConnections, proxyHttp, proxyWebSocket } from "./proxy.mjs";
 import { proxyLocalExec } from "./local-exec-proxy.mjs";
 import { handleUpdateProxy } from "./update-proxy.mjs";
-import { VncTickets, vncPath, normalizeVncUpgradeUrl } from "./vnc.mjs";
+import { VncTickets, vncPath, normalizeVncUpgradeUrl, vncUpgradeRejectionLog, NATIVE_APP_VNC_PLATFORMS } from "./vnc.mjs";
 import { WebClient, rawBody } from "./web-client.mjs";
 import { createWebRoutes, webMoved } from "./web-routes.mjs";
 import {
@@ -79,6 +80,8 @@ import {
   verifyPassword,
 } from "./security.mjs";
 import { readJson } from "./storage.mjs";
+import { CanvasLinkOrigins, CanvasStore } from "./canvas-store.mjs";
+import { routeCanvas } from "./canvas-http.mjs";
 import { createSpeedTest } from "./speedtest.mjs";
 import { SuggestionsService, SuggestionsSettings } from "./suggestions.mjs";
 
@@ -199,6 +202,8 @@ export async function createSelfHostServer(options = {}) {
     maxDeltaBytes: options.maxDeltaBytes,
   }).load();
   const library = await new Library(dataDir).load();
+  // Canvases are written by the bot runtime; this service only reads and serves them.
+  const canvasStore = new CanvasStore(dataDir), canvasLinks = new CanvasLinkOrigins(dataDir);
   const speech = await new Speech(dataDir).load();
   const voiceConfig = await new VoiceConfig(dataDir, { speech }).load();
   const synthesis = new VoiceSynthesis(voiceConfig);
@@ -260,6 +265,50 @@ export async function createSelfHostServer(options = {}) {
     if (period && !USAGE_PERIODS.some(item => item.id === period)) throw new HttpError(400, 'Invalid period');
     return usageSummary(join(dataDir, 'usage'), timeZone, new Date(), { period });
   };
+  // The usage report (host/runtime/usage-report.mjs): ?timeZone=&range=today|7d|30d|all|custom
+  // (&from=&to= local dates), filters ?model=&provider=&profile=&kind=&agent=&status=, a page of
+  // requests ?offset=&limit=, or ?export=csv for every request as { filename, csv, count }.
+  // Bot and model profile names are looked up here; the ledger keeps only their ids.
+  const usageHostCall = internalHostClient(hostUrl, internalToken);
+  let usageNamesCache = null;
+  const usageNames = async () => {
+    if (usageNamesCache && Date.now() - usageNamesCache.at < 30000) return usageNamesCache.names;
+    const [agents, config] = await Promise.all([
+      usageHostCall('listAgents', {}, { signal: AbortSignal.timeout(4000) }).catch(() => null),
+      models.publicConfig().catch(() => null),
+    ]);
+    const names = {
+      agents: new Map((Array.isArray(agents) ? agents : []).filter(item => item?.id).map(item => [item.id, String(item.name ?? '').slice(0, 120) || item.id])),
+      profiles: new Map((config?.profiles ?? []).filter(item => item?.id).map(item => [item.id, item.name || item.model || item.id])),
+      providers: new Map((config?.providers ?? []).filter(item => item?.id).map(item => [item.id, item.name || item.id])),
+    };
+    // A failed bot lookup is retried on the next request instead of caching empty names.
+    if (Array.isArray(agents)) usageNamesCache = { at: Date.now(), names };
+    return names;
+  };
+  // Optional prices per model, per million tokens: { "model": { "input": 2, "output": 8, "cached": 0.5 } }.
+  const usagePrices = async () => {
+    try {
+      const value = JSON.parse(await readFile(join(dataDir, 'usage-prices.json'), 'utf8'));
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    } catch { return null; }
+  };
+  const usageReportFor = async url => {
+    const query = url.searchParams, timeZone = query.get('timeZone') || process.env.TZ || 'UTC';
+    try { new Intl.DateTimeFormat('en', { timeZone }).format(); }
+    catch { throw new HttpError(400, 'Invalid time zone'); }
+    const filters = Object.fromEntries(['model', 'provider', 'profile', 'kind', 'agent', 'status']
+      .map(key => [key, query.get(key) || undefined]).filter(([, value]) => value));
+    const options = { timeZone, range: query.get('range') || '7d', from: query.get('from') || undefined, to: query.get('to') || undefined,
+      filters, offset: Number(query.get('offset') ?? 0), limit: Number(query.get('limit') ?? 50),
+      names: await usageNames(), prices: await usagePrices() };
+    try {
+      return query.get('export') === 'csv' ? await usageExport(join(dataDir, 'usage'), options) : await usageReport(join(dataDir, 'usage'), options);
+    } catch (error) {
+      if (error instanceof UsageReportError) throw new HttpError(400, error.message);
+      throw error;
+    }
+  };
   const sockets = new Set();
   function device(request, web = false) {
     check(federation.role() === 'primary', 403, 'Connect to the primary Host');
@@ -268,6 +317,7 @@ export async function createSelfHostServer(options = {}) {
     const found = auth.authenticate(token);
     check(found && (found.platform === "web") === web, 401, "设备凭证无效，请重新配对");
     void auth.touch(found.id).catch(() => {});
+    canvasLinks.observe(request.rokbotOrigin, web);
     return found;
   }
   function resolveDefaultMachineId() {
@@ -323,7 +373,7 @@ export async function createSelfHostServer(options = {}) {
       request.headers.upgrade?.toLowerCase() === "websocket",
     );
     check(route, 404, "桌面资源不存在");
-    let found, ticket, nativeIosTicket = false;
+    let found, ticket, nativeAppTicket = false;
     if (!web && request.headers.authorization !== undefined) {
       found = device(request, false);
       ticket = tickets.issue(found.id, route.slot);
@@ -334,15 +384,18 @@ export async function createSelfHostServer(options = {}) {
       const value = tickets.validate(ticket, route.slot);
       check(value && (auth.device(value.deviceId)?.platform === "web") === web, 401, "桌面访问票据已失效，请重新打开电脑预览");
       found = { id: value.deviceId };
-      nativeIosTicket =
+      // The official apps' embedded viewers (iOS, and the Android "Bot computer" screen with its
+      // take-over button) load noVNC as inline HTML, so their socket carries `Origin: null`. Accept that
+      // only for a native app's ticket passed in the socket URL itself.
+      nativeAppTicket =
         !web &&
         request.headers.upgrade?.toLowerCase() === "websocket" &&
         url.searchParams.get("ticket") === ticket &&
-        auth.device(value.deviceId)?.platform === "ios";
+        NATIVE_APP_VNC_PLATFORMS.has(auth.device(value.deviceId)?.platform);
     }
     check(
       !request.headers.origin || request.headers.origin === origin ||
-        (request.headers.origin === "null" && nativeIosTicket),
+        (request.headers.origin === "null" && nativeAppTicket),
       403,
       "桌面请求来源不匹配",
     );
@@ -564,6 +617,8 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, await modelSettings.save(await jsonBody(request)));
     if (method === "GET" && path === "/admin/api/usage")
       return sendJson(response, 200, await usage(new URL(request.url, origin)));
+    if (method === "GET" && path === "/admin/api/usage/report")
+      return sendJson(response, 200, await usageReportFor(new URL(request.url, origin)));
     if (method === "PUT" && path === "/admin/api/model")
       return sendJson(
         response,
@@ -720,6 +775,7 @@ export async function createSelfHostServer(options = {}) {
     delete request.headers['x-grokbot-tailcat-ingress'];
     request.rokbotOrigin = origin;
     const url = new URL(request.url, origin);
+    if (await routeCanvas(request, response, path, url, { store: canvasStore })) return;
     if (web) {
       check(origin !== mainOrigin, 403, "网页版需要与管理页不同的地址");
       if (await webRoute(request, response, path, url, origin, mainOrigin)) return;
@@ -1140,6 +1196,10 @@ export async function createSelfHostServer(options = {}) {
       device(request, web);
       return sendJson(response, 200, await usage(url));
     }
+    if (request.method === "GET" && path === "/local/usage/report") {
+      device(request, web);
+      return sendJson(response, 200, await usageReportFor(url));
+    }
     if (["GET", "PUT"].includes(request.method) && path === "/local/profile") {
       const found = device(request, web);
       connections.track(found.id, response);
@@ -1308,6 +1368,7 @@ export async function createSelfHostServer(options = {}) {
         connections.track(access.deviceId, socket);
         proxyWebSocket(request, socket, head, access);
       } catch (error) {
+        console.warn(vncUpgradeRejectionLog(request, error));
         socket.end(
           `HTTP/1.1 ${error.status ?? 500} Rejected\r\nConnection: close\r\n\r\n`,
         );
@@ -1392,6 +1453,7 @@ export async function createSelfHostServer(options = {}) {
       for (const target of [server, webServer])
         if (target.listening) await new Promise((resolve) => target.close(resolve));
       await Promise.all([
+        canvasLinks.pending,
         auth.store.tail,
         models.tail,
         modelSettings.store.tail,

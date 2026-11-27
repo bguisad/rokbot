@@ -20,6 +20,7 @@ import { createSounds } from './sounds.mjs';
 import { mintVoiceCredential, createVoiceAvailability } from './voice.mjs';
 import { externalHttpUrl } from './external-url.mjs';
 import { installExternalLinks } from './external-links.mjs';
+import { createCanvasWindows } from './canvas-window.mjs';
 import { auth, boot, theme, language, experiments, createLocalServices, desktopEdges, probeLocalMethod } from './local-services.mjs';
 import { createModelBridge } from './model-bridge.mjs';
 import { createDesktopUpdater, createTailcatUpdateFetch, resolveDesktopUpdateSource } from './updater.mjs';
@@ -104,6 +105,7 @@ function stopConnection() {
 }
 function disposeWorkspace() {
   stopConnection();
+  canvasWindows.closeAll();
   deepLinksReady = false; methodCall = null;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
   mainWindow = null;
@@ -122,10 +124,17 @@ function unauthorized() {
   connectionError = localText('连接已失效，请重新配对。', 'Connection expired. Pair again.');
   void showConnection();
 }
-async function openExternal(value) {
+async function openBrowser(value) {
   const target = externalHttpUrl(value);
   if (!target) throw new Error(localText('链接地址无效。', 'Invalid link address.'));
   await shell.openExternal(target);
+}
+const canvasWindows = createCanvasWindows({ BrowserWindow, nativeTheme, openExternal: openBrowser,
+  icon: windowIcon(clientRoot), text: localText, getServer: () => config?.server });
+// Local canvas links open in a RokBot window on the connected Host; everything else in the browser.
+async function openExternal(value) {
+  if (canvasWindows.open(value)) return;
+  await openBrowser(value);
 }
 async function showConnection() {
   if (!app.isReady()) return;

@@ -204,6 +204,11 @@ test('model-bridge + gateway handle 200, 401 without revoking valid device, 403,
       res.end(JSON.stringify({ ok: true, models: [{ id: 'gpt-5', efforts: ['low', 'high'] }] }));
       return;
     }
+    if (req.url.startsWith('/local/usage/report?') && req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ version: 2, totals: { total: 1 } }));
+      return;
+    }
     if (req.url.startsWith('/local/usage?') && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ date: '2026-11-25', total: 12345, models: [{ model: 'gpt-5', total: 12345 }], periods: [] }));
@@ -288,6 +293,11 @@ test('model-bridge + gateway handle 200, 401 without revoking valid device, 403,
   assert.equal(requests.at(-1).auth, 'Bearer device-token-123');
   await bridge.getUsage({ timeZone: 'Not/AZone' });
   assert.equal(requests.at(-1).url, `/local/usage?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
+  // `report` asks for the usage report with only its known parameters.
+  const report = await bridge.getUsage({ timeZone: 'UTC', report: { range: 'custom', from: '2026-11-01', to: '2026-11-07', agent: 'bot 1', offset: 20, limit: 20,
+    export: 'csv', bogus: 'x', model: { nested: true } } });
+  assert.equal(report.version, 2);
+  assert.equal(requests.at(-1).url, '/local/usage/report?timeZone=UTC&range=custom&from=2026-11-01&to=2026-11-07&agent=bot+1&offset=20&limit=20&export=csv');
   connected = false;
   assert.equal((await bridge.getUsage()).status, 503);
   connected = true;

@@ -6,6 +6,7 @@ export const boot = globalThis.__rokbotAndroidBoot ?? {};
 const SETTINGS = 'rokbot-web:settings', PERSISTENCE = 'rokbot-web:persistence';
 const SETTING_KEYS = new Set(['theme', 'language', 'realtimeVoice', 'botColor', 'spellCheck', 'timeZone', 'backgroundNotifications']);
 const AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const CANVAS_PATH = /^\/canvas\/([A-Za-z0-9_-]{43})\/?$/;
 const chinese = () => /^zh/i.test(document.documentElement.lang || boot.locale || navigator.language || '');
 const text = (zh, en) => chinese() ? zh : en;
 
@@ -28,6 +29,14 @@ let pendingAgent = boot.pendingAgent ?? null;
 
 /** Shared with web-shell.js: the Bot on screen, so its replies do not raise notifications. */
 export const webState = { viewingAgent: '' };
+
+/** A local canvas link (/canvas/<token>) re-pointed at `origin`, or null for any other link. */
+export function localCanvasUrl(value, origin) {
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  const match = ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && CANVAS_PATH.exec(url.pathname);
+  return match ? new URL(`/canvas/${match[1]}`, origin).href : null;
+}
 
 async function hostCall(path, body, method = 'POST') {
   const response = await fetch(path, {
@@ -134,8 +143,11 @@ const calls = {
     return { ok: true, systemDark: matchMedia('(prefers-color-scheme: dark)').matches };
   },
   'open-external'({ url }) {
-    const target = new URL(url, location.href);
+    let target = new URL(url, location.href);
     if (!['http:', 'https:', 'mailto:'].includes(target.protocol) || target.username || target.password) throw new Error('Invalid link');
+    // A local canvas link (/canvas/<token>) opens on this listener, which serves canvases too,
+    // whatever Host address the bot put in the link.
+    target = new URL(localCanvasUrl(target.href, location.origin) ?? target.href);
     if (target.protocol === 'mailto:') location.href = target.href;
     else window.open(target.href, '_blank', 'noopener,noreferrer');
     return { ok: true };
