@@ -2,6 +2,7 @@
 // Input Suggestions settings section (master toggle, AI toggle, and Quick Phrases
 // CRUD + reorder) into the General settings panel, matching existing settings styling.
 (() => {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
   if (typeof window === 'undefined' || window !== window.top) return;
   let ipcRenderer;
   try { ({ ipcRenderer } = require('electron')); } catch { return; }
