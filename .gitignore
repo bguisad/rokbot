@@ -55,3 +55,6 @@ host/web-bundle/
 
 # rokbot pack output
 /dist/
+
+# Locally rebuilt Android companion dex (android/companion/build.sh); keep other android/bin artifacts tracked
+android/bin/*.dex
