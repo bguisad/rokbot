@@ -51,6 +51,12 @@
 
 <br clear="right" />
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-migrate.webp" width="200" alt="安卓客户端「从 Grok Bot 迁移」页面" /><br /><sub>从 Grok Bot 迁移</sub></td>
+  </tr>
+</table>
+
 ### <img src="docs/images/icons/devices.svg" width="22" height="22" alt="" /> 多端
 
 <img src="site/img/desktop-chat.webp" width="420" align="right" alt="桌面端对话界面" />
@@ -64,8 +70,6 @@
 
 ### <img src="docs/images/icons/message.svg" width="22" height="22" alt="" /> 对话体验
 
-<img src="site/img/android-image-generation.webp" width="200" align="right" alt="安卓客户端里与设计助手对话并生成图片" />
-
 - **输入建议**：输入框获得焦点时，上方出现按当前对话生成的建议，点一下直接发送；空白会话只显示你的常用语，常用语存在 Host 上、多端同步。可以整体关闭，也可以只关掉 AI 生成。
 - **行内补全**：打字时用浅色文字提示后半句，按 Tab 或右方向键接受，兼容输入法组字，可单独关闭。
 - **快，而且不串台**：建议按 Bot 隔离，Bot 回复后提前生成好下一轮，聚焦输入框到出现建议从约 1960ms 降到约 165ms；生成中显示加载动效，输入建议设置在设置一级菜单。
@@ -73,7 +77,12 @@
 - **语音**：语音输入和语音通话，识别与合成接你自己配置的服务。
 - **生图**：图片和视频生成可以单独指定模型，结果作为附件发回对话，支持多选批量下载。
 
-<br clear="right" />
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-suggestions.webp" width="200" alt="安卓客户端输入框上方的输入建议" /><br /><sub>输入建议</sub></td>
+    <td align="center"><img src="site/img/android-image-generation.webp" width="200" alt="安卓客户端里与设计助手对话并生成图片" /><br /><sub>生图</sub></td>
+  </tr>
+</table>
 
 ### <img src="docs/images/icons/canvas.svg" width="22" height="22" alt="" /> 画布
 
@@ -84,7 +93,7 @@
 
 ### <img src="docs/images/icons/chart.svg" width="22" height="22" alt="" /> 用量统计
 
-<img src="site/img/android-usage.webp" width="200" align="right" alt="安卓客户端用量报表" />
+<img src="docs/images/readme/android-usage.webp" width="200" align="right" alt="安卓客户端用量报表" />
 
 - **每次调用都有记录**：Host 记录每次模型调用的模型、所属 Bot、耗时和结果状态。
 - **各端都能看**：管理后台、桌面端与网页设置页、安卓和 iOS 都有用量报表，按时间范围和条件筛选，看趋势、分布和逐条请求。
@@ -94,7 +103,7 @@
 
 ### <img src="docs/images/icons/bot.svg" width="22" height="22" alt="" /> Bot 自管理
 
-<img src="site/img/android-bot-details.webp" width="200" align="right" alt="安卓客户端 Bot 详情：例行任务、资料库、Bot 的电脑和说明" />
+<img src="docs/images/readme/android-bot-detail.webp" width="200" align="right" alt="安卓客户端 Bot 详情：例行任务、资料库、Bot 的电脑和说明" />
 
 - **记忆**：Bot 可以在自建 Host 上更新和回忆长期记忆。
 - **例程**：Bot 能自己修改例行任务并查看执行记录。
@@ -109,25 +118,31 @@
 
 ### <img src="docs/images/icons/users.svg" width="22" height="22" alt="" /> 群聊
 
-<img src="site/img/android-bot-list.webp" width="200" align="right" alt="安卓客户端会话列表：待处理、进行中、未读、已读四组" />
-
 - **多 bot 群聊**：把多个 Bot 拉进同一个群协作，一个群最多 6 个 Bot。
 - **安卓建群和桌面端一致**：安卓建群改为单页流程，用顶部「To:」栏选成员，群名规则与桌面端相同。
 - **边选边建**：选成员时可以当场新建 Bot 并加入群里。
 - **失败自动撤销**：建群出错时会撤销已完成的步骤，不留下残缺的群。
 
-<br clear="right" />
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-chat-list.webp" width="200" alt="安卓客户端会话列表：按进行中、已读分组" /><br /><sub>会话列表（按状态分组）</sub></td>
+    <td align="center"><img src="docs/images/readme/android-create-group.webp" width="200" alt="安卓客户端创建群聊：顶部「To:」栏选成员" /><br /><sub>创建群聊</sub></td>
+  </tr>
+</table>
 
 ### <img src="docs/images/icons/palette.svg" width="22" height="22" alt="" /> 自有设计
-
-<img src="site/img/android-models.webp" width="200" align="right" alt="安卓客户端模型设置页" />
 
 - **RokBot 自己的选择器和控件**：模型路由等页面的系统原生下拉框换成了 RokBot 风格的下拉菜单，安卓上以底部选择面板呈现。
 - **深浅色都适配**：菜单、底部面板和设置页跟随系统深浅色和中英文界面。
 - **动态头像**：Bot 默认使用 RokBot 动态头像，覆盖 26 种形状，可以在应用内切换头像样式。
 - **统一的图标**：桌面端、应用内和「关于」页统一使用 RokBot 图标。
 
-<br clear="right" />
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/readme/android-settings.webp" width="200" alt="安卓客户端设置页：RokBot 自定义的一级菜单" /><br /><sub>设置（RokBot 一级菜单）</sub></td>
+    <td align="center"><img src="site/img/android-models.webp" width="200" alt="安卓客户端模型设置页" /><br /><sub>模型设置</sub></td>
+  </tr>
+</table>
 
 ### <img src="docs/images/icons/monitor.svg" width="22" height="22" alt="" /> 远程电脑与本机执行
 
@@ -186,6 +201,8 @@ npx rokbot admin    # 首次设置管理员密码
 ## 获取客户端
 
 <img src="docs/images/icons/download.svg" width="22" height="22" alt="" /> 本仓库不直接分发安装包。按 [客户端构建与获取指南](docs/clients.md) 用官方安装包自行打补丁，或从已部署的 Host「客户端更新」获取，然后在管理页生成 6 位配对码接入。
+
+打补丁（含 `rokbot pack`）需要你自备官方原版安装包：原版安卓安装包可从 [APKPure](https://apkpure.com/grok-bot/ai.x.grok.bot) 获取，原版 iOS 安装包（IPA）可从 [IPA Filezone](https://ipafilezone.com/app/x-corp/grok-bot/6794501026) 获取。
 
 ## 与上游的区别
 

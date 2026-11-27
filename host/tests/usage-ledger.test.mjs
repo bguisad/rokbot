@@ -200,3 +200,14 @@ test('GET /local/usage and /admin/api/usage return the periods per model and kee
   assert.equal((await device('/local/usage?timeZone=UTC&period=90d')).status, 400);
   assert.equal((await fetch(origin + '/admin/api/usage?period=year', { headers: { cookie: `rokbot_admin=${adminToken}` } })).status, 400);
 });
+
+test('usageCounts reads Magpie prompt_tokens_details.cache_write_tokens without counting input twice', () => {
+  // Magpie (OpenAI Chat shape): prompt_tokens already includes both the cache write and the cache read.
+  const write = { prompt_tokens: 11199, completion_tokens: 20, prompt_tokens_details: { cache_write_tokens: 11195, cached_tokens: 0 } };
+  const read = { prompt_tokens: 11199, completion_tokens: 20, prompt_tokens_details: { cache_write_tokens: 0, cached_tokens: 11195 } };
+  assert.deepEqual(usageCounts(write), { input: 11199, output: 20, total: 11219, cached: 0, cacheWrite: 11195, reasoning: 0 });
+  assert.deepEqual(usageCounts(read), { input: 11199, output: 20, total: 11219, cached: 11195, cacheWrite: 0, reasoning: 0 });
+  // The ephemeral 5m/1h breakdown still wins when it is larger.
+  assert.equal(usageCounts({ ...write, cache_creation: { ephemeral_5m_input_tokens: 11000, ephemeral_1h_input_tokens: 196 } }).cacheWrite, 11196);
+  assert.equal(usageCounts({ ...write, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 0 } }).cacheWrite, 11195);
+});

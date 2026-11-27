@@ -373,8 +373,55 @@ public final class UiChrome {
             @Override public int getIntrinsicWidth() { return size; }
             @Override public int getIntrinsicHeight() { return size; }
         });
+        // Pressed state: a ripple over the round button, so a tap visibly lands.
+        btn.setForeground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf((p.textPrimary & 0x00FFFFFF) | 0x2A000000), null, circle(0xFFFFFFFF, 0, 0)));
+        btn.setClickable(true);
         btn.setOnClickListener(onClick);
         return btn;
+    }
+
+    private static final int TAG_BUSY_ANIMATOR = 0x0e0c7a01;
+    private static final long BUSY_TURN_MS = 700L;
+
+    /**
+     * Loading feedback for a header icon button (refresh): while `busy` it spins, is dimmed and
+     * ignores taps; when the work ends it finishes its current turn (so even a fast reload shows
+     * a full spin) and comes back enabled. Safe to call repeatedly.
+     */
+    public static void setIconButtonBusy(View btn, boolean busy) {
+        if (btn == null) return;
+        Object prev = btn.getTag(TAG_BUSY_ANIMATOR);
+        if (busy) {
+            if (prev instanceof android.animation.ValueAnimator && ((android.animation.ValueAnimator) prev).isRunning()
+                    && !btn.isEnabled()) return;
+            if (prev instanceof android.animation.Animator) ((android.animation.Animator) prev).cancel();
+            btn.animate().cancel();
+            btn.setEnabled(false);
+            btn.setAlpha(0.55f);
+            btn.setRotation(0f);
+            android.animation.ObjectAnimator spin = android.animation.ObjectAnimator.ofFloat(btn, View.ROTATION, 0f, 360f);
+            spin.setDuration(BUSY_TURN_MS);
+            spin.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            spin.setInterpolator(new android.view.animation.LinearInterpolator());
+            btn.setTag(TAG_BUSY_ANIMATOR, spin);
+            spin.start();
+            return;
+        }
+        if (prev instanceof android.animation.Animator) ((android.animation.Animator) prev).cancel();
+        btn.setTag(TAG_BUSY_ANIMATOR, null);
+        float from = btn.getRotation() % 360f;
+        btn.setEnabled(true);
+        btn.setAlpha(1f);
+        if (from <= 0.5f) {
+            btn.setRotation(0f);
+            return;
+        }
+        long rest = (long) (BUSY_TURN_MS * (360f - from) / 360f);
+        btn.setRotation(from);
+        btn.animate().rotation(360f).setDuration(Math.max(80L, rest))
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .withEndAction(() -> btn.setRotation(0f)).start();
     }
 
     /** The white-tile RokBot logo (assets/logo/rokbot-logo.svg), drawn as vectors at any size. */

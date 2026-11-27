@@ -34,6 +34,23 @@ final class UsageModel {
     };
 
     static final String[] PERIOD_IDS = {"today", "7d", "30d"};
+    /** The range the usage page opens on: today, unless the caller asks for another one. */
+    static final String DEFAULT_PERIOD = "today";
+
+    /**
+     * The range UsageActivity opens on. `requested` is the intent's range extra (null: none):
+     * one of UsageReport.RANGE_IDS, and "custom" only with a valid from <= to. Anything else is
+     * today - never the last range used, so opening the page always shows today first.
+     */
+    static String initialPeriod(String requested, String from, String to) {
+        String id = requested == null ? "" : requested.trim();
+        if (id.isEmpty()) return DEFAULT_PERIOD;
+        if ("custom".equals(id)) {
+            return UsageReport.validDate(from) && UsageReport.validDate(to) && from.compareTo(to) <= 0 ? id : DEFAULT_PERIOD;
+        }
+        for (String known : UsageReport.RANGE_IDS) if (known.equals(id)) return id;
+        return DEFAULT_PERIOD;
+    }
 
     static int seriesColor(int series, boolean dark) {
         int[] colors = dark ? DARK_COLORS : LIGHT_COLORS;

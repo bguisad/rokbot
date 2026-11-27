@@ -9,8 +9,9 @@ import {
   verify,
 } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { chmod, lstat, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, realpath, rename, rm } from 'node:fs/promises';
 import nodePath from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { gunzipSync, gzipSync, inflateRawSync } from 'node:zlib';
 import { check, equal, HttpError } from './security.mjs';
 import { JsonStore, readJson, syncRenamedDirectory, writePrivate } from './storage.mjs';
@@ -69,6 +70,7 @@ const RBDELTA1_MAGIC = Buffer.from('RBDELTA1', 'ascii');
 const BLOCK_SIZE = 4096;
 const MIN_MATCH = 64;
 const MAX_OP_LEN = 0x7fffffff;
+const PK_LOCAL_HEADER = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
 function resolvePlatformInfo(raw) {
   const key = String(raw ?? '').trim().toLowerCase();
@@ -523,6 +525,7 @@ export function createRbdelta1Buffer(baseBuf, targetBuf) {
   let tPos = 0;
   let expectedBasePos = 0;
   const tLen = targetBuf.length;
+  let nextPkIdx = targetBuf.indexOf(PK_LOCAL_HEADER, 0);
   while (tPos < tLen) {
     let bestBaseOff = -1;
     let bestLen = 0;
@@ -564,8 +567,10 @@ export function createRbdelta1Buffer(baseBuf, targetBuf) {
       if (pendingInsertStart < 0) pendingInsertStart = tPos;
       const nextAlign = Math.min(tLen, (tPos & ~63) + 64);
       let step = Math.max(1, nextAlign - tPos);
-      const pkIdx = targetBuf.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]), tPos + 1);
-      if (pkIdx > tPos && pkIdx < tPos + step) step = pkIdx - tPos;
+      if (nextPkIdx !== -1 && nextPkIdx <= tPos) {
+        nextPkIdx = targetBuf.indexOf(PK_LOCAL_HEADER, tPos + 1);
+      }
+      if (nextPkIdx > tPos && nextPkIdx < tPos + step) step = nextPkIdx - tPos;
       tPos += step;
       pendingInsertEnd = tPos;
     }
@@ -734,6 +739,33 @@ export function inspectApkBuffer(buffer) {
   } catch {
     return {};
   }
+}
+
+function runUpdatesWorker(workerData) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./updates-worker.mjs', import.meta.url), { workerData });
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    worker.once('message', msg => {
+      if (!msg?.ok) finish(reject, new Error(msg?.error || 'Update worker failed'));
+      else finish(resolve, msg);
+    });
+    worker.once('error', error => finish(reject, error));
+    worker.once('exit', code => {
+      if (!settled) {
+        finish(reject, new Error(`Update worker exited with code ${code}`));
+      }
+    });
+  });
+}
+
+async function inspectApkFile(filePath) {
+  const result = await runUpdatesWorker({ op: 'inspect-apk', filePath });
+  return result?.apkInfo ?? {};
 }
 
 function parseSingleByteRange(header, totalSize) {
@@ -1028,7 +1060,7 @@ export class UpdatesManager {
     }
     let apkInfo;
     if (ext === '.apk') {
-      const parsed = inspectApkBuffer(await readFile(realTarget));
+      const parsed = await inspectApkFile(realTarget);
       if (Object.keys(parsed).length > 0) apkInfo = parsed;
     }
     return {
@@ -1069,7 +1101,7 @@ export class UpdatesManager {
     if (platform === 'android') {
       let apkInfo = {};
       if (nodePath.extname(filename).toLowerCase() === '.apk') {
-        apkInfo = inspectApkBuffer(await readFile(realArtifactPath));
+        apkInfo = await inspectApkFile(realArtifactPath);
       }
       const versionName = String(input.versionName ?? input.version ?? apkInfo.versionName ?? '').trim();
       check(versionName.length > 0 && versionName.length <= 64 && !CONTROL_CHAR_RE.test(versionName), 400, '请填写版本号');
@@ -1218,18 +1250,17 @@ export class UpdatesManager {
     await assertSafeDirectory(this.deltasDir, this.root);
     const { realTarget: realTargetPath } = await assertNoSymlinkFile(targetPath, platformDir, this.root);
     check(record.size <= this.maxDeltaBytes, 400, '目标文件过大，无法生成增量补丁');
-    const targetBuf = await readFile(realTargetPath);
-    let targetAsarBuf = null;
+    let realTargetAsarPath = null;
     if (record.asarFilename) {
       const targetAsarPath = containedPath(platformDir, record.asarFilename);
-      const { info: asarStat, realTarget: realTargetAsarPath } = await assertNoSymlinkFile(
+      const { info: asarStat, realTarget } = await assertNoSymlinkFile(
         targetAsarPath,
         platformDir,
         this.root,
         { missingStatus: 404, missingMessage: '指定的 ASAR 文件不存在' },
       );
       check(asarStat.size <= this.maxDeltaBytes, 400, 'ASAR 文件过大，无法生成增量补丁');
-      targetAsarBuf = await readFile(realTargetAsarPath);
+      realTargetAsarPath = realTarget;
     }
 
     const seenBaseSha = new Set();
@@ -1250,70 +1281,87 @@ export class UpdatesManager {
         { missingStatus: 404, missingMessage: '未找到用于生成增量补丁的基础版本文件' },
       );
       check(baseStat.size <= this.maxDeltaBytes, 400, '基础版本文件过大，无法生成增量补丁');
-      const baseBuf = await readFile(realBasePath);
-      const baseSha = sha256Hex(baseBuf);
+      const baseSha = await sha256File(realBasePath);
 
       if (baseSha !== record.sha256 && !seenBaseSha.has(baseSha)) {
         seenBaseSha.add(baseSha);
-        const deltaBuf = platform === 'android'
-          ? createRbdelta1Buffer(baseBuf, targetBuf)
-          : createRbd1DeltaBuffer(baseBuf, targetBuf);
-        if (deltaBuf.length < targetBuf.length) {
+        const built = await runUpdatesWorker({
+          op: 'generate-delta',
+          format: platform === 'android' ? 'rbdelta1' : 'rbd1',
+          basePath: realBasePath,
+          targetPath: realTargetPath,
+          maxDeltaBytes: this.maxDeltaBytes,
+        });
+        if (!built.skipped) {
+          const deltaBuf = Buffer.from(
+            built.deltaBytes.buffer,
+            built.deltaBytes.byteOffset,
+            built.deltaBytes.byteLength,
+          );
           const deltaName = `${platform}-${baseSha.slice(0, 12)}-to-${record.sha256.slice(0, 12)}.rbdelta`;
           await writePrivate(containedPath(this.deltasDir, deltaName), deltaBuf);
-          const deltaSha = sha256Hex(deltaBuf);
           if (platform === 'android') {
             record.deltas.push({
               fromReleaseId: prior?.id ?? null,
               fromSha256: baseSha,
               fromApkSha256: baseSha,
               baseSha256: baseSha,
-              baseSize: baseBuf.length,
+              baseSize: built.baseSize,
               ...(prior?.versionCode ? { fromVersionCode: prior.versionCode } : {}),
               format: 'RBDELTA1',
               filename: deltaName,
-              sha256: deltaSha,
-              size: deltaBuf.length,
+              sha256: built.deltaSha,
+              size: built.deltaSize,
             });
           } else {
             record.deltas.push({
               fromReleaseId: prior?.id ?? null,
               baseSha256: baseSha,
-              baseSize: baseBuf.length,
+              baseSize: built.baseSize,
               format: 'RBD1',
               filename: deltaName,
-              sha256: deltaSha,
-              size: deltaBuf.length,
+              sha256: built.deltaSha,
+              size: built.deltaSize,
             });
           }
         }
       }
 
-      if (targetAsarBuf && prior?.asarFilename) {
+      if (realTargetAsarPath && prior?.asarFilename) {
         const baseAsarPath = containedPath(platformDir, prior.asarFilename);
         const baseAsarResolved = await assertNoSymlinkFile(baseAsarPath, platformDir, this.root).catch(() => null);
         if (baseAsarResolved && baseAsarResolved.info.size <= this.maxDeltaBytes) {
-          const baseAsarBuf = await readFile(baseAsarResolved.realTarget);
-          const baseAsarSha = sha256Hex(baseAsarBuf);
+          const baseAsarSha = await sha256File(baseAsarResolved.realTarget);
           if (baseAsarSha !== record.asarSha256 && !seenAsarBaseSha.has(baseAsarSha)) {
             seenAsarBaseSha.add(baseAsarSha);
-            const deltaBuf = createRbd1DeltaBuffer(baseAsarBuf, targetAsarBuf);
-            if (deltaBuf.length < targetAsarBuf.length) {
+            const built = await runUpdatesWorker({
+              op: 'generate-delta',
+              format: 'rbd1',
+              basePath: baseAsarResolved.realTarget,
+              targetPath: realTargetAsarPath,
+              maxDeltaBytes: this.maxDeltaBytes,
+            });
+            if (!built.skipped) {
+              const deltaBuf = Buffer.from(
+                built.deltaBytes.buffer,
+                built.deltaBytes.byteOffset,
+                built.deltaBytes.byteLength,
+              );
               const baseHeader = await readAsarHeaderInfo(baseAsarResolved.realTarget);
               const deltaName = `${record.targetPlatform}-asar-${baseAsarSha.slice(0, 12)}-to-${record.asarSha256.slice(0, 12)}.rbdelta`;
               await writePrivate(containedPath(this.deltasDir, deltaName), deltaBuf);
               record.asarDeltas.push({
                 fromReleaseId: prior.id,
                 baseSha256: baseAsarSha,
-                baseSize: baseAsarBuf.length,
+                baseSize: built.baseSize,
                 baseHeaderSha256: baseHeader.headerSha256,
                 targetSha256: record.asarSha256,
-                targetSize: targetAsarBuf.length,
+                targetSize: built.targetSize,
                 targetHeaderSha256: record.asarHeaderSha256,
                 format: 'RBD1',
                 filename: deltaName,
-                sha256: sha256Hex(deltaBuf),
-                size: deltaBuf.length,
+                sha256: built.deltaSha,
+                size: built.deltaSize,
               });
             }
           }

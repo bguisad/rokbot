@@ -116,6 +116,38 @@ async function requestStream({ target, selectedAddress, method, signal, redirect
   return upstream;
 }
 
+export function normalizeSelfOrigins(values) {
+  const out = new Set();
+  for (const value of values ?? []) {
+    for (const part of String(value ?? '').split(',')) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = new URL(trimmed);
+        if (['http:', 'https:'].includes(parsed.protocol)) out.add(parsed.origin);
+      } catch {}
+    }
+  }
+  return [...out];
+}
+
+// Returns { origin, pathname } when rawUrl points at one of this Host's own origins under
+// /local/updates/, otherwise null (caller keeps the regular upstream behaviour).
+export function selfUpdateTarget(rawUrl, selfOrigins) {
+  const origins = normalizeSelfOrigins(selfOrigins);
+  if (!origins.length) return null;
+  let target;
+  try {
+    target = new URL(String(rawUrl ?? '').trim());
+  } catch {
+    return null;
+  }
+  if (target.username || target.password) return null;
+  if (!origins.includes(target.origin)) return null;
+  if (!target.pathname.startsWith('/local/updates/')) return null;
+  return { origin: target.origin, pathname: target.pathname };
+}
+
 export async function handleUpdateProxy(
   request,
   response,
@@ -124,6 +156,8 @@ export async function handleUpdateProxy(
   { device, connections,
     allowOrigin = (process.env.ROKBOT_UPDATE_UPSTREAM_ORIGIN ?? process.env.GROKBOT_UPDATE_UPSTREAM_ORIGIN) || null,
     updateDir = (process.env.ROKBOT_UPDATE_DIR ?? process.env.GROKBOT_UPDATE_DIR) || null,
+    selfOrigins = [],
+    serveSelf = null,
     lookupImpl = lookup } = {},
 ) {
   if (path !== '/local/updates/fetch') return false;
@@ -133,6 +167,19 @@ export async function handleUpdateProxy(
 
   const rawUrl = url.searchParams.get('url');
   check(typeof rawUrl === 'string' && rawUrl.trim().length > 0 && rawUrl.length <= 2048, 400, 'Missing url parameter');
+
+  // Self-targeted fetch (e.g. an older App asking the proxy for this Host's own public
+  // /local/updates/* URL over Tailcat): answer in-process instead of looping back out to
+  // our own public domain without credentials (which our own device() auth would 401).
+  // The device token is never forwarded anywhere.
+  const selfTarget = selfUpdateTarget(rawUrl, selfOrigins);
+  if (selfTarget) {
+    check(typeof serveSelf === 'function', 404, 'Update not found');
+    const handled = await serveSelf(request, response, selfTarget.pathname, selfTarget.origin);
+    check(handled, 404, 'Update not found');
+    return true;
+  }
+
   const { target, selectedAddress } = await resolveSafeUpdateTarget(rawUrl, { allowOrigin, lookupImpl });
 
   if (await tryServeLocalMirror(target, request.method, updateDir, response)) {

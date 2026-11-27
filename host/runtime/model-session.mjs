@@ -240,7 +240,8 @@ function usageValues(raw = {}, contextWindowTokens = 0) {
   const cacheCreationBreakdown = count(raw.cache_creation?.ephemeral_5m_input_tokens)
     + count(raw.cache_creation?.ephemeral_1h_input_tokens);
   const cacheWriteTokens = Math.max(
-    count(raw.cache_creation_input_tokens ?? raw.prompt_tokens_details?.cache_creation_tokens ?? raw.input_tokens_details?.cache_write_tokens),
+    count(raw.cache_creation_input_tokens ?? raw.prompt_tokens_details?.cache_creation_tokens
+      ?? raw.prompt_tokens_details?.cache_write_tokens ?? raw.input_tokens_details?.cache_write_tokens),
     cacheCreationBreakdown,
   );
   return {

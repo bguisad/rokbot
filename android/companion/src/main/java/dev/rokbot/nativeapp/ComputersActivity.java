@@ -12,6 +12,7 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,6 +20,8 @@ import org.json.JSONObject;
 public class ComputersActivity extends Activity {
     private LinearLayout mContainer;
     private TextView mStatus;
+    private View mRefreshButton;
+    private boolean mLoading;
     private String mDefaultAgentId = "";
     private String mDefaultAgentName = "";
     private final Handler mMain = new Handler(Looper.getMainLooper());
@@ -38,8 +41,8 @@ public class ComputersActivity extends Activity {
         root.setBackgroundColor(p.bgPaper);
         root.setPadding(UiChrome.dp(this, 16), UiChrome.dp(this, 10), UiChrome.dp(this, 16), UiChrome.dp(this, 16));
 
-        View refresh = UiChrome.makeVectorIconButton(this, "refresh", "refresh_computers_button", p, v -> reload());
-        root.addView(UiChrome.makeHeaderBar(this, Localize.t(this, "Bot 电脑", "Bot Computers"), p, v -> finish(), refresh));
+        mRefreshButton = UiChrome.makeVectorIconButton(this, "refresh", "refresh_computers_button", p, v -> reload());
+        root.addView(UiChrome.makeHeaderBar(this, Localize.t(this, "Bot 电脑", "Bot Computers"), p, v -> finish(), mRefreshButton));
 
         mStatus = new TextView(this);
         mStatus.setText(Localize.t(this, "正在加载…", "Loading…"));
@@ -59,6 +62,9 @@ public class ComputersActivity extends Activity {
     }
 
     private void reload() {
+        if (mLoading) return;
+        mLoading = true;
+        UiChrome.setIconButtonBusy(mRefreshButton, true);
         new Thread(() -> {
             try {
                 JSONObject res = HostApiClient.getComputers(this);
@@ -93,6 +99,9 @@ public class ComputersActivity extends Activity {
                 } catch (Throwable ignored) {}
 
                 mMain.post(() -> {
+                    if (isDestroyed()) return;
+                    mLoading = false;
+                    UiChrome.setIconButtonBusy(mRefreshButton, false);
                     mContainer.removeAllViews();
                     mStatus.setText(available
                             ? Localize.t(this, "远程 Linux 桌面与已接入设备", "Remote Linux desktop & connected nodes")
@@ -125,7 +134,14 @@ public class ComputersActivity extends Activity {
                     }
                 });
             } catch (Throwable t) {
-                mMain.post(() -> mStatus.setText(Localize.t(this, "错误: ", "Error: ") + t.getMessage()));
+                mMain.post(() -> {
+                    if (isDestroyed()) return;
+                    mLoading = false;
+                    UiChrome.setIconButtonBusy(mRefreshButton, false);
+                    String error = Localize.t(this, "读取失败：", "Error: ") + t.getMessage();
+                    mStatus.setText(error);
+                    Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+                });
             }
         }).start();
     }

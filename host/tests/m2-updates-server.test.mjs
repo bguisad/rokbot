@@ -868,3 +868,177 @@ test('Iteration 3 regressions: DELETE symlinked parent/leaf preservation, upload
     assert.equal((await fetch(token1AfterJson.apps[0].versions[0].downloadURL)).status, 200);
   }
 });
+
+test('createRbdelta1Buffer linear PK scan and non-blocking worker offload during Android publish', { skip: !dependencies && 'run npm ci --prefix host/server' }, async t => {
+  // 1. Verify O(N) PK_LOCAL_HEADER tracking handles scattered headers across unmatched regions cleanly
+  {
+    const { createRbdelta1Buffer } = await import('../server/updates.mjs');
+    const prefix = randomBytes(512 * 1024);
+    const suffix = randomBytes(512 * 1024);
+    const base = Buffer.concat([prefix, randomBytes(128 * 1024), suffix]);
+    const diff = randomBytes(1024 * 1024);
+    for (const offset of [0, 3, 61, 64, 129, 4095, 65536, 512 * 1024 + 7]) {
+      diff.set([0x50, 0x4b, 0x03, 0x04], offset);
+    }
+    const target = Buffer.concat([prefix, diff, suffix]);
+
+    const t0 = performance.now();
+    const delta = createRbdelta1Buffer(base, target);
+    const elapsedMs = performance.now() - t0;
+
+    assert.ok(elapsedMs < 3000, `Expected createRbdelta1Buffer to finish well under 3s, took ${elapsedMs.toFixed(1)}ms`);
+    assert.ok(applyAndroidDelta(base, delta).equals(target));
+  }
+
+  // 2. Verify /healthz remains responsive while publish() generates an Android RBDELTA1 patch in worker_threads
+  {
+    const { origin, adminCookie, deviceToken } = await startHostFixture(t);
+    const identity = createSigningIdentity({ type: 'rsa', modulusLength: 2048 });
+    const sharedLib = randomBytes(2 * 1024 * 1024);
+    const apkV1 = signApk(
+      writeZip([
+        createEntry('classes.dex', randomBytes(256 * 1024)),
+        createEntry('lib/arm64-v8a/librokbot.so', sharedLib, { store: true }),
+      ]),
+      identity,
+    );
+    const apkV2 = signApk(
+      writeZip([
+        createEntry('classes.dex', randomBytes(3 * 1024 * 1024)),
+        createEntry('lib/arm64-v8a/librokbot.so', sharedLib, { store: true }),
+      ]),
+      identity,
+    );
+
+    const upload = async (filename, body) => {
+      const res = await fetch(`${origin}/admin/api/updates/upload?platform=android&filename=${encodeURIComponent(filename)}`, {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'x-rokbot-csrf': '1' },
+        body,
+      });
+      assert.equal(res.status, 201);
+      return res.json();
+    };
+
+    await upload('RokBot-worker-v1.apk', apkV1);
+    const pub1 = await (await fetch(`${origin}/admin/api/updates/publish`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'x-rokbot-csrf': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'android',
+        filename: 'RokBot-worker-v1.apk',
+        packageName: 'dev.rokbot.nativeapp',
+        versionName: '1.0.0',
+        versionCode: 100,
+      }),
+    })).json();
+
+    await upload('RokBot-worker-v2.apk', apkV2);
+
+    let publishDone = false;
+    const healthChecks = [];
+    const publishPromise = fetch(`${origin}/admin/api/updates/publish`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'x-rokbot-csrf': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'android',
+        filename: 'RokBot-worker-v2.apk',
+        packageName: 'dev.rokbot.nativeapp',
+        versionName: '2.0.0',
+        versionCode: 200,
+        generateDeltaFrom: pub1.release.id,
+      }),
+    }).then(async res => {
+      publishDone = true;
+      return { status: res.status, json: await res.json() };
+    });
+
+    while (!publishDone) {
+      const start = performance.now();
+      const res = await fetch(`${origin}/healthz`, { signal: AbortSignal.timeout(1000) });
+      const body = await res.json();
+      healthChecks.push({
+        status: res.status,
+        ok: body.ok,
+        ms: performance.now() - start,
+        duringPublish: !publishDone,
+      });
+      if (!publishDone) await new Promise(resolve => setTimeout(resolve, 5));
+    }
+
+    const pub2 = await publishPromise;
+    assert.equal(pub2.status, 201);
+    assert.equal(pub2.json.release.deltas.length, 1);
+    assert.ok(healthChecks.length >= 1);
+    assert.ok(healthChecks.some(c => c.duringPublish), 'Expected at least one /healthz to complete before publish() resolved');
+    for (const checkRes of healthChecks) {
+      assert.equal(checkRes.status, 200);
+      assert.equal(checkRes.ok, true);
+      assert.ok(checkRes.ms < 500, `Expected /healthz to remain fast during publish, took ${checkRes.ms.toFixed(1)}ms`);
+    }
+
+    const manifest = await (await fetch(`${origin}/local/updates/android.json`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    })).json();
+    const deltaRes = await fetch(manifest.deltas[0].url, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    });
+    assert.equal(deltaRes.status, 200);
+    const deltaBuf = Buffer.from(await deltaRes.arrayBuffer());
+    assert.ok(applyAndroidDelta(apkV1, deltaBuf).equals(apkV2));
+  }
+});
+
+test('Update proxy self-target: old Apps fetching the Host public /local/updates/* URL via /local/updates/fetch get manifest, APK and delta in-process', { skip: !dependencies && 'run npm ci --prefix host/server' }, async t => {
+  const publicUrl = 'https://rokbot-public.invalid';
+  const { origin, adminCookie, deviceToken } = await startHostFixture(t, { publicUrl });
+  const identity = createSigningIdentity({ type: 'rsa', modulusLength: 2048 });
+  const shared = randomBytes(64 * 1024);
+  const mk = fill => signApk(writeZip([
+    createEntry('classes.dex', Buffer.alloc(8 * 1024 + fill, fill)),
+    createEntry('lib/arm64-v8a/librokbot.so', shared, { store: true }),
+  ]), identity);
+  const apkV1 = mk(1);
+  const apkV2 = mk(2);
+  const admin = { cookie: adminCookie, 'x-rokbot-csrf': '1' };
+  for (const [name, buf] of [['RokBot-a.apk', apkV1], ['RokBot-b.apk', apkV2]]) {
+    const up = await fetch(`${origin}/admin/api/updates/upload?platform=android&filename=${name}`, { method: 'POST', headers: admin, body: buf });
+    assert.equal(up.status, 201);
+  }
+  const pub = async body => (await fetch(`${origin}/admin/api/updates/publish`, {
+    method: 'POST', headers: { ...admin, 'content-type': 'application/json' }, body: JSON.stringify(body),
+  })).json();
+  const p1 = await pub({ platform: 'android', filename: 'RokBot-a.apk', packageName: 'dev.rokbot.local', versionName: '1.0.0', versionCode: 100 });
+  await pub({ platform: 'android', filename: 'RokBot-b.apk', packageName: 'dev.rokbot.local', versionName: '1.0.1', versionCode: 101, generateDeltaFrom: p1.release.id });
+
+  const viaProxy = (target, auth = true) => fetch(`${origin}/local/updates/fetch?url=${encodeURIComponent(target)}`, {
+    headers: auth ? { authorization: `Bearer ${deviceToken}` } : {},
+  });
+
+  assert.equal((await viaProxy(`${publicUrl}/local/updates/android.json`, false)).status, 401);
+
+  const manifestRes = await viaProxy(`${publicUrl}/local/updates/android.json`);
+  assert.equal(manifestRes.status, 200);
+  const manifest = await manifestRes.json();
+  assert.equal(manifest.versionCode, 101);
+  assert.equal(manifest.url, `${publicUrl}/local/updates/files/android/RokBot-b.apk`);
+  assert.equal(manifest.deltas.length, 1);
+  assert.ok(manifest.deltas[0].url.startsWith(`${publicUrl}/local/updates/files/android/`));
+
+  const apkRes = await viaProxy(manifest.url);
+  assert.equal(apkRes.status, 200);
+  const apkBuf = Buffer.from(await apkRes.arrayBuffer());
+  assert.equal(sha256(apkBuf), manifest.sha256);
+
+  const deltaRes = await viaProxy(manifest.deltas[0].url);
+  assert.equal(deltaRes.status, 200);
+  const deltaBuf = Buffer.from(await deltaRes.arrayBuffer());
+  assert.equal(sha256(deltaBuf), manifest.deltas[0].sha256);
+  assert.ok(applyAndroidDelta(apkV1, deltaBuf).equals(apkV2));
+
+  // Direct route behaviour is unchanged.
+  const direct = await fetch(`${origin}/local/updates/android.json`, { headers: { authorization: `Bearer ${deviceToken}` } });
+  assert.equal(direct.status, 200);
+  assert.equal((await direct.json()).url, `${origin}/local/updates/files/android/RokBot-b.apk`);
+  assert.equal((await fetch(`${origin}/local/updates/android.json`)).status, 401);
+});
