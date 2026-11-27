@@ -868,3 +868,123 @@ test('Iteration 3 regressions: DELETE symlinked parent/leaf preservation, upload
     assert.equal((await fetch(token1AfterJson.apps[0].versions[0].downloadURL)).status, 200);
   }
 });
+
+test('createRbdelta1Buffer linear PK scan and non-blocking worker offload during Android publish', { skip: !dependencies && 'run npm ci --prefix host/server' }, async t => {
+  // 1. Verify O(N) PK_LOCAL_HEADER tracking handles scattered headers across unmatched regions cleanly
+  {
+    const { createRbdelta1Buffer } = await import('../server/updates.mjs');
+    const prefix = randomBytes(512 * 1024);
+    const suffix = randomBytes(512 * 1024);
+    const base = Buffer.concat([prefix, randomBytes(128 * 1024), suffix]);
+    const diff = randomBytes(1024 * 1024);
+    for (const offset of [0, 3, 61, 64, 129, 4095, 65536, 512 * 1024 + 7]) {
+      diff.set([0x50, 0x4b, 0x03, 0x04], offset);
+    }
+    const target = Buffer.concat([prefix, diff, suffix]);
+
+    const t0 = performance.now();
+    const delta = createRbdelta1Buffer(base, target);
+    const elapsedMs = performance.now() - t0;
+
+    assert.ok(elapsedMs < 3000, `Expected createRbdelta1Buffer to finish well under 3s, took ${elapsedMs.toFixed(1)}ms`);
+    assert.ok(applyAndroidDelta(base, delta).equals(target));
+  }
+
+  // 2. Verify /healthz remains responsive while publish() generates an Android RBDELTA1 patch in worker_threads
+  {
+    const { origin, adminCookie, deviceToken } = await startHostFixture(t);
+    const identity = createSigningIdentity({ type: 'rsa', modulusLength: 2048 });
+    const sharedLib = randomBytes(2 * 1024 * 1024);
+    const apkV1 = signApk(
+      writeZip([
+        createEntry('classes.dex', randomBytes(256 * 1024)),
+        createEntry('lib/arm64-v8a/librokbot.so', sharedLib, { store: true }),
+      ]),
+      identity,
+    );
+    const apkV2 = signApk(
+      writeZip([
+        createEntry('classes.dex', randomBytes(3 * 1024 * 1024)),
+        createEntry('lib/arm64-v8a/librokbot.so', sharedLib, { store: true }),
+      ]),
+      identity,
+    );
+
+    const upload = async (filename, body) => {
+      const res = await fetch(`${origin}/admin/api/updates/upload?platform=android&filename=${encodeURIComponent(filename)}`, {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'x-rokbot-csrf': '1' },
+        body,
+      });
+      assert.equal(res.status, 201);
+      return res.json();
+    };
+
+    await upload('RokBot-worker-v1.apk', apkV1);
+    const pub1 = await (await fetch(`${origin}/admin/api/updates/publish`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'x-rokbot-csrf': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'android',
+        filename: 'RokBot-worker-v1.apk',
+        packageName: 'dev.rokbot.nativeapp',
+        versionName: '1.0.0',
+        versionCode: 100,
+      }),
+    })).json();
+
+    await upload('RokBot-worker-v2.apk', apkV2);
+
+    let publishDone = false;
+    const healthChecks = [];
+    const publishPromise = fetch(`${origin}/admin/api/updates/publish`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'x-rokbot-csrf': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'android',
+        filename: 'RokBot-worker-v2.apk',
+        packageName: 'dev.rokbot.nativeapp',
+        versionName: '2.0.0',
+        versionCode: 200,
+        generateDeltaFrom: pub1.release.id,
+      }),
+    }).then(async res => {
+      publishDone = true;
+      return { status: res.status, json: await res.json() };
+    });
+
+    while (!publishDone) {
+      const start = performance.now();
+      const res = await fetch(`${origin}/healthz`, { signal: AbortSignal.timeout(1000) });
+      const body = await res.json();
+      healthChecks.push({
+        status: res.status,
+        ok: body.ok,
+        ms: performance.now() - start,
+        duringPublish: !publishDone,
+      });
+      if (!publishDone) await new Promise(resolve => setTimeout(resolve, 5));
+    }
+
+    const pub2 = await publishPromise;
+    assert.equal(pub2.status, 201);
+    assert.equal(pub2.json.release.deltas.length, 1);
+    assert.ok(healthChecks.length >= 1);
+    assert.ok(healthChecks.some(c => c.duringPublish), 'Expected at least one /healthz to complete before publish() resolved');
+    for (const checkRes of healthChecks) {
+      assert.equal(checkRes.status, 200);
+      assert.equal(checkRes.ok, true);
+      assert.ok(checkRes.ms < 500, `Expected /healthz to remain fast during publish, took ${checkRes.ms.toFixed(1)}ms`);
+    }
+
+    const manifest = await (await fetch(`${origin}/local/updates/android.json`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    })).json();
+    const deltaRes = await fetch(manifest.deltas[0].url, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    });
+    assert.equal(deltaRes.status, 200);
+    const deltaBuf = Buffer.from(await deltaRes.arrayBuffer());
+    assert.ok(applyAndroidDelta(apkV1, deltaBuf).equals(apkV2));
+  }
+});
