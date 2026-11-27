@@ -45,6 +45,7 @@
 - **Choose your own models:** works with OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so you decide which provider and model to use.
 - **Per-scenario model routing:** input suggestions, context compaction, memory extraction, auto-review, sub-agents and routines can each use their own model and reasoning effort, and any single Bot can have its own model too.
 - **Automatic fallback when the main model fails:** each route takes up to 8 fallback models; on error RokBot switches automatically, and never swaps models in the middle of a reply that has started streaming.
+- **Migrate from Grok Bot:** read the local Grok Bot data in one click, or copy a migration prompt so Grok Bot exports its memories, skills and routines; review, then import, as often as you like without duplicates. See the [migration guide](docs/migrate-from-grokbot.md) (Chinese).
 - **No cloud account needed:** pair with a single-use 6-digit code, and reach the Host remotely through the built-in Tailcat network, Tailscale or an HTTPS reverse proxy.
 
 <br clear="right" />
