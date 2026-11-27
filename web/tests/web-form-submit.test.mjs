@@ -14,9 +14,9 @@ test('web: connection / account dialogs submit on click even after an IME compos
   const pane = read('windows/tools/desktop-recipes/extensions/general-pane.js');
   assert.doesNotMatch(pane, /if \(composing\.current \|\| submitting\.current/);
   assert.doesNotMatch(pane, /isComposing \|\| composing\.current/);
-  assert.match(pane, /throw new Error\(result\.error \|\| grokText\('连接失败/);
-  assert.match(pane, /setError\(failure\?\.message \|\| grokText\('操作失败，请重试。'/);
-  assert.match(pane, /onClick: \(\) => setOpen\(false\), variant: 'primary', children: grokText\('完成', 'Done'\)/, '完成 closes the dialog');
+  assert.match(pane, /throw new Error\(result\.error \|\| \w+Text\('连接失败/);
+  assert.match(pane, /setError\(failure\?\.message \|\| \w+Text\('操作失败，请重试。'/);
+  assert.match(pane, /onClick: \(\) => setOpen\(false\), variant: 'primary', children: \w+Text\('完成', 'Done'\)/, '完成 closes the dialog');
 });
 
 test('web: the migration wizard shows the import report (and 完成) before refreshing the list', () => {
