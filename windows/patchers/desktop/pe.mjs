@@ -497,7 +497,11 @@ export function replaceResources(buffer, { ico = null, versionStrings = null, fi
     output = Buffer.from(peBuffer);
     output.fill(0, rsrcSection.rawOffset, rsrcSection.rawOffset + rsrcSection.rawSize);
     newRsrc.copy(output, rsrcSection.rawOffset);
-    output.writeUInt32LE(newRsrc.length, rsrcSection.headerOffset + 8);
+    // Keep the section header VirtualSize at least its original span when rewriting in place:
+    // shrinking VirtualSize while SizeOfRawData and the next section's VA stay fixed creates a
+    // VA gap (and SizeOfRawData > VirtualSize), which Windows 11's PE loader rejects with
+    // ERROR_BAD_EXE_FORMAT ("%1 is not a valid Win32 application").
+    output.writeUInt32LE(Math.max(rsrcSection.virtualSize, newRsrc.length), rsrcSection.headerOffset + 8);
     output.writeUInt32LE(rsrcSection.virtualAddress, directories + 2 * 8);
     output.writeUInt32LE(newRsrc.length, directories + 2 * 8 + 4);
     output.writeUInt32LE(0, optional + 64);

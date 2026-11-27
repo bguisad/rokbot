@@ -673,4 +673,90 @@ test('pe.replaceResources replaces RT_ICON, RT_GROUP_ICON, and RT_VERSION while 
   assert.ok(newRelocVa > relocVa);
   assert.equal(patchedPe.readUInt32LE(secAt + 2 * 40 + 12), newRelocVa);
   assert.ok(patchedPe.readUInt32LE(opt + 56) >= newRelocVa + relocRawSize);
+
+  // 3. In-place shrink regression (real Grok Bot 1.3.0 has a ~400 KB .rsrc followed by .reloc):
+  // when the replacement icon is smaller than the original .rsrc, fitsInPlace rewrites .rsrc without
+  // shifting .reloc. Section VirtualSize must keep its original span so no VA gap is opened before
+  // .reloc and SizeOfRawData never exceeds the aligned VirtualSize (Win11 PE loader requirement).
+  const largeOldIcon = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    Buffer.alloc(rokbotIco.length + 0x20000, 0x5a),
+  ]);
+  const largeGroup = Buffer.alloc(6 + 14);
+  largeGroup.writeUInt16LE(1, 2);
+  largeGroup.writeUInt16LE(1, 4);
+  largeGroup.writeUInt32LE(largeOldIcon.length, 6 + 8);
+  largeGroup.writeUInt16LE(1, 6 + 12);
+  const largeItems = [
+    { type: 3, id: 1, data: largeOldIcon },
+    { type: 14, id: 101, data: largeGroup },
+    { type: 16, id: 1, data: oldVersionBytes },
+    { type: 24, id: 1, data: manifestXml },
+  ];
+  let largeCursor = align4(headerSize);
+  const largeOffsets = largeItems.map(it => { const at = largeCursor; largeCursor = align4(largeCursor + it.data.length); return at; });
+  const largeRsrc = Buffer.alloc(largeCursor);
+  largeRsrc.writeUInt16LE(largeItems.length, 14);
+  largeItems.forEach((it, idx) => {
+    const typeDirAt = rootSize + idx * typeDirSize;
+    const langDirAt = rootSize + largeItems.length * typeDirSize + idx * langDirSize;
+    const entryAt = rootSize + largeItems.length * (typeDirSize + langDirSize) + idx * dataEntrySize;
+    largeRsrc.writeUInt32LE(it.type, 16 + idx * 8);
+    largeRsrc.writeUInt32LE((0x80000000 | typeDirAt) >>> 0, 16 + idx * 8 + 4);
+    largeRsrc.writeUInt16LE(1, typeDirAt + 14);
+    largeRsrc.writeUInt32LE(it.id, typeDirAt + 16);
+    largeRsrc.writeUInt32LE((0x80000000 | langDirAt) >>> 0, typeDirAt + 20);
+    largeRsrc.writeUInt16LE(1, langDirAt + 14);
+    largeRsrc.writeUInt32LE(0x0409, langDirAt + 16);
+    largeRsrc.writeUInt32LE(entryAt, langDirAt + 20);
+    largeRsrc.writeUInt32LE(rsrcVa + largeOffsets[idx], entryAt);
+    largeRsrc.writeUInt32LE(it.data.length, entryAt + 4);
+    it.data.copy(largeRsrc, largeOffsets[idx]);
+  });
+
+  const largeRsrcRawSize = Math.ceil(largeRsrc.length / 0x200) * 0x200;
+  const largeRelocVa = rsrcVa + Math.ceil(largeRsrc.length / 0x1000) * 0x1000;
+  const largeRelocRawOff = rsrcRawOff + largeRsrcRawSize;
+  const largePe = Buffer.alloc(largeRelocRawOff + relocRawSize);
+  peBuf.copy(largePe, 0, 0, rsrcRawOff);
+  largePe.writeUInt32LE(largeRsrcRawSize + relocRawSize, opt + 8);
+  largePe.writeUInt32LE(largeRelocVa + 0x1000, opt + 56);
+  largePe.writeUInt32LE(rsrcVa, dirs + 2 * 8);
+  largePe.writeUInt32LE(largeRsrc.length, dirs + 2 * 8 + 4);
+  largePe.writeUInt32LE(0, dirs + 4 * 8);
+  largePe.writeUInt32LE(0, dirs + 4 * 8 + 4);
+  largePe.writeUInt32LE(largeRelocVa, dirs + 5 * 8);
+  largePe.writeUInt32LE(relocBytes.length, dirs + 5 * 8 + 4);
+  const writeLargeSec = (idx, name, vsize, va, rsize, roff) => {
+    const at = secAt + idx * 40;
+    largePe.fill(0, at, at + 40);
+    largePe.write(name, at, 'ascii');
+    largePe.writeUInt32LE(vsize, at + 8);
+    largePe.writeUInt32LE(va, at + 12);
+    largePe.writeUInt32LE(rsize, at + 16);
+    largePe.writeUInt32LE(roff, at + 20);
+  };
+  writeLargeSec(0, '.text', 0x100, 0x1000, 0x200, 0x200);
+  writeLargeSec(1, '.rsrc', largeRsrc.length, rsrcVa, largeRsrcRawSize, rsrcRawOff);
+  writeLargeSec(2, '.reloc', relocBytes.length, largeRelocVa, relocRawSize, largeRelocRawOff);
+  largeRsrc.copy(largePe, rsrcRawOff);
+  relocBytes.copy(largePe, largeRelocRawOff);
+
+  const shrunkPe = replaceResources(largePe, {
+    ico: rokbotIco,
+    versionStrings: { ...WINDOWS_PE_VERSION_STRINGS, FileVersion: '1.3.3', ProductVersion: '1.3.3' },
+    fixedVersion: windowsFixedVersion('1.3.3'),
+  });
+  const shrunkRsrcVSize = shrunkPe.readUInt32LE(secAt + 1 * 40 + 8);
+  const shrunkRsrcRawSize = shrunkPe.readUInt32LE(secAt + 1 * 40 + 16);
+  const shrunkRsrcDirSize = shrunkPe.readUInt32LE(dirs + 2 * 8 + 4);
+  const shrunkRelocVa = shrunkPe.readUInt32LE(secAt + 2 * 40 + 12);
+  assert.equal(shrunkRelocVa, largeRelocVa);
+  assert.ok(shrunkRsrcDirSize < largeRsrc.length);
+  assert.equal(shrunkRsrcVSize, largeRsrc.length);
+  assert.equal(rsrcVa + Math.ceil(shrunkRsrcVSize / 0x1000) * 0x1000, shrunkRelocVa);
+  assert.ok(Math.ceil(shrunkRsrcVSize / 0x1000) * 0x1000 >= shrunkRsrcRawSize);
+  assert.equal(applicationIcon(shrunkPe).ico.equals(rokbotIco), true);
+  assert.equal(versionInfo(shrunkPe).ProductVersion, '1.3.3');
+  assert.equal(shrunkPe.includes(manifestXml), true);
 });
