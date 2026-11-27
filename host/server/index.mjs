@@ -79,6 +79,8 @@ import {
   verifyPassword,
 } from "./security.mjs";
 import { readJson } from "./storage.mjs";
+import { CanvasLinkOrigins, CanvasStore } from "./canvas-store.mjs";
+import { routeCanvas } from "./canvas-http.mjs";
 import { createSpeedTest } from "./speedtest.mjs";
 import { SuggestionsService, SuggestionsSettings } from "./suggestions.mjs";
 
@@ -199,6 +201,8 @@ export async function createSelfHostServer(options = {}) {
     maxDeltaBytes: options.maxDeltaBytes,
   }).load();
   const library = await new Library(dataDir).load();
+  // Canvases are written by the bot runtime; this service only reads and serves them.
+  const canvasStore = new CanvasStore(dataDir), canvasLinks = new CanvasLinkOrigins(dataDir);
   const speech = await new Speech(dataDir).load();
   const voiceConfig = await new VoiceConfig(dataDir, { speech }).load();
   const synthesis = new VoiceSynthesis(voiceConfig);
@@ -268,6 +272,7 @@ export async function createSelfHostServer(options = {}) {
     const found = auth.authenticate(token);
     check(found && (found.platform === "web") === web, 401, "设备凭证无效，请重新配对");
     void auth.touch(found.id).catch(() => {});
+    canvasLinks.observe(request.rokbotOrigin, web);
     return found;
   }
   function resolveDefaultMachineId() {
@@ -720,6 +725,7 @@ export async function createSelfHostServer(options = {}) {
     delete request.headers['x-grokbot-tailcat-ingress'];
     request.rokbotOrigin = origin;
     const url = new URL(request.url, origin);
+    if (await routeCanvas(request, response, path, url, { store: canvasStore })) return;
     if (web) {
       check(origin !== mainOrigin, 403, "网页版需要与管理页不同的地址");
       if (await webRoute(request, response, path, url, origin, mainOrigin)) return;
@@ -1369,6 +1375,7 @@ export async function createSelfHostServer(options = {}) {
       for (const target of [server, webServer])
         if (target.listening) await new Promise((resolve) => target.close(resolve));
       await Promise.all([
+        canvasLinks.pending,
         auth.store.tail,
         models.tail,
         modelSettings.store.tail,
