@@ -31,6 +31,14 @@ python3 deploy.py up --host-archive /path/to/host.tgz --box-archive /path/to/box
 - 这些参数只替代原版下载。全离线还要预缓存基础镜像、系统包和 npm 依赖，ARM 同机还需要 amd64 的 `busybox:1.37`。ARM 独立 Host 不传 `--box-archive`。
 - `release/patch-host.py --archive ORIGINAL --output NEW_DIRECTORY` 可以单独生成 Host 文件；只做固定的字节复制和新增，不反编译。
 
+## 本地画布
+
+Bot 可以用 `WriteCanvas`、`EditCanvas`、`ReadCanvas`、`ListCanvases` 生成和修改可交互页面（单个 React `.canvas.tsx` 模块，只能 import `cursor/canvas`），参数和官方画布工具一致，但编译、存储、访问都在本机完成：
+
+- Host 用镜像里自带的 esbuild、React 和 RokBot 画布组件库离线编译，不访问网络。源码、编译结果和访问令牌保存在数据目录的 `canvases/` 下，随 `host-data` 一起备份。更新同一个画布时链接不变。
+- 访问地址是 `/canvas/<令牌>`，令牌有 256 位随机熵，持有链接即可查看，不需要设备凭证。画布代码只在 `sandbox` iframe 里运行（不同源、`connect-src 'none'`），读不到 Host 的接口和凭证。
+- 链接里的地址优先取 `ROKBOT_PUBLIC_URL`，未配置时取客户端最近一次访问 Host 用的地址。桌面端会把链接改到当前连接的 Host，在独立的 RokBot 窗口中打开；网页版在本端口的新标签页打开；安卓用系统浏览器打开，所以只走 Tailcat 的 Host 需要配置手机能直接访问的 `ROKBOT_PUBLIC_URL`。
+
 ## 数据与备份
 
 ```sh

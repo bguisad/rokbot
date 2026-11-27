@@ -681,7 +681,7 @@ export function createLocalBotResourcesPorts({ agentId, dataDir, session, tm, mc
 }
 
 /** Build a lightweight harness-compatible tool backed by ToolFramework bindings. */
-function makeLocalHarnessTool(library, { name, description, schema, contextType, run }) {
+export function makeLocalHarnessTool(library, { name, description, schema, contextType, run }) {
   const tf = library?.getToolFrameworkRecoveryBindings?.() ?? {};
   const jsonSchemaFn = tf.jsonSchema ?? ((s) => ({ jsonSchema: s }));
   const createStringResult = tf.createStringResult ?? ((content, isError = false) => ({
@@ -1739,9 +1739,17 @@ function wrapToolDescriptions(tools, getSanitizeOpts) {
   return tools;
 }
 
-function filterToolSetResult(result, onOfferedTools, getSanitizeOpts) {
+function filterToolSetResult(result, onOfferedTools, getSanitizeOpts, getExtraTools) {
   if (!result) return result;
-  const filterList = (list) => (Array.isArray(list) ? list.filter((t) => !SELF_HOSTED_HIDDEN_TOOLS.has(t?.name)) : list);
+  // Local tools with no upstream builder slot (the canvas tools) are appended after the
+  // upstream ones, unless a builder already offers a tool of the same name.
+  const withExtras = (list) => {
+    const extras = getExtraTools?.() ?? [];
+    if (!Array.isArray(list) || extras.length === 0) return list;
+    const names = new Set(list.map((t) => t?.name));
+    return [...list, ...extras.filter((t) => !names.has(t.name))];
+  };
+  const filterList = (list) => (Array.isArray(list) ? withExtras(list.filter((t) => !SELF_HOSTED_HIDDEN_TOOLS.has(t?.name))) : list);
   if (typeof result.transformToolsInPlace === 'function' && typeof result.getAllTools === 'function') {
     result.transformToolsInPlace(filterList);
     const all = result.getAllTools();
@@ -1778,10 +1786,10 @@ function filterToolSetResult(result, onOfferedTools, getSanitizeOpts) {
 
 /**
  * Wrap `createTurnAgentComposition` so `buildTurnTools` hides cloud-only sibling
- * tools (e.g. DisconnectChannel), sanitizes remaining tool descriptions, and
- * records the exact offered tool names.
+ * tools (e.g. DisconnectChannel), appends local-only tools (`getExtraTools`),
+ * sanitizes remaining tool descriptions, and records the exact offered tool names.
  */
-export function createSelfHostedTurnAgentComposition(library, onOfferedTools, getSanitizeOpts) {
+export function createSelfHostedTurnAgentComposition(library, onOfferedTools, getSanitizeOpts, getExtraTools) {
   const harness = library?.getHarnessRecoveryBindings?.();
   const origCreate = harness?.createTurnAgentComposition;
   if (typeof origCreate !== 'function') return undefined;
@@ -1790,7 +1798,7 @@ export function createSelfHostedTurnAgentComposition(library, onOfferedTools, ge
     if (typeof origBuild !== 'function') return origCreate(compOpts);
     return origCreate({
       ...compOpts,
-      buildTurnTools: (turn, props) => filterToolSetResult(origBuild(turn, props), onOfferedTools, getSanitizeOpts),
+      buildTurnTools: (turn, props) => filterToolSetResult(origBuild(turn, props), onOfferedTools, getSanitizeOpts, getExtraTools),
     });
   };
 }
