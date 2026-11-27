@@ -1,9 +1,15 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  DEFAULT_TRANSFER_CHUNK_BYTES,
+  ROKBOT_CHUNKED_VARIANT_TOKEN,
+  minByteLimit,
+  resolveMaxTransferBytes,
+} from './file-transfer.mjs';
 
 const DEFAULT_SAND_COMPUTER_ID = 'this-computer';
 const SAND_LOCAL_EXEC_LIVENESS_WINDOW_MS = 90_000;
 const FALLBACK_TERMINALS_FOLDER = 'terminals';
-const DEFAULT_MAX_LOCAL_EXEC_FILE_BYTES = 32 * 1024 * 1024;
+const DEFAULT_MAX_LOCAL_EXEC_FILE_BYTES = Infinity;
 const SAND_MACHINE_ID_REQUIRED_MESSAGE = 'More than one user machine is registered. Call ListMachines and retry with machineId so the action is not sent to the wrong machine.';
 const SAND_NO_LOCAL_MACHINE_MESSAGE = 'No local machine is connected.';
 
@@ -110,9 +116,20 @@ export class GatewayLocalExecSandBox {
     this.bridge = bridge;
     this.gate = options.gate;
     this.computerId = options.computerId;
-    this.maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_LOCAL_EXEC_FILE_BYTES;
+    this.env = options.env;
+    this.configuredMaxFileBytes = options.maxFileBytes;
+    this.maxFileBytes = options.maxFileBytes ?? resolveMaxTransferBytes(options.env ?? process.env);
     this.reportFailure = options.reportFailure;
     this.library = options.library;
+  }
+
+  effectiveMaxFileBytes(override) {
+    const base = this.configuredMaxFileBytes ?? resolveMaxTransferBytes(this.env ?? process.env);
+    return minByteLimit(base, this.maxFileBytes, override);
+  }
+
+  supportsChunkedTransfer(computerId = this.computerId) {
+    return this.bridge.getProviderInfo(computerId)?.chunkedTransfer === true;
   }
 
   getTerminalsFolder(computerId = this.computerId) {
@@ -157,11 +174,218 @@ export class GatewayLocalExecSandBox {
     return [];
   }
 
+  async sendFileTransferFrame(ctx, frame, site, { computerId, permissionMachineId }) {
+    for await (const response of this.bridge.request(
+      ctx,
+      frame,
+      computerId,
+      { permissionMachineId },
+    )) {
+      if (response.kind === 'client' && response.message?.rokbotFileTransfer === true) {
+        if (response.message.error) {
+          const error = new SandLocalExecError(response.message.error);
+          if (typeof response.message.code === 'string') error.code = response.message.code;
+          throw error;
+        }
+        return response.message;
+      }
+      if (response.kind === 'file-error') {
+        throw new SandLocalExecError(response.error);
+      }
+    }
+    throw new SandLocalExecError(SAND_NO_LOCAL_MACHINE_MESSAGE);
+  }
+
+  async openDownloadStream(ctx, _agentId, boxPath, { chunkBytes = DEFAULT_TRANSFER_CHUNK_BYTES, maxBytes } = {}) {
+    const { computerId, permissionMachineId } = this.requireUsableComputer(ctx, 'download');
+    const limit = this.effectiveMaxFileBytes(maxBytes);
+    if (!this.supportsChunkedTransfer(computerId)) {
+      // Legacy unpatched desktop client: fall back to single-frame download.
+      const whole = await this.downloadFile(ctx, _agentId, boxPath);
+      if (whole.byteLength > limit) {
+        throw new SandLocalExecError(`File exceeds local-exec size limit (${whole.byteLength} > ${limit})`);
+      }
+      return {
+        totalBytes: whole.byteLength,
+        async *chunks() {
+          for (let offset = 0; offset < whole.byteLength; offset += chunkBytes) {
+            ctx?.signal?.throwIfAborted();
+            yield whole.subarray(offset, Math.min(whole.byteLength, offset + chunkBytes));
+          }
+        },
+      };
+    }
+
+    const step = Math.max(64 * 1024, Math.floor(chunkBytes));
+    const transferId = randomUUID();
+    const first = await this.sendFileTransferFrame(
+      ctx,
+      { kind: 'file-read-chunk', transferId, path: boxPath, offset: 0, length: step },
+      'download',
+      { computerId, permissionMachineId },
+    );
+    const totalBytes = first.size;
+    if (!Number.isSafeInteger(totalBytes) || totalBytes < 0) {
+      throw new SandLocalExecError('Invalid local-exec file metadata');
+    }
+    if (totalBytes > limit) {
+      throw new SandLocalExecError(`File exceeds local-exec size limit (${totalBytes} > ${limit})`);
+    }
+    const identity = first.identity;
+    const firstChunk = first.bytesBase64 ? Buffer.from(first.bytesBase64, 'base64') : Buffer.alloc(0);
+    if (firstChunk.length > step || (totalBytes > 0 && firstChunk.length === 0)) {
+      throw new SandLocalExecError('Invalid local-exec file chunk');
+    }
+    const self = this;
+    return {
+      totalBytes,
+      identity,
+      async *chunks() {
+        let offset = 0;
+        if (firstChunk.length > 0) {
+          offset += firstChunk.length;
+          yield firstChunk;
+        }
+        while (offset < totalBytes) {
+          ctx?.signal?.throwIfAborted();
+          const want = Math.min(step, totalBytes - offset);
+          const part = await self.sendFileTransferFrame(
+            ctx,
+            { kind: 'file-read-chunk', transferId, path: boxPath, offset, length: want },
+            'download',
+            { computerId, permissionMachineId },
+          );
+          if (part.identity !== identity || part.size !== totalBytes) {
+            throw new SandLocalExecError('Local file changed during transfer');
+          }
+          const chunk = part.bytesBase64 ? Buffer.from(part.bytesBase64, 'base64') : Buffer.alloc(0);
+          if (chunk.length === 0 || chunk.length > want) {
+            throw new SandLocalExecError('Incomplete or invalid local-exec file chunk');
+          }
+          offset += chunk.length;
+          yield chunk;
+        }
+      },
+    };
+  }
+
+  async uploadFileStream(ctx, _agentId, boxPath, chunkIterable, {
+    expectedBytes,
+    getExpectedDigest,
+    chunkBytes = DEFAULT_TRANSFER_CHUNK_BYTES,
+    maxBytes,
+  } = {}) {
+    const { computerId, permissionMachineId } = this.requireUsableComputer(ctx, 'upload');
+    const limit = this.effectiveMaxFileBytes(maxBytes);
+    if (expectedBytes !== undefined && expectedBytes > limit) {
+      throw new SandLocalExecError(`File exceeds local-exec size limit (${expectedBytes} > ${limit})`);
+    }
+    if (!this.supportsChunkedTransfer(computerId)) {
+      // Legacy unpatched desktop client: coalesce and send single upload frame.
+      const parts = [];
+      let total = 0;
+      for await (const raw of chunkIterable) {
+        ctx?.signal?.throwIfAborted();
+        if (!raw || raw.byteLength === 0) continue;
+        const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
+        total += buf.length;
+        if (total > limit) {
+          throw new SandLocalExecError(`File exceeds local-exec size limit (${total} > ${limit})`);
+        }
+        parts.push(buf);
+      }
+      await this.uploadFile(ctx, _agentId, boxPath, Buffer.concat(parts, total));
+      return;
+    }
+
+    const transferId = randomUUID();
+    const step = Math.max(64 * 1024, Math.floor(chunkBytes));
+    await this.sendFileTransferFrame(
+      ctx,
+      {
+        kind: 'file-write-begin',
+        transferId,
+        path: boxPath,
+        ...(expectedBytes !== undefined ? { totalSize: expectedBytes } : {}),
+      },
+      'upload',
+      { computerId, permissionMachineId },
+    );
+
+    const hash = createHash('sha256');
+    let offset = 0;
+    try {
+      for await (const raw of chunkIterable) {
+        ctx?.signal?.throwIfAborted();
+        if (!raw || raw.byteLength === 0) continue;
+        const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
+        for (let pos = 0; pos < buf.length; pos += step) {
+          ctx?.signal?.throwIfAborted();
+          const slice = buf.subarray(pos, Math.min(buf.length, pos + step));
+          if (offset + slice.length > limit) {
+            throw new SandLocalExecError(`File exceeds local-exec size limit (${offset + slice.length} > ${limit})`);
+          }
+          hash.update(slice);
+          await this.sendFileTransferFrame(
+            ctx,
+            {
+              kind: 'file-write-chunk',
+              transferId,
+              offset,
+              bytesBase64: slice.toString('base64'),
+            },
+            'upload',
+            { computerId, permissionMachineId },
+          );
+          offset += slice.length;
+        }
+      }
+      ctx?.signal?.throwIfAborted();
+      const actualSha256 = hash.digest('hex');
+      const expectedSummary = getExpectedDigest?.();
+      if (expectedSummary?.sha256 && expectedSummary.sha256 !== actualSha256) {
+        throw new SandLocalExecError(`Transfer SHA-256 mismatch before commit (${actualSha256} != ${expectedSummary.sha256})`);
+      }
+      if (expectedBytes !== undefined && offset !== expectedBytes) {
+        throw new SandLocalExecError(`Transfer byte count mismatch (${offset} != ${expectedBytes})`);
+      }
+      await this.sendFileTransferFrame(
+        ctx,
+        {
+          kind: 'file-write-commit',
+          transferId,
+          expectedSha256: actualSha256,
+          expectedBytes: offset,
+        },
+        'upload',
+        { computerId, permissionMachineId },
+      );
+    } catch (error) {
+      await this.sendFileTransferFrame(
+        {},
+        { kind: 'file-write-abort', transferId },
+        'upload',
+        { computerId, permissionMachineId },
+      ).catch(() => {});
+      throw error;
+    }
+  }
+
   async uploadFile(ctx, _agentId, boxPath, data) {
-    if (data.length > this.maxFileBytes) {
-      throw new SandLocalExecError(`File exceeds local-exec size limit (${data.length} > ${this.maxFileBytes})`);
+    const limit = this.effectiveMaxFileBytes();
+    if (data.length > limit) {
+      throw new SandLocalExecError(`File exceeds local-exec size limit (${data.length} > ${limit})`);
     }
     const { computerId, permissionMachineId } = this.requireUsableComputer(ctx, 'upload');
+    if (this.supportsChunkedTransfer(computerId) && data.length > DEFAULT_TRANSFER_CHUNK_BYTES) {
+      async function* chunks() {
+        for (let offset = 0; offset < data.length; offset += DEFAULT_TRANSFER_CHUNK_BYTES) {
+          yield data.subarray(offset, Math.min(data.length, offset + DEFAULT_TRANSFER_CHUNK_BYTES));
+        }
+      }
+      await this.uploadFileStream(ctx, _agentId, boxPath, chunks(), { expectedBytes: data.length });
+      return;
+    }
     for await (const frame of this.bridge.request(
       ctx,
       { kind: 'upload', path: boxPath, bytesBase64: Buffer.from(data).toString('base64') },
@@ -176,6 +400,16 @@ export class GatewayLocalExecSandBox {
 
   async downloadFile(ctx, _agentId, boxPath) {
     const { computerId, permissionMachineId } = this.requireUsableComputer(ctx, 'download');
+    if (this.supportsChunkedTransfer(computerId)) {
+      const stream = await this.openDownloadStream(ctx, _agentId, boxPath);
+      const parts = [];
+      let total = 0;
+      for await (const chunk of stream.chunks()) {
+        parts.push(chunk);
+        total += chunk.length;
+      }
+      return new Uint8Array(Buffer.concat(parts, total));
+    }
     for await (const frame of this.bridge.request(
       ctx,
       { kind: 'download', path: boxPath },
@@ -183,7 +417,12 @@ export class GatewayLocalExecSandBox {
       { permissionMachineId },
     )) {
       if (frame.kind === 'file') {
-        return new Uint8Array(Buffer.from(frame.bytesBase64 ?? '', 'base64'));
+        const bytes = new Uint8Array(Buffer.from(frame.bytesBase64 ?? '', 'base64'));
+        const limit = this.effectiveMaxFileBytes();
+        if (bytes.byteLength > limit) {
+          throw new SandLocalExecError(`File exceeds local-exec size limit (${bytes.byteLength} > ${limit})`);
+        }
+        return bytes;
       }
       if (frame.kind === 'file-error') throw new SandLocalExecError(frame.error);
     }
@@ -327,7 +566,13 @@ export function createLocalExecBridge({ clock = Date, gate, logs, onComputerAtta
           const pending = pendingRequests.get(frame.requestId);
           if (pending) {
             pending.queue.push(frame);
-            if (frame.kind === 'file' || frame.kind === 'file-error' || frame.kind === 'messages-result' || frame.kind === 'messages-error') {
+            if (
+              frame.kind === 'file' ||
+              frame.kind === 'file-error' ||
+              frame.kind === 'messages-result' ||
+              frame.kind === 'messages-error' ||
+              (frame.kind === 'client' && frame.message?.rokbotFileTransfer === true)
+            ) {
               pending.queue.close();
               pendingRequests.delete(frame.requestId);
               provider.requests.delete(frame.requestId);
@@ -492,6 +737,8 @@ export function createLocalExecBridge({ clock = Date, gate, logs, onComputerAtta
         computerId: bridge.providerComputerId(provider),
         label: provider.label ?? 'this computer',
         terminalsFolder: provider.terminalsFolder ?? FALLBACK_TERMINALS_FOLDER,
+        variant: provider.variant,
+        chunkedTransfer: typeof provider.variant === 'string' && provider.variant.includes(ROKBOT_CHUNKED_VARIANT_TOKEN),
       };
     },
 

@@ -182,7 +182,7 @@ export function specForTarget(target = 'windows') {
       edits: [
         { removeThrough: ['pZt().catch(r=>{let e=r instanceof Error?r:new Error(String(r));process.stderr.write(`[sand-local-exec-daemon] fatal:',
           'finally(()=>process.exit(1))});'],
-          text: 'module.exports={Provider:Xx,ComputerUse:Zx,findComputerHelper:QUe,decideLocalUse:jK,isLocalUseBlocked:gEe,retireApproval:mEe,parseApproval:Uft};' },
+          text: `${extension('local-exec-transfer.js')}\nmodule.exports={Provider:rokbotEnhanceLocalExecProvider(Xx),ComputerUse:Zx,findComputerHelper:QUe,decideLocalUse:jK,isLocalUseBlocked:gEe,retireApproval:mEe,parseApproval:Uft};` },
       ],
     },
     {
