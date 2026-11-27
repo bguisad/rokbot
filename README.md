@@ -46,6 +46,7 @@
 - **场景模型路由**：输入建议、上下文压缩、记忆提取、自动审核、子 Agent、定时任务 6 个场景可以各用一个模型和思考强度，单个 Bot 也能单独指定。
 - **主模型挂了自动切备用**：每条路由最多 8 个备用模型，主模型出错时自动切换，已经开始输出的回复不会中途换模型。
 - **从 Grok Bot 迁移**：一键读取本机 Grok Bot 数据，或复制迁移 prompt 让 Grok Bot 导出记忆、技能和例程，预览后导入，可重复执行不产生重复，详见[迁移指南](docs/migrate-from-grokbot.md)。
+- **管理后台分页**：管理后台按概览、模型、用量、客户端、设备、Bot、账号、系统分成独立页面，左侧导航，每页只加载自己的模块，窄屏下折叠为菜单。
 - **无需云端账号**：用 6 位一次性配对码接入，外网访问可用内置的 Tailcat 组网、Tailscale 或 HTTPS 反向代理。
 
 <br clear="right" />
@@ -55,7 +56,7 @@
 <img src="site/img/desktop-chat.webp" width="420" align="right" alt="桌面端对话界面" />
 
 - **六端覆盖**：网页、Mac、Windows、Linux（x64 / arm64）、安卓和 iOS 连同一台 Host，电脑上布置的任务可以在手机上接着看。
-- **桌面端自动更新**：桌面端 1.3.1 通过自建 Host 的「客户端更新」自动检查新版本，并支持只下载差异部分的增量更新。
+- **桌面端自动更新**：桌面端 1.3.3 通过自建 Host 的「客户端更新」自动检查新版本，并支持只下载差异部分的增量更新。
 - **安卓直接覆盖升级**：安卓正式版统一用 RokBot 正式签名，新版本可以直接覆盖安装，不用卸载重装。
 - **原生安卓客户端**：原生界面加系统分享、原生图片查看器和多选批量保存到相册。
 
@@ -65,14 +66,29 @@
 
 <img src="site/img/android-image-generation.webp" width="200" align="right" alt="安卓客户端里与设计助手对话并生成图片" />
 
-- **输入建议 v2**：输入框上方的建议条可以整体开关，也可以只关掉 AI 生成。
-- **自定义常用语**：常用语保存在 Host 上，桌面端、网页和安卓之间自动同步。
-- **点一下就发送**：点建议直接发出，不用再手动点发送。
-- **聚焦时才出现**：建议条只在输入框获得焦点时显示，平时不打扰。
-- **根据上下文智能生成**：有对话记录时由模型按当前上下文生成建议，空白会话只显示你的常用语。
+- **输入建议**：输入框获得焦点时，上方出现按当前对话生成的建议，点一下直接发送；空白会话只显示你的常用语，常用语存在 Host 上、多端同步。可以整体关闭，也可以只关掉 AI 生成。
+- **行内补全**：打字时用浅色文字提示后半句，按 Tab 或右方向键接受，兼容输入法组字，可单独关闭。
+- **快，而且不串台**：建议按 Bot 隔离，Bot 回复后提前生成好下一轮，聚焦输入框到出现建议从约 1960ms 降到约 165ms；生成中显示加载动效，输入建议设置在设置一级菜单。
 - **上传不限大小**：电脑和 Bot 工作区之间的文件改为分块流式传输，默认不限制单个文件大小。
 - **语音**：语音输入和语音通话，识别与合成接你自己配置的服务。
 - **生图**：图片和视频生成可以单独指定模型，结果作为附件发回对话，支持多选批量下载。
+
+<br clear="right" />
+
+### <img src="docs/images/icons/canvas.svg" width="22" height="22" alt="" /> 画布
+
+- **Bot 生成可交互页面**：Bot 把网页、图表、小工具写成画布，由你自己的 Host 托管，不依赖官方云端。
+- **App 内打开**：网页、桌面端、安卓和 iOS 都在应用内直接打开画布。
+- **默认私有，按需公开**：新画布默认只有你能看；分享后生成公开链接，可复制或重新生成，取消分享后链接立即失效。
+- **Bot 详情里的画布列表**：在 Bot 详情页查看、打开和管理这个 Bot 创建的所有画布。
+
+### <img src="docs/images/icons/chart.svg" width="22" height="22" alt="" /> 用量统计
+
+<img src="site/img/android-usage.webp" width="200" align="right" alt="安卓客户端用量报表" />
+
+- **每次调用都有记录**：Host 记录每次模型调用的模型、所属 Bot、耗时和结果状态。
+- **各端都能看**：管理后台、桌面端与网页设置页、安卓和 iOS 都有用量报表，按时间范围和条件筛选，看趋势、分布和逐条请求。
+- **导出 CSV**：报表可导出为 CSV，便于对账，接口说明见 [docs/usage-report.md](docs/usage-report.md)。
 
 <br clear="right" />
 
@@ -124,6 +140,12 @@
 
 <br clear="right" />
 
+### <img src="docs/images/icons/terminal.svg" width="22" height="22" alt="" /> rokbot 命令行
+
+- **一个命令管部署**：`rokbot` 把部署、管理员初始化、环境检查、更新与回滚、本地打包收进一个命令，只需要 Node.js 20+，没有第三方依赖。
+- **直接运行**：`npx rokbot --help`、`npx rokbot doctor`，或 `npm i -g rokbot` 全局安装后用 `rokbot init`、`rokbot up`、`rokbot update`。
+- **更新可回滚**：更新前自动备份并记下回滚点，出问题用 `rokbot rollback` 退回；用法见 [命令行工具](docs/cli.md)。
+
 完整功能说明见 [docs/features.md](docs/features.md)，更多截图见 [界面截图](docs/screenshots.md)，最近的更新见 [2026-11-27 更新说明](docs/releases/2026-11-27.md)。
 
 ## 新方向与路线图
@@ -132,13 +154,7 @@
 
 | 功能 | 说明 | 状态 |
 | --- | --- | --- |
-| 本地画布 | Bot 生成可交互页面，由自建 Host 托管 | 开发中 |
-| 输入补全 | 打字时用灰字提示后半句，按 Tab 接受 | 开发中 |
-| 建议加载动效 | 生成输入建议时显示加载动效 | 开发中 |
-| 输入建议设置入口 | 输入建议设置移到设置一级菜单 | 即将推出 |
-| iOS 功能同步 | iOS 客户端同步上述全部新功能 | 即将推出 |
-| 自动发版 | GitHub Release 自动发版并附带增量补丁包 | 即将推出 |
-| 官网改版 | 官网改为黑白风格 | 即将推出 |
+| iOS 功能同步 | iOS 客户端同步输入补全、画布 App 内打开与分享等新功能 | 开发中 |
 
 ## 快速开始
 
@@ -154,7 +170,16 @@ docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /da
 
 打开 `http://127.0.0.1:18080/admin`，用初始化密钥设置管理员密码，再到「对话模型」添加模型服务并设为默认路由。
 
-也可以用命令行工具 `rokbot` 一键完成部署、管理员密码设置、环境检查、更新回滚和本地打包：`bash scripts/install-cli.sh` 后运行 `rokbot init`，见 [命令行工具](docs/cli.md)。
+也可以用命令行工具 `rokbot` 完成部署、管理员密码设置、环境检查、更新回滚和本地打包：
+
+```bash
+npx rokbot doctor   # 检查 Node、Docker、端口、磁盘和证书
+npx rokbot init     # 向导：选择镜像或源码模式，写入配置
+npx rokbot up       # 启动 Host 和执行桌面
+npx rokbot admin    # 首次设置管理员密码
+```
+
+也可以 `npm i -g rokbot` 全局安装，或在源码目录运行 `bash scripts/install-cli.sh`，见 [命令行工具](docs/cli.md)。已在用 Grok Bot 的话，部署后按 [从 Grok Bot 迁移](docs/migrate-from-grokbot.md) 把 Bot、记忆和技能搬过来。
 
 参数说明、离线安装、源码构建和 AI 助手自动部署见 [部署指南](docs/deployment.md) · [AI 助手部署手册](docs/AGENT_DEPLOY.md) · [高级运维与备份](docs/AI-INSTALL.md)。
 
@@ -171,7 +196,7 @@ docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /da
 | 部署与数据 | 官方云端 | 自托管 Docker | 自托管，支持 ARM64 与备份恢复 | 自托管 + 预构建镜像一键部署 |
 | 模型路由 | 仅官方模型 | 自选模型 | 单 Bot 路由与备用 | 6 个场景路由，每路最多 8 个备用 |
 | 客户端 | 官方各端 | macOS、iOS | 新增 Windows 与网页版 | 六端，新增 Linux 与原生安卓 |
-| 对话与 Bot | 官方云端功能 | 基础对话与云电脑 | 应用目录、Webhook、用量统计 | 输入建议 v2、Bot 自管理、原生建群 |
+| 对话与 Bot | 官方云端功能 | 基础对话与云电脑 | 应用目录、Webhook、用量统计 | 输入建议与补全、本地画布、用量报表、Bot 自管理、原生建群 |
 | 隐私 | 官方账号与遥测 | 关闭遥测 | 关闭遥测 | 全端关闭遥测，API Key 只写不读 |
 
 ## 完整文档
@@ -182,6 +207,9 @@ docker compose --env-file .env -f docker-compose.images.yml exec -T host cat /da
 | --- | --- |
 | [docs/features.md](docs/features.md) | 全部功能说明 |
 | [docs/screenshots.md](docs/screenshots.md) | 安卓、桌面端与管理页截图 |
+| [docs/cli.md](docs/cli.md) | rokbot 命令行：部署、管理员、环境检查、更新回滚、打包 |
+| [docs/migrate-from-grokbot.md](docs/migrate-from-grokbot.md) | 从 Grok Bot 迁移 Bot、记忆、技能、例程与聊天记录 |
+| [docs/usage-report.md](docs/usage-report.md) | 用量报表接口与界面结构 |
 | [docs/deployment.md](docs/deployment.md) | 部署步骤、脚本参数、初始化与模型配置 |
 | [docs/clients.md](docs/clients.md) | 支持版本、各端构建命令与 Host 分发 |
 | [docs/architecture-overview.md](docs/architecture-overview.md) | 架构概览 |
