@@ -47,6 +47,9 @@ public class UsageActivity extends Activity {
     private static final String STATE_RANGE = "usage_range", STATE_FROM = "usage_from", STATE_TO = "usage_to",
             STATE_MODE = "usage_mode", STATE_DIMENSION = "usage_dimension", STATE_FILTERS = "usage_filters";
     private static final int REQUEST_EXPORT = 7311;
+    /** Optional intent extras: the range to open on (today / 7d / 30d / all / custom + from / to). */
+    public static final String EXTRA_RANGE = "dev.rokbot.nativeapp.extra.USAGE_RANGE",
+            EXTRA_FROM = "dev.rokbot.nativeapp.extra.USAGE_FROM", EXTRA_TO = "dev.rokbot.nativeapp.extra.USAGE_TO";
     private static final String[][] RANGES = {
         {"today", "今天", "Today"},
         {"7d", "7 天", "7 days"},
@@ -69,10 +72,11 @@ public class UsageActivity extends Activity {
     private LinearLayout mContent;
     private LinearLayout mRequestsHolder;
     private View mExportButton;
+    private View mRefreshButton;
     private ScrollView mScroll;
 
     // What is asked for.
-    private String mRangeId = "7d";
+    private String mRangeId = UsageModel.DEFAULT_PERIOD;
     private String mFrom, mTo;
     private final Map<String, String> mFilters = new LinkedHashMap<>();
     private int mOffset;
@@ -97,8 +101,14 @@ public class UsageActivity extends Activity {
         super.onCreate(savedInstanceState);
         mP = UiChrome.palette(this);
         mZh = Localize.isChinese(this);
+        Intent opener = getIntent();
+        String askedFrom = opener != null ? opener.getStringExtra(EXTRA_FROM) : null;
+        String askedTo = opener != null ? opener.getStringExtra(EXTRA_TO) : null;
+        mRangeId = UsageModel.initialPeriod(opener != null ? opener.getStringExtra(EXTRA_RANGE) : null, askedFrom, askedTo);
+        if ("custom".equals(mRangeId)) { mFrom = askedFrom; mTo = askedTo; }
         if (savedInstanceState != null) {
-            mRangeId = savedInstanceState.getString(STATE_RANGE, "7d");
+            // Recreated (rotation, process death): keep what was on screen.
+            mRangeId = savedInstanceState.getString(STATE_RANGE, mRangeId);
             mFrom = savedInstanceState.getString(STATE_FROM);
             mTo = savedInstanceState.getString(STATE_TO);
             mMode = savedInstanceState.getString(STATE_MODE, UsageReport.MODE_MODEL);
@@ -149,9 +159,10 @@ public class UsageActivity extends Activity {
         root.setPadding(dp(18), dp(12), dp(18), dp(24));
         scroll.addView(root);
 
-        View refreshIcon = UiChrome.makeVectorIconButton(this, "refresh", "refresh_usage_button", mP, v -> reload(false));
+        // Refresh spins (and ignores taps) while a load runs; see load().
+        mRefreshButton = UiChrome.makeVectorIconButton(this, "refresh", "refresh_usage_button", mP, v -> reload(false));
         mExportButton = UiChrome.makeVectorIconButton(this, "download", "export_usage_csv_button", mP, v -> exportCsv());
-        root.addView(UiChrome.makeHeaderBar(this, t("用量", "Usage"), mP, v -> finish(), refreshIcon, mExportButton));
+        root.addView(UiChrome.makeHeaderBar(this, t("用量", "Usage"), mP, v -> finish(), mRefreshButton, mExportButton));
 
         mTabs = new LinearLayout(this);
         mTabs.setOrientation(LinearLayout.HORIZONTAL);
@@ -1223,6 +1234,7 @@ public class UsageActivity extends Activity {
     private void load(final boolean full, final boolean pageOnly) {
         final int generation = ++mGeneration;
         mLoading = true;
+        UiChrome.setIconButtonBusy(mRefreshButton, true);
         final String range = mRangeId, from = mFrom, to = mTo;
         final Map<String, String> filters = new LinkedHashMap<>(mFilters);
         final int offset = mOffset;
@@ -1252,6 +1264,7 @@ public class UsageActivity extends Activity {
             mMain.post(() -> {
                 if (generation != mGeneration || isFinishing() || isDestroyed()) return;
                 mLoading = false;
+                UiChrome.setIconButtonBusy(mRefreshButton, false);
                 boolean wasSkeleton = mSkeleton;
                 mSkeleton = false;
                 if (result != null) {
@@ -1275,7 +1288,7 @@ public class UsageActivity extends Activity {
                     mSeries = UsageModel.series(legacy);
                     mReport = null;
                     mError = null;
-                    if (!"today".equals(mRangeId) && !"7d".equals(mRangeId) && !"30d".equals(mRangeId)) mRangeId = "7d";
+                    if (!"today".equals(mRangeId) && !"7d".equals(mRangeId) && !"30d".equals(mRangeId)) mRangeId = UsageModel.DEFAULT_PERIOD;
                     render();
                     fadeIn();
                 } else if (mReport == null && mUsage == null) {

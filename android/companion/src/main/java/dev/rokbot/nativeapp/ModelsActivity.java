@@ -112,6 +112,7 @@ public class ModelsActivity extends Activity {
     private TextView mSaveBtn;
     private TextView mContinueBtn;
     private ProgressBar mActionProgress;
+    private View mRefreshButton;
     private TextView mActionResultText;
     private LinearLayout mScenariosContainer;
     private LinearLayout mBotRoutesContainer;
@@ -159,6 +160,7 @@ public class ModelsActivity extends Activity {
         scroll.addView(root);
 
         View refreshBtn = UiChrome.makeVectorIconButton(this, "refresh", "refresh_models_button", p, v -> loadModelConfig());
+        mRefreshButton = refreshBtn;
         root.addView(UiChrome.makeHeaderBar(this, Localize.t(this, "模型配置", "Model Settings"), p, v -> finish(), refreshBtn));
 
         // Beginner onboarding banner
@@ -401,6 +403,7 @@ public class ModelsActivity extends Activity {
 
     private void loadModelConfig() {
         mActionProgress.setVisibility(View.VISIBLE);
+        UiChrome.setIconButtonBusy(mRefreshButton, true);
         new Thread(() -> {
             try {
                 JSONObject res = HostApiClient.getModelConfig(this, mAdminPassword);
@@ -413,6 +416,7 @@ public class ModelsActivity extends Activity {
                 mMain.post(() -> {
                     if (mDestroyed) return;
                     mActionProgress.setVisibility(View.GONE);
+                    UiChrome.setIconButtonBusy(mRefreshButton, false);
                     mAuthBlocked = false;
                     if (loadedAgents != null) {
                         mAgents = loadedAgents;
@@ -426,6 +430,7 @@ public class ModelsActivity extends Activity {
                 mMain.post(() -> {
                     if (mDestroyed) return;
                     mActionProgress.setVisibility(View.GONE);
+                    UiChrome.setIconButtonBusy(mRefreshButton, false);
                     if (ae.statusCode == 403) {
                         mAuthBlocked = true;
                         mCanConfigureModel = false;
@@ -435,7 +440,9 @@ public class ModelsActivity extends Activity {
                                 : Localize.t(this, "需要管理员密码授权", "Admin password required"));
                         showAdminStepUpDialog();
                     } else {
-                        mStatusText.setText(Localize.t(this, "加载模型配置失败：", "Failed to load model config: ") + ae.getMessage());
+                        String error = Localize.t(this, "加载模型配置失败：", "Failed to load model config: ") + ae.getMessage();
+                        mStatusText.setText(error);
+                        Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
                     }
                 });
             } catch (Throwable t) {
@@ -443,7 +450,10 @@ public class ModelsActivity extends Activity {
                 mMain.post(() -> {
                     if (mDestroyed) return;
                     mActionProgress.setVisibility(View.GONE);
-                    mStatusText.setText(Localize.t(this, "加载模型配置失败：", "Failed to load model config: ") + t.getMessage());
+                    UiChrome.setIconButtonBusy(mRefreshButton, false);
+                    String error = Localize.t(this, "加载模型配置失败：", "Failed to load model config: ") + t.getMessage();
+                    mStatusText.setText(error);
+                    Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
                 });
             }
         }, "ModelsLoad").start();
