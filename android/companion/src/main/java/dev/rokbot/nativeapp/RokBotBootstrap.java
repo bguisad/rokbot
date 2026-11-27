@@ -1292,8 +1292,13 @@ public class RokBotBootstrap {
         if (view instanceof ViewGroup) {
             ViewGroup vg = (ViewGroup) view;
             for (int i = vg.getChildCount() - 1; i >= 0; i--) {
-                HitResult childHit = findNativeTargetAtPointInternal(activity, vg.getChildAt(i), rawX, rawY, loc, marginPx);
+                View child = vg.getChildAt(i);
+                HitResult childHit = findNativeTargetAtPointInternal(activity, child, rawX, rawY, loc, marginPx);
                 if (childHit != null) return childHit;
+                // A clickable view on top (a sheet's 「完成」 / submit button, a dialog surface) owns this
+                // touch: never fall through to a matching settings row underneath it, which used to
+                // cancel the tap on the button so its submit never ran.
+                if (occludesTouch(child, rawX, rawY)) return null;
             }
         }
         if (view.getTag(TAG_OVERRIDDEN_TARGET) == null && extractViewText(view) == null) {
@@ -1323,6 +1328,18 @@ public class RokBotBootstrap {
             }
         }
         return null;
+    }
+
+    private static boolean occludesTouch(View child, float rawX, float rawY) {
+        if (child == null || child.getVisibility() != View.VISIBLE || !child.isShown()) return false;
+        if (!(child.isClickable() || child.hasOnClickListeners())) return false;
+        Rect r = getScreenRect(child);
+        return isStrictlyInside(r != null ? r.left : 0, r != null ? r.top : 0, r != null ? r.right : 0, r != null ? r.bottom : 0, rawX, rawY);
+    }
+
+    /** Pure geometry for {@link #occludesTouch} (unit-tested on a JVM). */
+    static boolean isStrictlyInside(int left, int top, int right, int bottom, float x, float y) {
+        return right > left && bottom > top && x >= left && x < right && y >= top && y < bottom;
     }
 
     private static String extractUnpairedCtaLabel(Activity activity, View v, int depth, int[] visited) {

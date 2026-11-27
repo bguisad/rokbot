@@ -200,6 +200,9 @@ public class AppUpdatePolicyHarness {
         check(UpdateActivity.shouldToastUpToDate(true, AppUpdater.STATE_UP_TO_DATE), "manual check, nothing new -> 已是最新版本 toast");
         check(!UpdateActivity.shouldToastUpToDate(false, AppUpdater.STATE_UP_TO_DATE), "automatic check stays silent");
         check(!UpdateActivity.shouldToastUpToDate(true, AppUpdater.STATE_AVAILABLE), "update available -> no up-to-date toast");
+        check(RokBotBootstrap.isStrictlyInside(0, 0, 100, 50, 10f, 10f), "point on a top button is occluded");
+        check(!RokBotBootstrap.isStrictlyInside(0, 0, 100, 50, 100f, 10f), "right edge is outside");
+        check(!RokBotBootstrap.isStrictlyInside(0, 0, 0, 0, 0f, 0f), "empty view never occludes");
         System.out.println("APP_UPDATE_POLICY_OK");
     }
 }
