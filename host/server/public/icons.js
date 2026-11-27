@@ -18,6 +18,8 @@ const paths = {
   bolt: '<path d="M13 3.5 5.5 13.5H12l-1 7 7.5-10H12Z"/>',
   share: '<path d="M12 14.5V4M8 7.5l4-4 4 4"/><path d="M5.5 11.5V18a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-6.5"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/>',
+  chart: '<path d="M4 4.5v15h16"/><path d="M8 15.5v-4M12 15.5V8M16 15.5v-6"/>',
+  shield: '<path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.6 7 9 4.1-1.4 7-4.7 7-9V6.2Z"/><path d="m9 12 2.2 2.2L15.5 10"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   archive: '<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M3 5.5h18v3H3zM9.5 12h5"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',

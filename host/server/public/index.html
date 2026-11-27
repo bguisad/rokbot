@@ -40,38 +40,23 @@
     <div id="console" class="shell" hidden>
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-head">
-          <a class="brand" href="/" data-view="overview"><svg class="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true"><defs><linearGradient id="rokbot-tile-nav" x1="287.55" y1="-104.66" x2="736.45" y2="1128.66" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f4fbfe"/><stop offset="1" stop-color="#c9eef7"/></linearGradient><linearGradient id="rokbot-chassis-nav" x1="512" y1="56" x2="512" y2="960" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#242936"/><stop offset="1" stop-color="#12141b"/></linearGradient></defs><rect class="brand-tile" width="1024" height="1024" rx="308" fill="url(#rokbot-tile-nav)"/><rect class="brand-tile-rim" x="12" y="12" width="1000" height="1000" rx="296"/><rect class="brand-tile-edge" x="2" y="2" width="1020" height="1020" rx="306"/><g transform="translate(512 512) scale(0.84) translate(-512 -506)"><path class="brand-face" fill="url(#rokbot-chassis-nav)" d="M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z"/><rect class="brand-eye" x="304" y="396" width="144" height="336" rx="72" transform="rotate(-26 376 564)"/><rect class="brand-eye" x="576" y="370" width="144" height="268" rx="72" transform="rotate(-26 648 504)"/><circle class="brand-accent" cx="768" cy="144" r="42"/></g></svg><span>RokBot <small>Host</small></span></a>
+          <a class="brand" href="#/overview"><svg class="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true"><defs><linearGradient id="rokbot-tile-nav" x1="287.55" y1="-104.66" x2="736.45" y2="1128.66" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f4fbfe"/><stop offset="1" stop-color="#c9eef7"/></linearGradient><linearGradient id="rokbot-chassis-nav" x1="512" y1="56" x2="512" y2="960" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#242936"/><stop offset="1" stop-color="#12141b"/></linearGradient></defs><rect class="brand-tile" width="1024" height="1024" rx="308" fill="url(#rokbot-tile-nav)"/><rect class="brand-tile-rim" x="12" y="12" width="1000" height="1000" rx="296"/><rect class="brand-tile-edge" x="2" y="2" width="1020" height="1020" rx="306"/><g transform="translate(512 512) scale(0.84) translate(-512 -506)"><path class="brand-face" fill="url(#rokbot-chassis-nav)" d="M 340 148 C 408 148 476 144 540 144 C 618 144 664 60 756 56 C 836 52 892 104 884 176 C 878 214 932 272 956 368 C 964 464 960 564 948 656 C 928 816 820 924 636 944 C 532 956 424 960 324 952 C 156 938 76 836 68 668 C 62 548 64 424 72 336 C 84 200 184 148 340 148 Z"/><rect class="brand-eye" x="304" y="396" width="144" height="336" rx="72" transform="rotate(-26 376 564)"/><rect class="brand-eye" x="576" y="370" width="144" height="268" rx="72" transform="rotate(-26 648 504)"/><circle class="brand-accent" cx="768" cy="144" r="42"/></g></svg><span>RokBot <small>Host</small></span></a>
           <button id="nav-toggle" class="icon-btn nav-toggle" type="button" aria-label="菜单" aria-expanded="false"></button>
         </div>
         <nav id="nav" class="nav" aria-label="管理导航"></nav>
         <div class="sidebar-foot">
-          <button id="account" class="nav-item account" type="button" data-view="general">
+          <a id="account" class="nav-item account" href="#/account" data-route="account">
             <span id="account-avatar" class="avatar" data-private></span>
             <span class="account-copy"><strong id="account-name" data-private></strong><span id="header-health" class="status" role="status">正在检查</span></span>
-          </button>
+          </a>
           <button id="privacy-toggle" class="icon-btn" type="button" aria-label="隐藏敏感信息"></button>
         </div>
       </aside>
-      <main id="main" class="main">
-        <section data-panel="overview" class="page overview"></section>
-        <section data-panel="general" class="page" hidden></section>
-        <section data-panel="model" class="page" hidden></section>
-        <section data-panel="speech" class="page" hidden></section>
-        <section data-panel="media" class="page" hidden></section>
-        <section data-panel="web-services" class="page" hidden></section>
-        <section data-panel="harness" class="page" hidden></section>
-        <section data-panel="skills" class="page" hidden></section>
-        <section data-panel="apps" class="page" hidden></section>
-        <section data-panel="prompts" class="page wide" hidden></section>
-        <section data-panel="devices" class="page" hidden></section>
-        <section data-panel="web-client" class="page" hidden></section>
-        <section data-panel="updates" class="page" hidden></section>
-        <section data-panel="network" class="page" hidden></section>
-        <section data-panel="execution" class="page" hidden></section>
-        <section data-panel="federation" class="page" hidden></section>
-        <section data-panel="webhooks" class="page" hidden></section>
-        <section data-panel="sharing" class="page" hidden></section>
-        <section data-panel="migrate" class="page" hidden></section>
+      <main id="main" class="main" aria-labelledby="route-title">
+        <div id="page" class="page">
+          <div id="page-head"></div>
+          <div id="page-body" class="page-body"></div>
+        </div>
       </main>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

@@ -25,7 +25,10 @@ export function localize(root) {
     for (const name of ['placeholder','aria-label','title','alt'])
       if (element.hasAttribute(name)) element.setAttribute(name, t(element.getAttribute(name)));
 }
+// Page markup may write <select>; it becomes the Sand drop-down (ui.js SandSelect), which keeps the
+// select interface (value, options, change events) but opens RokBot's own option list.
+export const sandSelects = source => String(source).replace(/<(\/?)select\b/gi, '<$1sand-select');
 export function html(source) {
-  const template = document.createElement('template'); template.innerHTML = source;
+  const template = document.createElement('template'); template.innerHTML = sandSelects(source);
   localize(template.content); return template.innerHTML;
 }

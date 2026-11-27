@@ -1,5 +1,5 @@
 import { t } from './i18n.js';
-import { node, iconButton, item, toggle, menu, confirmAction } from './ui.js';
+import { node, iconButton, item, toggle, menu, confirmAction, dropdown } from './ui.js';
 import { clientId } from './ids.js';
 
 // Shared building blocks for the media and web tool pages: provider lists, editor dialogs and form fields.
@@ -16,7 +16,7 @@ export function field(parent, name, label, type = 'text') {
 }
 
 export function select(parent, name, label, options) {
-  const row = node('label', 'field', t(label)), input = document.createElement('select');
+  const row = node('label', 'field', t(label)), input = dropdown();
   input.name = name;
   for (const [value, title] of options) input.add(new Option(title, value));
   row.append(input); parent.append(row);

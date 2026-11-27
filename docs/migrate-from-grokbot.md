@@ -30,7 +30,7 @@ Grok Bot 的记忆、技能、例程内容和资料库文件保存在 Grok Bot �
 
 ### 网页管理后台
 
-在管理页「协作与集成 → 从 Grok Bot 迁移 → 上传迁移包」选择文件：
+在管理页「Bot 与数据 → 从 Grok Bot 迁移 → 上传迁移包」（地址 `/admin#/bots/migrate`，旧链接 `/admin?view=migrate` 会自动跳转）选择文件：
 
 - 把整个 Grok Bot 数据目录打包成 ZIP 上传（Finder「压缩」、Windows「发送到 → 压缩文件夹」都可以），目录外面多一层文件夹也没关系；
 - 也可以上传 Bot 导出的 `rokbot-migrate.json`，或把多个导出文件和数据目录放进同一个 ZIP。

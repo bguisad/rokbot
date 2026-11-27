@@ -9,7 +9,7 @@ export function createWebhookEditor({ api, toast, act }) {
   const panel = $('[data-panel=webhooks]');
   panel.innerHTML = html(`<header class="page-header"><h1>Webhook</h1><div class="page-actions"><button id="hook-add" class="btn btn-primary" type="button">添加 Webhook</button></div></header>
     <section class="section"><div id="hook-list" class="card"></div></section>
-    <section class="section"><div class="section-head"><h2 class="section-title">运行记录</h2><div class="section-actions"><button id="hook-refresh" class="icon-btn" type="button" aria-label="刷新">${icon('refresh')}</button></div></div><div id="hook-events" class="card"></div></section>
+    <section class="section"><div class="section-head"><h2 class="section-title">Webhook 运行记录</h2><div class="section-actions"><button id="hook-refresh" class="icon-btn" type="button" aria-label="刷新">${icon('refresh')}</button></div></div><div id="hook-events" class="card"></div></section>
     <dialog id="hook-editor" class="dialog"><form id="hook-form">
       <div class="dialog-head"><h2 id="hook-editor-title">Webhook</h2><button type="button" data-close class="icon-btn" aria-label="关闭">${icon('close')}</button></div>
       <div class="dialog-body">
