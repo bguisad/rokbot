@@ -44,6 +44,14 @@ void RBSuggestionsNoteOpenedAgent(NSString *agentId) {
   (void)agentId;
 }
 
+// RBCanvas.m stand-in: in-app canvas links open the canvas view instead of the browser.
+static NSURL *RBCanvasOpened;
+BOOL RBOpenCanvasURL(NSURL *url) {
+  if (![url.path hasPrefix:@"/canvas/app/"]) return NO;
+  RBCanvasOpened = url;
+  return YES;
+}
+
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #expr); exit(1); } } while (0)
 
 int main(void) { @autoreleasepool {
@@ -68,6 +76,13 @@ int main(void) { @autoreleasepool {
       isEqualToString:@"grokbot://app/v1/chat?id=abc"]);
   CHECK([RBNormalizeLocalURL([NSURL URLWithString:@"rokbot-local://agent/bot_1"]).absoluteString
       isEqualToString:@"grokbot://app/v1/chat?id=bot_1"]);
+
+  // A canvas link handed to RN Linking opens the canvas view and resolves YES without the original.
+  __block id resolved = nil;
+  RBRCTOpenURL(nil, NULL, [NSURL URLWithString:@"http://host.example.local:18080/canvas/app/044e3b41-0828-4466-9f6d-325569f828c6"],
+               ^(id value) { resolved = value; }, nil);
+  CHECK([resolved isEqual:@YES]);
+  CHECK([RBCanvasOpened.path hasSuffix:@"044e3b41-0828-4466-9f6d-325569f828c6"]);
 
   puts("PASS: RBDeepLinks external URL blocking and scheme normalization");
   return 0;

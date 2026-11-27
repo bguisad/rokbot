@@ -38,6 +38,11 @@ typedef NS_ENUM(NSInteger, RBGlyph) {
   RBGlyphSend,
   RBGlyphPerson,
   RBGlyphGroup,
+  RBGlyphTab,      // accept inline completion
+  RBGlyphPage,     // canvas document
+  RBGlyphMore,     // horizontal ellipsis
+  RBGlyphSort,     // sort up/down
+  RBGlyphFilter,   // filter lines
 };
 UIImage *RBGlyphImage(RBGlyph glyph, CGFloat size, CGFloat lineWidth);
 
@@ -45,5 +50,14 @@ UIImage *RBGlyphImage(RBGlyph glyph, CGFloat size, CGFloat lineWidth);
 UIView *RBThemeCard(CGFloat radius);
 // Styles a button as RokBot capsule. primary => filled; otherwise secondary fill.
 void RBThemeStyleButton(UIButton *button, NSString *title, BOOL primary);
+
+// RokBot-styled segmented pill selector replacing native UISegmentedControl.
+// Adapts to light / dark mode, Dynamic Type and Reduce Motion.
+@interface RBSegmentControl : UIControl
+@property(nonatomic, assign) NSInteger selectedSegmentIndex;
+@property(nonatomic, assign, readonly) NSUInteger numberOfSegments;
+@property(nonatomic, copy, nullable) void (^onRetapSegment)(NSInteger index);
+- (instancetype)initWithItems:(NSArray<NSString *> *)items;
+@end
 
 NS_ASSUME_NONNULL_END

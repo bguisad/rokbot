@@ -69,6 +69,7 @@ OSStatus RBHelperTestSecCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
 #import "../clients/ios/RBSuggestions.m"
 #import "../clients/ios/RBGroupCreate.m"
 #import "../clients/ios/RBMigrate.m"
+#import "../clients/ios/RBCanvas.m"
 
 #define CHECK(cond)                                                                                \
   do {                                                                                             \
@@ -533,7 +534,108 @@ static void testSuggestionsHelpers(void) {
   CHECK(RBSuggestionsValidatePhrase([@"" stringByPaddingToLength:120 withString:@"字" startingAtIndex:0], phrases, nil, YES) == nil);
   CHECK([RBSuggestionsMovedIds(phrases, 1, -1) isEqualToArray:(@[ @"p_2", @"p_1" ])]);
   CHECK(RBSuggestionsMovedIds(phrases, 0, -1) == nil && RBSuggestionsMovedIds(phrases, 1, 1) == nil);
-  puts("PASS: RBSuggestions settings parsing, model-only AI, merge order & de-dup, composer filter, click-to-send body, agent observation (strong vs weak), late-response guard & phrase validation");
+
+  // Suggestions v3: completionEnabled setting, history hints, shimmer load state, inline completion engine.
+  CHECK([defaults[@"completionEnabled"] boolValue]);
+  CHECK(![RBSuggestionsParseSettings(@{ @"completionEnabled" : @NO })[@"completionEnabled"] boolValue]);
+  NSDictionary *compBody = RBSuggestionsCompleteBody(@"bot-B", @"帮我总", @"zh-CN");
+  CHECK([compBody[@"agentId"] isEqualToString:@"bot-B"] && [compBody[@"text"] isEqualToString:@"帮我总"] &&
+        [compBody[@"locale"] isEqualToString:@"zh-CN"]);
+
+  RBChatHistoryHints *hints = [RBChatHistoryHints new];
+  CHECK([hints mayHaveHistory:@"bot-A"] && ![hints mayHaveHistory:@""]);
+  [hints recordAgent:@"bot-A" source:@"empty"];
+  CHECK(![hints mayHaveHistory:@"bot-A"] && [[hints hintForAgent:@"bot-A"] isEqual:@NO]);
+  [hints recordAgent:@"bot-A" source:@"model-error"];
+  CHECK(![hints mayHaveHistory:@"bot-A"]); // non-history sources keep prior hint
+  [hints forgetAgent:@"bot-A"];
+  CHECK([hints mayHaveHistory:@"bot-A"] && [hints hintForAgent:@"bot-A"] == nil);
+  [hints recordAgent:@"bot-A" source:@"model"];
+  CHECK([hints mayHaveHistory:@"bot-A"] && [[hints hintForAgent:@"bot-A"] isEqual:@YES]);
+
+  RBSuggestionLoadState *load = [RBSuggestionLoadState new];
+  CHECK(load.phase == RBSuggestionLoadPhaseIdle);
+  NSUInteger t1 = [load beginKey:@"a:1:zh" now:1.0];
+  CHECK(load.phase == RBSuggestionLoadPhaseLoading);
+  CHECK([load placeholdersAt:1.05] == 0 && [load placeholderDelayLeftAt:1.05] > 0);
+  CHECK([load placeholdersAt:1.0 + RBSuggestionsPlaceholderDelay] == RBSuggestionsPlaceholderCount);
+  NSArray *sampleItems = @[ @"查看日志", @" ", @"总结一下" ];
+  CHECK([load succeedToken:t1 items:sampleItems]);
+  CHECK(load.phase == RBSuggestionLoadPhaseReady && load.items.count == 2 && [load placeholdersAt:9.0] == 0);
+  NSUInteger t2 = [load beginKey:@"a:2:zh" now:2.0];
+  NSUInteger t3 = [load beginKey:@"a:3:zh" now:2.1];
+  CHECK(![load succeedToken:t2 items:@[ @"old" ]] && ![load failToken:t2]);
+  CHECK(load.phase == RBSuggestionLoadPhaseLoading && [load.key isEqualToString:@"a:3:zh"]);
+  CHECK([load failToken:t3] && load.phase == RBSuggestionLoadPhaseFailed);
+  CHECK([load settleToken:t3] && load.phase == RBSuggestionLoadPhaseIdle);
+  [load readyKey:@"a:4:zh" items:@[ @"继续" ]];
+  CHECK(load.phase == RBSuggestionLoadPhaseReady && load.items.count == 1);
+  [load cancel];
+  CHECK(load.phase == RBSuggestionLoadPhaseIdle);
+
+  RBChatHistoryHints *cHints = [RBChatHistoryHints new];
+  RBInlineCompletionEngine *eng = [[RBInlineCompletionEngine alloc] initWithHints:cHints];
+  CHECK(![RBInlineCompletionEngine eligibleEnabled:NO agentId:@"a" draft:@"hello" composing:NO cursorAtEnd:YES mayHaveHistory:YES]);
+  CHECK(![RBInlineCompletionEngine eligibleEnabled:YES agentId:@"a" draft:@"h" composing:NO cursorAtEnd:YES mayHaveHistory:YES]);
+  CHECK(![RBInlineCompletionEngine eligibleEnabled:YES agentId:@"a" draft:@"hello" composing:YES cursorAtEnd:YES mayHaveHistory:YES]);
+  CHECK(![RBInlineCompletionEngine eligibleEnabled:YES agentId:@"a" draft:@"hello" composing:NO cursorAtEnd:NO mayHaveHistory:YES]);
+  CHECK(![RBInlineCompletionEngine eligibleEnabled:YES agentId:@"a" draft:@"hello" composing:NO cursorAtEnd:YES mayHaveHistory:NO]);
+  CHECK([RBInlineCompletionEngine eligibleEnabled:YES agentId:@"a" draft:@"帮我" composing:NO cursorAtEnd:YES mayHaveHistory:YES]);
+
+  CHECK([[eng onDraftChanged:@"he" agentId:@"a" composing:NO cursorAtEnd:YES now:1.0] isEqualToString:@""]);
+  CHECK(eng.hasPending && [eng pollAt:1.2] == nil);
+  [eng onDraftChanged:@"hel" agentId:@"a" composing:NO cursorAtEnd:YES now:1.2];
+  RBInlineCompletionRequest *r1 = [eng pollAt:1.6];
+  CHECK(r1 != nil && [r1.draft isEqualToString:@"hel"] && eng.requestsIssued == 1);
+  NSUInteger seqBefore = eng.sequence;
+  [eng onDraftChanged:@"help" agentId:@"a" composing:NO cursorAtEnd:YES now:1.7];
+  CHECK(eng.sequence != seqBefore && ![eng isCurrentRequest:r1]);
+  CHECK([eng onResponseForRequest:r1 completion:@"lo" source:@"model" currentDraft:@"help"] == nil);
+  RBInlineCompletionRequest *r2 = [eng pollAt:2.1];
+  CHECK(r2 != nil && r2.seq > r1.seq);
+  CHECK([[eng onResponseForRequest:r2 completion:@" me test" source:@"model" currentDraft:@"help"] isEqualToString:@" me test"]);
+  CHECK(eng.cacheSize == 1);
+  // Continuation while typing along the prediction keeps the remaining suffix without a new request.
+  CHECK([[eng onDraftChanged:@"help me" agentId:@"a" composing:NO cursorAtEnd:YES now:2.2] isEqualToString:@" test"]);
+  CHECK(!eng.hasPending && eng.requestsIssued == 2);
+  // Accept returns full text and suppresses re-request for that accepted draft.
+  CHECK([[eng acceptDraft:@"help me"] isEqualToString:@"help me test"]);
+  CHECK([[eng onDraftChanged:@"help me test" agentId:@"a" composing:NO cursorAtEnd:YES now:2.3] isEqualToString:@""] && !eng.hasPending);
+  // Cached draft returns immediately without issuing a new request.
+  CHECK([[eng onDraftChanged:@"help" agentId:@"a" composing:NO cursorAtEnd:YES now:2.4] isEqualToString:@" me test"]);
+  CHECK(eng.requestsIssued == 2);
+  // Empty chat recorded from Host stops subsequent requests.
+  [eng onDraftChanged:@"hi" agentId:@"empty-bot" composing:NO cursorAtEnd:YES now:3.0];
+  RBInlineCompletionRequest *rEmpty = [eng pollAt:3.5];
+  CHECK(rEmpty != nil);
+  CHECK([[eng onResponseForRequest:rEmpty completion:@"" source:@"empty" currentDraft:@"hi"] isEqualToString:@""]);
+  CHECK(![cHints mayHaveHistory:@"empty-bot"]);
+  [eng onDraftChanged:@"hi there" agentId:@"empty-bot" composing:NO cursorAtEnd:YES now:3.6];
+  CHECK(!eng.hasPending);
+  puts("PASS: RBSuggestions settings parsing, model-only AI, merge order & de-dup, composer filter, click-to-send body, agent observation (strong vs weak), late-response guard, phrase validation, shimmer load state & inline completion");
+}
+
+static void testCanvasHelpers(void) {
+  NSString *cid = @"044e3b41-0828-4466-9f6d-325569f828c6";
+  NSURL *appUrl = [NSURL URLWithString:[@"https://bot.example.com/canvas/app/" stringByAppendingString:cid]];
+  CHECK([[RBCanvasAppLinkId(appUrl) lowercaseString] isEqualToString:cid]);
+  CHECK(RBCanvasAppLinkId([NSURL URLWithString:@"https://bot.example.com/canvas/app/not-a-uuid"]) == nil);
+  CHECK(RBCanvasAppLinkId([NSURL URLWithString:@"javascript://canvas/app/044e3b41-0828-4466-9f6d-325569f828c6"]) == nil);
+  CHECK(RBCanvasAppLinkId([NSURL URLWithString:@"https://user@bot.example.com/canvas/app/044e3b41-0828-4466-9f6d-325569f828c6"]) == nil);
+  NSString *tok = [@"" stringByPaddingToLength:43 withString:@"A" startingAtIndex:0];
+  CHECK(RBCanvasIsPublicLink([@"https://bot.example.com/canvas/" stringByAppendingString:tok]));
+  CHECK(!RBCanvasIsPublicLink(@"https://bot.example.com/canvas/short"));
+  CHECK(!RBCanvasIsPublicLink([@"javascript://x/canvas/" stringByAppendingString:tok]));
+  // Beijing time formatting: 2026-11-27 14:05:00 CST = 1795759500000 ms
+  double nowMs = 1795759500000.0;
+  CHECK([RBCanvasShortTime(nowMs, nowMs, YES) isEqualToString:@"今天 14:05"]);
+  CHECK([RBCanvasShortTime(nowMs, nowMs, NO) isEqualToString:@"Today 14:05"]);
+  // 2026-11-26 09:30:00 CST = 1795656600000 ms
+  CHECK([RBCanvasShortTime(1795656600000.0, nowMs, YES) isEqualToString:@"11月26日 09:30"]);
+  // 2025-03-02 10:00:00 CST = 1740880800000 ms
+  CHECK([RBCanvasShortTime(1740880800000.0, nowMs, YES) isEqualToString:@"2025年3月2日"]);
+  CHECK([RBCanvasShortTime(0, nowMs, YES) isEqualToString:@""]);
+  puts("PASS: RBCanvas link parsing, public link validation & Beijing short time");
 }
 
 static void testGroupCreateHelpers(void) {
@@ -609,6 +711,7 @@ int main(void) {
     testUpdaterHelpers();
     testScenarioRouteHelpers();
     testSuggestionsHelpers();
+    testCanvasHelpers();
     testGroupCreateHelpers();
   }
   return 0;

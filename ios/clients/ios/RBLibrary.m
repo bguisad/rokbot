@@ -1,9 +1,12 @@
 #import "RBLocalize.h"
 #import "RBLibrary.h"
+#import "RBCanvas.h"
 #import "RBConnection.h"
 #import "RBHTTP.h"
+#import "RBHostAPI.h"
 #import "RBChoiceSheet.h"
 #import "RBSuggestions.h"
+#import "RBTheme.h"
 #import <QuickLook/QuickLook.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -12,14 +15,16 @@ void RBObserveRequest(NSURLRequest *request) {
   NSString *path = request.URL.path;
   if ([path hasPrefix:@"/api/"] && request.HTTPBody.length)
     RBSuggestionsNoteRequest(path, request.HTTPBody);
-  if (![path hasPrefix:@"/api/"] ||
-      ![path.lastPathComponent isEqualToString:@"openAgentWindowed"] ||
-      !request.HTTPBody.length)
+  if (![path hasPrefix:@"/api/"] || !request.HTTPBody.length)
+    return;
+  if (!([path.lastPathComponent isEqualToString:@"openAgentWindowed"] ||
+        [path.lastPathComponent isEqualToString:@"markAgentViewed"] ||
+        [path.lastPathComponent isEqualToString:@"sendPrompt"]))
     return;
   NSDictionary *body = [NSJSONSerialization JSONObjectWithData:request.HTTPBody
                                                        options:0
                                                          error:nil];
-  NSString *agent = [body isKindOfClass:NSDictionary.class] ? body[@"id"] : nil;
+  NSString *agent = [body isKindOfClass:NSDictionary.class] ? (body[@"id"] ?: body[@"agentId"]) : nil;
   if ([agent isKindOfClass:NSString.class] && agent.length)
     dispatch_async(dispatch_get_main_queue(), ^{ RBCurrentAgent = agent; });
 }
@@ -27,6 +32,9 @@ void RBObserveRequest(NSURLRequest *request) {
     : UITableViewController <UIDocumentPickerDelegate, QLPreviewControllerDataSource>
 @property(nonatomic, copy) NSString *agentId;
 @property(nonatomic, copy) NSArray<NSDictionary *> *files;
+// The Bot's canvases come first, like the official Library "页面" before files.
+@property(nonatomic, copy) NSArray<NSDictionary *> *canvases;
+@property(nonatomic, copy) NSString *canvasStatus;
 @property(nonatomic, strong) NSURL *previewURL;
 @property(nonatomic, strong) UILabel *status;
 @end
@@ -36,6 +44,7 @@ void RBObserveRequest(NSURLRequest *request) {
   self.navigationController.navigationBar.tintColor = UIColor.labelColor;
   self.title = RBL(@"资料库", @"Library");
   self.files = @[];
+  self.canvases = @[];
   self.navigationItem.leftBarButtonItem =
       [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
                                                     target:self
@@ -97,7 +106,102 @@ void RBObserveRequest(NSURLRequest *request) {
                     characterSetWithCharactersInString:
                         @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"]];
 }
+- (void)viewWillAppear:(BOOL)animated {
+  [super viewWillAppear:animated];
+  [self reloadCanvases];
+}
+- (void)reloadCanvases {
+  if (!self.canvases.count) self.canvasStatus = RBL(@"正在加载画布…", @"Loading canvases…");
+  RBHostRequest(@"GET", [@"/local/canvases?agentId=" stringByAppendingString:[self encoded:self.agentId]], nil, 15,
+                ^(NSInteger status, id json, NSError *error) {
+    if (status == 200 && [json[@"canvases"] isKindOfClass:NSArray.class]) {
+      self.canvases = json[@"canvases"];
+      self.canvasStatus = self.canvases.count ? nil : RBL(@"这个 Bot 创建的画布会显示在这里。", @"Canvases this Bot makes show up here.");
+    } else {
+      self.canvasStatus = RBL(@"无法加载画布。", @"Couldn’t load canvases.");
+    }
+    [self.tableView reloadData];
+  });
+}
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+  return 2;
+}
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+  return section == 0 ? RBL(@"画布", @"Canvases") : RBL(@"文件", @"Files");
+}
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+  return section == 0 ? self.canvasStatus : nil;
+}
+- (void)openCanvasActions:(NSDictionary *)canvas {
+  RBChoiceOption *openOpt = [RBChoiceOption optionWithValue:@"open" title:RBL(@"打开", @"Open") subtitle:nil];
+  RBChoiceOption *shareOpt = [RBChoiceOption optionWithValue:@"share" title:RBL(@"分享…", @"Share…") subtitle:nil];
+  RBChoiceOption *deleteOpt = [RBChoiceOption optionWithValue:@"delete" title:RBL(@"删除…", @"Delete…") subtitle:nil];
+  deleteOpt.destructive = YES;
+  __weak typeof(self) weak = self;
+  [[RBChoiceSheet sheetWithTitle:canvas[@"title"] ?: RBL(@"画布", @"Canvas")
+                         message:nil
+                         options:@[ openOpt, shareOpt, deleteOpt ]
+                        selected:nil
+                        onSelect:^(RBChoiceOption *option) {
+                          if ([option.value isEqualToString:@"open"]) {
+                            RBPresentCanvas(canvas[@"id"], canvas[@"title"]);
+                          } else if ([option.value isEqualToString:@"share"]) {
+                            RBPresentCanvasShare(weak, canvas, ^(NSDictionary *next) { [weak reloadCanvases]; });
+                          } else if ([option.value isEqualToString:@"delete"]) {
+                            [weak confirmDeleteCanvas:canvas];
+                          }
+                        }] presentFrom:self];
+}
+- (UITableViewCell *)canvasCell:(NSIndexPath *)indexPath {
+  NSDictionary *canvas = self.canvases[indexPath.row];
+  UITableViewCell *cell = [self.tableView dequeueReusableCellWithIdentifier:@"canvas"]
+                              ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"canvas"];
+  BOOL isPublic = [canvas[@"visibility"] isEqual:@"public"];
+  cell.textLabel.text = canvas[@"title"];
+  cell.textLabel.font = RBThemeFont(16, UIFontWeightSemibold);
+  double updated = [canvas[@"updatedAtMs"] doubleValue];
+  BOOL chinese = [RBL(@"zh", @"en") isEqual:@"zh"];
+  NSString *time = RBCanvasShortTime(updated, NSDate.date.timeIntervalSince1970 * 1000, chinese);
+  NSString *mark = isPublic ? RBL(@"公开", @"Public") : RBL(@"私有", @"Private");
+  NSMutableAttributedString *meta = [[NSMutableAttributedString alloc] initWithString:[NSString stringWithFormat:@"%@  ·  ", time]
+      attributes:@{NSForegroundColorAttributeName : RBThemeTextSecondary()}];
+  [meta appendAttributedString:[[NSAttributedString alloc] initWithString:mark attributes:@{
+    NSForegroundColorAttributeName : isPublic ? [UIColor colorWithRed:0.10 green:0.56 blue:0.36 alpha:1] : RBThemeTextSecondary()}]];
+  cell.detailTextLabel.attributedText = meta;
+  cell.imageView.image = RBGlyphImage(RBGlyphPage, 20, 1.5);
+  cell.imageView.tintColor = RBThemeTextSecondary();
+  cell.accessibilityIdentifier = [@"canvas_row_" stringByAppendingString:canvas[@"id"] ?: @""];
+  // The row's menu opens a RokBot choice sheet: 打开, 分享…, 删除… (confirmed).
+  UIButton *more = [UIButton buttonWithType:UIButtonTypeSystem];
+  [more setImage:RBGlyphImage(RBGlyphMore, 20, 0) forState:UIControlStateNormal];
+  more.tintColor = RBThemeTextSecondary();
+  more.frame = CGRectMake(0, 0, 44, 44);
+  more.accessibilityLabel = [NSString stringWithFormat:RBL(@"“%@”的更多操作", @"More actions for %@"), canvas[@"title"] ?: @""];
+  more.accessibilityIdentifier = [@"canvas_more_" stringByAppendingString:canvas[@"id"] ?: @""];
+  __weak typeof(self) weak = self;
+  [more addAction:[UIAction actionWithHandler:^(UIAction *a) { [weak openCanvasActions:canvas]; }]
+      forControlEvents:UIControlEventTouchUpInside];
+  cell.accessoryView = more;
+  return cell;
+}
+- (void)confirmDeleteCanvas:(NSDictionary *)canvas {
+  UIAlertController *alert = [UIAlertController
+      alertControllerWithTitle:[NSString stringWithFormat:RBL(@"删除“%@”", @"Delete “%@”"), canvas[@"title"] ?: @""]
+                       message:RBL(@"这会永久删除这个画布。它的公开链接会立即失效，聊天里的画布卡片会显示为已删除。此操作无法撤销。",
+                                   @"This permanently deletes the canvas. Its public link stops working and chat cards show it as deleted. This can’t be undone.")
+                preferredStyle:UIAlertControllerStyleAlert];
+  [alert addAction:[UIAlertAction actionWithTitle:RBL(@"取消", @"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+  [alert addAction:[UIAlertAction actionWithTitle:RBL(@"删除画布", @"Delete canvas") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+    RBHostRequest(@"DELETE", [@"/local/canvases/" stringByAppendingString:RBHostPathSegment(canvas[@"id"] ?: @"")], nil, 20,
+                  ^(NSInteger status, id json, NSError *error) {
+      if (status != 200) self.canvasStatus = RBL(@"无法删除画布，请稍后再试。", @"Couldn’t delete the canvas. Try again later.");
+      [self reloadCanvases];
+    });
+  }]];
+  [self presentViewController:alert animated:YES completion:nil];
+}
 - (void)reload {
+  [self reloadCanvases];
   self.status.text = RBL(@"正在读取…", @"Loading…");
   [self request:@"GET"
            path:[@"/local/files?agentId=" stringByAppendingString:[self encoded:self.agentId]]
@@ -117,10 +221,11 @@ void RBObserveRequest(NSURLRequest *request) {
        }];
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-  return self.files.count;
+  return section == 0 ? self.canvases.count : self.files.count;
 }
 - (UITableViewCell *)tableView:(UITableView *)tableView
          cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+  if (indexPath.section == 0) return [self canvasCell:indexPath];
   UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"file"]
                               ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle
                                                         reuseIdentifier:@"file"];
@@ -135,6 +240,11 @@ void RBObserveRequest(NSURLRequest *request) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
   [tableView deselectRowAtIndexPath:indexPath animated:YES];
+  if (indexPath.section == 0) {
+    NSDictionary *canvas = self.canvases[indexPath.row];
+    RBPresentCanvas(canvas[@"id"], canvas[@"title"]);
+    return;
+  }
   NSDictionary *file = self.files[indexPath.row];
   self.status.text = RBL(@"正在打开…", @"Opening…");
   NSString *path =
@@ -194,10 +304,13 @@ void RBObserveRequest(NSURLRequest *request) {
                     previewItemAtIndex:(NSInteger)index {
   return self.previewURL;
 }
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+  return indexPath.section == 1;
+}
 - (void)tableView:(UITableView *)tableView
     commitEditingStyle:(UITableViewCellEditingStyle)style
      forRowAtIndexPath:(NSIndexPath *)indexPath {
-  if (style != UITableViewCellEditingStyleDelete)
+  if (style != UITableViewCellEditingStyleDelete || indexPath.section != 1)
     return;
   NSString *name = self.files[indexPath.row][@"name"];
   [self request:@"DELETE"
@@ -306,7 +419,8 @@ void RBObserveRequest(NSURLRequest *request) {
 }
 @end
 void RBShowLibrary(void) {
-  if (!RBCurrentAgent.length)
+  NSString *agent = RBCurrentAgent.length ? RBCurrentAgent : RBSuggestionsCurrentAgent();
+  if (!agent.length)
     return;
   UIViewController *top = nil;
   for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
@@ -318,7 +432,7 @@ void RBShowLibrary(void) {
     top = top.presentedViewController;
   RBLibraryController *vc =
       [[RBLibraryController alloc] initWithStyle:UITableViewStyleInsetGrouped];
-  vc.agentId = RBCurrentAgent;
+  vc.agentId = agent;
   [top presentViewController:[[UINavigationController alloc] initWithRootViewController:vc]
                     animated:YES
                   completion:nil];

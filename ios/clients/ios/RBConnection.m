@@ -5,6 +5,7 @@
 #import "RBGroupCreate.h"
 #import "RBSuggestions.h"
 #import "RBMigrate.h"
+#import "RBTheme.h"
 #import "RBUpdater.h"
 #import "RBNetwork.h"
 #import "RBNetworkScanner.h"
@@ -79,7 +80,7 @@ static UIViewController *RBTop(void) {
 }
 @interface RBPairController : UIViewController <NSURLSessionTaskDelegate>
 @property(nonatomic, strong) UITextField *address;
-@property(nonatomic, strong) UISegmentedControl *authMode;
+@property(nonatomic, strong) RBSegmentControl *authMode;
 @property(nonatomic, strong) UITextField *key;
 @property(nonatomic, strong) UILabel *status;
 @property(nonatomic, strong) UIButton *connect;
@@ -173,6 +174,7 @@ static UIViewController *RBTop(void) {
   RBNetworkClear();
   RBClearProfileCache();
   RBClearModelOnboardingState();
+  RBSuggestionsInvalidate();
   // Keep client-device-id and RokBotLocal.clientDeviceId across disconnect so
   // re-pairing reuses the same Host device slot without creating duplicates.
   SecItemDelete((__bridge CFDictionaryRef)RBKeychainQuery());
@@ -423,7 +425,7 @@ static UIViewController *RBTop(void) {
   [stack addArrangedSubview:networkRow];
   [self networkChanged];
   self.address.accessibilityIdentifier = @"rokbot.host.address";
-  self.authMode = [[UISegmentedControl alloc] initWithItems:@[
+  self.authMode = [[RBSegmentControl alloc] initWithItems:@[
     RBL(@"配对码", @"Pairing Code"),
     RBL(@"管理员密码", @"Admin Password")
   ]];

@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT = ROOT / 'clients' / 'ios'
-NEW_UI = ['RBTheme.m', 'RBChoiceSheet.m', 'RBHostAPI.m', 'RBSuggestions.m', 'RBGroupCreate.m']
+NEW_UI = ['RBTheme.m', 'RBChoiceSheet.m', 'RBHostAPI.m', 'RBSuggestions.m', 'RBGroupCreate.m', 'RBCanvas.m']
 EMOJI = re.compile('[\U0001F300-\U0001FAFF☀-➿️⭐⬆⬇←-⇿]')
 
 
@@ -46,14 +46,20 @@ class ParitySources(unittest.TestCase):
         self.assertIn('RBL(@"收件人：", @"To:")', source('RBGroupCreate.m'))
 
     def test_no_system_pickers_or_action_sheets_in_rokbot_screens(self):
-        for name in ['RBModels.m', 'RBLibrary.m'] + NEW_UI:
+        for name in ['RBModels.m', 'RBLibrary.m', 'RBConnection.m', 'RBUsage.m'] + NEW_UI:
             text = source(name)
             self.assertNotIn('UIAlertControllerStyleActionSheet', text, name)
             self.assertNotIn('UIPickerView', text, name)
             self.assertNotIn('UISegmentedControl', text, name)
+            self.assertNotIn('UIMenu', text, name)
         models = source('RBModels.m')
         self.assertGreaterEqual(models.count('RBChoiceSheet sheetWithTitle'), 5)
         self.assertIn('RBChoiceSheet multiSheetWithTitle', models)
+        usage = source('RBUsage.m')
+        self.assertIn('RBSegmentControl', usage)
+        self.assertIn('RBChoiceSheet sheetWithTitle', usage)
+        conn = source('RBConnection.m')
+        self.assertIn('RBSegmentControl', conn)
 
     def test_choice_sheet_is_rokbot_styled_for_light_and_dark(self):
         sheet = source('RBChoiceSheet.m')
@@ -68,7 +74,7 @@ class ParitySources(unittest.TestCase):
     def test_suggestions_v2_contract(self):
         text = source('RBSuggestions.m')
         for path in ['/local/suggestions/settings', '/local/suggestions/phrases', '/local/suggestions/phrases/reorder',
-                     '"/local/suggestions"', '/api/sendPrompt']:
+                     '"/local/suggestions"', '/local/suggestions/complete', '/api/sendPrompt']:
             self.assertIn(path, text)
         # Focus-only: shown on begin editing, hidden on end editing / typing.
         self.assertIn('UITextViewTextDidBeginEditingNotification', text)
@@ -78,8 +84,11 @@ class ParitySources(unittest.TestCase):
         self.assertIn('isEqualToString:@"model"', text)
         self.assertNotRegex(text, r'(?i)fallback_?presets|staticPresets')
         self.assertIn('Never cache failures', text)
-        # Toggle + AI toggle + phrase CRUD and ordering in settings.
-        for needle in ['enabledSwitch', 'aiSwitch', 'movePhraseAt', 'deletePhrase', 'beginEditPhrase']:
+        # Toggle + AI toggle + inline completion toggle + shimmer + ghost text + phrase CRUD in settings.
+        for needle in ['enabledSwitch', 'aiSwitch', 'completionSwitch', 'completionEnabled',
+                       'RBSuggestionLoadState', 'RBInlineCompletionEngine', 'RBChatHistoryHints',
+                       'RBSkeletonPillView', 'RBCompletionPill', 'RBGhostTextView',
+                       'UIAccessibilityIsReduceMotionEnabled', 'movePhraseAt', 'deletePhrase', 'beginEditPhrase']:
             self.assertIn(needle, text)
         self.assertIn('RBSuggestionsNoteRequest(path, request.HTTPBody)', source('RBLibrary.m'))
         self.assertIn('RBInstallSuggestions();', source('RBBootstrap.m'))
