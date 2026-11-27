@@ -1,11 +1,12 @@
 #import "RBLocalize.h"
 #import "RBLibrary.h"
+#import "RBCanvas.h"
 #import "RBConnection.h"
 #import "RBHTTP.h"
+#import "RBHostAPI.h"
 #import "RBChoiceSheet.h"
 #import "RBSuggestions.h"
-#import "RBCanvas.h"
-#import "RBHostAPI.h"
+#import "RBTheme.h"
 #import <QuickLook/QuickLook.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -14,14 +15,16 @@ void RBObserveRequest(NSURLRequest *request) {
   NSString *path = request.URL.path;
   if ([path hasPrefix:@"/api/"] && request.HTTPBody.length)
     RBSuggestionsNoteRequest(path, request.HTTPBody);
-  if (![path hasPrefix:@"/api/"] ||
-      ![path.lastPathComponent isEqualToString:@"openAgentWindowed"] ||
-      !request.HTTPBody.length)
+  if (![path hasPrefix:@"/api/"] || !request.HTTPBody.length)
+    return;
+  if (!([path.lastPathComponent isEqualToString:@"openAgentWindowed"] ||
+        [path.lastPathComponent isEqualToString:@"markAgentViewed"] ||
+        [path.lastPathComponent isEqualToString:@"sendPrompt"]))
     return;
   NSDictionary *body = [NSJSONSerialization JSONObjectWithData:request.HTTPBody
                                                        options:0
                                                          error:nil];
-  NSString *agent = [body isKindOfClass:NSDictionary.class] ? body[@"id"] : nil;
+  NSString *agent = [body isKindOfClass:NSDictionary.class] ? (body[@"id"] ?: body[@"agentId"]) : nil;
   if ([agent isKindOfClass:NSString.class] && agent.length)
     dispatch_async(dispatch_get_main_queue(), ^{ RBCurrentAgent = agent; });
 }
@@ -129,41 +132,55 @@ void RBObserveRequest(NSURLRequest *request) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
   return section == 0 ? self.canvasStatus : nil;
 }
+- (void)openCanvasActions:(NSDictionary *)canvas {
+  RBChoiceOption *openOpt = [RBChoiceOption optionWithValue:@"open" title:RBL(@"打开", @"Open") subtitle:nil];
+  RBChoiceOption *shareOpt = [RBChoiceOption optionWithValue:@"share" title:RBL(@"分享…", @"Share…") subtitle:nil];
+  RBChoiceOption *deleteOpt = [RBChoiceOption optionWithValue:@"delete" title:RBL(@"删除…", @"Delete…") subtitle:nil];
+  deleteOpt.destructive = YES;
+  __weak typeof(self) weak = self;
+  [[RBChoiceSheet sheetWithTitle:canvas[@"title"] ?: RBL(@"画布", @"Canvas")
+                         message:nil
+                         options:@[ openOpt, shareOpt, deleteOpt ]
+                        selected:nil
+                        onSelect:^(RBChoiceOption *option) {
+                          if ([option.value isEqualToString:@"open"]) {
+                            RBPresentCanvas(canvas[@"id"], canvas[@"title"]);
+                          } else if ([option.value isEqualToString:@"share"]) {
+                            RBPresentCanvasShare(weak, canvas, ^(NSDictionary *next) { [weak reloadCanvases]; });
+                          } else if ([option.value isEqualToString:@"delete"]) {
+                            [weak confirmDeleteCanvas:canvas];
+                          }
+                        }] presentFrom:self];
+}
 - (UITableViewCell *)canvasCell:(NSIndexPath *)indexPath {
   NSDictionary *canvas = self.canvases[indexPath.row];
   UITableViewCell *cell = [self.tableView dequeueReusableCellWithIdentifier:@"canvas"]
                               ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"canvas"];
   BOOL isPublic = [canvas[@"visibility"] isEqual:@"public"];
   cell.textLabel.text = canvas[@"title"];
-  cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+  cell.textLabel.font = RBThemeFont(16, UIFontWeightSemibold);
   double updated = [canvas[@"updatedAtMs"] doubleValue];
   BOOL chinese = [RBL(@"zh", @"en") isEqual:@"zh"];
   NSString *time = RBCanvasShortTime(updated, NSDate.date.timeIntervalSince1970 * 1000, chinese);
   NSString *mark = isPublic ? RBL(@"公开", @"Public") : RBL(@"私有", @"Private");
   NSMutableAttributedString *meta = [[NSMutableAttributedString alloc] initWithString:[NSString stringWithFormat:@"%@  ·  ", time]
-      attributes:@{NSForegroundColorAttributeName : UIColor.secondaryLabelColor}];
+      attributes:@{NSForegroundColorAttributeName : RBThemeTextSecondary()}];
   [meta appendAttributedString:[[NSAttributedString alloc] initWithString:mark attributes:@{
-    NSForegroundColorAttributeName : isPublic ? [UIColor colorWithRed:0.10 green:0.56 blue:0.36 alpha:1] : UIColor.secondaryLabelColor}]];
+    NSForegroundColorAttributeName : isPublic ? [UIColor colorWithRed:0.10 green:0.56 blue:0.36 alpha:1] : RBThemeTextSecondary()}]];
   cell.detailTextLabel.attributedText = meta;
-  cell.imageView.image = [UIImage systemImageNamed:@"doc.richtext"];
-  cell.imageView.tintColor = UIColor.secondaryLabelColor;
+  cell.imageView.image = RBGlyphImage(RBGlyphPage, 20, 1.5);
+  cell.imageView.tintColor = RBThemeTextSecondary();
   cell.accessibilityIdentifier = [@"canvas_row_" stringByAppendingString:canvas[@"id"] ?: @""];
-  // The row's menu, after the official page row: 打开, 分享…, 删除… (confirmed).
+  // The row's menu opens a RokBot choice sheet: 打开, 分享…, 删除… (confirmed).
   UIButton *more = [UIButton buttonWithType:UIButtonTypeSystem];
-  [more setTitle:@"···" forState:UIControlStateNormal];
-  more.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightBold];
-  more.tintColor = UIColor.secondaryLabelColor;
+  [more setImage:RBGlyphImage(RBGlyphMore, 20, 0) forState:UIControlStateNormal];
+  more.tintColor = RBThemeTextSecondary();
   more.frame = CGRectMake(0, 0, 44, 44);
   more.accessibilityLabel = [NSString stringWithFormat:RBL(@"“%@”的更多操作", @"More actions for %@"), canvas[@"title"] ?: @""];
+  more.accessibilityIdentifier = [@"canvas_more_" stringByAppendingString:canvas[@"id"] ?: @""];
   __weak typeof(self) weak = self;
-  more.menu = [UIMenu menuWithChildren:@[
-    [UIAction actionWithTitle:RBL(@"打开", @"Open") image:nil identifier:nil handler:^(UIAction *a) { RBPresentCanvas(canvas[@"id"], canvas[@"title"]); }],
-    [UIAction actionWithTitle:RBL(@"分享…", @"Share…") image:nil identifier:nil handler:^(UIAction *a) {
-      RBPresentCanvasShare(weak, canvas, ^(NSDictionary *next) { [weak reloadCanvases]; });
-    }],
-    [UIAction actionWithTitle:RBL(@"删除…", @"Delete…") image:nil identifier:nil handler:^(UIAction *a) { [weak confirmDeleteCanvas:canvas]; }],
-  ]];
-  more.showsMenuAsPrimaryAction = YES;
+  [more addAction:[UIAction actionWithHandler:^(UIAction *a) { [weak openCanvasActions:canvas]; }]
+      forControlEvents:UIControlEventTouchUpInside];
   cell.accessoryView = more;
   return cell;
 }
@@ -402,7 +419,8 @@ void RBObserveRequest(NSURLRequest *request) {
 }
 @end
 void RBShowLibrary(void) {
-  if (!RBCurrentAgent.length)
+  NSString *agent = RBCurrentAgent.length ? RBCurrentAgent : RBSuggestionsCurrentAgent();
+  if (!agent.length)
     return;
   UIViewController *top = nil;
   for (UIScene *s in UIApplication.sharedApplication.connectedScenes)
@@ -414,7 +432,7 @@ void RBShowLibrary(void) {
     top = top.presentedViewController;
   RBLibraryController *vc =
       [[RBLibraryController alloc] initWithStyle:UITableViewStyleInsetGrouped];
-  vc.agentId = RBCurrentAgent;
+  vc.agentId = agent;
   [top presentViewController:[[UINavigationController alloc] initWithRootViewController:vc]
                     animated:YES
                   completion:nil];

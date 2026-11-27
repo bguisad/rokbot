@@ -1,11 +1,5 @@
 #import "RBCanvas.h"
-#import "RBConnection.h"
-#import "RBHTTP.h"
-#import "RBHostAPI.h"
-#import "RBLocalize.h"
-#import "RBTheme.h"
-#import "RBDiagnostics.h"
-#import <WebKit/WebKit.h>
+#import <TargetConditionals.h>
 
 // Canvases inside the app, after the official Pages stage and share sheet:
 // - a chat link `<host>/canvas/app/<id>` opens RBCanvasStage (返回聊天, title with 私有 / 公开, 刷新,
@@ -40,10 +34,10 @@ NSString *RBCanvasAppLinkId(NSURL *url) {
   return RBCanvasIsId(canvasId) ? canvasId : nil;
 }
 
-static BOOL RBCanvasIsPublicLink(NSString *value) {
+BOOL RBCanvasIsPublicLink(NSString *value) {
   NSURL *url = [NSURL URLWithString:value ?: @""];
   NSString *scheme = url.scheme.lowercaseString;
-  if (!([scheme isEqual:@"http"] || [scheme isEqual:@"https"]) || url.user.length) return NO;
+  if (!([scheme isEqual:@"http"] || [scheme isEqual:@"https"]) || !url.host.length || url.user.length || url.password.length) return NO;
   static NSRegularExpression *re;
   static dispatch_once_t once;
   dispatch_once(&once, ^{ re = RBCanvasRegex(@"^/canvas/[A-Za-z0-9_-]{43}/?$"); });
@@ -67,6 +61,17 @@ NSString *RBCanvasShortTime(double ms, double nowMs, BOOL chinese) {
   return chinese ? [NSString stringWithFormat:@"%ld年%ld月%ld日", (long)at.year, (long)at.month, (long)at.day]
                  : [NSString stringWithFormat:@"%ld/%ld/%ld", (long)at.year, (long)at.month, (long)at.day];
 }
+
+#if TARGET_OS_IOS
+
+#import "RBConnection.h"
+#import "RBDiagnostics.h"
+#import "RBHTTP.h"
+#import "RBHostAPI.h"
+#import "RBLocalize.h"
+#import "RBTheme.h"
+#import <UIKit/UIKit.h>
+#import <WebKit/WebKit.h>
 
 static UIColor *RBCanvasOk(void) {
   return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *t) {
@@ -204,7 +209,7 @@ static UIButton *RBCanvasButton(NSString *icon, NSString *title, BOOL filled, id
     self.backgroundColor = self.on ? RBCanvasOk() : RBThemeBorder();
     self->_knob.frame = CGRectMake(self.on ? 21 : 3, 3, 22, 22);
   };
-  if (animated) [UIView animateWithDuration:0.16 animations:change]; else change();
+  if (animated && !UIAccessibilityIsReduceMotionEnabled()) [UIView animateWithDuration:0.16 animations:change]; else change();
   self.accessibilityValue = self.on ? RBL(@"已开启", @"On") : RBL(@"已关闭", @"Off");
   self.alpha = self.enabled ? 1 : 0.55;
 }
@@ -243,6 +248,10 @@ static UIButton *RBCanvasButton(NSString *icon, NSString *title, BOOL filled, id
     [self.stack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:20],
     [self.stack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-20],
   ]];
+  [self render];
+}
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+  [super traitCollectionDidChange:previous];
   [self render];
 }
 - (UILabel *)label:(NSString *)text size:(CGFloat)size weight:(UIFontWeight)weight color:(UIColor *)color {
@@ -509,6 +518,11 @@ static WKContentRuleList *RBCanvasRules;
   ]];
   [self load];
 }
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+  [super traitCollectionDidChange:previous];
+  self.share.layer.borderColor = RBThemeBorder().CGColor;
+  if (self.canvas) [self applyCanvas:self.canvas];
+}
 - (void)close { [self dismissViewControllerAnimated:YES completion:nil]; }
 - (void)applyCanvas:(NSDictionary *)canvas {
   self.canvas = canvas;
@@ -618,3 +632,5 @@ BOOL RBOpenCanvasURL(NSURL *url) {
   RBPresentCanvas(canvasId, nil);
   return YES;
 }
+
+#endif // TARGET_OS_IOS

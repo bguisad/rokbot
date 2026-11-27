@@ -3,9 +3,11 @@
 // CSV export. A Host without the report (404) falls back to today's totals from /local/usage.
 #import "RBUsage.h"
 #import <QuartzCore/QuartzCore.h>
+#import "RBChoiceSheet.h"
 #import "RBConnection.h"
 #import "RBHTTP.h"
 #import "RBLocalize.h"
+#import "RBTheme.h"
 
 static NSString *const RBUNone = @"(none)";
 static const NSInteger RBUPageSize = 20;
@@ -309,14 +311,9 @@ static UIButton *RBUPillButton(NSString *title, BOOL filled) {
   return button;
 }
 
-static UISegmentedControl *RBUSegments(NSArray<NSString *> *titles, NSInteger selected) {
-  UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:titles];
+static RBSegmentControl *RBUSegments(NSArray<NSString *> *titles, NSInteger selected) {
+  RBSegmentControl *control = [[RBSegmentControl alloc] initWithItems:titles];
   control.selectedSegmentIndex = selected;
-  control.selectedSegmentTintColor = RBUSurface();
-  [control setTitleTextAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightMedium],
-                                    NSForegroundColorAttributeName: UIColor.secondaryLabelColor} forState:UIControlStateNormal];
-  [control setTitleTextAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold],
-                                    NSForegroundColorAttributeName: UIColor.labelColor} forState:UIControlStateSelected];
   return control;
 }
 
@@ -870,7 +867,7 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
 
 #pragma mark Actions
 
-- (void)rangeChanged:(UISegmentedControl *)control {
+- (void)rangeChanged:(RBSegmentControl *)control {
   NSArray *ids = @[@"today", @"7d", @"30d", @"all", @"custom"];
   NSString *range = ids[(NSUInteger)MAX(0, control.selectedSegmentIndex)];
   if ([range isEqual:@"custom"]) { [self openPicker]; return; }
@@ -918,8 +915,8 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
 - (void)rowTapped:(RBURow *)row {
   [self setFilter:[self.filters[row.dimension] isEqual:row.key] ? nil : row.key forKey:row.dimension];
 }
-- (void)trendChanged:(UISegmentedControl *)control { self.trendMode = control.selectedSegmentIndex; [self render]; }
-- (void)dimensionChanged:(UISegmentedControl *)control { self.dimension = control.selectedSegmentIndex; [self render]; }
+- (void)trendChanged:(RBSegmentControl *)control { self.trendMode = control.selectedSegmentIndex; [self render]; }
+- (void)dimensionChanged:(RBSegmentControl *)control { self.dimension = control.selectedSegmentIndex; [self render]; }
 - (void)previousPage { self.offset = MAX(0, self.offset - RBUPageSize); [self reloadKeeping:YES]; }
 - (void)nextPage { self.offset += RBUPageSize; [self reloadKeeping:YES]; }
 
@@ -959,16 +956,14 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
 
 - (void)addRangeSection {
   NSArray *ids = @[@"today", @"7d", @"30d", @"all", @"custom"];
-  UISegmentedControl *segments = RBUSegments(@[RBL(@"今天", @"Today"), RBL(@"7 天", @"7 days"), RBL(@"30 天", @"30 days"), RBL(@"全部", @"All"), RBL(@"自定义", @"Custom")],
-                                             self.picking ? 4 : (NSInteger)[ids indexOfObject:self.range]);
+  RBSegmentControl *segments = RBUSegments(@[RBL(@"今天", @"Today"), RBL(@"7 天", @"7 days"), RBL(@"30 天", @"30 days"), RBL(@"全部", @"All"), RBL(@"自定义", @"Custom")],
+                                           self.picking ? 4 : (NSInteger)[ids indexOfObject:self.range]);
   segments.accessibilityIdentifier = @"rokbot.usage.range";
   [segments addTarget:self action:@selector(rangeChanged:) forControlEvents:UIControlEventValueChanged];
-  // Tapping the selected "custom" segment again reopens the picker.
-  [segments addGestureRecognizer:({
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(segmentsTapped:)];
-    tap.cancelsTouchesInView = NO;
-    tap;
-  })];
+  __weak RBUsageController *weakSelf = self;
+  segments.onRetapSegment = ^(NSInteger index) {
+    if (index == 4 && !weakSelf.picking) [weakSelf openPicker];
+  };
   [self.content addArrangedSubview:segments];
   NSDictionary *range = RBUDict(self.report[@"range"]), *previous = RBUDict(self.report[@"previous"]);
   NSString *today = RBUStr(self.report[@"today"]);
@@ -994,12 +989,6 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
     [self.content addArrangedSubview:label];
     [self.content setCustomSpacing:10 afterView:segments];
   }
-}
-- (void)segmentsTapped:(UITapGestureRecognizer *)tap {
-  UISegmentedControl *control = (UISegmentedControl *)tap.view;
-  CGFloat width = control.bounds.size.width / control.numberOfSegments;
-  NSInteger index = (NSInteger)([tap locationInView:control].x / width);
-  if (index == 4 && control.selectedSegmentIndex == 4 && !self.picking) [self openPicker];
 }
 
 - (UIView *)pickerCard {
@@ -1038,42 +1027,60 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
   return RBUValueLabel(key, value, nil);
 }
 
-- (UIMenu *)filterMenu {
-  NSMutableArray<UIMenuElement *> *menus = [NSMutableArray array];
-  __weak RBUsageController *weakSelf = self;
+- (void)openFilterSheet {
+  NSMutableArray<RBChoiceOption *> *choices = [NSMutableArray array];
   for (NSString *key in RBUFilterKeys()) {
     NSArray *options = RBUArray(RBUDict(self.options)[key]);
     if (!options.count) continue;
-    NSMutableArray<UIMenuElement *> *actions = [NSMutableArray array];
-    UIAction *all = [UIAction actionWithTitle:RBL(@"全部", @"All") image:nil identifier:nil handler:^(UIAction *action) { [weakSelf setFilter:nil forKey:key]; }];
-    all.state = self.filters[key] ? UIMenuElementStateOff : UIMenuElementStateOn;
-    [actions addObject:all];
-    for (NSDictionary *option in options) {
-      NSString *value = RBUStr(RBUDict(option)[@"key"]);
-      if (!value) continue;
-      NSString *title = RBUValueLabel(key, value, option[@"label"]);
-      UIAction *action = [UIAction actionWithTitle:title image:nil identifier:nil handler:^(UIAction *chosen) { [weakSelf setFilter:value forKey:key]; }];
-      action.subtitle = [NSString stringWithFormat:@"%@ %@", RBUExact(RBUNum(option[@"requests"])), RBL(@"次请求", @"requests")];
-      action.state = [self.filters[key] isEqual:value] ? UIMenuElementStateOn : UIMenuElementStateOff;
-      [actions addObject:action];
-    }
-    NSString *title = RBUDimensionName(key);
-    if (self.filters[key]) title = [NSString stringWithFormat:@"%@：%@", title, [self optionLabel:key value:self.filters[key]]];
-    [menus addObject:[UIMenu menuWithTitle:title image:nil identifier:nil options:0 children:actions]];
+    NSString *current = self.filters[key] ? [self optionLabel:key value:self.filters[key]] : RBL(@"全部", @"All");
+    [choices addObject:[RBChoiceOption optionWithValue:key title:RBUDimensionName(key) subtitle:current]];
   }
-  if (self.filters.count)
-    [menus addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-      [UIAction actionWithTitle:RBL(@"清除全部筛选", @"Clear all filters") image:nil identifier:nil handler:^(UIAction *action) { [weakSelf clearFilters]; }]]]];
-  return [UIMenu menuWithTitle:RBL(@"按维度筛选", @"Filter by") children:menus];
+  if (self.filters.count) {
+    RBChoiceOption *clear = [RBChoiceOption optionWithValue:@"__clear__"
+                                                      title:RBL(@"清除全部筛选", @"Clear all filters")
+                                                   subtitle:nil];
+    clear.destructive = YES;
+    [choices addObject:clear];
+  }
+  if (!choices.count) return;
+  __weak RBUsageController *weakSelf = self;
+  [[RBChoiceSheet sheetWithTitle:RBL(@"按维度筛选", @"Filter by")
+                         message:nil
+                         options:choices
+                        selected:nil
+                        onSelect:^(RBChoiceOption *chosen) {
+                          if ([chosen.value isEqualToString:@"__clear__"]) { [weakSelf clearFilters]; return; }
+                          [weakSelf openFilterDimensionSheet:chosen.value];
+                        }] presentFrom:self];
+}
+
+- (void)openFilterDimensionSheet:(NSString *)key {
+  NSArray *options = RBUArray(RBUDict(self.options)[key]);
+  NSMutableArray<RBChoiceOption *> *choices = [NSMutableArray arrayWithObject:
+      [RBChoiceOption optionWithValue:@"" title:RBL(@"全部", @"All") subtitle:nil]];
+  for (NSDictionary *option in options) {
+    NSString *value = RBUStr(RBUDict(option)[@"key"]);
+    if (!value) continue;
+    NSString *title = RBUValueLabel(key, value, option[@"label"]);
+    NSString *subtitle = [NSString stringWithFormat:@"%@ %@", RBUExact(RBUNum(option[@"requests"])), RBL(@"次请求", @"requests")];
+    [choices addObject:[RBChoiceOption optionWithValue:value title:title subtitle:subtitle]];
+  }
+  __weak RBUsageController *weakSelf = self;
+  [[RBChoiceSheet sheetWithTitle:RBUDimensionName(key)
+                         message:nil
+                         options:choices
+                        selected:self.filters[key] ?: @""
+                        onSelect:^(RBChoiceOption *chosen) {
+                          [weakSelf setFilter:chosen.value.length ? chosen.value : nil forKey:key];
+                        }] presentFrom:self];
 }
 
 - (void)addFilterSection {
   if (!self.options && !self.filters.count) return;
   UIButton *filter = RBUPillButton(self.filters.count ? [NSString stringWithFormat:@"%@ %lu", RBL(@"筛选", @"Filter"), (unsigned long)self.filters.count] : RBL(@"筛选", @"Filter"), NO);
-  [filter setImage:[UIImage systemImageNamed:@"line.3.horizontal.decrease" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:12 weight:UIImageSymbolWeightMedium]] forState:UIControlStateNormal];
+  [filter setImage:RBGlyphImage(RBGlyphFilter, 14, 1.5) forState:UIControlStateNormal];
   filter.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
-  filter.menu = [self filterMenu];
-  filter.showsMenuAsPrimaryAction = YES;
+  [filter addTarget:self action:@selector(openFilterSheet) forControlEvents:UIControlEventTouchUpInside];
   filter.enabled = self.options != nil;
   filter.accessibilityIdentifier = @"rokbot.usage.filter";
   UIStackView *row = RBUStack(UILayoutConstraintAxisHorizontal, 8, @[filter]);
@@ -1259,7 +1266,7 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
   NSString *unit = RBUStr(range[@"unit"]) ?: @"day";
   NSString *title = [unit isEqual:@"hour"] ? RBL(@"每小时趋势", @"Hourly trend") : [unit isEqual:@"month"] ? RBL(@"每月趋势", @"Monthly trend") : RBL(@"每日趋势", @"Daily trend");
   [card.stack addArrangedSubview:[self sectionTitle:title]];
-  UISegmentedControl *modes = RBUSegments(@[RBL(@"按模型", @"By model"), RBL(@"按类型", @"By type"), RBL(@"请求", @"Requests")], self.trendMode);
+  RBSegmentControl *modes = RBUSegments(@[RBL(@"按模型", @"By model"), RBL(@"按类型", @"By type"), RBL(@"请求", @"Requests")], self.trendMode);
   modes.accessibilityIdentifier = @"rokbot.usage.trendMode";
   [modes addTarget:self action:@selector(trendChanged:) forControlEvents:UIControlEventValueChanged];
   [card.stack addArrangedSubview:modes];
@@ -1313,25 +1320,31 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
   }];
 }
 
-- (UIMenu *)sortMenu {
-  __weak RBUsageController *weakSelf = self;
+- (void)openSortSheet {
   NSArray *keys = @[@[@"total", @"Token"], @[@"requests", RBL(@"请求", @"Requests")], @[@"avgDurationMs", RBL(@"平均耗时", @"Avg. duration")],
                     @[@"failureRate", RBL(@"失败率", @"Failure rate")], @[@"cost", RBL(@"花费", @"Cost")], @[@"name", RBL(@"名称", @"Name")]];
-  NSMutableArray *actions = [NSMutableArray array];
+  NSMutableArray<RBChoiceOption *> *choices = [NSMutableArray array];
   for (NSArray *pair in keys) {
     NSString *key = pair[0];
     BOOL current = [self.sortKey isEqual:key];
-    NSString *title = current ? [NSString stringWithFormat:@"%@ %@", pair[1], self.sortAscending ? @"↑" : @"↓"] : pair[1];
-    UIAction *action = [UIAction actionWithTitle:title image:nil identifier:nil handler:^(UIAction *chosen) {
-      RBUsageController *strong = weakSelf;
-      if ([strong.sortKey isEqual:key]) strong.sortAscending = !strong.sortAscending;
-      else { strong.sortKey = key; strong.sortAscending = [key isEqual:@"name"]; }
-      [strong render];
-    }];
-    action.state = current ? UIMenuElementStateOn : UIMenuElementStateOff;
-    [actions addObject:action];
+    NSString *subtitle = current
+        ? (self.sortAscending ? RBL(@"当前：升序（再选切换降序）", @"Current: ascending (tap again to reverse)")
+                              : RBL(@"当前：降序（再选切换升序）", @"Current: descending (tap again to reverse)"))
+        : nil;
+    [choices addObject:[RBChoiceOption optionWithValue:key title:pair[1] subtitle:subtitle]];
   }
-  return [UIMenu menuWithTitle:RBL(@"排序（再选一次切换升降序）", @"Sort (choose again to reverse)") children:actions];
+  __weak RBUsageController *weakSelf = self;
+  [[RBChoiceSheet sheetWithTitle:RBL(@"排序", @"Sort")
+                         message:RBL(@"再次选择当前项可切换升降序", @"Choose the active item again to reverse")
+                         options:choices
+                        selected:self.sortKey
+                        onSelect:^(RBChoiceOption *chosen) {
+                          RBUsageController *strong = weakSelf;
+                          if (!strong) return;
+                          if ([strong.sortKey isEqual:chosen.value]) strong.sortAscending = !strong.sortAscending;
+                          else { strong.sortKey = chosen.value; strong.sortAscending = [chosen.value isEqual:@"name"]; }
+                          [strong render];
+                        }] presentFrom:self];
 }
 
 - (UIView *)breakdownCard {
@@ -1342,15 +1355,14 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
   NSMutableArray *names = [NSMutableArray array];
   for (NSString *name in dimensions) [names addObject:RBUDimensionName(name)];
   UIButton *sort = [UIButton buttonWithType:UIButtonTypeSystem];
-  [sort setImage:[UIImage systemImageNamed:@"arrow.up.arrow.down" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightMedium]] forState:UIControlStateNormal];
+  [sort setImage:RBGlyphImage(RBGlyphSort, 16, 1.6) forState:UIControlStateNormal];
   sort.tintColor = UIColor.secondaryLabelColor;
-  sort.menu = [self sortMenu];
-  sort.showsMenuAsPrimaryAction = YES;
+  [sort addTarget:self action:@selector(openSortSheet) forControlEvents:UIControlEventTouchUpInside];
   sort.accessibilityLabel = RBL(@"排序", @"Sort");
   sort.accessibilityIdentifier = @"rokbot.usage.sort";
   [sort.widthAnchor constraintEqualToConstant:32].active = YES;
   [card.stack addArrangedSubview:RBUStack(UILayoutConstraintAxisHorizontal, 8, @[[self sectionTitle:RBL(@"维度拆分", @"Breakdown")], RBUSpacer(), sort])];
-  UISegmentedControl *tabs = RBUSegments(names, selected);
+  RBSegmentControl *tabs = RBUSegments(names, selected);
   tabs.accessibilityIdentifier = @"rokbot.usage.dimension";
   [tabs addTarget:self action:@selector(dimensionChanged:) forControlEvents:UIControlEventValueChanged];
   [card.stack addArrangedSubview:tabs];

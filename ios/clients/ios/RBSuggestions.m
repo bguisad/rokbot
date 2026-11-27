@@ -4,12 +4,30 @@
 static const NSUInteger RBSuggestionsMaxAI = 3;
 static const NSUInteger RBSuggestionsMaxPhraseChars = 120;
 static const NSUInteger RBSuggestionsMaxPhrases = 50;
+static const NSUInteger RBHistoryHintsMax = 64;
+
+const NSTimeInterval RBSuggestionsPlaceholderDelay = 0.140;
+const NSTimeInterval RBSuggestionsFadeOutDuration = 0.180;
+const NSUInteger RBSuggestionsPlaceholderCount = 3;
+
+const NSTimeInterval RBCompletionDebounce = 0.350;
+const NSUInteger RBCompletionMinChars = 2;
+const NSUInteger RBCompletionCacheLimit = 32;
 
 static NSString *RBSuggestionsTrim(id value) {
   if (![value isKindOfClass:NSString.class]) return @"";
-  NSString *trimmed = [[(NSString *)value stringByReplacingOccurrencesOfString:@"​" withString:@""]
+  NSString *trimmed = [[(NSString *)value stringByReplacingOccurrencesOfString:@"\u200B" withString:@""]
       stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
   return [trimmed isEqualToString:@"null"] ? @"" : trimmed;
+}
+
+static NSUInteger RBSuggestionsCharCount(NSString *value) {
+  if (!value.length) return 0;
+  __block NSUInteger count = 0;
+  [value enumerateSubstringsInRange:NSMakeRange(0, value.length)
+                            options:NSStringEnumerationByComposedCharacterSequences
+                         usingBlock:^(NSString *s, NSRange r, NSRange e, BOOL *stop) { count++; }];
+  return count;
 }
 
 static BOOL RBSuggestionsBool(id value, BOOL fallback) {
@@ -32,6 +50,7 @@ NSDictionary *RBSuggestionsParseSettings(id response) {
   return @{
     @"enabled" : @(RBSuggestionsBool(dict[@"enabled"], YES)),
     @"aiEnabled" : @(RBSuggestionsBool(dict[@"aiEnabled"], YES)),
+    @"completionEnabled" : @(RBSuggestionsBool(dict[@"completionEnabled"], YES)),
     @"quickPhrases" : phrases,
     @"hasPhrases" : @([list isKindOfClass:NSArray.class]),
   };
@@ -182,14 +201,19 @@ NSDictionary *RBSuggestionsRequestBody(NSString *agentId, NSString *locale, NSSt
   return body;
 }
 
+NSDictionary *RBSuggestionsCompleteBody(NSString *agentId, NSString *text, NSString *locale) {
+  NSMutableDictionary *body = [NSMutableDictionary dictionary];
+  body[@"agentId"] = agentId ?: @"";
+  body[@"text"] = text ?: @"";
+  if (locale.length) body[@"locale"] = locale;
+  return body;
+}
+
 NSString *RBSuggestionsValidatePhrase(NSString *text, NSArray<NSDictionary *> *existing, NSString *editingId, BOOL chinese) {
   NSString *clean = RBSuggestionsTrim(text);
   clean = [[clean componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet] componentsJoinedByString:@" "];
   if (!clean.length) return chinese ? @"常用语不能为空" : @"Quick phrase cannot be empty";
-  __block NSUInteger characters = 0;
-  [clean enumerateSubstringsInRange:NSMakeRange(0, clean.length) options:NSStringEnumerationByComposedCharacterSequences
-                         usingBlock:^(NSString *s, NSRange r, NSRange e, BOOL *stop) { characters++; }];
-  if (characters > RBSuggestionsMaxPhraseChars)
+  if (RBSuggestionsCharCount(clean) > RBSuggestionsMaxPhraseChars)
     return chinese ? @"常用语最多 120 个字符" : @"Quick phrases can be up to 120 characters";
   NSUInteger others = 0;
   for (NSDictionary *phrase in existing ?: @[]) {
@@ -218,12 +242,460 @@ NSArray<NSString *> *RBSuggestionsMovedIds(NSArray<NSDictionary *> *phrases, NSU
   return ids;
 }
 
+#pragma mark - RBChatHistoryHints
+
+@implementation RBChatHistoryHints {
+  NSMutableDictionary<NSString *, NSNumber *> *_hints;
+  NSMutableArray<NSString *> *_order;
+}
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _hints = [NSMutableDictionary dictionary];
+    _order = [NSMutableArray array];
+  }
+  return self;
+}
+
+- (NSString *)norm:(NSString *)agentId {
+  return RBSuggestionsTrim(agentId);
+}
+
+- (void)recordAgent:(NSString *)agentId source:(NSString *)source {
+  NSString *key = [self norm:agentId];
+  if (!key.length || ![source isKindOfClass:NSString.class]) return;
+  NSNumber *flag = nil;
+  if ([source isEqualToString:@"empty"]) flag = @NO;
+  else if ([source isEqualToString:@"model"]) flag = @YES;
+  if (!flag) return;
+  @synchronized (self) {
+    [_order removeObject:key];
+    [_order addObject:key];
+    _hints[key] = flag;
+    while (_order.count > RBHistoryHintsMax) {
+      NSString *oldest = _order.firstObject;
+      [_order removeObjectAtIndex:0];
+      if (oldest) [_hints removeObjectForKey:oldest];
+    }
+  }
+}
+
+- (void)forgetAgent:(NSString *)agentId {
+  NSString *key = [self norm:agentId];
+  if (!key.length) return;
+  @synchronized (self) {
+    [_hints removeObjectForKey:key];
+    [_order removeObject:key];
+  }
+}
+
+- (void)clear {
+  @synchronized (self) {
+    [_hints removeAllObjects];
+    [_order removeAllObjects];
+  }
+}
+
+- (NSNumber *)hintForAgent:(NSString *)agentId {
+  NSString *key = [self norm:agentId];
+  if (!key.length) return nil;
+  @synchronized (self) {
+    return _hints[key];
+  }
+}
+
+- (BOOL)mayHaveHistory:(NSString *)agentId {
+  NSString *key = [self norm:agentId];
+  if (!key.length) return NO;
+  @synchronized (self) {
+    NSNumber *hint = _hints[key];
+    return hint == nil || hint.boolValue;
+  }
+}
+
+@end
+
+#pragma mark - RBSuggestionLoadState
+
+@implementation RBSuggestionLoadState {
+  RBSuggestionLoadPhase _phase;
+  NSUInteger _token;
+  NSString *_key;
+  NSTimeInterval _startedAt;
+  NSArray<NSString *> *_items;
+}
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _phase = RBSuggestionLoadPhaseIdle;
+    _key = @"";
+    _items = @[];
+  }
+  return self;
+}
+
+- (RBSuggestionLoadPhase)phase { @synchronized (self) { return _phase; } }
+- (NSUInteger)token { @synchronized (self) { return _token; } }
+- (NSString *)key { @synchronized (self) { return _key; } }
+- (NSArray<NSString *> *)items { @synchronized (self) { return _items; } }
+
+- (NSUInteger)beginKey:(NSString *)key now:(NSTimeInterval)now {
+  @synchronized (self) {
+    _token++;
+    _key = [key ?: @"" copy];
+    _phase = RBSuggestionLoadPhaseLoading;
+    _startedAt = now;
+    _items = @[];
+    return _token;
+  }
+}
+
+- (BOOL)succeedToken:(NSUInteger)token items:(NSArray<NSString *> *)items {
+  @synchronized (self) {
+    if (token != _token || _phase != RBSuggestionLoadPhaseLoading) return NO;
+    NSMutableArray<NSString *> *clean = [NSMutableArray array];
+    for (id raw in items ?: @[]) {
+      NSString *text = RBSuggestionsTrim(raw);
+      if (text.length) [clean addObject:text];
+    }
+    if (!clean.count) {
+      _phase = RBSuggestionLoadPhaseFailed;
+      _items = @[];
+    } else {
+      _phase = RBSuggestionLoadPhaseReady;
+      _items = [clean copy];
+    }
+    return YES;
+  }
+}
+
+- (BOOL)failToken:(NSUInteger)token {
+  @synchronized (self) {
+    if (token != _token || _phase != RBSuggestionLoadPhaseLoading) return NO;
+    _phase = RBSuggestionLoadPhaseFailed;
+    _items = @[];
+    return YES;
+  }
+}
+
+- (BOOL)settleToken:(NSUInteger)token {
+  @synchronized (self) {
+    if (token != _token || _phase != RBSuggestionLoadPhaseFailed) return NO;
+    _phase = RBSuggestionLoadPhaseIdle;
+    return YES;
+  }
+}
+
+- (void)cancel {
+  @synchronized (self) {
+    _token++;
+    _phase = RBSuggestionLoadPhaseIdle;
+    _key = @"";
+    _items = @[];
+  }
+}
+
+- (void)readyKey:(NSString *)key items:(NSArray<NSString *> *)items {
+  @synchronized (self) {
+    _token++;
+    _key = [key ?: @"" copy];
+    NSMutableArray<NSString *> *clean = [NSMutableArray array];
+    for (id raw in items ?: @[]) {
+      NSString *text = RBSuggestionsTrim(raw);
+      if (text.length) [clean addObject:text];
+    }
+    _phase = clean.count ? RBSuggestionLoadPhaseReady : RBSuggestionLoadPhaseIdle;
+    _items = [clean copy];
+  }
+}
+
+- (NSUInteger)placeholdersAt:(NSTimeInterval)now {
+  @synchronized (self) {
+    if (_phase != RBSuggestionLoadPhaseLoading) return 0;
+    return (now - _startedAt >= RBSuggestionsPlaceholderDelay) ? RBSuggestionsPlaceholderCount : 0;
+  }
+}
+
+- (NSTimeInterval)placeholderDelayLeftAt:(NSTimeInterval)now {
+  @synchronized (self) {
+    if (_phase != RBSuggestionLoadPhaseLoading) return 0;
+    NSTimeInterval left = RBSuggestionsPlaceholderDelay - (now - _startedAt);
+    return left > 0 ? left : 0;
+  }
+}
+
+@end
+
+#pragma mark - RBInlineCompletionEngine
+
+@interface RBInlineCompletionRequest ()
+@property(nonatomic, assign, readwrite) NSUInteger seq;
+@property(nonatomic, copy, readwrite) NSString *agentId;
+@property(nonatomic, copy, readwrite) NSString *draft;
+@end
+
+@implementation RBInlineCompletionRequest
+- (instancetype)initWithSeq:(NSUInteger)seq agentId:(NSString *)agentId draft:(NSString *)draft {
+  self = [super init];
+  if (self) {
+    _seq = seq;
+    _agentId = [agentId copy];
+    _draft = [draft copy];
+  }
+  return self;
+}
+@end
+
+@implementation RBInlineCompletionEngine {
+  RBChatHistoryHints *_hints;
+  NSMutableDictionary<NSString *, NSString *> *_cache;
+  NSMutableArray<NSString *> *_cacheOrder;
+  BOOL _enabled;
+  NSUInteger _seq;
+  NSString *_agentId;
+  NSString *_base;
+  NSString *_completion;
+  NSString *_pendingDraft;
+  NSTimeInterval _dueAt;
+  RBInlineCompletionRequest *_inFlight;
+  NSString *_suppressDraft;
+  NSUInteger _requestsIssued;
+}
+
+- (instancetype)init {
+  return [self initWithHints:nil];
+}
+
+- (instancetype)initWithHints:(RBChatHistoryHints *)hints {
+  self = [super init];
+  if (self) {
+    _hints = hints ?: [RBChatHistoryHints new];
+    _cache = [NSMutableDictionary dictionary];
+    _cacheOrder = [NSMutableArray array];
+    _enabled = YES;
+    _agentId = @"";
+    _completion = @"";
+    _dueAt = -1;
+  }
+  return self;
+}
+
++ (NSString *)cacheKeyForAgent:(NSString *)agentId draft:(NSString *)draft {
+  return [NSString stringWithFormat:@"%@\x01%@", agentId ?: @"", draft ?: @""];
+}
+
++ (BOOL)eligibleEnabled:(BOOL)enabled agentId:(NSString *)agentId draft:(NSString *)draft
+              composing:(BOOL)composing cursorAtEnd:(BOOL)cursorAtEnd mayHaveHistory:(BOOL)mayHaveHistory {
+  if (!enabled || composing || !cursorAtEnd || !mayHaveHistory) return NO;
+  if (!RBSuggestionsTrim(agentId).length) return NO;
+  return RBSuggestionsCharCount(RBSuggestionsTrim(draft)) >= RBCompletionMinChars;
+}
+
++ (NSString *)remainingSuffixForBase:(NSString *)base completion:(NSString *)completion draft:(NSString *)draft {
+  if (!base || !completion.length || !draft) return nil;
+  NSString *full = [base stringByAppendingString:completion];
+  if (draft.length < base.length || draft.length >= full.length) return nil;
+  if (![full hasPrefix:draft]) return nil;
+  return [full substringFromIndex:draft.length];
+}
+
+- (BOOL)enabled { @synchronized (self) { return _enabled; } }
+- (void)setEnabled:(BOOL)enabled {
+  @synchronized (self) {
+    if (_enabled == enabled) return;
+    _enabled = enabled;
+    if (!enabled) [self resetLocked];
+  }
+}
+
+- (NSUInteger)sequence { @synchronized (self) { return _seq; } }
+- (NSUInteger)requestsIssued { @synchronized (self) { return _requestsIssued; } }
+- (NSUInteger)cacheSize { @synchronized (self) { return _cache.count; } }
+- (BOOL)hasPending { @synchronized (self) { return _pendingDraft != nil; } }
+- (NSTimeInterval)dueAt { @synchronized (self) { return _dueAt; } }
+
+- (void)dropShownLocked {
+  _base = nil;
+  _completion = @"";
+}
+
+- (void)dropPendingLocked {
+  if (_pendingDraft != nil || _inFlight != nil) _seq++;
+  _pendingDraft = nil;
+  _dueAt = -1;
+  _inFlight = nil;
+}
+
+- (void)resetLocked {
+  [self dropShownLocked];
+  [self dropPendingLocked];
+  _suppressDraft = nil;
+}
+
+- (NSString *)cacheGetLocked:(NSString *)key {
+  NSString *value = _cache[key];
+  if (!value) return nil;
+  [_cacheOrder removeObject:key];
+  [_cacheOrder addObject:key];
+  return value;
+}
+
+- (void)cacheSetLocked:(NSString *)value forKey:(NSString *)key {
+  [_cacheOrder removeObject:key];
+  [_cacheOrder addObject:key];
+  _cache[key] = value;
+  while (_cacheOrder.count > RBCompletionCacheLimit) {
+    NSString *oldest = _cacheOrder.firstObject;
+    [_cacheOrder removeObjectAtIndex:0];
+    if (oldest) [_cache removeObjectForKey:oldest];
+  }
+}
+
+- (NSString *)onDraftChanged:(NSString *)draft agentId:(NSString *)agentId
+                   composing:(BOOL)composing cursorAtEnd:(BOOL)cursorAtEnd now:(NSTimeInterval)now {
+  @synchronized (self) {
+    NSString *agent = RBSuggestionsTrim(agentId);
+    NSString *text = [draft isKindOfClass:NSString.class] ? draft : @"";
+    if (![agent isEqualToString:_agentId]) {
+      [self resetLocked];
+      _agentId = agent;
+    }
+    if (composing || !cursorAtEnd || !_enabled) {
+      [self dropShownLocked];
+      [self dropPendingLocked];
+      return @"";
+    }
+    NSString *rest = [RBInlineCompletionEngine remainingSuffixForBase:_base completion:_completion draft:text];
+    if (rest && RBSuggestionsCharCount(RBSuggestionsTrim(text)) >= RBCompletionMinChars) {
+      [self dropPendingLocked];
+      return rest;
+    }
+    [self dropShownLocked];
+    if (_suppressDraft && [_suppressDraft isEqualToString:text]) {
+      [self dropPendingLocked];
+      return @"";
+    }
+    _suppressDraft = nil;
+    if (![RBInlineCompletionEngine eligibleEnabled:_enabled agentId:agent draft:text
+                                         composing:NO cursorAtEnd:YES mayHaveHistory:[_hints mayHaveHistory:agent]]) {
+      [self dropPendingLocked];
+      return @"";
+    }
+    NSString *key = [RBInlineCompletionEngine cacheKeyForAgent:agent draft:text];
+    NSString *hit = [self cacheGetLocked:key];
+    if (hit != nil) {
+      [self dropPendingLocked];
+      if (!hit.length) return @"";
+      _base = [text copy];
+      _completion = [hit copy];
+      return hit;
+    }
+    if (_pendingDraft && [_pendingDraft isEqualToString:text]) return @"";
+    if (_inFlight && [_inFlight.draft isEqualToString:text] && _pendingDraft == nil) return @"";
+    _seq++;
+    _inFlight = nil;
+    _pendingDraft = [text copy];
+    _dueAt = now + RBCompletionDebounce;
+    return @"";
+  }
+}
+
+- (RBInlineCompletionRequest *)pollAt:(NSTimeInterval)now {
+  @synchronized (self) {
+    if (_pendingDraft == nil || now < _dueAt) return nil;
+    RBInlineCompletionRequest *request = [[RBInlineCompletionRequest alloc] initWithSeq:_seq agentId:_agentId draft:_pendingDraft];
+    _pendingDraft = nil;
+    _dueAt = -1;
+    _inFlight = request;
+    _requestsIssued++;
+    return request;
+  }
+}
+
+- (BOOL)isCurrentRequest:(RBInlineCompletionRequest *)request {
+  @synchronized (self) {
+    return request != nil && request == _inFlight && request.seq == _seq;
+  }
+}
+
+- (NSString *)onResponseForRequest:(RBInlineCompletionRequest *)request
+                        completion:(NSString *)completion
+                            source:(NSString *)source
+                      currentDraft:(NSString *)currentDraft {
+  @synchronized (self) {
+    [_hints recordAgent:request.agentId source:source];
+    if (!(request != nil && request == _inFlight && request.seq == _seq)) return nil;
+    _inFlight = nil;
+    NSString *suffix = [completion isKindOfClass:NSString.class] ? completion : @"";
+    if ([source isEqualToString:@"model"]) {
+      [self cacheSetLocked:suffix forKey:[RBInlineCompletionEngine cacheKeyForAgent:request.agentId draft:request.draft]];
+    }
+    if (!suffix.length || !_enabled) return @"";
+    if (!currentDraft || ![currentDraft isEqualToString:request.draft]) {
+      NSString *rest = [RBInlineCompletionEngine remainingSuffixForBase:request.draft completion:suffix draft:currentDraft];
+      if (!rest) return @"";
+      _base = [request.draft copy];
+      _completion = [suffix copy];
+      return rest;
+    }
+    _base = [request.draft copy];
+    _completion = [suffix copy];
+    return suffix;
+  }
+}
+
+- (void)onFailureForRequest:(RBInlineCompletionRequest *)request {
+  @synchronized (self) {
+    if (request != nil && request == _inFlight && request.seq == _seq) _inFlight = nil;
+  }
+}
+
+- (NSString *)acceptDraft:(NSString *)draft {
+  @synchronized (self) {
+    NSString *text = draft ?: @"";
+    NSString *rest = [RBInlineCompletionEngine remainingSuffixForBase:_base completion:_completion draft:text];
+    if (!rest && _base && [_base isEqualToString:text] && _completion.length) rest = _completion;
+    if (!rest) return nil;
+    NSString *full = [text stringByAppendingString:rest];
+    [self dropShownLocked];
+    [self dropPendingLocked];
+    _suppressDraft = [full copy];
+    return full;
+  }
+}
+
+- (NSString *)shownSuffixForDraft:(NSString *)draft {
+  @synchronized (self) {
+    NSString *text = draft ?: @"";
+    NSString *rest = [RBInlineCompletionEngine remainingSuffixForBase:_base completion:_completion draft:text];
+    if (rest) return rest;
+    if (_base && [_base isEqualToString:text]) return _completion ?: @"";
+    return @"";
+  }
+}
+
+- (void)reset {
+  @synchronized (self) { [self resetLocked]; }
+}
+
+- (void)clearCache {
+  @synchronized (self) {
+    [_cache removeAllObjects];
+    [_cacheOrder removeAllObjects];
+  }
+}
+
+@end
+
 #if TARGET_OS_IOS
 
 #import "RBConnection.h"
 #import "RBHostAPI.h"
 #import "RBLocalize.h"
 #import "RBTheme.h"
+#import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 
 // The bot on screen. Only navigation signals (openAgentWindowed, markAgentViewed, sendPrompt,
@@ -261,28 +733,262 @@ static NSString *RBSuggestionsKeyFor(NSString *agent) {
   return RBSuggestionsCacheKey(agent, RBSuggestionsGeneration(agent), RBSuggestionsLocaleTag());
 }
 
+// Compact chip font: 12.5pt, Dynamic Type capped at 15pt so the row stays ~26-28pt tall.
+static UIFont *RBSuggestionsChipFont(void) {
+  return [[UIFontMetrics defaultMetrics] scaledFontForFont:[UIFont systemFontOfSize:12.5 weight:UIFontWeightMedium]
+                                          maximumPointSize:15];
+}
+
+static CGFloat RBSuggestionsChipHeight(void) {
+  return MIN(28, MAX(26, ceil(RBSuggestionsChipFont().lineHeight) + 9));
+}
+
+static UIColor *RBSuggestionsPhraseFill(void) {
+  return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *t) {
+    return t.userInterfaceStyle == UIUserInterfaceStyleDark
+        ? [UIColor colorWithRed:0x1D / 255.0 green:0x2B / 255.0 blue:0x42 / 255.0 alpha:0.94]
+        : [UIColor colorWithRed:0xEE / 255.0 green:0xF5 / 255.0 blue:0xFF / 255.0 alpha:0.97];
+  }];
+}
+
+static UIColor *RBSuggestionsPhraseBorder(void) {
+  return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *t) {
+    return t.userInterfaceStyle == UIUserInterfaceStyleDark
+        ? [UIColor colorWithRed:0x3B / 255.0 green:0x82 / 255.0 blue:0xF6 / 255.0 alpha:0.60]
+        : [UIColor colorWithRed:0x16 / 255.0 green:0x77 / 255.0 blue:0xFF / 255.0 alpha:0.40];
+  }];
+}
+
+#pragma mark - Shimmer placeholder pill
+
+@interface RBSkeletonPillView : UIView
+@property(nonatomic, strong) CAGradientLayer *shimmer;
+- (void)startShimmerWithDelay:(CFTimeInterval)delay;
+- (void)stopShimmer;
+@end
+
+@implementation RBSkeletonPillView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.clipsToBounds = YES;
+  self.userInteractionEnabled = NO;
+  self.accessibilityIdentifier = @"rokbot.suggestions.placeholder";
+  _shimmer = [CAGradientLayer layer];
+  _shimmer.startPoint = CGPointMake(0, 0.5);
+  _shimmer.endPoint = CGPointMake(1, 0.5);
+  _shimmer.locations = @[ @(-0.5), @(-0.25), @(0.0) ];
+  [self.layer addSublayer:_shimmer];
+  [self applyColors];
+  return self;
+}
+
+- (void)applyColors {
+  BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+  self.backgroundColor = dark ? [UIColor colorWithRed:0x2A / 255.0 green:0x2A / 255.0 blue:0x31 / 255.0 alpha:1]
+                              : [UIColor colorWithRed:0xE4 / 255.0 green:0xE6 / 255.0 blue:0xEB / 255.0 alpha:1];
+  UIColor *clear = [UIColor colorWithWhite:1 alpha:0];
+  UIColor *shine = [UIColor colorWithWhite:1 alpha:dark ? 0.24 : 0.85];
+  self.shimmer.colors = @[ (id)clear.CGColor, (id)shine.CGColor, (id)clear.CGColor ];
+}
+
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  self.layer.cornerRadius = self.bounds.size.height / 2.0;
+  self.shimmer.frame = self.bounds;
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+  [super traitCollectionDidChange:previous];
+  [self applyColors];
+}
+
+- (void)startShimmerWithDelay:(CFTimeInterval)delay {
+  if (UIAccessibilityIsReduceMotionEnabled()) {
+    [self stopShimmer];
+    return;
+  }
+  self.shimmer.hidden = NO;
+  if ([self.shimmer animationForKey:@"rb.shimmer"]) return;
+  CABasicAnimation *sweep = [CABasicAnimation animationWithKeyPath:@"locations"];
+  sweep.fromValue = @[ @(-0.6), @(-0.3), @(0.0) ];
+  sweep.toValue = @[ @(1.0), @(1.3), @(1.6) ];
+  sweep.duration = 1.25;
+  sweep.repeatCount = HUGE_VALF;
+  sweep.beginTime = CACurrentMediaTime() + delay;
+  sweep.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+  [self.shimmer addAnimation:sweep forKey:@"rb.shimmer"];
+}
+
+- (void)stopShimmer {
+  [self.shimmer removeAnimationForKey:@"rb.shimmer"];
+  self.shimmer.hidden = YES;
+}
+
+@end
+
+#pragma mark - Suggestions bar
+
 @interface RBSuggestionsBar : UIView
 @property(nonatomic, strong) UIScrollView *scroll;
 @property(nonatomic, strong) UIStackView *chips;
+@property(nonatomic, strong) NSMutableArray<RBSkeletonPillView *> *skeletons;
 @property(nonatomic, copy) NSString *signature;
 @property(nonatomic, copy) void (^onTap)(NSDictionary *item);
 @property(nonatomic, copy) void (^onClose)(void);
-- (void)bindItems:(NSArray<NSDictionary *> *)items;
+- (void)bindItems:(NSArray<NSDictionary *> *)items placeholders:(NSUInteger)placeholders;
+- (void)reset;
 @end
+
+#pragma mark - Inline completion pill & ghost text
+
+@interface RBCompletionPill : UIView
+@property(nonatomic, strong) UIButton *pill;
+@property(nonatomic, copy) NSString *shownText;
+@property(nonatomic, copy) void (^onAccept)(void);
+- (void)bindSuffix:(NSString *)suffix;
+@end
+
+@implementation RBCompletionPill
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.tag = 731994;
+  self.accessibilityIdentifier = @"rokbot.completion.bar";
+  self.backgroundColor = UIColor.clearColor;
+  self.pill = [UIButton buttonWithType:UIButtonTypeCustom];
+  self.pill.translatesAutoresizingMaskIntoConstraints = NO;
+  self.pill.accessibilityIdentifier = @"rokbot.completion.accept";
+  self.pill.accessibilityHint = RBL(@"点按采用补全", @"Tap to accept completion");
+  [self.pill addTarget:self action:@selector(acceptTapped) forControlEvents:UIControlEventTouchUpInside];
+  [self addSubview:self.pill];
+  [NSLayoutConstraint activateConstraints:@[
+    [self.pill.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:10],
+    [self.pill.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+    [self.pill.trailingAnchor constraintLessThanOrEqualToAnchor:self.trailingAnchor constant:-10],
+    [self.pill.heightAnchor constraintEqualToConstant:RBSuggestionsChipHeight()],
+  ]];
+  return self;
+}
+
+- (void)acceptTapped {
+  if (self.onAccept) self.onAccept();
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+  UIView *hit = [super hitTest:point withEvent:event];
+  return hit == self ? nil : hit;
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+  [super traitCollectionDidChange:previous];
+  NSString *current = self.shownText;
+  self.shownText = nil;
+  if (current.length) [self bindSuffix:current];
+}
+
+- (void)bindSuffix:(NSString *)suffix {
+  NSString *clean = [suffix stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+  if ([clean isEqualToString:self.shownText ?: @""]) return;
+  self.shownText = clean;
+  UIButtonConfiguration *config = UIButtonConfiguration.plainButtonConfiguration;
+  config.image = RBGlyphImage(RBGlyphTab, 13, 1.5);
+  config.imagePadding = 5;
+  config.imageColorTransformer = ^UIColor *(UIColor *c) { return RBThemeAccent(); };
+  config.contentInsets = NSDirectionalEdgeInsetsMake(4, 10, 4, 11);
+  config.titleLineBreakMode = NSLineBreakByTruncatingTail;
+  config.background.backgroundColor = RBSuggestionsPhraseFill();
+  config.background.strokeColor = RBSuggestionsPhraseBorder();
+  config.background.strokeWidth = 1.0 / UIScreen.mainScreen.scale;
+  config.background.cornerRadius = RBSuggestionsChipHeight() / 2.0;
+
+  NSMutableAttributedString *title = [[NSMutableAttributedString alloc]
+      initWithString:RBL(@"补全", @"Complete")
+          attributes:@{
+            NSFontAttributeName : [[UIFontMetrics defaultMetrics]
+                scaledFontForFont:[UIFont systemFontOfSize:12.5 weight:UIFontWeightSemibold] maximumPointSize:15],
+            NSForegroundColorAttributeName : RBThemeAccent(),
+          }];
+  [title appendAttributedString:[[NSAttributedString alloc]
+      initWithString:[@"  " stringByAppendingString:clean]
+          attributes:@{
+            NSFontAttributeName : RBSuggestionsChipFont(),
+            NSForegroundColorAttributeName : RBThemeTextSecondary(),
+          }]];
+  config.attributedTitle = title;
+  self.pill.configuration = config;
+  self.pill.accessibilityLabel = [NSString stringWithFormat:@"%@：%@", RBL(@"补全", @"Complete"), clean];
+}
+
+@end
+
+@interface RBGhostTextView : UIControl
+@property(nonatomic, strong) UILabel *label;
+@property(nonatomic, copy) void (^onAccept)(void);
+- (void)bindSuffix:(NSString *)suffix font:(UIFont *)font;
+@end
+
+@implementation RBGhostTextView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.tag = 731994;
+  self.backgroundColor = UIColor.clearColor;
+  self.accessibilityIdentifier = @"rokbot.completion.ghost";
+  self.isAccessibilityElement = YES;
+  self.accessibilityTraits = UIAccessibilityTraitButton;
+  _label = [UILabel new];
+  _label.numberOfLines = 1;
+  _label.lineBreakMode = NSLineBreakByTruncatingTail;
+  _label.textColor = RBThemeTextMuted();
+  _label.userInteractionEnabled = NO;
+  [self addSubview:_label];
+  [self addTarget:self action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
+  return self;
+}
+
+- (void)tapped {
+  if (self.onAccept) self.onAccept();
+}
+
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  self.label.frame = self.bounds;
+}
+
+- (void)bindSuffix:(NSString *)suffix font:(UIFont *)font {
+  NSString *oneLine = [suffix stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+  self.label.font = font ?: RBThemeFont(15, UIFontWeightRegular);
+  self.label.textColor = RBThemeTextMuted();
+  self.label.text = oneLine;
+  self.accessibilityLabel = [NSString stringWithFormat:@"%@：%@", RBL(@"补全", @"Complete"), oneLine];
+}
+
+@end
+
+#pragma mark - Runtime
 
 @interface RBSuggestionsRuntime : NSObject
 @property(nonatomic, weak) UIView *input;
 @property(nonatomic, strong) RBSuggestionsBar *bar;
+@property(nonatomic, strong) RBCompletionPill *completionPill;
+@property(nonatomic, strong) RBGhostTextView *ghostView;
 @property(nonatomic, strong) CADisplayLink *link;
 @property(nonatomic, assign) BOOL enabled;
 @property(nonatomic, assign) BOOL aiEnabled;
+@property(nonatomic, assign) BOOL completionEnabled;
 @property(nonatomic, copy) NSArray<NSDictionary *> *phrases;
 @property(nonatomic, strong) NSDate *settingsAt;
 @property(nonatomic, assign) BOOL settingsLoading;
 @property(nonatomic, strong) NSCache<NSString *, NSDictionary *> *aiCache;
-@property(nonatomic, copy) NSArray<NSString *> *currentAI;
-// Cache key currentAI belongs to; AI chips are shown only while it equals the current key.
-@property(nonatomic, copy) NSString *currentAIKey;
+@property(nonatomic, strong) RBChatHistoryHints *historyHints;
+@property(nonatomic, strong) RBSuggestionLoadState *loadState;
+@property(nonatomic, strong) RBInlineCompletionEngine *completionEngine;
+@property(nonatomic, strong) NSURLSessionDataTask *fetchTask;
+@property(nonatomic, strong) NSURLSessionDataTask *completionTask;
 @property(nonatomic, copy) NSString *fetchingKey;
 // Monotonic request sequence; only the latest request's response may update the bar.
 @property(nonatomic, assign) NSUInteger fetchSeq;
@@ -294,6 +1000,8 @@ static NSString *RBSuggestionsKeyFor(NSString *agent) {
 @property(nonatomic, copy) NSString *replyAgent;
 @property(nonatomic, strong) NSDate *replyAt;
 @property(nonatomic, copy) NSString *dismissedKey;
+@property(nonatomic, copy) NSString *shownSuffix;
+@property(nonatomic, copy) NSString *lastObservedSignature;
 @property(nonatomic, assign) BOOL sending;
 + (instancetype)shared;
 - (void)refresh;
@@ -306,6 +1014,25 @@ static NSString *RBSuggestionsInputText(UIView *input) {
   if ([input isKindOfClass:UITextView.class]) return ((UITextView *)input).text ?: @"";
   if ([input isKindOfClass:UITextField.class]) return ((UITextField *)input).text ?: @"";
   return @"";
+}
+
+static UIFont *RBSuggestionsInputFont(UIView *input) {
+  if ([input isKindOfClass:UITextView.class]) return ((UITextView *)input).font;
+  if ([input isKindOfClass:UITextField.class]) return ((UITextField *)input).font;
+  return nil;
+}
+
+static BOOL RBSuggestionsIsComposing(UIView *input) {
+  if (![input conformsToProtocol:@protocol(UITextInput)]) return NO;
+  return [(id<UITextInput>)input markedTextRange] != nil;
+}
+
+static BOOL RBSuggestionsIsCursorAtEnd(UIView *input) {
+  if (![input conformsToProtocol:@protocol(UITextInput)]) return NO;
+  id<UITextInput> ti = (id<UITextInput>)input;
+  UITextRange *sel = ti.selectedTextRange;
+  if (!sel || !sel.isEmpty) return NO;
+  return [ti comparePosition:sel.end toPosition:ti.endOfDocument] == NSOrderedSame;
 }
 
 static NSString *RBSuggestionsInputPlaceholder(UIView *input) {
@@ -370,16 +1097,6 @@ static CGRect RBSuggestionsAnchorRect(UIView *input) {
   return [best convertRect:best.bounds toView:window];
 }
 
-// Compact chip font: 12.5pt, Dynamic Type capped at 15pt so the row stays ~26-28pt tall.
-static UIFont *RBSuggestionsChipFont(void) {
-  return [[UIFontMetrics defaultMetrics] scaledFontForFont:[UIFont systemFontOfSize:12.5 weight:UIFontWeightMedium]
-                                          maximumPointSize:15];
-}
-
-static CGFloat RBSuggestionsChipHeight(void) {
-  return MIN(28, MAX(26, ceil(RBSuggestionsChipFont().lineHeight) + 9));
-}
-
 @implementation RBSuggestionsBar
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -388,6 +1105,7 @@ static CGFloat RBSuggestionsChipHeight(void) {
   self.tag = 731994;
   self.accessibilityIdentifier = @"rokbot.suggestions.bar";
   self.backgroundColor = UIColor.clearColor;
+  self.skeletons = [NSMutableArray array];
   self.scroll = [UIScrollView new];
   self.scroll.showsHorizontalScrollIndicator = NO;
   self.scroll.alwaysBounceHorizontal = YES;
@@ -441,6 +1159,13 @@ static CGFloat RBSuggestionsChipHeight(void) {
   if (self.onClose) self.onClose();
 }
 
+- (void)reset {
+  for (RBSkeletonPillView *sk in self.skeletons) [sk stopShimmer];
+  [self.skeletons removeAllObjects];
+  for (UIView *view in [self.chips.arrangedSubviews copy]) [view removeFromSuperview];
+  self.signature = nil;
+}
+
 // Only chips, the close button and horizontal scrolling take touches; the gaps between
 // chips stay transparent so the chat underneath keeps working.
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
@@ -450,12 +1175,20 @@ static CGFloat RBSuggestionsChipHeight(void) {
   return hit;
 }
 
-- (void)bindItems:(NSArray<NSDictionary *> *)items {
-  NSMutableString *signature = [NSMutableString string];
+- (void)bindItems:(NSArray<NSDictionary *> *)items placeholders:(NSUInteger)placeholders {
+  BOOL animate = !UIAccessibilityIsReduceMotionEnabled();
+  NSMutableString *signature = [NSMutableString stringWithFormat:@"%ld:", (long)self.traitCollection.userInterfaceStyle];
   for (NSDictionary *item in items) [signature appendFormat:@"%@:%@\n", item[@"type"], item[@"text"]];
+  [signature appendFormat:@"#ph=%lu:%d", (unsigned long)placeholders, animate ? 1 : 0];
   if ([signature isEqualToString:self.signature ?: @""]) return;
+  BOOL hadSkeletons = self.skeletons.count > 0;
   self.signature = signature;
-  for (UIView *view in self.chips.arrangedSubviews) [view removeFromSuperview];
+
+  for (RBSkeletonPillView *sk in self.skeletons) [sk stopShimmer];
+  [self.skeletons removeAllObjects];
+  for (UIView *view in [self.chips.arrangedSubviews copy]) [view removeFromSuperview];
+
+  NSUInteger aiIndex = 0;
   for (NSDictionary *item in items) {
     BOOL phrase = [item[@"type"] isEqualToString:@"phrase"];
     UIButton *chip = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -472,9 +1205,9 @@ static CGFloat RBSuggestionsChipHeight(void) {
       next[NSFontAttributeName] = RBSuggestionsChipFont();
       return next;
     };
-    config.background.backgroundColor = RBThemeElevated();
+    config.background.backgroundColor = phrase ? RBSuggestionsPhraseFill() : RBThemeElevated();
     config.background.cornerRadius = 13;
-    config.background.strokeColor = RBThemeBorder();
+    config.background.strokeColor = phrase ? RBSuggestionsPhraseBorder() : RBThemeBorder();
     config.background.strokeWidth = 1.0 / UIScreen.mainScreen.scale;
     chip.configuration = config;
     chip.accessibilityLabel = [NSString stringWithFormat:@"%@%@", phrase ? RBL(@"常用语：", @"Quick phrase: ") : RBL(@"建议：", @"Suggestion: "), item[@"text"]];
@@ -488,6 +1221,33 @@ static CGFloat RBSuggestionsChipHeight(void) {
       if (weak.onTap) weak.onTap(captured);
     }] forControlEvents:UIControlEventTouchUpInside];
     [self.chips addArrangedSubview:chip];
+    if (!phrase && hadSkeletons && animate) {
+      chip.alpha = 0;
+      chip.transform = CGAffineTransformMakeTranslation(0, 3);
+      [UIView animateWithDuration:0.20 delay:aiIndex * 0.045 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        chip.alpha = 1;
+        chip.transform = CGAffineTransformIdentity;
+      } completion:nil];
+      aiIndex++;
+    }
+  }
+
+  static const CGFloat widths[] = { 84, 112, 68 };
+  CGFloat chipH = RBSuggestionsChipHeight();
+  for (NSUInteger k = 0; k < placeholders; k++) {
+    RBSkeletonPillView *sk = [RBSkeletonPillView new];
+    sk.translatesAutoresizingMaskIntoConstraints = NO;
+    [sk.widthAnchor constraintEqualToConstant:widths[k % 3]].active = YES;
+    [sk.heightAnchor constraintEqualToConstant:chipH].active = YES;
+    [self.chips addArrangedSubview:sk];
+    [self.skeletons addObject:sk];
+    [sk startShimmerWithDelay:k * 0.12];
+    if (animate) {
+      sk.alpha = 0;
+      [UIView animateWithDuration:0.16 delay:k * 0.06 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        sk.alpha = 1;
+      } completion:nil];
+    }
   }
   self.scroll.contentOffset = CGPointMake(-self.scroll.contentInset.left, 0);
 }
@@ -503,10 +1263,14 @@ static CGFloat RBSuggestionsChipHeight(void) {
     runtime = [RBSuggestionsRuntime new];
     runtime.enabled = YES;
     runtime.aiEnabled = YES;
+    runtime.completionEnabled = YES;
     runtime.phrases = @[];
-    runtime.currentAI = @[];
     runtime.aiCache = [NSCache new];
     runtime.aiCache.countLimit = 40;
+    runtime.historyHints = [RBChatHistoryHints new];
+    runtime.loadState = [RBSuggestionLoadState new];
+    runtime.completionEngine = [[RBInlineCompletionEngine alloc] initWithHints:runtime.historyHints];
+    runtime.shownSuffix = @"";
   });
   return runtime;
 }
@@ -525,7 +1289,7 @@ static CGFloat RBSuggestionsChipHeight(void) {
         [self refresh];
       } else if (self.input == input || !self.input) {
         self.input = nil;
-        [self hide];
+        [self hideAll];
       }
     }];
   }
@@ -533,7 +1297,7 @@ static CGFloat RBSuggestionsChipHeight(void) {
     [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
       if (n.object == self.input) {
         self.input = nil;
-        [self hide];
+        [self hideAll];
       }
     }];
   }
@@ -543,7 +1307,7 @@ static CGFloat RBSuggestionsChipHeight(void) {
     }];
   }
   [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:NSOperationQueue.mainQueue
-                  usingBlock:^(NSNotification *n) { [self hide]; }];
+                  usingBlock:^(NSNotification *n) { [self hideAll]; }];
   [center addObserverForName:@"RokBotSuggestionsSettingsChanged" object:nil queue:NSOperationQueue.mainQueue
                   usingBlock:^(NSNotification *n) {
                     NSDictionary *settings = n.userInfo[@"settings"];
@@ -556,6 +1320,10 @@ static CGFloat RBSuggestionsChipHeight(void) {
   NSDictionary *settings = RBSuggestionsParseSettings(raw);
   if ([raw isKindOfClass:NSDictionary.class] && raw[@"enabled"]) self.enabled = [settings[@"enabled"] boolValue];
   if ([raw isKindOfClass:NSDictionary.class] && raw[@"aiEnabled"]) self.aiEnabled = [settings[@"aiEnabled"] boolValue];
+  if ([raw isKindOfClass:NSDictionary.class] && raw[@"completionEnabled"]) {
+    self.completionEnabled = [settings[@"completionEnabled"] boolValue];
+    self.completionEngine.enabled = self.completionEnabled;
+  }
   if ([settings[@"hasPhrases"] boolValue]) self.phrases = settings[@"quickPhrases"];
   self.settingsAt = NSDate.date;
 }
@@ -573,15 +1341,23 @@ static CGFloat RBSuggestionsChipHeight(void) {
 
 - (void)invalidate {
   self.settingsAt = nil;
+  [self.fetchTask cancel];
+  self.fetchTask = nil;
   self.fetchingKey = nil;
   self.fetchSeq++;
   self.dismissedKey = nil;
   self.failedKey = nil;
   self.prefetchKey = nil;
-  self.currentAI = @[];
-  self.currentAIKey = nil;
+  [self.loadState cancel];
+  [self.historyHints clear];
   [self.aiCache removeAllObjects];
-  [self syncSettings:YES];
+  [self clearCompletion];
+  [self.completionEngine clearCache];
+  if (RBConnection.shared.isPaired) [self syncSettings:YES];
+  else {
+    RBActiveAgent = nil;
+    [self hideAll];
+  }
 }
 
 - (NSString *)currentKey {
@@ -597,41 +1373,71 @@ static CGFloat RBSuggestionsChipHeight(void) {
 - (void)refresh {
   UIView *input = self.input;
   if (!input || !input.window || !input.isFirstResponder || !RBConnection.shared.isPaired || self.sending) {
-    [self hide];
+    [self hideAll];
     return;
   }
-  if (RBSuggestionsInputText(input).length && RBSuggestionsTrim(RBSuggestionsInputText(input)).length) {
-    [self hide];
+  NSString *rawText = RBSuggestionsInputText(input);
+  BOOL hasDraft = rawText.length > 0 && RBSuggestionsTrim(rawText).length > 0;
+  if (hasDraft) {
+    [self hideBar];
+    [self observeComposer:input draft:rawText];
+    [self renderCompletionForInput:input];
     return;
   }
+  [self clearCompletion];
+
   if (!self.enabled) {
-    [self hide];
+    [self hideBar];
     return;
   }
   NSString *key = [self currentKey];
   if ([key isEqualToString:self.dismissedKey ?: @""]) {
-    [self hide];
+    [self hideBar];
     return;
   }
+
+  NSTimeInterval now = CACurrentMediaTime();
   NSArray<NSString *> *ai = @[];
+  NSUInteger placeholders = 0;
   if (self.aiEnabled && RBActiveAgent.length) {
     NSArray<NSString *> *cached = [self cachedForKey:key];
     if (cached) {
-      self.currentAI = cached;
-      self.currentAIKey = key;
+      if (![self.loadState.key isEqualToString:key] || self.loadState.phase != RBSuggestionLoadPhaseReady) {
+        [self.loadState readyKey:key items:cached];
+      }
+      ai = cached;
     } else if (![key isEqualToString:self.fetchingKey ?: @""] &&
                !([key isEqualToString:self.failedKey ?: @""] && -self.failedAt.timeIntervalSinceNow < RBSuggestionsFailureBackoff)) {
-      [self fetchForKey:key agent:RBActiveAgent];
+      NSUInteger loadToken = [self.loadState beginKey:key now:now];
+      [self fetchForKey:key agent:RBActiveAgent loadToken:loadToken];
     }
-    // Never show suggestions that belong to another bot or an earlier turn.
-    if ([self.currentAIKey isEqualToString:key]) ai = self.currentAI ?: @[];
+    if ([self.loadState.key isEqualToString:key]) {
+      if (self.loadState.phase == RBSuggestionLoadPhaseReady) ai = self.loadState.items;
+      if ([self.historyHints mayHaveHistory:RBActiveAgent]) {
+        placeholders = [self.loadState placeholdersAt:now];
+        NSTimeInterval delayLeft = [self.loadState placeholderDelayLeftAt:now];
+        if (delayLeft > 0) {
+          __weak typeof(self) weak = self;
+          dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((delayLeft + 0.008) * NSEC_PER_SEC)),
+                         dispatch_get_main_queue(), ^{ [weak refresh]; });
+        }
+      }
+    }
+  } else if (self.loadState.phase != RBSuggestionLoadPhaseIdle) {
+    [self.loadState cancel];
   }
+  if (![self.loadState.key isEqualToString:key] && self.loadState.phase != RBSuggestionLoadPhaseIdle) {
+    [self.loadState cancel];
+  }
+
   NSArray<NSDictionary *> *items = RBSuggestionsMergeItems(self.phrases, ai);
-  if (!items.count) {
-    [self hide];
+  BOOL fading = self.bar && !self.bar.hidden && self.loadState.phase == RBSuggestionLoadPhaseFailed &&
+                [self.loadState.key isEqualToString:key];
+  if (!items.count && placeholders == 0 && !fading) {
+    [self hideBar];
     return;
   }
-  [self showItems:items];
+  [self showItems:items placeholders:placeholders];
 }
 
 - (NSString *)newRequestId:(NSString *)kind seq:(NSUInteger)seq {
@@ -639,23 +1445,39 @@ static CGFloat RBSuggestionsChipHeight(void) {
   return [NSString stringWithFormat:@"ios-%@-%lu-%@", kind, (unsigned long)seq, nonce];
 }
 
-- (void)fetchForKey:(NSString *)key agent:(NSString *)agent {
+- (void)settleFailedToken:(NSUInteger)token {
+  [self refresh];
+  if (self.loadState.phase != RBSuggestionLoadPhaseFailed) return;
+  NSTimeInterval fade = UIAccessibilityIsReduceMotionEnabled() ? 0 : RBSuggestionsFadeOutDuration;
+  __weak typeof(self) weak = self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((fade + 0.02) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    if ([weak.loadState settleToken:token]) [weak refresh];
+  });
+}
+
+- (void)fetchForKey:(NSString *)key agent:(NSString *)agent loadToken:(NSUInteger)loadToken {
   NSUInteger seq = ++self.fetchSeq;
+  [self.fetchTask cancel];
   self.fetchingKey = key;
   self.fetchingAt = NSDate.date;
   NSString *requestId = [self newRequestId:@"f" seq:seq];
-  RBHostRequest(@"POST", @"/local/suggestions", RBSuggestionsRequestBody(agent, RBSuggestionsLocale(), requestId, NO),
+  self.fetchTask = RBHostRequest(@"POST", @"/local/suggestions", RBSuggestionsRequestBody(agent, RBSuggestionsLocale(), requestId, NO),
                 RBSuggestionsTimeout, ^(NSInteger status, id json, NSError *error) {
                   // Late or foreign responses (bot switched, newer request, echo mismatch) are dropped.
                   if (seq != self.fetchSeq) return;
+                  self.fetchTask = nil;
                   if (!RBSuggestionsAcceptResponse(json, agent, requestId, RBActiveAgent, seq, self.fetchSeq)) {
                     self.fetchingKey = nil;
                     self.fetchingAt = nil;
                     self.failedKey = key;
                     self.failedAt = NSDate.date;
+                    if ([self.loadState failToken:loadToken]) [self settleFailedToken:loadToken];
                     return;
                   }
                   self.fetchingAt = nil;
+                  NSString *source = [json isKindOfClass:NSDictionary.class] && [json[@"source"] isKindOfClass:NSString.class]
+                      ? json[@"source"] : @"";
+                  if (status == 200) [self.historyHints recordAgent:agent source:source];
                   NSArray<NSString *> *ai = status == 200 ? RBSuggestionsAIFromResponse(json) : @[];
                   if (status == 200 && [json isKindOfClass:NSDictionary.class]) [self applySettings:json];
                   // Never cache failures or empty results; a later focus retries (after a short backoff on errors).
@@ -664,9 +1486,14 @@ static CGFloat RBSuggestionsChipHeight(void) {
                     self.failedKey = key;
                     self.failedAt = NSDate.date;
                   }
-                  self.currentAI = ai;
-                  self.currentAIKey = key;
-                  [self refresh];
+                  if (ai.count) {
+                    [self.loadState succeedToken:loadToken items:ai];
+                    [self refresh];
+                  } else if ([self.loadState failToken:loadToken]) {
+                    [self settleFailedToken:loadToken];
+                  } else {
+                    [self refresh];
+                  }
                 });
 }
 
@@ -686,6 +1513,9 @@ static CGFloat RBSuggestionsChipHeight(void) {
                   if (status != 200) return;
                   // Echo check only; prefetch results are keyed by bot + generation and never shown directly.
                   if (!RBSuggestionsAcceptResponse(json, agent, requestId, agent, 0, 0)) return;
+                  NSString *source = [json isKindOfClass:NSDictionary.class] && [json[@"source"] isKindOfClass:NSString.class]
+                      ? json[@"source"] : @"";
+                  [self.historyHints recordAgent:agent source:source];
                   NSArray<NSString *> *ai = RBSuggestionsAIFromResponse(json);
                   if (!ai.count) return;
                   [self.aiCache setObject:@{ @"items" : ai, @"at" : NSDate.date } forKey:key];
@@ -697,14 +1527,22 @@ static CGFloat RBSuggestionsChipHeight(void) {
   if (!agent.length) return;
   BOOL changed = ![agent isEqualToString:RBActiveAgent ?: @""];
   RBActiveAgent = RBSuggestionsResolveAgent(RBActiveAgent, agent, turn ? RBSuggestionsSignalTurn : RBSuggestionsSignalActivate);
-  if (turn) RBSuggestionsBumpGeneration(agent);
+  if (turn) {
+    RBSuggestionsBumpGeneration(agent);
+    [self.historyHints forgetAgent:agent];
+    [self.completionEngine clearCache];
+  }
   if (changed) {
-    // Switching bots clears the old bot's suggestions immediately and orphans its in-flight request.
-    self.currentAI = @[];
-    self.currentAIKey = nil;
+    // Switching bots clears the old bot's suggestions immediately and cancels its in-flight request.
+    [self.fetchTask cancel];
+    self.fetchTask = nil;
     self.fetchingKey = nil;
     self.fetchSeq++;
-    [self hide];
+    [self.loadState cancel];
+    [self.bar reset];
+    [self hideBar];
+    [self clearCompletion];
+    [self.completionEngine clearCache];
   }
   if (!turn) [self prefetchAgent:agent];
   if (changed || turn) [self refresh];
@@ -716,12 +1554,149 @@ static CGFloat RBSuggestionsChipHeight(void) {
   self.replyAgent = agent;
   self.replyAt = NSDate.date;
   RBSuggestionsBumpGeneration(agent);
+  [self.historyHints forgetAgent:agent];
   if (![agent isEqualToString:RBActiveAgent ?: @""]) return;
+  [self.completionEngine clearCache];
   [self prefetchAgent:agent];
   [self refresh];
 }
 
-- (void)showItems:(NSArray<NSDictionary *> *)items {
+#pragma mark - Inline completion runtime
+
+- (void)observeComposer:(UIView *)input draft:(NSString *)draft {
+  BOOL composing = RBSuggestionsIsComposing(input);
+  BOOL cursorAtEnd = RBSuggestionsIsCursorAtEnd(input);
+  NSString *agent = RBActiveAgent ?: @"";
+  NSString *sig = [NSString stringWithFormat:@"%@\x01%@\x01%d\x01%d\x01%d",
+                   agent, draft, composing ? 1 : 0, cursorAtEnd ? 1 : 0, self.completionEnabled ? 1 : 0];
+  if ([sig isEqualToString:self.lastObservedSignature ?: @""]) return;
+  self.lastObservedSignature = sig;
+  self.completionEngine.enabled = self.completionEnabled;
+  NSUInteger seqBefore = self.completionEngine.sequence;
+  NSTimeInterval now = CACurrentMediaTime();
+  self.shownSuffix = [self.completionEngine onDraftChanged:draft agentId:agent
+                                                 composing:composing cursorAtEnd:cursorAtEnd now:now];
+  if (self.completionEngine.sequence != seqBefore) {
+    [self.completionTask cancel];
+    self.completionTask = nil;
+  }
+  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(pollCompletion) object:nil];
+  if (self.completionEngine.hasPending) {
+    NSTimeInterval wait = MAX(0, self.completionEngine.dueAt - now);
+    [self performSelector:@selector(pollCompletion) withObject:nil afterDelay:wait];
+  }
+}
+
+- (void)pollCompletion {
+  NSTimeInterval now = CACurrentMediaTime();
+  RBInlineCompletionRequest *req = [self.completionEngine pollAt:now];
+  if (!req) {
+    if (self.completionEngine.hasPending) {
+      [self performSelector:@selector(pollCompletion) withObject:nil afterDelay:MAX(0.01, self.completionEngine.dueAt - now)];
+    }
+    return;
+  }
+  [self.completionTask cancel];
+  self.completionTask = RBHostRequest(@"POST", @"/local/suggestions/complete",
+      RBSuggestionsCompleteBody(req.agentId, req.draft, RBSuggestionsLocale()), RBSuggestionsTimeout,
+      ^(NSInteger status, id json, NSError *error) {
+        if (![self.completionEngine isCurrentRequest:req]) return;
+        self.completionTask = nil;
+        if (error || status != 200 || ![json isKindOfClass:NSDictionary.class]) {
+          [self.completionEngine onFailureForRequest:req];
+          return;
+        }
+        if ([json[@"enabled"] isKindOfClass:NSNumber.class] && ![json[@"enabled"] boolValue]) {
+          self.completionEnabled = NO;
+          self.completionEngine.enabled = NO;
+        }
+        NSString *completion = [json[@"completion"] isKindOfClass:NSString.class] ? json[@"completion"] : @"";
+        NSString *source = [json[@"source"] isKindOfClass:NSString.class] ? json[@"source"] : @"";
+        NSString *current = self.input ? RBSuggestionsInputText(self.input) : nil;
+        NSString *shown = [self.completionEngine onResponseForRequest:req completion:completion source:source currentDraft:current];
+        if (!shown) return;
+        self.shownSuffix = shown;
+        self.lastObservedSignature = nil;
+        [self refresh];
+      });
+}
+
+- (void)clearCompletion {
+  if (self.shownSuffix.length || self.completionEngine.hasPending) [self.completionEngine reset];
+  self.shownSuffix = @"";
+  self.lastObservedSignature = nil;
+  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(pollCompletion) object:nil];
+  [self.completionTask cancel];
+  self.completionTask = nil;
+  [self hideCompletionViews];
+}
+
+- (void)hideCompletionViews {
+  if (self.completionPill) self.completionPill.hidden = YES;
+  if (self.ghostView) self.ghostView.hidden = YES;
+  [self stopLinkIfIdle];
+}
+
+- (void)renderCompletionForInput:(UIView *)input {
+  UIWindow *window = input.window;
+  if (!window || !self.shownSuffix.length) {
+    [self hideCompletionViews];
+    return;
+  }
+  if (!self.completionPill) {
+    self.completionPill = [[RBCompletionPill alloc] initWithFrame:CGRectZero];
+    __weak typeof(self) weak = self;
+    self.completionPill.onAccept = ^{ [weak acceptCompletion]; };
+  }
+  if (self.completionPill.superview != window) [window addSubview:self.completionPill];
+  [self.completionPill bindSuffix:self.shownSuffix];
+  self.completionPill.hidden = NO;
+
+  if (!self.ghostView) {
+    self.ghostView = [[RBGhostTextView alloc] initWithFrame:CGRectZero];
+    __weak typeof(self) weak = self;
+    self.ghostView.onAccept = ^{ [weak acceptCompletion]; };
+  }
+  if (self.ghostView.superview != window) [window addSubview:self.ghostView];
+  [self.ghostView bindSuffix:self.shownSuffix font:RBSuggestionsInputFont(input)];
+
+  [self reposition];
+  [self ensureDisplayLink];
+}
+
+- (void)acceptCompletion {
+  UIView *input = self.input;
+  if (!input || ![input conformsToProtocol:@protocol(UITextInput)]) return;
+  NSString *draft = RBSuggestionsInputText(input);
+  NSString *suffix = [self.completionEngine shownSuffixForDraft:draft];
+  NSString *full = [self.completionEngine acceptDraft:draft];
+  self.shownSuffix = @"";
+  self.lastObservedSignature = nil;
+  [self hideCompletionViews];
+  if (!full || !suffix.length) return;
+  if (!input.isFirstResponder) [input becomeFirstResponder];
+  [(id<UITextInput>)input insertText:suffix];
+}
+
+#pragma mark - Overlay positioning
+
+- (void)ensureDisplayLink {
+  if (self.link) return;
+  self.link = [CADisplayLink displayLinkWithTarget:self selector:@selector(reposition)];
+  self.link.preferredFrameRateRange = CAFrameRateRangeMake(20, 60, 30);
+  [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopLinkIfIdle {
+  BOOL barVisible = self.bar && !self.bar.hidden;
+  BOOL pillVisible = self.completionPill && !self.completionPill.hidden;
+  if (!barVisible && !pillVisible) {
+    [self.link invalidate];
+    self.link = nil;
+  }
+}
+
+- (void)showItems:(NSArray<NSDictionary *> *)items placeholders:(NSUInteger)placeholders {
   UIWindow *window = self.input.window;
   if (!window) return;
   if (!self.bar) {
@@ -730,45 +1705,76 @@ static CGFloat RBSuggestionsChipHeight(void) {
     self.bar.onTap = ^(NSDictionary *item) { [weak send:item[@"text"]]; };
     self.bar.onClose = ^{
       weak.dismissedKey = [weak currentKey];
-      [weak hide];
+      [weak hideBar];
     };
   }
   if (self.bar.superview != window) [window addSubview:self.bar];
-  [self.bar bindItems:items];
+  [self.bar bindItems:items placeholders:placeholders];
   [self reposition];
   if (self.bar.hidden || self.bar.alpha < 1) {
     self.bar.hidden = NO;
-    [UIView animateWithDuration:0.16 animations:^{ self.bar.alpha = 1; }];
+    if (UIAccessibilityIsReduceMotionEnabled()) self.bar.alpha = 1;
+    else [UIView animateWithDuration:0.16 animations:^{ self.bar.alpha = 1; }];
   }
-  if (!self.link) {
-    self.link = [CADisplayLink displayLinkWithTarget:self selector:@selector(reposition)];
-    self.link.preferredFrameRateRange = CAFrameRateRangeMake(20, 60, 30);
-    [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-  }
+  [self ensureDisplayLink];
 }
 
 - (void)reposition {
   UIView *input = self.input;
-  if (!input.window || !self.bar.superview) {
-    [self hide];
+  if (!input.window) {
+    [self hideAll];
     return;
   }
+  UIWindow *window = input.window;
   CGRect anchor = RBSuggestionsAnchorRect(input);
   // Compact single row (26pt chips) hugging the composer so it covers as little of the last message as possible.
   CGFloat height = RBSuggestionsChipHeight() + 4;
-  CGFloat y = MAX(input.window.safeAreaInsets.top + 4, CGRectGetMinY(anchor) - height - 2);
-  CGRect frame = CGRectMake(0, y, input.window.bounds.size.width, height);
-  if (!CGRectEqualToRect(self.bar.frame, frame)) self.bar.frame = frame;
-  [self.bar.superview bringSubviewToFront:self.bar];
+  CGFloat y = MAX(window.safeAreaInsets.top + 4, CGRectGetMinY(anchor) - height - 2);
+  CGRect barFrame = CGRectMake(0, y, window.bounds.size.width, height);
+  if (self.bar && !self.bar.hidden && self.bar.superview) {
+    if (!CGRectEqualToRect(self.bar.frame, barFrame)) self.bar.frame = barFrame;
+    [self.bar.superview bringSubviewToFront:self.bar];
+  }
+  if (self.completionPill && !self.completionPill.hidden && self.completionPill.superview) {
+    if (!CGRectEqualToRect(self.completionPill.frame, barFrame)) self.completionPill.frame = barFrame;
+    [self.completionPill.superview bringSubviewToFront:self.completionPill];
+  }
+  if (self.ghostView && self.shownSuffix.length && [input conformsToProtocol:@protocol(UITextInput)]) {
+    id<UITextInput> ti = (id<UITextInput>)input;
+    UITextRange *sel = ti.selectedTextRange;
+    if (sel && sel.isEmpty && RBSuggestionsIsCursorAtEnd(input)) {
+      CGRect caret = [ti caretRectForPosition:sel.end];
+      CGRect caretInWin = [input convertRect:caret toView:window];
+      CGRect inputInWin = [input convertRect:input.bounds toView:window];
+      CGFloat left = CGRectGetMaxX(caretInWin) + 1;
+      CGFloat rightLimit = CGRectGetMaxX(inputInWin) - 10;
+      CGFloat avail = rightLimit - left;
+      if (avail >= 20 && CGRectGetMinY(caretInWin) >= CGRectGetMinY(inputInWin) - 4 &&
+          CGRectGetMaxY(caretInWin) <= CGRectGetMaxY(inputInWin) + 4) {
+        self.ghostView.frame = CGRectMake(left, caretInWin.origin.y, avail, MAX(18, caretInWin.size.height));
+        self.ghostView.hidden = NO;
+        [self.ghostView.superview bringSubviewToFront:self.ghostView];
+      } else {
+        self.ghostView.hidden = YES;
+      }
+    } else {
+      self.ghostView.hidden = YES;
+    }
+  }
 }
 
-- (void)hide {
-  [self.link invalidate];
-  self.link = nil;
+- (void)hideBar {
   if (self.bar && !self.bar.hidden) {
+    for (RBSkeletonPillView *sk in self.bar.skeletons) [sk stopShimmer];
     self.bar.hidden = YES;
     self.bar.alpha = 0;
   }
+  [self stopLinkIfIdle];
+}
+
+- (void)hideAll {
+  [self hideBar];
+  [self clearCompletion];
 }
 
 - (void)send:(NSString *)text {
@@ -780,7 +1786,7 @@ static CGFloat RBSuggestionsChipHeight(void) {
     return;
   }
   self.sending = YES;
-  [self hide];
+  [self hideAll];
   UIImpactFeedbackGenerator *haptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
   [haptic impactOccurred];
   RBHostRequest(@"POST", @"/api/sendPrompt", RBSuggestionsSendBody(agent, text, nil), 30,
@@ -788,8 +1794,9 @@ static CGFloat RBSuggestionsChipHeight(void) {
                   self.sending = NO;
                   if (status >= 200 && status < 300) {
                     RBSuggestionsBumpGeneration(agent);
-                    self.currentAI = @[];
-                    self.currentAIKey = nil;
+                    [self.historyHints forgetAgent:agent];
+                    [self.loadState cancel];
+                    [self.completionEngine clearCache];
                     return;
                   }
                   // Keep the user's intent: put the text in the composer so they can send it manually.
@@ -801,7 +1808,7 @@ static CGFloat RBSuggestionsChipHeight(void) {
 - (void)insertIntoComposer:(NSString *)text {
   UIView *input = self.input;
   if (![input conformsToProtocol:@protocol(UITextInput)]) return;
-  [self hide];
+  [self hideAll];
   if (!input.isFirstResponder) [input becomeFirstResponder];
   // insertText: goes through the delegate path so React Native receives onChangeText.
   [(id<UITextInput>)input insertText:text];
@@ -854,6 +1861,7 @@ void RBSuggestionsInvalidate(void) {
 @property(nonatomic, strong) UIStackView *stack;
 @property(nonatomic, strong) UISwitch *enabledSwitch;
 @property(nonatomic, strong) UISwitch *aiSwitch;
+@property(nonatomic, strong) UISwitch *completionSwitch;
 @property(nonatomic, strong) UIView *aiRow;
 @property(nonatomic, strong) UITextField *field;
 @property(nonatomic, strong) UIButton *addButton;
@@ -978,17 +1986,28 @@ void RBSuggestionsInvalidate(void) {
   self.aiSwitch = [UISwitch new];
   self.aiSwitch.accessibilityIdentifier = @"rokbot.suggestions.ai-enabled";
   [self.aiSwitch addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+  self.completionSwitch = [UISwitch new];
+  self.completionSwitch.accessibilityIdentifier = @"rokbot.suggestions.completion-enabled";
+  [self.completionSwitch addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+
   UIView *enabledRow = [self switchRowTitle:RBL(@"输入建议", @"Input Suggestions")
                                    subtitle:RBL(@"输入框聚焦时显示常用语与快捷建议，点击直接发送", @"Show quick phrases and smart replies on focus; tap to send")
                                     control:self.enabledSwitch];
   self.aiRow = [self switchRowTitle:RBL(@"AI 生成建议", @"AI-Generated Suggestions")
                            subtitle:RBL(@"根据当前对话上下文由模型自动生成回复建议，空会话只显示常用语", @"Generate contextual replies from conversation history; empty chats show quick phrases only")
                             control:self.aiSwitch];
+  UIView *completionRow = [self switchRowTitle:RBL(@"输入补全", @"Inline Completion")
+                                      subtitle:RBL(@"输入时以灰色文字预测后续内容，点按补全即可采用", @"Predict the rest of your message in gray while typing; tap to accept")
+                                       control:self.completionSwitch];
   [self.stack addArrangedSubview:[self sectionHeader:RBL(@"开关", @"Switches")]];
-  [self.stack addArrangedSubview:[self card:@[enabledRow, self.aiRow]]];
+  [self.stack addArrangedSubview:[self card:@[enabledRow, self.aiRow, completionRow]]];
   [self.stack setCustomSpacing:22 afterView:self.stack.arrangedSubviews.lastObject];
 
   [self.stack addArrangedSubview:[self sectionHeader:RBL(@"自定义常用语", @"Quick Phrases")]];
+  UILabel *phrasesHint = [self label:RBL(@"常用语显示在 AI 建议之前，在所有设备间同步。空会话仅显示常用语。",
+                                         @"Shown before AI suggestions and synced across devices. Empty chats only show quick phrases.")
+                                size:12.5 weight:UIFontWeightRegular color:RBThemeTextSecondary()];
+  [self.stack addArrangedSubview:phrasesHint];
   self.editorTitle = [self label:RBL(@"编辑常用语", @"Edit Quick Phrase") size:12.5 weight:UIFontWeightSemibold color:RBThemeTextSecondary()];
   self.editorTitle.hidden = YES;
   self.field = [UITextField new];
@@ -1047,6 +2066,7 @@ void RBSuggestionsInvalidate(void) {
   NSDictionary *settings = RBSuggestionsParseSettings(json);
   if ([json isKindOfClass:NSDictionary.class] && json[@"enabled"]) self.enabledSwitch.on = [settings[@"enabled"] boolValue];
   if ([json isKindOfClass:NSDictionary.class] && json[@"aiEnabled"]) self.aiSwitch.on = [settings[@"aiEnabled"] boolValue];
+  if ([json isKindOfClass:NSDictionary.class] && json[@"completionEnabled"]) self.completionSwitch.on = [settings[@"completionEnabled"] boolValue];
   if ([settings[@"hasPhrases"] boolValue]) self.phrases = settings[@"quickPhrases"];
   [self renderPhrases];
   [self applyEnabledState];
@@ -1061,6 +2081,7 @@ void RBSuggestionsInvalidate(void) {
   [self setStatusText:RBL(@"正在同步设置…", @"Syncing settings…") error:NO];
   self.enabledSwitch.on = YES;
   self.aiSwitch.on = YES;
+  self.completionSwitch.on = YES;
   RBHostRequest(@"GET", @"/local/suggestions/settings", nil, 10, ^(NSInteger status, id json, NSError *error) {
     if (status != 200) {
       [self setStatusText:[RBL(@"读取设置失败：", @"Failed to load settings: ") stringByAppendingString:RBHostErrorMessage(json, error, status)] error:YES];
@@ -1076,11 +2097,16 @@ void RBSuggestionsInvalidate(void) {
   self.aiSwitch.enabled = on && !self.busy;
   self.aiRow.alpha = on ? 1 : 0.45;
   self.enabledSwitch.enabled = !self.busy;
+  self.completionSwitch.enabled = !self.busy;
 }
 
 - (void)switchChanged:(UISwitch *)sender {
   [self applyEnabledState];
-  NSDictionary *body = @{ @"enabled" : @(self.enabledSwitch.on), @"aiEnabled" : @(self.aiSwitch.on) };
+  NSDictionary *body = @{
+    @"enabled" : @(self.enabledSwitch.on),
+    @"aiEnabled" : @(self.aiSwitch.on),
+    @"completionEnabled" : @(self.completionSwitch.on),
+  };
   RBHostRequest(@"PUT", @"/local/suggestions/settings", body, 10, ^(NSInteger status, id json, NSError *error) {
     if (status != 200) {
       sender.on = !sender.on;

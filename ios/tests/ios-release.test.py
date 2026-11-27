@@ -417,6 +417,7 @@ class ReleaseOutput(unittest.TestCase):
             self.assertIn('PASS: RBUpdater', run_res.stdout)
             self.assertIn('PASS: RBModels scenario routes', run_res.stdout)
             self.assertIn('PASS: RBSuggestions', run_res.stdout)
+            self.assertIn('PASS: RBCanvas', run_res.stdout)
             self.assertIn('PASS: RBGroupCreate', run_res.stdout)
             self.assertIn('PASS: RBMigrate', run_res.stdout)
 

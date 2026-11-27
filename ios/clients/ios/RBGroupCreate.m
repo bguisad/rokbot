@@ -353,6 +353,9 @@ static UIView *RBGroupAvatarView(NSDictionary *item, CGFloat size, BOOL isNewBot
 @property(nonatomic, strong) UIView *banner;
 @property(nonatomic, strong) UILabel *bannerText;
 @property(nonatomic, strong) UIButton *bannerRetry;
+@property(nonatomic, strong) UIView *composerBox;
+@property(nonatomic, strong) NSLayoutConstraint *menuBottomToComposer;
+@property(nonatomic, strong) NSLayoutConstraint *menuBottomToBanner;
 @property(nonatomic, strong) UITextView *composer;
 @property(nonatomic, strong) UILabel *composerPlaceholder;
 @property(nonatomic, strong) UIButton *sendButton;
@@ -477,6 +480,7 @@ static UIView *RBGroupAvatarView(NSDictionary *item, CGFloat size, BOOL isNewBot
   composerBox.layer.cornerRadius = 22;
   composerBox.layer.borderWidth = 1.0 / UIScreen.mainScreen.scale;
   composerBox.layer.borderColor = RBThemeBorder().CGColor;
+  self.composerBox = composerBox;
   [self.view addSubview:composerBox];
   self.composer = [UITextView new];
   self.composer.translatesAutoresizingMaskIntoConstraints = NO;
@@ -503,7 +507,8 @@ static UIView *RBGroupAvatarView(NSDictionary *item, CGFloat size, BOOL isNewBot
   [composerBox addSubview:self.sendButton];
 
   UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
-  NSLayoutConstraint *menuBottom = [self.menu.bottomAnchor constraintLessThanOrEqualToAnchor:self.banner.topAnchor constant:-10];
+  self.menuBottomToComposer = [self.menu.bottomAnchor constraintLessThanOrEqualToAnchor:composerBox.topAnchor constant:-10];
+  self.menuBottomToBanner = [self.menu.bottomAnchor constraintLessThanOrEqualToAnchor:self.banner.topAnchor constant:-10];
   NSLayoutConstraint *menuHeight = [menuScroll.heightAnchor constraintEqualToAnchor:self.menuList.heightAnchor constant:12];
   menuHeight.priority = UILayoutPriorityDefaultHigh;
   [NSLayoutConstraint activateConstraints:@[
@@ -534,7 +539,7 @@ static UIView *RBGroupAvatarView(NSDictionary *item, CGFloat size, BOOL isNewBot
     [self.menu.topAnchor constraintEqualToAnchor:toBar.bottomAnchor constant:10],
     [self.menu.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:12],
     [self.menu.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-12],
-    menuBottom,
+    self.menuBottomToComposer,
     [menuScroll.leadingAnchor constraintEqualToAnchor:self.menu.leadingAnchor],
     [menuScroll.trailingAnchor constraintEqualToAnchor:self.menu.trailingAnchor],
     [menuScroll.topAnchor constraintEqualToAnchor:self.menu.topAnchor],
@@ -581,6 +586,7 @@ static UIView *RBGroupAvatarView(NSDictionary *item, CGFloat size, BOOL isNewBot
   [super traitCollectionDidChange:previous];
   self.banner.layer.borderColor = RBThemeDanger().CGColor;
   self.menu.layer.borderColor = RBThemeBorder().CGColor;
+  self.composerBox.layer.borderColor = RBThemeBorder().CGColor;
   [self renderAll];
 }
 
@@ -779,8 +785,8 @@ static UIView *RBGroupAvatarView(NSDictionary *item, CGFloat size, BOOL isNewBot
   BOOL canSubmit = RBGroupCanSubmit(self.recipients, self.submitting);
   NSString *prompt = [self.composer.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
   self.createButton.enabled = canSubmit;
-  self.createButton.alpha = canSubmit ? 1 : 0.4;
-  RBThemeStyleButton(self.createButton, self.submitting ? RBL(@"创建中…", @"Creating…") : RBL(@"创建", @"Create"), YES);
+  self.createButton.alpha = canSubmit ? 1 : 0.6;
+  RBThemeStyleButton(self.createButton, self.submitting ? RBL(@"创建中…", @"Creating…") : RBL(@"创建", @"Create"), canSubmit);
   BOOL canSend = canSubmit && prompt.length > 0;
   self.sendButton.enabled = canSend;
   self.sendButton.backgroundColor = canSend ? RBThemePrimaryButton() : RBThemeSecondaryFill();
@@ -841,11 +847,15 @@ static UIView *RBGroupAvatarView(NSDictionary *item, CGFloat size, BOOL isNewBot
   self.bannerText.text = message;
   self.bannerRetry.hidden = !retry;
   self.banner.hidden = NO;
+  self.menuBottomToComposer.active = NO;
+  self.menuBottomToBanner.active = YES;
   UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, message);
 }
 
 - (void)hideBanner {
   self.banner.hidden = YES;
+  self.menuBottomToBanner.active = NO;
+  self.menuBottomToComposer.active = YES;
 }
 
 - (void)createTapped { [self submit:NO]; }

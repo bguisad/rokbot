@@ -6,8 +6,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 // ---- Pure Foundation helpers (unit-tested on macOS) ----
 
-// Normalized Host settings: {enabled: BOOL, aiEnabled: BOOL, quickPhrases: [{id, text}]}.
-// Missing keys keep the defaults (enabled / aiEnabled true, no phrases).
+// Normalized Host settings: {enabled, aiEnabled, completionEnabled, quickPhrases: [{id, text}], hasPhrases}.
+// Missing keys keep the defaults (enabled / aiEnabled / completionEnabled true, no phrases).
 FOUNDATION_EXPORT NSDictionary *RBSuggestionsParseSettings(id _Nullable response);
 // AI suggestions from POST /local/suggestions; only accepted when source == "model" (max 3).
 FOUNDATION_EXPORT NSArray<NSString *> *RBSuggestionsAIFromResponse(id _Nullable response);
@@ -53,6 +53,8 @@ FOUNDATION_EXPORT BOOL RBSuggestionsAcceptResponse(id _Nullable response,
 // Body for POST /local/suggestions (requestId clipped to 64 characters; prefetch only when YES).
 FOUNDATION_EXPORT NSDictionary *RBSuggestionsRequestBody(NSString *agentId, NSString *_Nullable locale,
                                                          NSString *_Nullable requestId, BOOL prefetch);
+// Body for POST /local/suggestions/complete.
+FOUNDATION_EXPORT NSDictionary *RBSuggestionsCompleteBody(NSString *agentId, NSString *text, NSString *_Nullable locale);
 // Validates a quick phrase before it is sent to the Host (1-120 characters, no duplicates).
 FOUNDATION_EXPORT NSString *_Nullable RBSuggestionsValidatePhrase(NSString *_Nullable text,
                                                                   NSArray<NSDictionary *> *_Nullable existing,
@@ -62,6 +64,83 @@ FOUNDATION_EXPORT NSString *_Nullable RBSuggestionsValidatePhrase(NSString *_Nul
 FOUNDATION_EXPORT NSArray<NSString *> *_Nullable RBSuggestionsMovedIds(NSArray<NSDictionary *> *phrases,
                                                                         NSUInteger index,
                                                                         NSInteger delta);
+
+// ---- Suggestions v3: history hints, shimmer load state, inline completion engine ----
+
+// Per-bot record of whether the Host reported an empty chat ("empty") or history ("model").
+@interface RBChatHistoryHints : NSObject
+- (void)recordAgent:(NSString *_Nullable)agentId source:(NSString *_Nullable)source;
+- (void)forgetAgent:(NSString *_Nullable)agentId;
+- (void)clear;
+- (NSNumber *_Nullable)hintForAgent:(NSString *_Nullable)agentId;
+- (BOOL)mayHaveHistory:(NSString *_Nullable)agentId;
+@end
+
+typedef NS_ENUM(NSInteger, RBSuggestionLoadPhase) {
+  RBSuggestionLoadPhaseIdle = 0,
+  RBSuggestionLoadPhaseLoading = 1,
+  RBSuggestionLoadPhaseReady = 2,
+  RBSuggestionLoadPhaseFailed = 3,
+};
+
+FOUNDATION_EXPORT const NSTimeInterval RBSuggestionsPlaceholderDelay;
+FOUNDATION_EXPORT const NSTimeInterval RBSuggestionsFadeOutDuration;
+FOUNDATION_EXPORT const NSUInteger RBSuggestionsPlaceholderCount;
+
+// Loading state machine for AI suggestions: IDLE -> LOADING -> READY / FAILED -> IDLE.
+@interface RBSuggestionLoadState : NSObject
+@property(nonatomic, assign, readonly) RBSuggestionLoadPhase phase;
+@property(nonatomic, assign, readonly) NSUInteger token;
+@property(nonatomic, copy, readonly) NSString *key;
+@property(nonatomic, copy, readonly) NSArray<NSString *> *items;
+- (NSUInteger)beginKey:(NSString *_Nullable)key now:(NSTimeInterval)now;
+- (BOOL)succeedToken:(NSUInteger)token items:(NSArray<NSString *> *_Nullable)items;
+- (BOOL)failToken:(NSUInteger)token;
+- (BOOL)settleToken:(NSUInteger)token;
+- (void)cancel;
+- (void)readyKey:(NSString *_Nullable)key items:(NSArray<NSString *> *_Nullable)items;
+- (NSUInteger)placeholdersAt:(NSTimeInterval)now;
+- (NSTimeInterval)placeholderDelayLeftAt:(NSTimeInterval)now;
+@end
+
+FOUNDATION_EXPORT const NSTimeInterval RBCompletionDebounce;
+FOUNDATION_EXPORT const NSUInteger RBCompletionMinChars;
+FOUNDATION_EXPORT const NSUInteger RBCompletionCacheLimit;
+
+@interface RBInlineCompletionRequest : NSObject
+@property(nonatomic, assign, readonly) NSUInteger seq;
+@property(nonatomic, copy, readonly) NSString *agentId;
+@property(nonatomic, copy, readonly) NSString *draft;
+@end
+
+// Debounced, cancellable, cached inline completion (ghost text) controller.
+@interface RBInlineCompletionEngine : NSObject
+@property(nonatomic, assign) BOOL enabled;
+@property(nonatomic, assign, readonly) NSUInteger sequence;
+@property(nonatomic, assign, readonly) NSUInteger requestsIssued;
+@property(nonatomic, assign, readonly) NSUInteger cacheSize;
+@property(nonatomic, assign, readonly) BOOL hasPending;
+@property(nonatomic, assign, readonly) NSTimeInterval dueAt;
+- (instancetype)initWithHints:(RBChatHistoryHints *_Nullable)hints;
++ (BOOL)eligibleEnabled:(BOOL)enabled agentId:(NSString *_Nullable)agentId draft:(NSString *_Nullable)draft
+              composing:(BOOL)composing cursorAtEnd:(BOOL)cursorAtEnd mayHaveHistory:(BOOL)mayHaveHistory;
++ (NSString *_Nullable)remainingSuffixForBase:(NSString *_Nullable)base
+                                   completion:(NSString *_Nullable)completion
+                                        draft:(NSString *_Nullable)draft;
+- (NSString *)onDraftChanged:(NSString *_Nullable)draft agentId:(NSString *_Nullable)agentId
+                   composing:(BOOL)composing cursorAtEnd:(BOOL)cursorAtEnd now:(NSTimeInterval)now;
+- (RBInlineCompletionRequest *_Nullable)pollAt:(NSTimeInterval)now;
+- (BOOL)isCurrentRequest:(RBInlineCompletionRequest *_Nullable)request;
+- (NSString *_Nullable)onResponseForRequest:(RBInlineCompletionRequest *_Nullable)request
+                                 completion:(NSString *_Nullable)completion
+                                     source:(NSString *_Nullable)source
+                               currentDraft:(NSString *_Nullable)currentDraft;
+- (void)onFailureForRequest:(RBInlineCompletionRequest *_Nullable)request;
+- (NSString *_Nullable)acceptDraft:(NSString *_Nullable)draft;
+- (NSString *)shownSuffixForDraft:(NSString *_Nullable)draft;
+- (void)reset;
+- (void)clearCache;
+@end
 
 // ---- iOS runtime ----
 FOUNDATION_EXPORT void RBInstallSuggestions(void);
