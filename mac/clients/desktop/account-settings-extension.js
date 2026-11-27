@@ -16,7 +16,7 @@ function RokAccountName({ className, name, onCommit }) {
   const edit = () => { setValue(name); setError(''); setOpen(true); };
   const save = async event => {
     event.preventDefault();
-    if (composing.current || submitting.current || !value.trim()) return;
+    if (submitting.current || !value.trim()) return;
     submitting.current = true; setBusy(true); setError('');
     try { await onCommit(value.trim()); setOpen(false); }
     catch (failure) { setError(failure.message || rokText('保存失败，请重试。', 'Could not save. Try again.')); }
@@ -46,7 +46,7 @@ function RokAccountName({ className, name, onCommit }) {
             value, maxLength: 80, required: true, disabled: busy, 'aria-label': rokText('账户名称', 'Account name'),
             onChange: event => setValue(event.currentTarget.value),
             onCompositionStart: () => { composing.current = true; }, onCompositionEnd: () => { composing.current = false; },
-            onKeyDown: event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || composing.current || event.keyCode === 229)) event.preventDefault(); } })] }) }),
+            onKeyDown: event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault(); } })] }) }),
         error ? l.jsx('p', { className: 'rok-host-error', role: 'alert', children: error }) : null,
         l.jsxs('div', { className: 'rok-host-actions', children: [
           l.jsx(RokDialogParts.Action, { type: 'button', variant: 'secondary', onClick: () => setOpen(false), disabled: busy, children: rokText('取消', 'Cancel') }),

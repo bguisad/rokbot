@@ -51,9 +51,9 @@
       "source": "dist/renderer/assets/chunk-general-pane-DDHm5cE5.js",
       "newFile": false,
       "recipe": "005.gbp.gz",
-      "sha256": "c3a330ffec6eb25a7b6aa78ae0e2b2b9f8983261af6ea47d4839a4c7c97221e6",
-      "targetBytes": 238658,
-      "addedBytes": 106032
+      "sha256": "ca4ae1d616ea6e9a298fbba47c3a45c33c16b6cf70bee48af33b1b8d663f4b70",
+      "targetBytes": 238891,
+      "addedBytes": 106265
     },
     {
       "path": "dist/renderer/assets/chunk-marketplace-browse-model-CErNOYtN.js",

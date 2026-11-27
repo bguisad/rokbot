@@ -84,7 +84,7 @@ const grokConnectionStyles = `
 @media(max-width:480px){.grok-host-dialog .grok-host-content,.rok-model-dialog .grok-host-content{padding:22px 18px}.grok-host-dialog .sand-dialog__title{font-size:22px}}
 `;
 const grokBlockComposedEnter = composing => event => {
-  if (event.key === 'Enter' && (event.nativeEvent.isComposing || composing.current || event.keyCode === 229)) event.preventDefault();
+  if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault();
 };
 function GrokAccountName({ className, name, onCommit }) {
   const [open, setOpen] = Q.useState(false), [value, setValue] = Q.useState(name);
@@ -93,7 +93,7 @@ function GrokAccountName({ className, name, onCommit }) {
   const edit = () => { setValue(name); setError(''); setOpen(true); };
   const save = async event => {
     event.preventDefault();
-    if (composing.current || submitting.current || !value.trim()) return;
+    if (submitting.current || !value.trim()) return;
     submitting.current = true; setBusy(true); setError('');
     try { await onCommit(value.trim()); setOpen(false); }
     catch (failure) { setError(failure.message || grokText('保存失败，请重试。', 'Could not save. Try again.')); }
@@ -1827,17 +1827,17 @@ function GrokHostConnection() {
   }, []);
   const connect = async event => {
     event.preventDefault();
-    if (composing.current || submitting.current || !server.trim() || (!editing && !key.trim())) return;
+    if (submitting.current || !server.trim() || (!editing && !key.trim())) return;
     submitting.current = true; setBusy(true); setError('');
-    try { const result = await window.localBot.pair({ server, key, tailcat, edit: editing }); if (!result.ok) throw new Error(result.error); setKey(''); setOpen(false); }
-    catch (failure) { setError(failure.message); }
+    try { const result = await window.localBot.pair({ server, key, tailcat, edit: editing }); if (!result.ok) throw new Error(result.error || grokText('连接失败，请检查地址和配对码后重试。', 'Could not connect. Check the address and code, then try again.')); setKey(''); setOpen(false); }
+    catch (failure) { setError(failure?.message || grokText('操作失败，请重试。', 'Something went wrong. Try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
   const disconnect = async () => {
     if (submitting.current) return;
     submitting.current = true; setBusy(true); setError('');
     try { await window.localBot.disconnect(); setStatus({ paired: false }); setKey(''); }
-    catch (failure) { setError(failure.message); }
+    catch (failure) { setError(failure?.message || grokText('操作失败，请重试。', 'Something went wrong. Try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
   Q.useEffect(() => { if (open && status && !status.paired) input.current?.focus(); }, [open, status?.paired]);
