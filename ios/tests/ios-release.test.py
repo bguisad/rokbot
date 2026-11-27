@@ -415,6 +415,9 @@ class ReleaseOutput(unittest.TestCase):
             self.assertIn('PASS: RBDeviceIdentity', run_res.stdout)
             self.assertIn('PASS: RBModels', run_res.stdout)
             self.assertIn('PASS: RBUpdater', run_res.stdout)
+            self.assertIn('PASS: RBModels scenario routes', run_res.stdout)
+            self.assertIn('PASS: RBSuggestions', run_res.stdout)
+            self.assertIn('PASS: RBGroupCreate', run_res.stdout)
 
     def test_ios_client_device_id_models_updater_and_docs_contracts(self):
         conn = (IOS_ROOT / 'clients' / 'ios' / 'RBConnection.m').read_text(encoding='utf-8')

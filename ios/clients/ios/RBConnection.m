@@ -2,6 +2,8 @@
 #import "RBAvatarStyle.h"
 #import "RBDeviceIdentity.h"
 #import "RBModels.h"
+#import "RBGroupCreate.h"
+#import "RBSuggestions.h"
 #import "RBUpdater.h"
 #import "RBNetwork.h"
 #import "RBNetworkScanner.h"
@@ -328,6 +330,28 @@ static UIViewController *RBTop(void) {
     [modelsButton.heightAnchor constraintEqualToConstant:50].active = YES;
     [modelsButton addTarget:self action:@selector(openModels) forControlEvents:UIControlEventTouchUpInside];
     [stack addArrangedSubview:modelsButton];
+    UIButton *suggestionsButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *suggestionsConfig = UIButtonConfiguration.tintedButtonConfiguration;
+    suggestionsConfig.title = RBL(@"输入建议", @"Input Suggestions");
+    suggestionsConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    suggestionsConfig.baseForegroundColor = UIColor.labelColor;
+    suggestionsConfig.baseBackgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    suggestionsButton.configuration = suggestionsConfig;
+    suggestionsButton.accessibilityIdentifier = @"rokbot.host.suggestions";
+    [suggestionsButton.heightAnchor constraintEqualToConstant:50].active = YES;
+    [suggestionsButton addTarget:self action:@selector(openSuggestions) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:suggestionsButton];
+    UIButton *groupButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *groupConfig = UIButtonConfiguration.tintedButtonConfiguration;
+    groupConfig.title = RBL(@"新建群聊", @"New Group Chat");
+    groupConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    groupConfig.baseForegroundColor = UIColor.labelColor;
+    groupConfig.baseBackgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    groupButton.configuration = groupConfig;
+    groupButton.accessibilityIdentifier = @"rokbot.host.create-group";
+    [groupButton.heightAnchor constraintEqualToConstant:50].active = YES;
+    [groupButton addTarget:self action:@selector(openCreateGroup) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:groupButton];
     UIButton *avatarStyleButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *avatarConfig = UIButtonConfiguration.tintedButtonConfiguration;
     avatarConfig.title = RBL(@"Bot 动态图标", @"Bot Avatar Style");
@@ -417,6 +441,12 @@ static UIViewController *RBTop(void) {
   self.status.textColor = UIColor.secondaryLabelColor; [stack addArrangedSubview:self.status];
 }
 - (void)openModels { RBShowModelsFrom(self); }
+- (void)openSuggestions { RBShowSuggestionsSettingsFrom(self); }
+- (void)openCreateGroup {
+  UIViewController *presenter = self.navigationController.presentingViewController;
+  if (presenter) [self.navigationController dismissViewControllerAnimated:YES completion:^{ RBShowCreateGroupFrom(presenter); }];
+  else RBShowCreateGroupFrom(self);
+}
 - (void)openAvatarStyle { RBShowAvatarStyleFrom(self); }
 - (void)openUpdater { RBShowUpdaterFrom(self); }
 - (void)authModeChanged {

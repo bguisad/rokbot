@@ -21,3 +21,15 @@ FOUNDATION_EXPORT NSDictionary *RBModelsBuildSavePayload(
     NSDictionary *pendingApiKeys,
     BOOL migrateLegacyRouting,
     NSString **errorMessage);
+
+// Scenario model routes (suggestions, summarization, memoryExtraction, autoReview, subagent, automation).
+FOUNDATION_EXPORT NSArray<NSString *> *RBModelsScenarioKeys(void);
+// Keeps known scenarios whose profile exists; unknown efforts fall back to "default".
+FOUNDATION_EXPORT NSDictionary *RBModelsCleanScenarioRoutes(NSDictionary *routes, NSArray<NSDictionary *> *profiles);
+// Adds scenarioRoutes (always) and an existing adaptiveRouting block to a save payload.
+FOUNDATION_EXPORT NSDictionary *RBModelsAttachRoutingExtras(NSDictionary *payload,
+                                                           NSDictionary *scenarioRoutes,
+                                                           NSDictionary *adaptiveRouting,
+                                                           NSArray<NSDictionary *> *profiles);
+// "Follow default" or "Profile · model (effort)" for scenario / Bot route rows.
+FOUNDATION_EXPORT NSString *RBModelsRouteSummary(NSDictionary *route, NSArray<NSDictionary *> *profiles, BOOL chinese);

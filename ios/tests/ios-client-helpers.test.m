@@ -66,6 +66,8 @@ OSStatus RBHelperTestSecCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
 #import "../clients/ios/RBDeviceIdentity.m"
 #import "../clients/ios/RBModels.m"
 #import "../clients/ios/RBUpdater.m"
+#import "../clients/ios/RBSuggestions.m"
+#import "../clients/ios/RBGroupCreate.m"
 
 #define CHECK(cond)                                                                                \
   do {                                                                                             \
@@ -412,11 +414,139 @@ static void testUpdaterHelpers(void) {
   puts("PASS: RBUpdater version/build compare, RFC 3986 URLs, manifest parsing & chunked SHA-256");
 }
 
+static void testScenarioRouteHelpers(void) {
+  NSArray *profiles = @[ @{ @"id" : @"opus", @"efforts" : @[ @"low", @"high" ] }, @{ @"id" : @"haiku", @"efforts" : @[] } ];
+  CHECK(RBModelsScenarioKeys().count == 6);
+  CHECK([RBModelsScenarioKeys() containsObject:@"suggestions"] && [RBModelsScenarioKeys() containsObject:@"automation"]);
+  NSDictionary *clean = RBModelsCleanScenarioRoutes(@{
+    @"suggestions" : @{ @"profileId" : @"haiku", @"effort" : @"max" },
+    @"memoryExtraction" : @{ @"profileId" : @"opus", @"effort" : @"high" },
+    @"autoReview" : @{ @"profileId" : @"deleted" },
+    @"subagent" : @{ @"profileId" : @"" },
+    @"unknownScenario" : @{ @"profileId" : @"opus" },
+  }, profiles);
+  CHECK(clean.count == 2);
+  CHECK([clean[@"suggestions"][@"effort"] isEqualToString:@"default"]);
+  CHECK([clean[@"memoryExtraction"][@"effort"] isEqualToString:@"high"]);
+  CHECK(clean[@"unknownScenario"] == nil && clean[@"autoReview"] == nil);
+  NSDictionary *payload = RBModelsAttachRoutingExtras(@{ @"version" : @1 }, @{}, nil, profiles);
+  CHECK([payload[@"scenarioRoutes"] isKindOfClass:NSDictionary.class] && [payload[@"scenarioRoutes"] count] == 0);
+  CHECK(payload[@"adaptiveRouting"] == nil);
+  NSDictionary *adaptive = @{ @"enabled" : @YES, @"tiers" : @{} };
+  payload = RBModelsAttachRoutingExtras(@{ @"version" : @1 }, clean, adaptive, profiles);
+  CHECK([payload[@"adaptiveRouting"] isEqual:adaptive] && [payload[@"scenarioRoutes"] count] == 2);
+  NSArray *named = @[ @{ @"id" : @"opus", @"name" : @"Claude Opus", @"model" : @"claude-opus-5-5" } ];
+  CHECK([RBModelsRouteSummary(nil, named, YES) isEqualToString:@"跟随默认"]);
+  CHECK([RBModelsRouteSummary(@{ @"profileId" : @"opus", @"effort" : @"low" }, named, NO) isEqualToString:@"Claude Opus · claude-opus-5-5 (low)"]);
+  puts("PASS: RBModels scenario routes cleaning, scenarioRoutes always sent, adaptive passthrough & route summary");
+}
+
+static void testSuggestionsHelpers(void) {
+  NSDictionary *defaults = RBSuggestionsParseSettings(nil);
+  CHECK([defaults[@"enabled"] boolValue] && [defaults[@"aiEnabled"] boolValue] && [defaults[@"quickPhrases"] count] == 0);
+  NSDictionary *parsed = RBSuggestionsParseSettings(@{ @"enabled" : @NO, @"aiEnabled" : @NO,
+    @"quickPhrases" : @[ @{ @"id" : @"p_1", @"text" : @" 继续 " }, @"总结一下", NSNull.null, @{ @"text" : @"null" } ] });
+  CHECK(![parsed[@"enabled"] boolValue] && ![parsed[@"aiEnabled"] boolValue]);
+  CHECK([parsed[@"quickPhrases"] count] == 2 && [parsed[@"quickPhrases"][0][@"text"] isEqualToString:@"继续"]);
+  // Only model output counts as AI suggestions; no static presets / fallbacks.
+  CHECK(RBSuggestionsAIFromResponse(@{ @"source" : @"model-error", @"aiSuggestions" : @[ @"x" ] }).count == 0);
+  CHECK(RBSuggestionsAIFromResponse(@{ @"source" : @"phrases-only", @"suggestions" : @[ @"继续" ] }).count == 0);
+  NSArray *ai = RBSuggestionsAIFromResponse(@{ @"source" : @"model", @"aiSuggestions" : @[ @"a", @"b", @"c", @"d", @"e", @"" ] });
+  CHECK(ai.count == 4);
+  NSArray *items = RBSuggestionsMergeItems(@[ @{ @"text" : @"继续" }, @"Summarize" ], @[ @"summarize", @"列出失败的用例" ]);
+  CHECK(items.count == 3);
+  CHECK([items[0][@"type"] isEqualToString:@"phrase"] && [items[1][@"type"] isEqualToString:@"phrase"]);
+  CHECK([items[2][@"type"] isEqualToString:@"ai"] && [items[2][@"text"] isEqualToString:@"列出失败的用例"]);
+  CHECK(RBSuggestionsMergeItems(@[], @[]).count == 0);
+  // Composer filter: Bot names such as "Research Analyst" must not look like a search box.
+  CHECK(RBSuggestionsPlaceholderAllowed(@"Message Research Analyst"));
+  CHECK(RBSuggestionsPlaceholderAllowed(@"给 Research Analyst 发消息"));
+  CHECK(!RBSuggestionsPlaceholderAllowed(@"Search chats"));
+  CHECK(!RBSuggestionsPlaceholderAllowed(@"搜索"));
+  CHECK(!RBSuggestionsPlaceholderAllowed(@"Bot name"));
+  NSDictionary *body = RBSuggestionsSendBody(@"bot-1", @" 继续 ", @"nonce-1");
+  CHECK([body[@"agentId"] isEqualToString:@"bot-1"] && [body[@"prompt"] isEqualToString:@"继续"]);
+  CHECK([body[@"clientNonce"] isEqualToString:@"nonce-1"] && [body[@"directAddressedAcceptance"] boolValue]);
+  CHECK([RBSuggestionsSendBody(@"bot-1", @"x", nil)[@"clientNonce"] length] > 0);
+  BOOL turn = NO;
+  NSData *open = [@"{\"id\":\"bot_A-1\"}" dataUsingEncoding:NSUTF8StringEncoding];
+  CHECK([RBSuggestionsAgentFromRequest(@"/api/openAgentWindowed", open, &turn) isEqualToString:@"bot_A-1"] && turn);
+  NSData *tail = [@"{\"id\":\"bot-2\",\"limit\":12}" dataUsingEncoding:NSUTF8StringEncoding];
+  CHECK([RBSuggestionsAgentFromRequest(@"/api/getAgentTranscriptTail", tail, &turn) isEqualToString:@"bot-2"] && !turn);
+  NSData *send = [@"{\"agentId\":\"bot-3\",\"prompt\":\"hi\"}" dataUsingEncoding:NSUTF8StringEncoding];
+  CHECK([RBSuggestionsAgentFromRequest(@"/api/sendPrompt", send, &turn) isEqualToString:@"bot-3"] && turn);
+  CHECK(RBSuggestionsAgentFromRequest(@"/api/listAgents", send, &turn) == nil);
+  CHECK(RBSuggestionsAgentFromRequest(@"/api/getAgent", [@"{\"id\":\"../etc\"}" dataUsingEncoding:NSUTF8StringEncoding], &turn) == nil);
+  NSArray *phrases = @[ @{ @"id" : @"p_1", @"text" : @"继续" }, @{ @"id" : @"p_2", @"text" : @"总结" } ];
+  CHECK(RBSuggestionsValidatePhrase(@"  ", phrases, nil, YES) != nil);
+  CHECK([RBSuggestionsValidatePhrase(@"继续", phrases, nil, YES) isEqualToString:@"常用语不能重复"]);
+  CHECK(RBSuggestionsValidatePhrase(@"继续", phrases, @"p_1", YES) == nil);
+  CHECK(RBSuggestionsValidatePhrase([@"" stringByPaddingToLength:121 withString:@"字" startingAtIndex:0], phrases, nil, YES) != nil);
+  CHECK(RBSuggestionsValidatePhrase([@"" stringByPaddingToLength:120 withString:@"字" startingAtIndex:0], phrases, nil, YES) == nil);
+  CHECK([RBSuggestionsMovedIds(phrases, 1, -1) isEqualToArray:(@[ @"p_2", @"p_1" ])]);
+  CHECK(RBSuggestionsMovedIds(phrases, 0, -1) == nil && RBSuggestionsMovedIds(phrases, 1, 1) == nil);
+  puts("PASS: RBSuggestions settings parsing, model-only AI, merge order & de-dup, composer filter, click-to-send body, agent observation & phrase validation");
+}
+
+static void testGroupCreateHelpers(void) {
+  CHECK(RBGroupMaxBots == 6 && RBGroupMaxNameLength == 72);
+  CHECK([RBGroupNormalizeName(@"  A \n  B\tC ") isEqualToString:@"A B C"]);
+  NSString *longName = [@"" stringByPaddingToLength:90 withString:@"x" startingAtIndex:0];
+  CHECK(RBGroupNormalizeName(longName).length == 72);
+  CHECK([RBGroupNormalizeForMatch(@"Ré-Search  Bot!") isEqualToString:@"re search bot"]);
+  NSArray *bots = RBGroupEligibleBots(@[
+    @{ @"id" : @"a", @"name" : @"Research Analyst", @"title" : @"资料" },
+    @{ @"id" : @"b", @"name" : @"Design Reviewer", @"description" : @"UI review" },
+    @{ @"id" : @"g", @"name" : @"Team", @"isGroup" : @YES },
+    @{ @"id" : @"h", @"name" : @"Hidden", @"isHiddenFromSidebar" : @YES },
+    @{ @"id" : @"a", @"name" : @"Duplicate" },
+    @{ @"name" : @"No ID" },
+  ]);
+  CHECK(bots.count == 2 && [bots[1][@"subtitle"] isEqualToString:@"UI review"]);
+  CHECK(RBGroupEligibleBots(@{ @"agents" : @[ @{ @"id" : @"x", @"name" : @"X" } ] }).count == 1);
+  NSArray *ranked = RBGroupFilterCandidates(bots, @[], @"rev");
+  CHECK(ranked.count == 1 && [ranked[0][@"id"] isEqualToString:@"b"]);
+  CHECK(RBGroupFilterCandidates(bots, @[ RBGroupRecipientFromBot(bots[0]) ], @"").count == 1);
+  CHECK(RBGroupFilterCandidates(bots, @[], @"ui").count == 1);
+  CHECK(!RBGroupCanOfferNewBot(bots, @[], @"research analyst"));
+  CHECK(RBGroupCanOfferNewBot(bots, @[], @"LaunchBot"));
+  CHECK(!RBGroupCanOfferNewBot(bots, @[ RBGroupRecipientNewBot(@"LaunchBot") ], @"launchbot"));
+  NSMutableArray *selected = [NSMutableArray array];
+  CHECK(RBGroupCanAddRecipient(selected, RBGroupRecipientFromBot(bots[0])));
+  [selected addObject:RBGroupRecipientFromBot(bots[0])];
+  CHECK(!RBGroupCanAddRecipient(selected, RBGroupRecipientFromBot(bots[0])));
+  CHECK(!RBGroupCanAddRecipient(selected, RBGroupRecipientNewBot(@"research analyst")));
+  CHECK(!RBGroupCanAddRecipient(selected, RBGroupRecipientNewBot(@"   ")));
+  for (int i = 0; i < 5; i++) [selected addObject:RBGroupRecipientNewBot([NSString stringWithFormat:@"Bot %d", i])];
+  CHECK(selected.count == 6 && !RBGroupCanAddRecipient(selected, RBGroupRecipientNewBot(@"Seventh")));
+  CHECK(!RBGroupCanOfferNewBot(bots, selected, @"Seventh") && RBGroupCanSubmit(selected, NO) && !RBGroupCanSubmit(selected, YES));
+  CHECK(!RBGroupCanSubmit(@[], NO));
+  NSArray *two = @[ RBGroupRecipientFromBot(bots[0]), RBGroupRecipientFromBot(bots[1]) ];
+  NSArray *three = [two arrayByAddingObject:RBGroupRecipientNewBot(@"LaunchBot")];
+  CHECK([RBGroupFormatList(@[ @"A", @"B", @"C" ], YES, NO) isEqualToString:@"A、B和C"]);
+  CHECK([RBGroupFormatList(@[ @"A", @"B", @"C" ], NO, NO) isEqualToString:@"A, B, and C"]);
+  CHECK([RBGroupComposerNames(two, YES) isEqualToString:@"Research Analyst和Design Reviewer"]);
+  CHECK([RBGroupAutoName(two, nil, NO) isEqualToString:@"Research Analyst and Design Reviewer"]);
+  CHECK([RBGroupAutoName(@[ two[0] ], @"Alex", YES) isEqualToString:@"Research Analyst、Alex"]);
+  CHECK([RBGroupAutoName(three, @"Alex", NO) isEqualToString:@"Alex, Research Analyst, Design Reviewer, LaunchBot"]);
+  CHECK([RBGroupCreatedId(@{ @"agent" : @{ @"id" : @"g-1" } }) isEqualToString:@"g-1"]);
+  CHECK([RBGroupCreatedId(@{ @"id" : @"g-2" }) isEqualToString:@"g-2"] && RBGroupCreatedId(nil).length == 0);
+  NSDictionary *body = RBGroupCreateBody(@" Team ", @[ @"a", @"a", @" b ", @"" ]);
+  CHECK([body[@"name"] isEqualToString:@"Team"] && [body[@"description"] isEqualToString:@""]);
+  CHECK([body[@"memberAgentIds"] isEqualToArray:(@[ @"a", @"b" ])]);
+  CHECK(RBGroupIsNewChatLabel(@"新建对话") && RBGroupIsNewChatLabel(@" New chat ") && RBGroupIsNewChatLabel(@"New Bot"));
+  CHECK(!RBGroupIsNewChatLabel(@"New group") && !RBGroupIsNewChatLabel(@"Library"));
+  puts("PASS: RBGroupCreate Desktop rules (eligible Bots, ranking, inline new Bot, 6-Bot cap, auto name & 72-char cap, createGroup body)");
+}
+
 int main(void) {
   @autoreleasepool {
     testDeviceIdentity();
     testModelsHelpers();
     testUpdaterHelpers();
+    testScenarioRouteHelpers();
+    testSuggestionsHelpers();
+    testGroupCreateHelpers();
   }
   return 0;
 }
