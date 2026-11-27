@@ -66,8 +66,8 @@
       }
       ctx.clearRect(0, 0, cw, ch);
       var isDark = root.dataset.theme === 'dark';
-      var dotColor = isDark ? 'rgba(56, 189, 248, 0.55)' : 'rgba(2, 132, 199, 0.38)';
-      var lineRgb = isDark ? '56, 189, 248' : '2, 132, 199';
+      var dotColor = isDark ? 'rgba(236, 236, 238, 0.42)' : 'rgba(28, 28, 30, 0.28)';
+      var lineRgb = isDark ? '236, 236, 238' : '28, 28, 30';
 
       for (var i = 0; i < nodes.length; i++) {
         var n = nodes[i];
