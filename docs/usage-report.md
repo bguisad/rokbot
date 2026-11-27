@@ -92,3 +92,18 @@ input, output, total, cached, cacheWrite, reasoning, durationMs, status, error, 
 8. 加载时骨架屏，无数据时空状态，失败时可重试。界面中文、无 emoji。
 
 颜色：系列色沿用 `host/server/public/usage-charts.css` 的 `--rok-usage-c0…c7`（浅色、深色两套）。
+
+## 单价（可选）
+
+在 Host 数据目录放一个 `usage-prices.json`，按模型填每百万 Token 的单价，「总花费」卡片和各表格的花费列就会显示：
+
+```json
+{
+  "currency": "CNY",
+  "deepseek-v3.2": { "input": 2, "output": 3, "cached": 0.2 },
+  "claude-sonnet-4.5": { "input": 21.6, "output": 108, "cached": 2.16, "cacheWrite": 27 }
+}
+```
+
+`input` 指未命中缓存的输入；`cached`、`cacheWrite` 不填时按 `input` 计算。没有单价的模型不计入花费，界面会注明「x / y 次请求有单价」。
+没有这个文件时，花费卡片显示「未配置单价」。

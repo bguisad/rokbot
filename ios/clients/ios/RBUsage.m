@@ -78,9 +78,20 @@ static NSString *RBURate(id value) {
   return [NSString stringWithFormat:@"%@%%", RBUTrim(rate, rate > 0 && rate < 10 ? 2 : 1)];
 }
 
+// The report's currency (ISO 4217, from the Host's usage-prices.json), or nil for a plain number.
+static NSString *RBUCurrency;
 static NSString *RBUCost(id value) {
   if (!RBUHas(value)) return RBUMissing();
   double cost = [value doubleValue];
+  if (RBUCurrency.length == 3) {
+    NSNumberFormatter *format = [NSNumberFormatter new];
+    format.numberStyle = NSNumberFormatterCurrencyStyle;
+    format.currencyCode = RBUCurrency;
+    format.minimumFractionDigits = 2;
+    format.maximumFractionDigits = cost > 0 && cost < 1 ? 4 : 2;
+    NSString *text = [format stringFromNumber:@(cost)];
+    if (text.length) return text;
+  }
   return [NSString stringWithFormat:@"%.*f", cost > 0 && cost < 1 ? 4 : 2, cost];
 }
 
@@ -783,6 +794,7 @@ typedef NS_ENUM(NSInteger, RBUTrendMode) { RBUTrendModel = 0, RBUTrendType = 1, 
     if (status == 404 && !error) { [self loadLegacy:generation]; return; }
     self.loading = NO;
     if (!error && status == 200 && RBUNum(report[@"version"]) >= 2 && RBUDict(report[@"totals"])) {
+      RBUCurrency = [report[@"currency"] isKindOfClass:NSString.class] ? report[@"currency"] : nil;
       self.report = report;
       self.legacy = nil;
       if (RBUDict(report[@"options"])) self.options = report[@"options"];
