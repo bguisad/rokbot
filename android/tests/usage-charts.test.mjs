@@ -57,7 +57,17 @@ test('Usage wiring: range switch, report API, Canvas views, filters, export and 
   assert.match(ua, /Intent\.ACTION_CREATE_DOCUMENT/);
   assert.match(ua, /HostApiClient\.exportUsageCsv\(this, range, from, to, filters\)/);
   assert.match(ua, /UiChrome\.palette\(this\)/);
-  assert.match(ua, /makeVectorIconButton\(this, "refresh", "refresh_usage_button"/, 'refresh header button kept');
+  assert.match(ua, /mRefreshButton = UiChrome\.makeVectorIconButton\(this, "refresh", "refresh_usage_button", mP, v -> reload\(false\)\)/, 'refresh header button kept');
+  assert.match(ua, /private String mRangeId = UsageModel\.DEFAULT_PERIOD;/, 'opens on today, not 7 days');
+  assert.doesNotMatch(ua, /mRangeId = "7d"|getString\(STATE_RANGE, "7d"\)/, 'no hard-coded 7-day default left');
+  assert.match(ua, /mRangeId = UsageModel\.initialPeriod\(opener != null \? opener\.getStringExtra\(EXTRA_RANGE\) : null, askedFrom, askedTo\);/,
+    'an intent extra can pick another range');
+  assert.match(ua, /public static final String EXTRA_RANGE = "dev\.rokbot\.nativeapp\.extra\.USAGE_RANGE"/);
+  // Refresh: visible loading feedback for every load (spins, disabled), back when the answer lands.
+  const loadFn = ua.slice(ua.indexOf('private void load(final boolean full, final boolean pageOnly)'));
+  assert.match(loadFn, /mLoading = true;\s*UiChrome\.setIconButtonBusy\(mRefreshButton, true\);/);
+  assert.match(loadFn, /if \(generation != mGeneration \|\| isFinishing\(\) \|\| isDestroyed\(\)\) return;\s*mLoading = false;\s*UiChrome\.setIconButtonBusy\(mRefreshButton, false\);/);
+  assert.match(loadFn, /Toast\.makeText\(this, t\("读取失败：", "Error: "\) \+ failure/, 'failed refresh with data on screen: toast');
   assert.match(ua, /makeVectorIconButton\(this, "download", "export_usage_csv_button"/, 'export header button');
   assert.match(ua, /setOnLongClickListener/, 'long press shows the exact number');
   assert.match(ua, /new HorizontalScrollView\(this\)/, 'filter chips and sort chips scroll sideways');
@@ -335,6 +345,11 @@ public class UsageModelHarness {
         for (int i = 0; i < 24; i++) if (UsageModel.showLabel(true, i, 24, 6)) shown.append(i).append(',');
         out("show", "hour", shown.toString());
         out("bar", String.valueOf(UsageModel.shareBarFraction(1, 1000)), String.valueOf(UsageModel.shareBarFraction(500, 1000)));
+        String[][] opens = {{null, null, null}, {"", null, null}, {"  ", null, null}, {"today", null, null}, {"7d", null, null}, {" 30d ", null, null},
+            {"all", null, null}, {"custom", "2026-11-01", "2026-11-20"}, {"custom", "2026-11-20", "2026-11-01"}, {"custom", null, null},
+            {"custom", "bad", "2026-11-01"}, {"90d", null, null}, {"TODAY", null, null}};
+        for (String[] o : opens) out("open", String.valueOf(o[0]), String.valueOf(o[1]), String.valueOf(o[2]), UsageModel.initialPeriod(o[0], o[1], o[2]));
+        out("opendefault", UsageModel.DEFAULT_PERIOD);
         out("color", Integer.toHexString(UsageModel.seriesColor(0, false)), Integer.toHexString(UsageModel.seriesColor(1, true)), Integer.toHexString(UsageModel.seriesColor(9, false)));
 
         // ------------------------------------------------------------ usage report (UsageReport)
@@ -566,6 +581,10 @@ public class UsageModelHarness {
     assert.equal(pick('show', 'day')[0][2], '4,9,14,19,24,29,', 'days are labelled back from today');
     assert.equal(pick('show', 'hour')[0][2], '0,6,12,18,');
     assert.deepEqual(pick('bar')[0].slice(1), ['0.005', '0.5']);
+    // The page opens on today unless the intent asks for a (valid) range.
+    assert.deepEqual(pick('opendefault')[0].slice(1), ['today']);
+    assert.deepEqual(pick('open').map(l => l[4]),
+      ['today', 'today', 'today', 'today', '7d', '30d', 'all', 'custom', 'today', 'today', 'today', 'today', 'today']);
     assert.deepEqual(pick('color')[0].slice(1), ['ffa9a8a2', 'ff3987e5', 'ffa9a8a2']);
 
     // ---------------------------------------------------------------- usage report (UsageReport.parse and helpers)

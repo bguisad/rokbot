@@ -63,6 +63,7 @@ public class ComputerViewerActivity extends Activity {
     private volatile boolean mProxyRunning = false;
     private volatile boolean mDestroyed = false;
     private int mStartPollCount = 0;
+    private View mRefreshButton;
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private final Runnable mPollRunnable = this::refreshStatus;
 
@@ -110,6 +111,7 @@ public class ComputerViewerActivity extends Activity {
         root.setPadding(UiChrome.dp(this, 12), UiChrome.dp(this, 8), UiChrome.dp(this, 12), UiChrome.dp(this, 12));
 
         View reloadBtn = UiChrome.makeVectorIconButton(this, "refresh", "refresh_computer_button", p, v -> refreshStatus());
+        mRefreshButton = reloadBtn;
         mBootButton = UiChrome.makePillButton(this, Localize.t(this, "启动桌面", "Boot"), true, p, v -> ensureDesktop());
         mBootButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         mBootButton.setPadding(UiChrome.dp(this, 12), UiChrome.dp(this, 7), UiChrome.dp(this, 12), UiChrome.dp(this, 7));
@@ -157,12 +159,19 @@ public class ComputerViewerActivity extends Activity {
             mStatusLabel.setText(Localize.t(this, "未指定 Bot", "No Bot specified"));
             return;
         }
+        UiChrome.setIconButtonBusy(mRefreshButton, true);
         new Thread(() -> {
             try {
                 JSONObject st = HostApiClient.getForeverBoxStatus(this, mAgentId);
                 applyBoxStatus(st);
             } catch (Throwable t) {
-                mMain.post(() -> mStatusLabel.setText(Localize.t(this, "读取状态失败: ", "Error: ") + t.getMessage()));
+                mMain.post(() -> {
+                    if (mDestroyed) return;
+                    UiChrome.setIconButtonBusy(mRefreshButton, false);
+                    String error = Localize.t(this, "读取状态失败: ", "Error: ") + t.getMessage();
+                    mStatusLabel.setText(error);
+                    Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+                });
             }
         }).start();
     }
@@ -194,6 +203,7 @@ public class ComputerViewerActivity extends Activity {
         final String finalState = state;
         mMain.post(() -> {
             if (mDestroyed) return;
+            UiChrome.setIconButtonBusy(mRefreshButton, false);
             mBootButton.setEnabled(true);
             boolean ready = !vncUrl.isEmpty();
             mBootButton.setVisibility(ready ? View.GONE : View.VISIBLE);
