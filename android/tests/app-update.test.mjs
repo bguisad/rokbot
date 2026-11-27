@@ -112,6 +112,16 @@ test('Update wiring: auto-check trigger, verified hand-off to the installer and 
   // settings row (hermes-settings.mjs applySettingsMenu) routed to UpdateActivity; the connection
   // page has no update flow of its own.
   assert.match(boot, /matchesSoftwareUpdateLabel\(s\)\) \{\s*return \(paired && isInteractiveTarget[^;]*\? UpdateActivity\.class/, 'settings row "应用更新" opens UpdateActivity');
+  // 「检查更新」 with no update must stay on UpdateActivity: our own pages are never re-wired by the
+  // RN click hook (that rewired the 检查更新 pill to launch a second UpdateActivity on every
+  // AppUpdater state change), and a native page never launches itself.
+  assert.match(boot, /target != null && shouldWireNativeHook\(activity\.getClass\(\)\.getName\(\), target\)/,
+    'scanAndWireRnViews skips companion pages and self-targets');
+  assert.match(boot, /if \(!shouldLaunchNativeTarget\(activity\.getClass\(\)\.getName\(\), dest\)\) return;/);
+  assert.match(boot, /FLAG_ACTIVITY_SINGLE_TOP/);
+  assert.match(ua, /mManualCheckPending = true;\s*AppUpdater\.check\(this, false\);/, 'manual check runs in place');
+  assert.match(ua, /shouldToastUpToDate\(mManualCheckPending, st\)[\s\S]*?"已是最新版本"/, 'up-to-date result is a toast on the same page');
+  assert.doesNotMatch(ua, /startActivity\(new Intent\(this, UpdateActivity\.class\)/, 'UpdateActivity never starts itself');
   const pairing = read('PairingActivity.java');
   assert.doesNotMatch(pairing, /runUpdateCheck|UpdateManager\.stageFromInfoAsync/, 'PairingActivity does not repeat the update flow');
 });
@@ -180,6 +190,19 @@ public class AppUpdatePolicyHarness {
         check(RokBotBootstrap.isUpdateEntryLabel("Update to latest version"), "official en entry");
         check(RokBotBootstrap.isUpdateEntryLabel(" 更新到最新版本 "), "official zh entry");
         check(!RokBotBootstrap.isUpdateEntryLabel("Updates"), "unrelated label");
+        String self = "dev.rokbot.nativeapp.UpdateActivity";
+        check(!RokBotBootstrap.shouldWireNativeHook(self, UpdateActivity.class), "UpdateActivity's own 检查更新 pill is not rewired");
+        check(!RokBotBootstrap.shouldWireNativeHook("dev.rokbot.nativeapp.ProfileActivity", UpdateActivity.class), "companion pages keep their own listeners");
+        check(RokBotBootstrap.shouldWireNativeHook("expo.modules.SomeSheetActivity", UpdateActivity.class), "third-party surfaces still route 应用更新");
+        check(!RokBotBootstrap.shouldWireNativeHook("x.Y", null), "no target -> no hook");
+        check(!RokBotBootstrap.shouldLaunchNativeTarget(self, UpdateActivity.class), "never stack UpdateActivity on itself");
+        check(RokBotBootstrap.shouldLaunchNativeTarget("com.grok.MainActivity", UpdateActivity.class), "RN settings row opens UpdateActivity");
+        check(UpdateActivity.shouldToastUpToDate(true, AppUpdater.STATE_UP_TO_DATE), "manual check, nothing new -> 已是最新版本 toast");
+        check(!UpdateActivity.shouldToastUpToDate(false, AppUpdater.STATE_UP_TO_DATE), "automatic check stays silent");
+        check(!UpdateActivity.shouldToastUpToDate(true, AppUpdater.STATE_AVAILABLE), "update available -> no up-to-date toast");
+        check(RokBotBootstrap.isStrictlyInside(0, 0, 100, 50, 10f, 10f), "point on a top button is occluded");
+        check(!RokBotBootstrap.isStrictlyInside(0, 0, 100, 50, 100f, 10f), "right edge is outside");
+        check(!RokBotBootstrap.isStrictlyInside(0, 0, 0, 0, 0f, 0f), "empty view never occludes");
         System.out.println("APP_UPDATE_POLICY_OK");
     }
 }

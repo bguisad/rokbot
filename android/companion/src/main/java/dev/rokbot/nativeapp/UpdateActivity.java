@@ -39,6 +39,8 @@ public class UpdateActivity extends Activity {
     private TextView mSecondary;
     private boolean mInstallAfterPermission;
     private boolean mAutoInstallWhenReady;
+    /** A check the user started on this page: report 「已是最新版本」 in place when it finishes. */
+    private boolean mManualCheckPending;
     private final Runnable mListener = this::render;
     private final android.os.Handler mMain = new android.os.Handler(android.os.Looper.getMainLooper());
     // Incremental update (UpdateManager feed URL).
@@ -319,6 +321,13 @@ public class UpdateActivity extends Activity {
         mPrimary.setAlpha(enabled ? 1f : 0.55f);
         mSecondary.setVisibility(st == AppUpdater.STATE_AVAILABLE || st == AppUpdater.STATE_READY ? View.VISIBLE : View.GONE);
 
+        if (shouldToastUpToDate(mManualCheckPending, st)) {
+            mManualCheckPending = false;
+            Toast.makeText(this, Localize.t(this, "已是最新版本", "You're up to date"), Toast.LENGTH_SHORT).show();
+        } else if (st != AppUpdater.STATE_CHECKING && st != AppUpdater.STATE_IDLE) {
+            mManualCheckPending = false;
+        }
+
         if (ready && mAutoInstallWhenReady) {
             mAutoInstallWhenReady = false;
             install();
@@ -336,8 +345,16 @@ public class UpdateActivity extends Activity {
             mAutoInstallWhenReady = true;
             AppUpdater.download(this);
         } else if (st != AppUpdater.STATE_CHECKING && st != AppUpdater.STATE_DOWNLOADING) {
+            // Check in place: the page stays open and render() shows the result (no new activity).
+            mManualCheckPending = true;
             AppUpdater.check(this, false);
+            render();
         }
+    }
+
+    /** Manual check finished on this page with nothing newer: toast once, stay on the page. */
+    static boolean shouldToastUpToDate(boolean manualCheckPending, int state) {
+        return manualCheckPending && state == AppUpdater.STATE_UP_TO_DATE;
     }
 
     private void install() {

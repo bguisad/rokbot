@@ -37,6 +37,7 @@ final class SuggestionHabitMatcher {
             String text = raw.trim();
             String key = normalize(text);
             if (key.isEmpty() || key.equals(q) || key.length() <= q.length() || !seen.add(key)) continue;
+            if (SuggestionVoice.isAssistantOfferPhrase(text)) continue; // the Bot's voice, never the user's
             if (key.startsWith(q)) prefix.add(text);
             else if (key.contains(q)) substring.add(text);
             else if (q.length() >= 2 && inOrder(q, key)) fuzzy.add(text);

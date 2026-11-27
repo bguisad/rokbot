@@ -74,9 +74,9 @@ document.querySelector('#form').addEventListener('submit', async event => {
     const result = authMode === 'password'
       ? await window.connection.pair(server.value, password.value, tailcat.checked, false, 'password')
       : await window.connection.pair(server.value, key.value, tailcat.checked, canRetry() && !key.value);
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) throw new Error(result.error || text('连接失败，请检查地址和配对码后重试。', 'Could not connect. Check the address and code, then try again.'));
     key.value = ''; password.value = ''; status.textContent = text('已连接', 'Connected');
-  } catch (error) { status.textContent = error.message; status.style.color = '#f09b94'; }
+  } catch (error) { status.textContent = error?.message || text('连接失败，请重试。', 'Could not connect. Try again.'); status.style.color = '#f09b94'; }
   finally { connect.disabled = false; disconnect.disabled = false; modeCode.disabled = false; modePassword.disabled = false; }
 });
 disconnect.addEventListener('click', async () => {
@@ -85,6 +85,6 @@ disconnect.addEventListener('click', async () => {
   try {
     await window.connection.disconnect(); key.value = ''; password.value = ''; disconnect.hidden = true; saved = null; updateRetry();
     connect.textContent = text('连接', 'Connect'); status.textContent = text('已断开', 'Disconnected');
-  } catch (error) { status.textContent = error.message; status.style.color = '#f09b94'; }
+  } catch (error) { status.textContent = error?.message || text('连接失败，请重试。', 'Could not connect. Try again.'); status.style.color = '#f09b94'; }
   finally { connect.disabled = false; disconnect.disabled = false; modeCode.disabled = false; modePassword.disabled = false; }
 });

@@ -1292,8 +1292,13 @@ public class RokBotBootstrap {
         if (view instanceof ViewGroup) {
             ViewGroup vg = (ViewGroup) view;
             for (int i = vg.getChildCount() - 1; i >= 0; i--) {
-                HitResult childHit = findNativeTargetAtPointInternal(activity, vg.getChildAt(i), rawX, rawY, loc, marginPx);
+                View child = vg.getChildAt(i);
+                HitResult childHit = findNativeTargetAtPointInternal(activity, child, rawX, rawY, loc, marginPx);
                 if (childHit != null) return childHit;
+                // A clickable view on top (a sheet's 「完成」 / submit button, a dialog surface) owns this
+                // touch: never fall through to a matching settings row underneath it, which used to
+                // cancel the tap on the button so its submit never ran.
+                if (occludesTouch(child, rawX, rawY)) return null;
             }
         }
         if (view.getTag(TAG_OVERRIDDEN_TARGET) == null && extractViewText(view) == null) {
@@ -1323,6 +1328,18 @@ public class RokBotBootstrap {
             }
         }
         return null;
+    }
+
+    private static boolean occludesTouch(View child, float rawX, float rawY) {
+        if (child == null || child.getVisibility() != View.VISIBLE || !child.isShown()) return false;
+        if (!(child.isClickable() || child.hasOnClickListeners())) return false;
+        Rect r = getScreenRect(child);
+        return isStrictlyInside(r != null ? r.left : 0, r != null ? r.top : 0, r != null ? r.right : 0, r != null ? r.bottom : 0, rawX, rawY);
+    }
+
+    /** Pure geometry for {@link #occludesTouch} (unit-tested on a JVM). */
+    static boolean isStrictlyInside(int left, int top, int right, int bottom, float x, float y) {
+        return right > left && bottom > top && x >= left && x < right && y >= top && y < bottom;
     }
 
     private static String extractUnpairedCtaLabel(Activity activity, View v, int depth, int[] visited) {
@@ -2122,10 +2139,30 @@ public class RokBotBootstrap {
         }
     }
 
+    /**
+     * Click hooks are only for third-party (RN / expo) surfaces. Our own native pages
+     * (dev.rokbot.nativeapp.*) already wire their buttons; rewiring them is what made
+     * UpdateActivity's 「检查更新」 pill (re-scanned on every AppUpdater state change) start a
+     * second UpdateActivity instead of checking in place. Never hook a view to the page it is on.
+     */
+    static boolean shouldWireNativeHook(String activityClassName, Class<?> target) {
+        if (target == null) return false;
+        if (activityClassName == null) return true;
+        if (activityClassName.startsWith("dev.rokbot.nativeapp.")) return false;
+        return !activityClassName.equals(target.getName());
+    }
+
+    /** Never stack a native page on top of itself (e.g. UpdateActivity -> UpdateActivity). */
+    static boolean shouldLaunchNativeTarget(String activityClassName, Class<?> dest) {
+        return dest != null && (activityClassName == null || !activityClassName.equals(dest.getName()));
+    }
+
     private static void launchNativeTarget(Activity activity, Class<?> target) {
         if (activity == null || target == null) return;
         Class<?> dest = Storage.isPaired(activity) ? target : PairingActivity.class;
+        if (!shouldLaunchNativeTarget(activity.getClass().getName(), dest)) return;
         Intent i = new Intent(activity, dest);
+        i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         if (dest == LibraryActivity.class) {
             String agentId = getLastAgentId();
             if (agentId == null || agentId.isEmpty()) agentId = getViewingAgentId();
@@ -2489,7 +2526,7 @@ public class RokBotBootstrap {
             }
             if (!isReactActivity(activity)) {
                 Class<?> target = resolveNativeTargetForView(activity, view);
-                if (target != null) {
+                if (target != null && shouldWireNativeHook(activity.getClass().getName(), target)) {
                     View clickTarget = findClickableHostView(view);
                     if (!Boolean.TRUE.equals(clickTarget.getTag(TAG_HOOKED_CLICK))) {
                         clickTarget.setTag(TAG_HOOKED_CLICK, Boolean.TRUE);

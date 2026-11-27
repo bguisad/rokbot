@@ -82,17 +82,17 @@ function RokHostConnection() {
   }, []);
   const connect = async event => {
     event.preventDefault();
-    if (composing.current || submitting.current || !server.trim() || (!editing && !key.trim())) return;
+    if (submitting.current || !server.trim() || (!editing && !key.trim())) return;
     submitting.current = true; setBusy(true); setError('');
-    try { const result = await window.localBot.pair({ server, key, tailcat, edit: editing }); if (!result.ok) throw new Error(result.error); setKey(''); setOpen(false); }
-    catch (failure) { setError(failure.message); }
+    try { const result = await window.localBot.pair({ server, key, tailcat, edit: editing }); if (!result.ok) throw new Error(result.error || rokText('连接失败，请检查地址和配对码后重试。', 'Could not connect. Check the address and code, then try again.')); setKey(''); setOpen(false); }
+    catch (failure) { setError(failure?.message || rokText('操作失败，请重试。', 'Something went wrong. Try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
   const disconnect = async () => {
     if (submitting.current) return;
     submitting.current = true; setBusy(true); setError('');
     try { await window.localBot.disconnect(); setStatus({ paired: false }); setKey(''); }
-    catch (failure) { setError(failure.message); }
+    catch (failure) { setError(failure?.message || rokText('操作失败，请重试。', 'Something went wrong. Try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
   Q.useEffect(() => { if (open && status && !status.paired) input.current?.focus(); }, [open, status?.paired]);
@@ -109,7 +109,7 @@ function RokHostConnection() {
       autoComplete: 'off', spellCheck: false, disabled: busy,
       maxLength: type === 'text' ? 6 : undefined, pattern: type === 'text' ? '[A-Za-z0-9]{6}' : undefined, autoCapitalize: type === 'text' ? 'characters' : 'off', onChange: event => onChange(event.currentTarget.value),
       onCompositionStart: () => { composing.current = true; }, onCompositionEnd: () => { composing.current = false; },
-      onKeyDown: event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || composing.current || event.keyCode === 229)) event.preventDefault(); } })] });
+      onKeyDown: event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault(); } })] });
   const paired = Boolean(status?.paired), person = status?.profile;
   const title = paired ? rokText('连接设置', 'Connection settings') : rokText('连接你的 RokBot', 'Connect your RokBot');
   const stateLabel = status?.state === 'online' ? rokText('已连接', 'Connected') : status?.state === 'connecting' ? rokText('正在连接', 'Connecting') : rokText('正在重新连接', 'Reconnecting');

@@ -299,8 +299,9 @@ export function createMigrationWizard(root, adapter) {
           routines: review.options.routines, files: review.options.files, chat: review.options.chat };
       }
       const report = await adapter.import(preview.id, selection);
-      await refresh();
+      // The import is done: show its result (and 完成) first; a failed list refresh must not hide it.
       showModal('从 Grok Bot 迁移', renderReport(report), [button('完成', { primary: true, onClick: closeModal })], { labels: STEPS, current: 2 });
+      try { await refresh(); } catch (error) { toast(error?.message || '列表刷新失败，请稍后重试', true); }
     }));
     showModal('从 Grok Bot 迁移', body, [button('上一步', { onClick: () => { review.step = 0; renderStep(); } }), start], { labels: STEPS, current: 1 });
   }

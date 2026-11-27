@@ -10,6 +10,9 @@
 //             already counted as one of their own messages.
 import { join } from 'node:path';
 import { JsonStore } from './storage.mjs';
+import { isAssistantOfferPhrase, isSelfUserEntry } from './suggestion-voice.mjs';
+
+export { isAssistantOfferPhrase, isSelfUserEntry };
 
 const MAX_AGENTS = 100;
 const MAX_FREQUENT = 200;
@@ -120,6 +123,7 @@ export function buildHabitProfile(userMessages, prev = null, now = Date.now()) {
     const op = opener(text);
     if (op) openers.set(op, (openers.get(op) ?? 0) + 1);
     if (countChars(text) > MAX_TEXT_CHARS) continue;            // long, one-off instructions are not habits
+    if (isAssistantOfferPhrase(text)) continue;                  // never suggest the Bot's voice back
     const key = normalizeMessageKey(text);
     if (!key) continue;
     const item = frequent.get(key) ?? { key, text, count: 0, at: 0 };
@@ -147,9 +151,10 @@ export function buildHabitProfile(userMessages, prev = null, now = Date.now()) {
   };
 }
 
-/** Messages the user sent at least twice (most habitual first). */
+/** Messages the user sent at least twice (most habitual first); profiles stored before the voice
+ *  filter existed may still hold an assistant offer, which is skipped here. */
 export function frequentMessages(profile, { min = 2, limit = 50 } = {}) {
-  return (profile?.frequent ?? []).filter(item => item.count >= min).slice(0, limit);
+  return (profile?.frequent ?? []).filter(item => item.count >= min && !isAssistantOfferPhrase(item.text)).slice(0, limit);
 }
 
 /** Compact profile text for the prompt (a few hundred characters at most). */
@@ -186,6 +191,7 @@ export function filterAndRankSuggestions(items, { lang = 'zh', profile = null, f
     if (!text) return;
     const cjkText = /[\u3400-\u9fff]/.test(text);
     if (countChars(text) > (cjkText ? MAX_SUGGESTION_CHARS_ZH + 4 : limit + 12)) return;
+    if (isAssistantOfferPhrase(text)) return;                    // the Bot's voice, not the user's
     const key = normalizeMessageKey(text);
     if (isGenericSuggestion(text) && !habitual.has(key)) return;
     if (recent.some(prev => similarity(prev, text) >= 0.85)) return;
@@ -227,6 +233,7 @@ export function matchCompletions(draft, candidates, max = 3) {
     const text = String(raw?.text ?? raw ?? '').trim();
     const key = normalizeMessageKey(text);
     if (!key || key === q || key.length <= q.length) return;
+    if (isAssistantOfferPhrase(text)) return;
     let rank = -1;
     if (key.startsWith(q)) rank = 0;
     else if (key.includes(q)) rank = 1;
@@ -243,12 +250,9 @@ export function matchCompletions(draft, candidates, max = 3) {
     .slice(0, max).map(item => item.text);
 }
 
+/** Only what the user themself sent counts as a habit (never another sender's "user" turn). */
 function entryRole(entry) {
-  if (!entry || typeof entry !== 'object') return null;
-  if (entry.role === 'user' || entry.role === 'assistant') return entry.role;
-  const kind = String(entry.kind ?? entry.type ?? '').toLowerCase();
-  if (['user', 'user-message', 'prompt', 'user_message'].includes(kind)) return 'user';
-  return null;
+  return isSelfUserEntry(entry) ? 'user' : null;
 }
 
 function entryText(value) {
