@@ -13,6 +13,17 @@ export function normalizeVncUpgradeUrl(rawUrl) {
     ? rawUrl.replace(/^\/\/(?=vnc\/(?:desktop|fork)\/websockify(?:\?|$))/, "/")
     : rawUrl;
 }
+/** Device kinds whose official app views the desktop from inline HTML (`Origin: null`). */
+export const NATIVE_APP_VNC_PLATFORMS = new Set(["ios", "android"]);
+/** One log line for a refused WebSocket upgrade: status, reason, path and origin, never the query (it carries the ticket). */
+export function vncUpgradeRejectionLog(request, error) {
+  const raw = typeof request?.url === "string" ? request.url : "";
+  const path = raw.split("?")[0].replace(/[^\x21-\x7e]/g, "?").slice(0, 120) || "-";
+  const origin = request?.headers?.origin;
+  const shownOrigin = typeof origin === "string" ? origin.replace(/[^\x21-\x7e]/g, "?").slice(0, 120) : "-";
+  const reason = String(error?.status ? error.message : error?.code ?? error?.name ?? "error").replace(/[\r\n]+/g, " ").slice(0, 160);
+  return `[selfhost] websocket upgrade rejected: ${error?.status ?? 500} ${reason} path=${path} origin=${shownOrigin}`;
+}
 export function vncPath(rawPath, upgrade = false) {
   const match = /^\/vnc\/(desktop|fork)(\/.*)$/.exec(rawPath);
   if (!match) return null;
