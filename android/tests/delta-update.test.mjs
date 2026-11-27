@@ -1124,6 +1124,9 @@ public class View {
   public void setPadding(int l, int t, int r, int b) {}
   public void setOnClickListener(OnClickListener l) {}
   public void setContentDescription(CharSequence cs) {}
+  public void setMinimumHeight(int h) {}
+  public void setClickable(boolean c) {}
+  public void setFocusable(boolean f) {}
 }`),
       writeOverride('android/view/ViewGroup.java', `package android.view;
 public class ViewGroup extends View {
@@ -1135,6 +1138,7 @@ public class ViewGroup extends View {
   public ViewGroup(android.content.Context ctx) { super(ctx); }
   public void addView(View v) {}
   public void removeAllViews() {}
+  public void addView(View v, LayoutParams lp) {}
 }`),
       writeOverride('android/widget/LinearLayout.java', `package android.widget;
 import android.view.*;
@@ -1161,6 +1165,8 @@ public class TextView extends android.view.View {
   public void setTextSize(int u, float s) {}
   public void setTypeface(Typeface tf) {}
   public void setGravity(int g) {}
+  public void setSingleLine(boolean s) {}
+  public void setEllipsize(android.text.TextUtils.TruncateAt w) {}
 }`),
       writeOverride('android/widget/ProgressBar.java', `package android.widget;
 public class ProgressBar extends android.view.View {
@@ -1589,15 +1595,15 @@ public class RegressionHarness {
     ma.baseApp = app;
     setFieldSuper(ma, "mMain", new android.os.Handler(android.os.Looper.getMainLooper()));
     setFieldSuper(ma, "mPendingApiKeys", new HashMap<String, String>());
-    setFieldSuper(ma, "mProfileIdsForSpinner", new ArrayList<String>());
-    setFieldSuper(ma, "mEffortOptionsForSpinner", new ArrayList<String>());
+    setFieldSuper(ma, "mProfileIdsForChoice", new ArrayList<String>());
+    setFieldSuper(ma, "mEffortOptionsForChoice", new ArrayList<String>());
     setFieldSuper(ma, "mOnboardingCard", new LinearLayout(app));
     setFieldSuper(ma, "mStepUpCard", new LinearLayout(app));
     setFieldSuper(ma, "mReloadBadge", new TextView(app));
     setFieldSuper(ma, "mStatusText", new TextView(app));
     setFieldSuper(ma, "mContinueBtn", new TextView(app));
-    setFieldSuper(ma, "mDefaultProfileSpinner", new Spinner(app));
-    setFieldSuper(ma, "mDefaultEffortSpinner", new Spinner(app));
+    setFieldSuper(ma, "mDefaultProfileChoice", new ChoiceField(app));
+    setFieldSuper(ma, "mDefaultEffortChoice", new ChoiceField(app));
     setFieldSuper(ma, "mProvidersContainer", new LinearLayout(app));
     setFieldSuper(ma, "mProfilesContainer", new LinearLayout(app));
 
@@ -1635,14 +1641,14 @@ public class RegressionHarness {
     renderData.setAccessible(true);
     renderData.invoke(ma);
 
-    // Switch default profile to pf_gpt4o (efforts: []) and call refreshEffortSpinner
+    // Switch default profile to pf_gpt4o (efforts: []) and call refreshEffortChoice
     JSONObject defRoute = (JSONObject) getField(ma, "mDefaultRoute");
     defRoute.put("profileId", "pf_gpt4o");
-    Method refreshEffortSpinner = ModelsActivity.class.getDeclaredMethod("refreshEffortSpinner", String.class);
-    refreshEffortSpinner.setAccessible(true);
-    refreshEffortSpinner.invoke(ma, "pf_gpt4o");
+    Method refreshEffortChoice = ModelsActivity.class.getDeclaredMethod("refreshEffortChoice", String.class);
+    refreshEffortChoice.setAccessible(true);
+    refreshEffortChoice.invoke(ma, "pf_gpt4o");
 
-    @SuppressWarnings("unchecked") List<String> effOpts = (List<String>) getField(ma, "mEffortOptionsForSpinner");
+    @SuppressWarnings("unchecked") List<String> effOpts = (List<String>) getField(ma, "mEffortOptionsForChoice");
     check(effOpts.size() == 1 && "default".equals(effOpts.get(0)), "efforts: [] must offer ONLY [default], got: " + effOpts);
     check("default".equals(defRoute.optString("effort", "")), "Switching to gpt-4o must reset mDefaultRoute.effort to default, got: " + defRoute.optString("effort", ""));
     JSONObject gpt4oPayload = (JSONObject) buildSavePayload.invoke(ma);

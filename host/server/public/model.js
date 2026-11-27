@@ -1,5 +1,5 @@
 import { t, html } from './i18n.js';
-import { $, node, item, badge, empty, iconButton, menu, confirmAction } from './ui.js';
+import { $, node, item, badge, empty, iconButton, menu, confirmAction, dropdown } from './ui.js';
 import { createRoutingLog } from './routing-log.js';
 import { clientId } from './ids.js';
 
@@ -98,8 +98,8 @@ function formField(parent, name, label, type = 'text') {
 }
 
 function formSelect(parent, name, label) {
-  const field = node('label', 'field', t(label)), select = document.createElement('select');
-  select.name = name; field.append(select); parent.append(field); return select;
+  const field = node('label', 'field', t(label)), select = dropdown({ name, label: t(label) });
+  field.append(select); parent.append(field); return select;
 }
 
 export function createModelPage({ api, toast, busy, refresh }) {
@@ -335,7 +335,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
     const update = next => onChange(routeCopy(next));
     const primary = node('div', 'row'), primaryCopy = node('span', 'row-copy'), primaryControl = node('span', 'row-control wide');
     primaryCopy.append(node('span', 'row-title', t('主模型')));
-    const primaryProfile = document.createElement('select'), primaryEffort = document.createElement('select');
+    const primaryProfile = dropdown(), primaryEffort = dropdown();
     primaryProfile.setAttribute('aria-label', t('主模型')); primaryEffort.setAttribute('aria-label', t('思考强度'));
     profileOptions(primaryProfile, current.profileId); effortOptions(primaryEffort, current.profileId, current.effort);
     primaryProfile.onchange = () => {
@@ -349,7 +349,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
       const line = node('div', 'row'), copy = node('span', 'row-copy'), control = node('span', 'row-control wide');
       copy.append(node('span', 'row-title', t('备用模型 {0}', index + 1)));
       const excluded = new Set([current.profileId, ...current.fallbacks.filter((_, itemIndex) => itemIndex !== index).map(item => item.profileId)]);
-      const profile = document.createElement('select'), effort = document.createElement('select');
+      const profile = dropdown(), effort = dropdown();
       profile.setAttribute('aria-label', t('备用模型 {0}', index + 1)); effort.setAttribute('aria-label', t('思考强度'));
       profileOptions(profile, fallback.profileId, excluded); effortOptions(effort, fallback.profileId, fallback.effort);
       profile.onchange = () => {
@@ -579,7 +579,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
       const tier = adaptive.tiers[tierKey];
       const row = node('div', 'row'), copy = node('span', 'row-copy'), control = node('span', 'row-control wide');
       copy.append(node('span', 'row-title', t(title)), node('span', 'row-hint', t(hint)));
-      const profileSelect = document.createElement('select'), effortSelect = document.createElement('select');
+      const profileSelect = dropdown(), effortSelect = dropdown();
       profileSelect.dataset.adaptiveTier = tierKey; profileSelect.dataset.field = 'profileId';
       effortSelect.dataset.adaptiveTier = tierKey; effortSelect.dataset.field = 'effort';
       profileSelect.setAttribute('aria-label', t(title));
@@ -642,7 +642,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
       const current = config.scenarioRoutes?.[scenarioKey] ?? null;
       const row = node('div', 'row'), copy = node('span', 'row-copy'), control = node('span', 'row-control wide');
       copy.append(node('span', 'row-title', t(title)), node('span', 'row-hint', t(hint)));
-      const profileSelect = document.createElement('select'), effortSelect = document.createElement('select');
+      const profileSelect = dropdown(), effortSelect = dropdown();
       profileSelect.dataset.scenario = scenarioKey; profileSelect.dataset.field = 'profileId';
       effortSelect.dataset.scenario = scenarioKey; effortSelect.dataset.field = 'effort';
       profileSelect.setAttribute('aria-label', t(title));
@@ -722,7 +722,7 @@ export function createModelPage({ api, toast, busy, refresh }) {
     model.name = 'model'; model.required = true; model.value = current.model; model.spellcheck = false;
     const list = document.createElement('datalist'); list.id = `model-catalog-${current.id}`; model.setAttribute('list', list.id);
     const catalog = node('button', 'btn btn-sm', t('同步模型')); catalog.type = 'button';
-    const catalogSelect = document.createElement('select'); catalogSelect.hidden = true; catalogSelect.setAttribute('aria-label', t('从同步列表选择模型'));
+    const catalogSelect = dropdown(); catalogSelect.hidden = true; catalogSelect.setAttribute('aria-label', t('从同步列表选择模型'));
     modelRow.append(model, catalog); modelField.append(modelRow, catalogSelect, list); body.append(modelField);
     const effortsModeLine = node('label', 'check'), effortsModeToggle = document.createElement('input');
     effortsModeToggle.type = 'checkbox'; effortsModeToggle.name = 'effortsModeAuto'; effortsModeToggle.checked = initialEffortsMode === 'auto';

@@ -17,14 +17,11 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -109,8 +106,8 @@ public class ModelsActivity extends Activity {
     private TextView mReloadBadge;
     private LinearLayout mOnboardingCard;
     private LinearLayout mStepUpCard;
-    private Spinner mDefaultProfileSpinner;
-    private Spinner mDefaultEffortSpinner;
+    private ChoiceField mDefaultProfileChoice;
+    private ChoiceField mDefaultEffortChoice;
     private TextView mTestBtn;
     private TextView mSaveBtn;
     private TextView mContinueBtn;
@@ -121,9 +118,9 @@ public class ModelsActivity extends Activity {
     private LinearLayout mProvidersContainer;
     private LinearLayout mProfilesContainer;
 
-    private final List<String> mProfileIdsForSpinner = new ArrayList<>();
-    private final List<String> mEffortOptionsForSpinner = new ArrayList<>();
-    private boolean mBindingSpinners = false;
+    private final List<String> mProfileIdsForChoice = new ArrayList<>();
+    private final List<String> mEffortOptionsForChoice = new ArrayList<>();
+    private boolean mBindingChoices = false;
     private int mReloadPollToken = 0;
 
     @Override
@@ -248,25 +245,20 @@ public class ModelsActivity extends Activity {
         profLbl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         routeCard.addView(profLbl);
 
-        mDefaultProfileSpinner = new Spinner(this);
-        mDefaultProfileSpinner.setContentDescription("default_profile_spinner");
-        mDefaultProfileSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
-                if (mBindingSpinners || pos < 0 || pos >= mProfileIdsForSpinner.size()) return;
-                String chosenId = mProfileIdsForSpinner.get(pos);
-                ensureDefaultRouteObject();
-                try {
-                    mDefaultRoute.put("profileId", chosenId);
-                } catch (Throwable ignored) {}
-                dropFallbacksMatchingPrimary();
-                refreshEffortSpinner(chosenId);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
+        mDefaultProfileChoice = new ChoiceField(this);
+        mDefaultProfileChoice.setContentDescription("default_profile_picker");
+        mDefaultProfileChoice.setTitle(Localize.t(this, "默认模型档案", "Active Profile"));
+        mDefaultProfileChoice.setOnChoiceListener(pos -> {
+            if (mBindingChoices || pos < 0 || pos >= mProfileIdsForChoice.size()) return;
+            String chosenId = mProfileIdsForChoice.get(pos);
+            ensureDefaultRouteObject();
+            try {
+                mDefaultRoute.put("profileId", chosenId);
+            } catch (Throwable ignored) {}
+            dropFallbacksMatchingPrimary();
+            refreshEffortChoice(chosenId);
         });
-        routeCard.addView(mDefaultProfileSpinner);
+        routeCard.addView(mDefaultProfileChoice);
 
         addSpacing(routeCard, 8);
         TextView effLbl = new TextView(this);
@@ -275,22 +267,17 @@ public class ModelsActivity extends Activity {
         effLbl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         routeCard.addView(effLbl);
 
-        mDefaultEffortSpinner = new Spinner(this);
-        mDefaultEffortSpinner.setContentDescription("default_effort_spinner");
-        mDefaultEffortSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
-                if (mBindingSpinners || pos < 0 || pos >= mEffortOptionsForSpinner.size()) return;
-                ensureDefaultRouteObject();
-                try {
-                    mDefaultRoute.put("effort", mEffortOptionsForSpinner.get(pos));
-                } catch (Throwable ignored) {}
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
+        mDefaultEffortChoice = new ChoiceField(this);
+        mDefaultEffortChoice.setContentDescription("default_effort_picker");
+        mDefaultEffortChoice.setTitle(Localize.t(this, "推理强度 (Effort)", "Reasoning Effort"));
+        mDefaultEffortChoice.setOnChoiceListener(pos -> {
+            if (mBindingChoices || pos < 0 || pos >= mEffortOptionsForChoice.size()) return;
+            ensureDefaultRouteObject();
+            try {
+                mDefaultRoute.put("effort", mEffortOptionsForChoice.get(pos));
+            } catch (Throwable ignored) {}
         });
-        routeCard.addView(mDefaultEffortSpinner);
+        routeCard.addView(mDefaultEffortChoice);
 
         addSpacing(routeCard, 12);
         LinearLayout actionRow = new LinearLayout(this);
@@ -588,10 +575,10 @@ public class ModelsActivity extends Activity {
             mContinueBtn.setVisibility(View.GONE);
         }
 
-        // Bind default profile spinner
-        mBindingSpinners = true;
+        // Bind default profile picker
+        mBindingChoices = true;
         try {
-            mProfileIdsForSpinner.clear();
+            mProfileIdsForChoice.clear();
             List<String> labels = new ArrayList<>();
             int selectedIdx = 0;
             for (int i = 0; i < mProfiles.length(); i++) {
@@ -602,22 +589,22 @@ public class ModelsActivity extends Activity {
                 String profProviderId = UiChrome.jsonStr(prof, "providerId");
                 JSONObject prov = findById(mProviders, profProviderId);
                 String provName = prov != null ? UiChrome.jsonStr(prov, "name", profProviderId) : profProviderId;
-                mProfileIdsForSpinner.add(id);
+                mProfileIdsForChoice.add(id);
                 labels.add(UiChrome.jsonStr(prof, "name", id) + " · " + UiChrome.jsonStr(prof, "model") + " (" + provName + ")");
                 if (id.equals(defProfileId)) {
-                    selectedIdx = mProfileIdsForSpinner.size() - 1;
+                    selectedIdx = mProfileIdsForChoice.size() - 1;
                 }
             }
             if (labels.isEmpty()) {
                 labels.add(Localize.t(this, "（请先添加模型档案）", "(Add a profile first)"));
             }
-            mDefaultProfileSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
+            mDefaultProfileChoice.setOptions(labels);
             if (selectedIdx < labels.size()) {
-                mDefaultProfileSpinner.setSelection(selectedIdx, false);
+                mDefaultProfileChoice.setSelection(selectedIdx);
             }
-            refreshEffortSpinner(defProfileId);
+            refreshEffortChoice(defProfileId);
         } finally {
-            mBindingSpinners = false;
+            mBindingChoices = false;
         }
 
         renderScenarioRoutesList(p);
@@ -929,11 +916,12 @@ public class ModelsActivity extends Activity {
         profLbl.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         form.addView(profLbl);
 
-        Spinner profSpinner = new Spinner(this);
-        profSpinner.setContentDescription("route_dialog_profile_spinner");
-        profSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, profileLabels));
-        profSpinner.setSelection(initialProfilePos, false);
-        form.addView(profSpinner);
+        ChoiceField profChoice = new ChoiceField(this);
+        profChoice.setContentDescription("route_dialog_profile_picker");
+        profChoice.setTitle(Localize.t(this, "模型档案", "Model Profile"));
+        profChoice.setOptions(profileLabels);
+        profChoice.setSelection(initialProfilePos);
+        form.addView(profChoice);
 
         TextView effLbl = new TextView(this);
         effLbl.setText(Localize.t(this, "推理强度 (Effort)", "Reasoning Effort"));
@@ -942,17 +930,21 @@ public class ModelsActivity extends Activity {
         effLbl.setPadding(0, UiChrome.dp(this, 10), 0, 0);
         form.addView(effLbl);
 
-        Spinner effSpinner = new Spinner(this);
-        effSpinner.setContentDescription("route_dialog_effort_spinner");
-        form.addView(effSpinner);
+        ChoiceField effChoice = new ChoiceField(this);
+        effChoice.setContentDescription("route_dialog_effort_picker");
+        effChoice.setTitle(Localize.t(this, "推理强度 (Effort)", "Reasoning Effort"));
+        LinearLayout.LayoutParams effLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        effLp.topMargin = UiChrome.dp(this, 6);
+        effChoice.setLayoutParams(effLp);
+        form.addView(effChoice);
 
         final List<String> effOptions = new ArrayList<>();
         final Runnable bindEfforts = () -> {
-            int pos = profSpinner.getSelectedItemPosition();
+            int pos = profChoice.getSelectedItemPosition();
             String pid = (pos >= 0 && pos < profileIds.size()) ? profileIds.get(pos) : "";
             boolean isFollowDefault = pid.isEmpty();
             effLbl.setVisibility(isFollowDefault ? View.GONE : View.VISIBLE);
-            effSpinner.setVisibility(isFollowDefault ? View.GONE : View.VISIBLE);
+            effChoice.setVisibility(isFollowDefault ? View.GONE : View.VISIBLE);
             effOptions.clear();
             effOptions.add("default");
             if (!isFollowDefault) {
@@ -967,15 +959,12 @@ public class ModelsActivity extends Activity {
                     for (String e : ALL_EFFORTS) effOptions.add(e);
                 }
             }
-            effSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, effOptions));
+            effChoice.setOptions(effOptions);
             int sel = effOptions.indexOf(currentEffort);
-            effSpinner.setSelection(sel >= 0 ? sel : 0, false);
+            effChoice.setSelection(sel >= 0 ? sel : 0);
         };
         bindEfforts.run();
-        profSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) { bindEfforts.run(); }
-            @Override public void onNothingSelected(AdapterView<?> parent) {}
-        });
+        profChoice.setOnChoiceListener(pos -> bindEfforts.run());
 
         String posBtnLabel = immediateSave
                 ? Localize.t(this, "保存并应用", "Save & Apply")
@@ -985,13 +974,13 @@ public class ModelsActivity extends Activity {
                 .setView(form)
                 .setNegativeButton(Localize.t(this, "取消", "Cancel"), null)
                 .setPositiveButton(posBtnLabel, (d, w) -> {
-                    int pIdx = profSpinner.getSelectedItemPosition();
+                    int pIdx = profChoice.getSelectedItemPosition();
                     String chosenPid = (pIdx >= 0 && pIdx < profileIds.size()) ? profileIds.get(pIdx) : "";
                     if (chosenPid.isEmpty()) {
                         callback.onChosen(null);
                         return;
                     }
-                    int eIdx = effSpinner.getSelectedItemPosition();
+                    int eIdx = effChoice.getSelectedItemPosition();
                     String chosenEff = (eIdx >= 0 && eIdx < effOptions.size()) ? effOptions.get(eIdx) : "default";
                     try {
                         JSONObject routeObj = new JSONObject();
@@ -1006,39 +995,38 @@ public class ModelsActivity extends Activity {
                 .show();
     }
 
-    private void refreshEffortSpinner(String profileId) {
-        boolean prev = mBindingSpinners;
-        mBindingSpinners = true;
+    private void refreshEffortChoice(String profileId) {
+        boolean prev = mBindingChoices;
+        mBindingChoices = true;
         try {
-            mEffortOptionsForSpinner.clear();
-            mEffortOptionsForSpinner.add("default");
+            mEffortOptionsForChoice.clear();
+            mEffortOptionsForChoice.add("default");
             JSONObject prof = findById(mProfiles, profileId);
             JSONArray efforts = prof != null ? prof.optJSONArray("efforts") : null;
             if (efforts != null) {
                 for (int i = 0; i < efforts.length(); i++) {
                     String e = jsonArrStr(efforts, i);
-                    if (!e.isEmpty() && !mEffortOptionsForSpinner.contains(e)) {
-                        mEffortOptionsForSpinner.add(e);
+                    if (!e.isEmpty() && !mEffortOptionsForChoice.contains(e)) {
+                        mEffortOptionsForChoice.add(e);
                     }
                 }
             } else {
-                for (String e : ALL_EFFORTS) mEffortOptionsForSpinner.add(e);
+                for (String e : ALL_EFFORTS) mEffortOptionsForChoice.add(e);
             }
             String currentEffort = mDefaultRoute != null ? UiChrome.jsonStr(mDefaultRoute, "effort", "default") : "default";
-            int sel = mEffortOptionsForSpinner.indexOf(currentEffort);
+            int sel = mEffortOptionsForChoice.indexOf(currentEffort);
             if (sel < 0) {
                 sel = 0;
-                if (mDefaultRoute != null && !mEffortOptionsForSpinner.isEmpty()) {
+                if (mDefaultRoute != null && !mEffortOptionsForChoice.isEmpty()) {
                     try {
-                        mDefaultRoute.put("effort", mEffortOptionsForSpinner.get(0));
+                        mDefaultRoute.put("effort", mEffortOptionsForChoice.get(0));
                     } catch (Throwable ignored) {}
                 }
             }
-            mDefaultEffortSpinner.setAdapter(new ArrayAdapter<>(
-                    this, android.R.layout.simple_spinner_dropdown_item, mEffortOptionsForSpinner));
-            mDefaultEffortSpinner.setSelection(sel, false);
+            mDefaultEffortChoice.setOptions(mEffortOptionsForChoice);
+            mDefaultEffortChoice.setSelection(sel);
         } finally {
-            mBindingSpinners = prev;
+            mBindingChoices = prev;
         }
     }
 
@@ -1305,13 +1293,14 @@ public class ModelsActivity extends Activity {
         box.addView(nameInput);
 
         box.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "接口格式", "API Format"), p));
-        Spinner formatSpinner = new Spinner(this);
-        formatSpinner.setContentDescription("provider_format_spinner");
-        formatSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, API_FORMATS));
+        ChoiceField formatChoice = new ChoiceField(this);
+        formatChoice.setContentDescription("provider_format_picker");
+        formatChoice.setTitle(Localize.t(this, "接口格式", "API Format"));
+        formatChoice.setOptions(API_FORMATS);
         String curFmt = isEdit ? UiChrome.jsonStr(existing, "apiFormat", "openai") : "openai";
         int fmtIdx = Arrays.asList(API_FORMATS).indexOf(curFmt);
-        if (fmtIdx >= 0) formatSpinner.setSelection(fmtIdx, false);
-        box.addView(formatSpinner);
+        if (fmtIdx >= 0) formatChoice.setSelection(fmtIdx);
+        box.addView(formatChoice);
 
         box.addView(UiChrome.makeSectionLabel(this, "Base URL", p));
         EditText urlInput = new EditText(this);
@@ -1323,18 +1312,12 @@ public class ModelsActivity extends Activity {
         urlInput.setText(initUrl);
         box.addView(urlInput);
 
-        formatSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
-                String fmt = API_FORMATS[pos];
-                String cur = urlInput.getText() != null ? urlInput.getText().toString().trim() : "";
-                if (cur.isEmpty() || "https://api.openai.com/v1".equals(cur) || "https://api.anthropic.com".equals(cur)) {
-                    urlInput.setText(defaultBaseUrlForFormat(fmt));
-                }
+        formatChoice.setOnChoiceListener(pos -> {
+            String fmt = API_FORMATS[pos];
+            String cur = urlInput.getText() != null ? urlInput.getText().toString().trim() : "";
+            if (cur.isEmpty() || "https://api.openai.com/v1".equals(cur) || "https://api.anthropic.com".equals(cur)) {
+                urlInput.setText(defaultBaseUrlForFormat(fmt));
             }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
         });
 
         box.addView(UiChrome.makeSectionLabel(this, "API Key", p));
@@ -1356,7 +1339,7 @@ public class ModelsActivity extends Activity {
                 .create();
         dlg.setOnShowListener(di -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String name = nameInput.getText() != null ? nameInput.getText().toString().trim() : "";
-            String fmt = API_FORMATS[formatSpinner.getSelectedItemPosition()];
+            String fmt = API_FORMATS[formatChoice.getSelectedItemPosition()];
             String baseUrl = urlInput.getText() != null ? urlInput.getText().toString().trim() : "";
             String apiKey = keyInput.getText() != null ? keyInput.getText().toString().trim() : "";
 
@@ -1423,8 +1406,9 @@ public class ModelsActivity extends Activity {
         box.addView(nameInput);
 
         box.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "所属服务商", "Provider"), p));
-        Spinner provSpinner = new Spinner(this);
-        provSpinner.setContentDescription("profile_provider_spinner");
+        ChoiceField provChoice = new ChoiceField(this);
+        provChoice.setContentDescription("profile_provider_picker");
+        provChoice.setTitle(Localize.t(this, "所属服务商", "Provider"));
         final List<String> provIds = new ArrayList<>();
         final List<String> provLabels = new ArrayList<>();
         int selProv = 0;
@@ -1437,9 +1421,9 @@ public class ModelsActivity extends Activity {
             provLabels.add(UiChrome.jsonStr(pr, "name", id) + " (" + UiChrome.jsonStr(pr, "apiFormat") + ")");
             if (id.equals(curProvId)) selProv = provIds.size() - 1;
         }
-        provSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, provLabels));
-        if (selProv < provLabels.size()) provSpinner.setSelection(selProv, false);
-        box.addView(provSpinner);
+        provChoice.setOptions(provLabels);
+        if (selProv < provLabels.size()) provChoice.setSelection(selProv);
+        box.addView(provChoice);
 
         box.addView(UiChrome.makeSectionLabel(this, Localize.t(this, "模型 ID", "Model ID"), p));
         EditText modelInput = new EditText(this);
@@ -1508,7 +1492,7 @@ public class ModelsActivity extends Activity {
 
         TextView fetchBtn = UiChrome.makePillButton(this,
                 Localize.t(this, "拉取模型列表 (Fetch Catalog)", "Fetch Catalog"), false, p, v -> {
-                    int pidx = provSpinner.getSelectedItemPosition();
+                    int pidx = provChoice.getSelectedItemPosition();
                     if (pidx < 0 || pidx >= provIds.size()) return;
                     JSONObject prov = findById(mProviders, provIds.get(pidx));
                     if (prov == null) return;
@@ -1575,7 +1559,7 @@ public class ModelsActivity extends Activity {
         dlg.setOnShowListener(di -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String name = nameInput.getText() != null ? nameInput.getText().toString().trim() : "";
             String model = modelInput.getText() != null ? modelInput.getText().toString().trim() : "";
-            int pidx = provSpinner.getSelectedItemPosition();
+            int pidx = provChoice.getSelectedItemPosition();
             String provId = (pidx >= 0 && pidx < provIds.size()) ? provIds.get(pidx) : "";
             if (name.isEmpty()) name = model;
             if (name.isEmpty() || model.isEmpty() || provId.isEmpty()) {
@@ -1624,22 +1608,19 @@ public class ModelsActivity extends Activity {
     }
 
     private void showCatalogPickerDialog(JSONArray models, CatalogSelectListener listener) {
-        final String[] labels = new String[models.length()];
+        final List<String> labels = new ArrayList<>();
         for (int i = 0; i < models.length(); i++) {
             JSONObject m = models.optJSONObject(i);
             String id = m != null ? UiChrome.jsonStr(m, "id") : "";
             int ctx = m != null ? m.optInt("contextWindowTokens", 0) : 0;
-            labels[i] = ctx > 0 ? (id + " (" + ctx + " ctx)") : id;
+            labels.add(ctx > 0 ? (id + " (" + ctx + " ctx)") : id);
         }
-        new AlertDialog.Builder(this)
-                .setTitle(Localize.t(this, "选择模型", "Choose Model"))
-                .setItems(labels, (d, which) -> {
-                    JSONObject picked = models.optJSONObject(which);
-                    if (picked != null && listener != null) {
-                        listener.onSelected(picked);
-                    }
-                })
-                .show();
+        ChoiceField.showSheet(this, Localize.t(this, "选择模型", "Choose Model"), labels, -1, which -> {
+            JSONObject picked = models.optJSONObject(which);
+            if (picked != null && listener != null) {
+                listener.onSelected(picked);
+            }
+        });
     }
 
     private void runTestModel(String profileId) {
