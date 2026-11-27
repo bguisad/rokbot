@@ -1,5 +1,6 @@
 require('./workspace-keys.cjs');
 require('./suggestions-composer.cjs');
+require('./migrate-settings.cjs');
 require('../dist/electron-preload/preload.cjs');
 const { ipcRenderer, contextBridge } = require('electron');
 contextBridge.exposeInMainWorld('localBot', {

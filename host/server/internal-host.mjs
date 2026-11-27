@@ -5,7 +5,7 @@ export function internalHostClient(url, token) {
     const manualSummary = method === 'localApplicationRpc' && args?.action === 'rokbot.manual-summary';
     const response = await fetch(new URL(`/api/${method}`, url), { method: 'POST', redirect: 'error',
       headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(args), signal: signal ?? AbortSignal.timeout(manualSummary ? 300000 : method === 'localApplicationRpc' ? 110000 : 30000) });
+      body: JSON.stringify(args), signal: signal ?? AbortSignal.timeout(manualSummary || method.startsWith('importLocalMigration') ? 300000 : method === 'localApplicationRpc' ? 110000 : 30000) });
     const result = await response.json();
     if (!response.ok) throw new HttpError(response.status, result.error ?? 'Host request failed');
     return result;

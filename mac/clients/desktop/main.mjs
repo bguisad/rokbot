@@ -25,6 +25,7 @@ import { auth, boot, theme, language, experiments, createLocalServices, desktopE
 import { createModelBridge } from './model-bridge.mjs';
 import { createDesktopUpdater, createTailcatUpdateFetch, resolveDesktopUpdateSource } from './updater.mjs';
 import { applyAsarUpdateAndRestart, canApplyAsarUpdate } from './asar-install.mjs';
+import { createMigration } from './migrate-desktop.mjs';
 
 const clientRoot = path.dirname(fileURLToPath(import.meta.url));
 const payload = path.join(clientRoot, '../dist');
@@ -151,6 +152,45 @@ async function showConnection() {
   connectWindow.on('closed', () => { connectWindow = null; });
   await connectWindow.loadFile(path.join(clientRoot, 'connect.html'));
 }
+let migrateWindow = null;
+const migration = createMigration({ getConfig: () => config, request: (...args) => {
+  if (!gateway) throw new Error(localText('尚未连接 Host', 'Not connected to a Host'));
+  return gateway.request(...args);
+}, dialog, clipboard, getWindow: () => migrateWindow });
+/** "Migrate from Grok Bot" window: the shared wizard over the device migration API. */
+async function showMigration() {
+  if (!app.isReady() || !config) return;
+  if (migrateWindow && !migrateWindow.isDestroyed()) { migrateWindow.show(); migrateWindow.focus(); return; }
+  const background = nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff';
+  const desktopIcon = windowIcon(clientRoot);
+  migrateWindow = new BrowserWindow({ width: 940, height: 780, minWidth: 560, minHeight: 520, title: localText('从 Grok Bot 迁移', 'Migrate from Grok Bot'),
+    backgroundColor: background, ...(desktopIcon ? { icon: desktopIcon } : {}), ...windowChrome(background),
+    webPreferences: { preload: path.join(clientRoot, 'migrate-preload.cjs'), sandbox: true, nodeIntegration: false, contextIsolation: true } });
+  migrateWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  migrateWindow.webContents.on('will-navigate', event => event.preventDefault());
+  migrateWindow.on('closed', () => { migrateWindow = null; });
+  await migrateWindow.loadFile(path.join(clientRoot, 'migrate.html'));
+}
+for (const [name, handler] of Object.entries({
+  detect: () => migration.detect(),
+  'upload-folder': (progress, folder) => migration.uploadFolder(String(folder ?? ''), progress),
+  'choose-folder': progress => migration.chooseFolder(progress),
+  'choose-file': progress => migration.chooseFile(progress),
+  list: () => migration.list(),
+  'create-token': (_progress, body) => migration.createToken(body),
+  'revoke-token': (_progress, id) => migration.revokeToken(String(id)),
+  prompt: (_progress, options) => migration.prompt(options ?? {}),
+  preview: (_progress, id) => migration.preview(String(id)),
+  import: (_progress, id, selection) => migration.import(String(id), selection),
+  discard: (_progress, id) => migration.discard(String(id)),
+  copy: (_progress, text) => migration.copy(text),
+})) ipcMain.handle(`rokbot-migrate:${name}`, (event, ...args) => {
+  if (!trusted(event, migrateWindow)) throw new Error('Unexpected renderer');
+  const progress = value => { if (!event.sender.isDestroyed()) event.sender.send('rokbot-migrate:progress', value); };
+  return handler(progress, ...args);
+});
+ipcMain.on('rokbot-local:migrate-open', event => { if (trusted(event, mainWindow)) void showMigration(); });
+
 function updateMenu() {
   // Windows windows are frameless with native caption buttons; Linux uses standard File/Edit/View/Window menus.
   Menu.setApplicationMenu(Menu.buildFromTemplate(isWindows
@@ -158,6 +198,7 @@ function updateMenu() {
     : isLinux
       ? [{ role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]
       : [{ label: 'RokBot', submenu: [{ role: 'about' }, { type: 'separator' },
+        { label: localText('从 Grok Bot 迁移…', 'Migrate from Grok Bot…'), enabled: Boolean(config), click: () => void showMigration() }, { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
 }

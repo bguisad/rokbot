@@ -997,6 +997,12 @@ export function patchManifest(axmlBuffer, options = {}) {
     makeAttrHex('windowSoftInputMode', 0x00000010),
   ]);
 
+  upsertAppChild('activity', 'dev.rokbot.nativeapp.MigrateActivity', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.MigrateActivity'),
+    makeAttrBool('exported', false),
+    makeAttrHex('windowSoftInputMode', 0x00000010),
+  ]);
+
   upsertAppChild('activity', 'dev.rokbot.nativeapp.SuggestionsSettingsActivity', [
     makeAttrStr('name', 'dev.rokbot.nativeapp.SuggestionsSettingsActivity'),
     makeAttrBool('exported', false),

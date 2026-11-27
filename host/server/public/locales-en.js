@@ -1088,4 +1088,5 @@ export default {
   "排序 ID 列表包含无效或重复项": "Reorder ID list contains invalid or duplicate IDs",
   "输入建议配置格式无效": "Invalid input suggestions settings payload",
   "常用语列表格式无效": "Invalid quick phrases list",
+  "从 Grok Bot 迁移": "Migrate from Grok Bot",
 };

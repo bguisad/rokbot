@@ -45,6 +45,7 @@
 - **模型自己选**：兼容 OpenAI Chat Completions、OpenAI Responses 和 Anthropic Messages，接哪家服务、用哪个模型由你决定。
 - **场景模型路由**：输入建议、上下文压缩、记忆提取、自动审核、子 Agent、定时任务 6 个场景可以各用一个模型和思考强度，单个 Bot 也能单独指定。
 - **主模型挂了自动切备用**：每条路由最多 8 个备用模型，主模型出错时自动切换，已经开始输出的回复不会中途换模型。
+- **从 Grok Bot 迁移**：一键读取本机 Grok Bot 数据，或复制迁移 prompt 让 Grok Bot 导出记忆、技能和例程，预览后导入，可重复执行不产生重复，详见[迁移指南](docs/migrate-from-grokbot.md)。
 - **无需云端账号**：用 6 位一次性配对码接入，外网访问可用内置的 Tailcat 组网、Tailscale 或 HTTPS 反向代理。
 
 <br clear="right" />
