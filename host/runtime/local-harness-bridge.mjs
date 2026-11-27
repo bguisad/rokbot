@@ -27,6 +27,7 @@ import {
   createSelfHostedTurnAgentComposition,
   wrapInferenceForSelfHosted,
 } from './local-state-tools.mjs';
+import { createLocalCanvasTools } from './local-canvas-tools.mjs';
 
 const patchedLibraries = new WeakSet();
 
@@ -724,6 +725,8 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
   const botFileCopy = createLocalBotFileCopyPort({ dataDir, agentId, remoteBox, library });
   const connectorFiles = createLocalConnectorFilesPort({ agentId, agentDir, remoteBox, mcpExt, library });
   const effortTool = createLocalEffortToolPort({ session });
+  // Local canvases replace the official cloud canvas service (WriteCanvas & co.).
+  const canvasTools = dataDir ? createLocalCanvasTools({ library, dataDir, agentId }).tools : [];
   const rawSkillStore = session.skills ?? { list: () => [], listAll: () => [] };
   const withReferenceSkill = (items) => {
     const list = Array.isArray(items) ? items : [];
@@ -801,6 +804,7 @@ export function createRunnerForSession(library, tm, session, { extensions, emitG
     library,
     (names) => { lastOfferedTools = names; },
     getSanitizeOpts,
+    () => canvasTools,
   );
 
   const runner = new RunnerClass({
