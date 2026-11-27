@@ -94,6 +94,24 @@ class ParitySources(unittest.TestCase):
         self.assertIn('RBInstallSuggestions();', source('RBBootstrap.m'))
         self.assertIn('RBShowSuggestionsSettingsFrom(self)', source('RBConnection.m'))
 
+    def test_suggestions_habits_local_completion_and_migration_contract(self):
+        text = source('RBSuggestions.m')
+        for needle in [
+            '根据习惯学习', 'Learn From My Habits', 'rokbot.suggestions.learning',
+            '本地补全', 'Local Completion', 'rokbot.suggestions.local-completion',
+            '清空学习记录', 'Clear Learned Habits', 'rokbot.suggestions.clear-habits',
+            '个性化', 'Personalization',
+            '/local/suggestions/feedback', '/local/suggestions/habits',
+            'frequentSuggestions', 'completionCandidates',
+            'learningEnabled', 'localCompletionEnabled',
+            'RBSuggestionsMergeItemsWithFrequent', 'RBSuggestionsFeedbackBody',
+            'RBSuggestionsHabitMatch', 'RBSuggestionsBarFadeDuration',
+        ]:
+            self.assertIn(needle, text, needle)
+        conn = source('RBConnection.m')
+        self.assertIn('RBL(@"数据迁移", @"Data Migration")', conn)
+        self.assertIn('rokbot.host.migrate', conn)
+
     def test_group_creation_matches_desktop_flow(self):
         text = source('RBGroupCreate.m')
         for needle in ['/api/listAgents', '/api/createAgent', '/api/createGroup', '/api/deleteAgents',

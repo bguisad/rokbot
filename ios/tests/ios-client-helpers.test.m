@@ -612,7 +612,69 @@ static void testSuggestionsHelpers(void) {
   CHECK(![cHints mayHaveHistory:@"empty-bot"]);
   [eng onDraftChanged:@"hi there" agentId:@"empty-bot" composing:NO cursorAtEnd:YES now:3.6];
   CHECK(!eng.hasPending);
-  puts("PASS: RBSuggestions settings parsing, model-only AI, merge order & de-dup, composer filter, click-to-send body, agent observation (strong vs weak), late-response guard, phrase validation, shimmer load state & inline completion");
+
+  // Suggestions v4 (PR #4): habit learning settings, frequent merge, feedback body, local completion matcher & bar animation const.
+  CHECK(fabs(RBSuggestionsBarFadeDuration - 0.17) < 0.0001);
+  CHECK([defaults[@"learningEnabled"] boolValue] && [defaults[@"localCompletionEnabled"] boolValue]);
+  NSDictionary *habitOff = RBSuggestionsParseSettings(@{ @"learningEnabled" : @NO, @"localCompletionEnabled" : @NO });
+  CHECK(![habitOff[@"learningEnabled"] boolValue] && ![habitOff[@"localCompletionEnabled"] boolValue]);
+
+  NSArray *strList = RBSuggestionsStringList(@[ @" a ", @"", @"null", NSNull.null, @42, @"\u200Bb ", @"c", @"d" ], 2);
+  CHECK([strList isEqualToArray:(@[ @"a", @"b" ])]);
+  CHECK(RBSuggestionsStringList(nil, 5).count == 0 && RBSuggestionsStringList(@[ @"a" ], 0).count == 0);
+
+  NSArray *mergedHabit = RBSuggestionsMergeItemsWithFrequent(
+      @[ @{ @"id" : @"p1", @"text" : @"提个 PR" } ],
+      @[ @"先修 upload.spec", @"两个一起修" ],
+      @[ @"跑一下 e2e", @"提个 pr", @"看下 CI" ],
+      3);
+  CHECK(mergedHabit.count == 4);
+  CHECK([mergedHabit[0][@"type"] isEqualToString:@"phrase"] && [mergedHabit[0][@"text"] isEqualToString:@"提个 PR"]);
+  CHECK([mergedHabit[1][@"type"] isEqualToString:@"ai"] && [mergedHabit[1][@"text"] isEqualToString:@"先修 upload.spec"]);
+  CHECK([mergedHabit[2][@"type"] isEqualToString:@"ai"] && [mergedHabit[2][@"text"] isEqualToString:@"两个一起修"]);
+  CHECK([mergedHabit[3][@"type"] isEqualToString:@"frequent"] && [mergedHabit[3][@"text"] isEqualToString:@"跑一下 e2e"]);
+  NSArray *freqOnly = RBSuggestionsMergeItemsWithFrequent(@[], @[], @[ @"a1", @"a2", @"a3", @"a4" ], 3);
+  CHECK(freqOnly.count == 3 && [freqOnly[0][@"type"] isEqualToString:@"frequent"] && [freqOnly[2][@"text"] isEqualToString:@"a3"]);
+  CHECK(RBSuggestionsMergeItemsWithFrequent(@[ @"p" ], @[ @"x" ], @[ @"f" ], 0).count == 1);
+
+  NSMutableArray *manyShown = [NSMutableArray array];
+  [manyShown addObject:@{ @"type" : @"phrase", @"text" : @"继续" }];
+  [manyShown addObject:@{ @"type" : @"match", @"text" : @"本地匹配" }];
+  for (int i = 0; i < 10; i++) {
+    [manyShown addObject:@{ @"type" : (i % 2 == 0 ? @"ai" : @"frequent"), @"text" : [NSString stringWithFormat:@"item-%d", i] }];
+  }
+  NSString *longText = [@"" stringByPaddingToLength:450 withString:@"x" startingAtIndex:0];
+  NSDictionary *tapBody = RBSuggestionsFeedbackBody(@"bot-1", @"tap", longText, manyShown);
+  CHECK(tapBody != nil);
+  CHECK([tapBody[@"agentId"] isEqualToString:@"bot-1"] && [tapBody[@"action"] isEqualToString:@"tap"]);
+  CHECK([tapBody[@"text"] length] == 400);
+  CHECK([tapBody[@"shown"] count] == 8 && [tapBody[@"shown"][0] isEqualToString:@"item-0"]);
+  NSDictionary *dismissBody = RBSuggestionsFeedbackBody(@"bot-1", @"dismiss", @"ignored", manyShown);
+  CHECK(dismissBody != nil && [dismissBody[@"action"] isEqualToString:@"dismiss"] &&
+        [dismissBody[@"text"] isEqualToString:@""] && [dismissBody[@"shown"] count] == 8);
+  CHECK(RBSuggestionsFeedbackBody(@"bot-1", @"dismiss", @"", @[ @{ @"type" : @"phrase", @"text" : @"继续" } ]) == nil);
+  CHECK(RBSuggestionsFeedbackBody(@"bot-1", @"dismiss", @"", @[]) == nil);
+  CHECK(RBSuggestionsFeedbackBody(@"bot-1", @"invalid", @"x", manyShown) == nil);
+  CHECK(RBSuggestionsFeedbackBody(@"../bad", @"tap", @"x", manyShown) == nil);
+  CHECK(RBSuggestionsFeedbackBody(nil, @"tap", @"x", manyShown) == nil);
+
+  CHECK([RBSuggestionsNormalize(@"  Deploy \n\t Staging\u200B ") isEqualToString:@"deploy staging"]);
+  CHECK([RBSuggestionsNormalize(nil) isEqualToString:@""]);
+  NSArray *pool = RBSuggestionsHabitPool(
+      @[ @{ @"id" : @"p1", @"text" : @"提个 PR" }, @"跑一下全量测试" ],
+      @[ @"跑一下全量测试", @"帮我跑一下 lint", @"跑测试并截图", @"Deploy staging" ]);
+  CHECK([pool isEqualToArray:(@[ @"提个 PR", @"跑一下全量测试", @"帮我跑一下 lint", @"跑测试并截图", @"Deploy staging" ])]);
+  CHECK([RBSuggestionsHabitMatch(@"跑一", pool, 3) isEqualToArray:(@[ @"跑一下全量测试", @"帮我跑一下 lint" ])]);
+  CHECK([RBSuggestionsHabitMatch(@"跑测", pool, 3) isEqualToArray:(@[ @"跑测试并截图", @"跑一下全量测试" ])]);
+  CHECK([RBSuggestionsHabitMatch(@"deploy", pool, 3) isEqualToArray:(@[ @"Deploy staging" ])]);
+  CHECK(RBSuggestionsHabitMatch(@"提个 PR", pool, 3).count == 0);
+  CHECK(RBSuggestionsHabitMatch(@"  ", pool, 3).count == 0);
+  CHECK(RBSuggestionsHabitMatch(@"跑", pool, 1).count == 1);
+  CHECK(RBSuggestionsHabitMatch(@"跑", nil, 3).count == 0);
+  // In-order fuzzy match requires query >= 2 chars; single char only matches prefix/substring.
+  CHECK(RBSuggestionsHabitMatch(@"z", @[ @"abc", @"azc" ], 3).count == 1);
+  CHECK([RBSuggestionsHabitMatch(@"ac", @[ @"abc", @"xyz" ], 3) isEqualToArray:(@[ @"abc" ])]);
+  puts("PASS: RBSuggestions settings parsing, model-only AI, merge order & de-dup, composer filter, click-to-send body, agent observation (strong vs weak), late-response guard, phrase validation, shimmer load state, inline completion, habit suggestions & local matcher");
 }
 
 static void testCanvasHelpers(void) {
