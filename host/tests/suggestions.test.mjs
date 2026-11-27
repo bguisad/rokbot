@@ -73,7 +73,7 @@ test('SuggestionsSettings supports defaults, toggle updates, and quick phrases C
   t.after(() => rm(dir, { recursive: true, force: true }));
 
   const store = await new SuggestionsSettings(dir).load();
-  assert.deepEqual(store.current(), { enabled: true, aiEnabled: true, quickPhrases: [], updatedAt: null });
+  assert.deepEqual(store.current(), { enabled: true, aiEnabled: true, completionEnabled: true, quickPhrases: [], updatedAt: null });
 
   const added1 = await store.addPhrase({ text: '  继续  ' });
   const added2 = await store.addPhrase({ text: '好的，开始吧' });

@@ -19,6 +19,8 @@ async function stageClientDir(t) {
   const clientStage = path.join(stageDir, 'client');
   await cp(path.join(repo, 'web/client'), clientStage, { recursive: true });
   await cp(path.join(repo, 'mac/clients/desktop'), path.join(clientStage, 'desktop'), { recursive: true });
+  // The bundle serves shared .cjs scripts as .js (web/patchers/patch.mjs bundleFiles).
+  await cp(path.join(repo, 'mac/clients/desktop/composer-assist.cjs'), path.join(clientStage, 'desktop/composer-assist.js'));
   return { stageDir, clientStage };
 }
 
@@ -344,6 +346,8 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   const clientStage = path.join(stageDir, 'client');
   await cp(path.join(repo, 'web/client'), clientStage, { recursive: true });
   await cp(path.join(repo, 'mac/clients/desktop'), path.join(clientStage, 'desktop'), { recursive: true });
+  // The bundle serves shared .cjs scripts as .js (web/patchers/patch.mjs bundleFiles).
+  await cp(path.join(repo, 'mac/clients/desktop/composer-assist.cjs'), path.join(clientStage, 'desktop/composer-assist.js'));
   await writeFile(path.join(clientStage, 'official-preload.js'), [
     'export const methods = ["listAgents"];',
     'export const edges = { "desktop-mount": ["mountPanel"] };',
