@@ -14,6 +14,7 @@ import {
   SuggestionHabits, filterAndRankSuggestions, habitSuggestions, frequentMessages, profilePromptSummary,
   MAX_SUGGESTION_CHARS_ZH,
 } from './suggestion-habits.mjs';
+import { isAssistantOfferPhrase, isSelfUserEntry } from './suggestion-voice.mjs';
 
 // A suggestion answer is keyed by Bot + the last transcript entry, so it never goes stale while
 // that entry is the last one: keep it for a day in memory and a week on disk (one per Bot).
@@ -310,9 +311,11 @@ function extractText(value) {
 
 function normalizeRole(entry) {
   if (!entry || typeof entry !== 'object') return null;
-  if (entry.role === 'user' || entry.role === 'assistant') return entry.role;
+  // A "user" turn another Bot / an automation sent is not the user's voice: show it as the other side.
+  if (entry.role === 'user') return isSelfUserEntry(entry) ? 'user' : 'assistant';
+  if (entry.role === 'assistant') return entry.role;
   const kind = String(entry.kind ?? entry.type ?? '').toLowerCase();
-  if (kind === 'user' || kind === 'user-message' || kind === 'prompt' || kind === 'user_message') return 'user';
+  if (kind === 'user' || kind === 'user-message' || kind === 'prompt' || kind === 'user_message') return isSelfUserEntry(entry) ? 'user' : 'assistant';
   if (kind === 'assistant' || kind === 'assistant-message' || kind === 'send-message' || kind === 'agent-message' || kind === 'bot-message') {
     return 'assistant';
   }
@@ -379,6 +382,7 @@ export function parseSuggestionResponse(rawText) {
       .replace(/\s+/g, ' ')
       .trim();
     if (cleaned.length < 2 || cleaned.length > MAX_ITEM_CHARS) continue;
+    if (isAssistantOfferPhrase(cleaned)) continue;               // the Bot's voice, not the user's
     const key = cleaned.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -417,7 +421,9 @@ export function buildSuggestionMessages(recentMessages, lang, { profileSummary =
       '2) 用用户自己的口吻、语言、长短和常用说法（参考“用户习惯”），像他本人会打的字，不要客服腔；' +
       `3) 每条不超过${MAX_SUGGESTION_CHARS_ZH}个汉字；4) 0到3条，彼此不同，也不要重复用户最近发过的话；` +
       '5) 禁止空泛万能句，例如“继续”“继续执行下一步”“总结一下当前进展”“检查线上部署状态”“还有什么建议”“好的谢谢”“详细说说”；' +
-      '没有足够具体的就少给或返回 []；6) Bot 在提问或给选项时，优先给出具体的回答或选择。' +
+      '没有足够具体的就少给或返回 []；6) Bot 在提问或给选项时，优先给出具体的回答或选择；' +
+      '7) 每条都是用户发给 Bot 的话：“我”指用户本人，对象是 Bot（例如“帮我查一下这个问题”）；绝不能写成 Bot 主动提供帮助的口吻，' +
+      '禁止“要不要我…”“需要我…”“我可以帮你…”“我来帮你…”“让我来…”这类说法。' +
       '只输出 JSON 字符串数组，不要解释、序号、Markdown 或表情。'
     : 'Predict what this user will most likely type next in this chat; shown as quick replies above the input. ' +
       'Rules: 1) tie each item to something concrete in the latest assistant reply (file, command, error, option, number, name) so it would not fit another chat; ' +
@@ -425,6 +431,8 @@ export function buildSuggestionMessages(recentMessages, lang, { profileSummary =
       '3) at most 8 words each; 4) 0 to 3 items, distinct, not repeating what the user just sent; ' +
       '5) never generic filler like "continue", "next step", "summarize progress", "check the deployment status", "any other suggestions", "thanks", "tell me more" — return fewer or [] instead; ' +
       '6) when the assistant asks a question or offers options, answer or pick concretely. ' +
+      '7) every item is something the USER sends to the assistant: first person ("I", "me") is the user, addressing the assistant (e.g. "check this issue for me"); ' +
+      'never phrase an item as the assistant offering help — no "Would you like me to…", "Shall I…", "Do you want me to…", "Let me…", "I can help you…". ' +
       'Output ONLY a JSON array of strings, no explanation, numbering, markdown, or emojis.';
 
   const count = profileSummary ? PROMPT_CONTEXT_MESSAGES_WITH_PROFILE : PROMPT_CONTEXT_MESSAGES;
@@ -541,11 +549,13 @@ function buildCompletionMessages(recentMessages, draft, lang) {
   const systemPrompt = isZh
     ? '你是聊天输入框的行内补全助手。用户正在输入一条消息，请根据最近对话与用户已输入的内容，预测这句话最可能的后半句。'
       + '要求：1) 只输出紧接在已输入内容之后的续写部分，不要重复已输入的内容；2) 只写一句、不换行，尽量简短（不超过 20 个字）；'
-      + '3) 不要加引号、解释、Markdown 或表情符号；4) 没有把握时输出空内容。'
+      + '3) 不要加引号、解释、Markdown 或表情符号；4) 没有把握时输出空内容；'
+      + '5) 这是用户发给 Bot 的话：“我”是用户本人、对象是 Bot，绝不要续写成 Bot 主动提供帮助的口吻（如“要不要我…”“需要我…”“我来帮你…”）。'
     : 'You are an inline autocomplete for a chat composer. The user is typing a message. Using the recent conversation and the partial text, '
       + 'predict the most likely rest of the sentence. Rules: 1) Output ONLY the continuation that comes right after the partial text; never repeat it. '
       + '2) One short line (at most 8 words), no line breaks. 3) No quotes, explanations, markdown, or emojis. '
-      + '4) Start with a space when the continuation begins a new word. 5) If unsure, output nothing.';
+      + '4) Start with a space when the continuation begins a new word. 5) If unsure, output nothing. '
+      + '6) This is the USER writing to the assistant: "I"/"me" is the user; never continue it as the assistant offering help ("Would you like me to…", "Shall I…", "Let me…").';
   const transcript = recentMessages
     .map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.text}`)
     .join('\n');
@@ -593,6 +603,17 @@ export function parseCompletionResponse(rawText, draft = '') {
   const endsLatin = /[A-Za-z0-9,.;:!?]$/.test(typed);
   if (!endsWithSpace && endsLatin && startsWord && (leadingSpace || /[,.;:!?]$/.test(typed))) text = ` ${text}`;
   return text;
+}
+
+/**
+ * '' when draft + completion turns into the assistant's offer ("要不要" + "我一起查一下"). What the
+ * user typed themself stays theirs: a draft that already reads that way is completed as usual.
+ */
+export function voiceSafeCompletion(draft, completion) {
+  if (!completion) return '';
+  const typed = String(draft ?? '');
+  if (isAssistantOfferPhrase(typed)) return completion;
+  return isAssistantOfferPhrase(`${typed}${completion}`) ? '' : completion;
 }
 
 export class SuggestionsService {
@@ -800,6 +821,7 @@ export class SuggestionsService {
         : [];
       const candidates = localCompletion
         ? [...cfg.quickPhrases.map(item => item.text), ...(learning ? frequentMessages(profile, { min: 2, limit: MAX_COMPLETION_CANDIDATES }).map(item => item.text) : [])]
+          .filter(text => !isAssistantOfferPhrase(text))
         : [];
       const out = buildPayload({
         enabled: true, aiEnabled: true, quickPhrases: cfg.quickPhrases, cached: false, agentId,
@@ -1037,7 +1059,7 @@ export class SuggestionsService {
           signal,
           agentId,
         });
-        const completion = parseCompletionResponse(output, draft);
+        const completion = voiceSafeCompletion(draft, parseCompletionResponse(output, draft));
         this.#setCompletionCached(cacheKey, completion);
         return completion;
       })();
