@@ -245,6 +245,20 @@ ANDROID_DENSITIES = [
 ]
 IOS_SIZES = [120, 152, 167, 180, 1024]
 
+# Android system splash icon (windowSplashScreenAnimatedIcon = @drawable/splashscreen_logo). Android
+# 12+ draws it in a 288 dp box centered on the window (no icon background); React Native's launch
+# screen then shows the RokBot logo over its `launch-mark` as a 64 dp tile at the same center. So
+# the splash icon is that same tile, 64 dp in the 288 dp box, and both stages look identical.
+# Rendered for mdpi (1x) and xxxhdpi (4x): Android picks xxxhdpi on any denser screen and scales it
+# down, never up (patch-android.mjs adds the xxxhdpi configs to resources.arsc).
+# Written as a two-frame animated WebP (frame 2 differs only by one fully transparent corner pixel, so
+# nothing visibly changes): Resources decodes it to an AnimatedImageDrawable, which Android 12+'s
+# splash (WM Shell) draws live at full resolution. A static bitmap is pre-rendered by the system into
+# a smaller cache bitmap and upscaled, which still looked soft next to React Native's launch-mark.
+ANDROID_SPLASH_BOX_DP = 288
+ANDROID_SPLASH_TILE_DP = 64
+ANDROID_SPLASH_DENSITIES = [("mdpi", 1), ("xxxhdpi", 4)]
+
 
 def sample_cubic_bezier(
     p0: tuple[float, float],
@@ -658,6 +672,29 @@ def main() -> None:
             "sha256": file_sha256(fg_path),
         })
 
+    # Android system splash icon (see ANDROID_SPLASH_* above)
+    splash_dir = LOGO_DIR / "android" / "splash"
+    splash_dir.mkdir(parents=True, exist_ok=True)
+    splash_entries: list[dict[str, object]] = []
+    for density, scale in ANDROID_SPLASH_DENSITIES:
+        size = ANDROID_SPLASH_BOX_DP * scale
+        splash_path = splash_dir / f"splashscreen_logo-{density}.webp"
+        splash_im = render_logo(size, tile_frac=ANDROID_SPLASH_TILE_DP / ANDROID_SPLASH_BOX_DP)
+        twin = splash_im.copy()
+        twin.putpixel((0, 0), (0, 0, 0, 1))  # keeps the frames distinct (Pillow merges equal frames)
+        splash_im.save(splash_path, format="WEBP", save_all=True, append_images=[twin], duration=[400, 400],
+                       loop=1, lossless=True, quality=100, method=6)
+        splash_entries.append({
+            "density": density,
+            "kind": "splashscreen_logo",
+            "frames": 2,
+            "path": rel_posix(splash_path),
+            "width": size,
+            "height": size,
+            "mode": splash_im.mode,
+            "sha256": file_sha256(splash_path),
+        })
+
     # iOS AppIcons (opaque RGB mode, no alpha channel)
     ios_dir = LOGO_DIR / "ios"
     ios_dir.mkdir(parents=True, exist_ok=True)
@@ -693,6 +730,7 @@ def main() -> None:
         "ico": ico_entry,
         "icns": icns_entry,
         "android": android_entries,
+        "androidSplash": splash_entries,
         "ios": ios_entries,
     }
     manifest_path = LOGO_DIR / "manifest.json"
