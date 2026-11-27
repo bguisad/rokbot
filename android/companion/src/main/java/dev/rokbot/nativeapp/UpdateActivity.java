@@ -8,6 +8,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -175,6 +176,24 @@ public class UpdateActivity extends Activity {
         mSecondary = UiChrome.makePillButton(this, Localize.t(this, "稍后", "Later"), false, p, v -> finish());
         root.addView(mSecondary);
 
+        CheckBox autoCheck = new CheckBox(this);
+        autoCheck.setText(Localize.t(this, "有新版本时在后台自动下载", "Auto-download updates in background"));
+        autoCheck.setTextColor(p.textPrimary);
+        autoCheck.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        autoCheck.setChecked(Storage.isAutoDownloadUpdatesEnabled(this));
+        autoCheck.setContentDescription("auto_download_updates_toggle");
+        LinearLayout.LayoutParams aclp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        aclp.topMargin = UiChrome.dp(this, 14);
+        autoCheck.setLayoutParams(aclp);
+        autoCheck.setOnCheckedChangeListener((btn, checked) -> {
+            Storage.setAutoDownloadUpdatesEnabled(this, checked);
+            if (checked && AppUpdater.state() == AppUpdater.STATE_AVAILABLE && AppUpdater.info() != null) {
+                AppUpdater.maybeStartBackgroundDownload(this, AppUpdater.info());
+            }
+        });
+        root.addView(autoCheck);
+
         TextView foot = text(p.textMuted, 12, false);
         foot.setPadding(UiChrome.dp(this, 4), UiChrome.dp(this, 16), UiChrome.dp(this, 4), 0);
         foot.setText(Localize.t(this,
@@ -232,7 +251,7 @@ public class UpdateActivity extends Activity {
                 statusColor = p.blueAccent;
                 break;
             case AppUpdater.STATE_READY:
-                status = Localize.t(this, "更新已下载，可以安装", "Update ready to install");
+                status = Localize.t(this, "已下载，重启即可更新", "Downloaded, restart to update");
                 statusColor = p.success;
                 break;
             case AppUpdater.STATE_ERROR:
@@ -283,7 +302,7 @@ public class UpdateActivity extends Activity {
                 enabled = false;
                 break;
             case AppUpdater.STATE_READY:
-                primary = Localize.t(this, "安装更新", "Install update");
+                primary = Localize.t(this, "重启更新", "Restart to update");
                 break;
             case AppUpdater.STATE_CHECKING:
                 primary = Localize.t(this, "正在检查…", "Checking…");
@@ -349,6 +368,7 @@ public class UpdateActivity extends Activity {
         try {
             AppUpdater.notePendingInstall(this);
             UpdateManager.launchInstaller(this, apk);
+            finishAffinity();
         } catch (Throwable t) {
             Toast.makeText(this, Localize.t(this, "无法打开系统安装器：", "Cannot open the installer: ") + t.getMessage(),
                     Toast.LENGTH_LONG).show();

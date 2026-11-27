@@ -452,25 +452,11 @@ public final class UpdateManager {
         String deltaUrl = "";
         String deltaSha = "";
         long deltaSize = -1L;
-        if (deltas != null) {
-            for (int i = 0; i < deltas.length(); i++) {
-                JSONObject d = deltas.optJSONObject(i);
-                if (d == null) continue;
-                String fromSha = UiChrome.jsonStr(d, "fromApkSha256", UiChrome.jsonStr(d, "fromSha256")).trim().toLowerCase(Locale.US);
-                String format = UiChrome.jsonStr(d, "format").trim();
-                if (!format.isEmpty() && !"RBDELTA1".equalsIgnoreCase(format) && !"GBDELTA1".equalsIgnoreCase(format)) {
-                    continue;
-                }
-                String dUrl = UiChrome.jsonStr(d, "url").trim();
-                String dSha = UiChrome.jsonStr(d, "sha256").trim().toLowerCase(Locale.US);
-                long dSize = d.optLong("size", -1L);
-                if (fromSha.equalsIgnoreCase(installedSha) && !dUrl.isEmpty() && dSha.length() == 64 && dSize > 0) {
-                    deltaUrl = resolveManifestResourceUrl(ctx, feedUrl, dUrl);
-                    deltaSha = dSha;
-                    deltaSize = dSize;
-                    break;
-                }
-            }
+        JSONObject preferredDelta = selectPreferredDelta(deltas, installedVersionCode, installedSha);
+        if (preferredDelta != null) {
+            deltaUrl = resolveManifestResourceUrl(ctx, feedUrl, UiChrome.jsonStr(preferredDelta, "url").trim());
+            deltaSha = UiChrome.jsonStr(preferredDelta, "sha256").trim().toLowerCase(Locale.US);
+            deltaSize = preferredDelta.optLong("size", -1L);
         }
 
         String resolvedFull = fullUrl.isEmpty() ? "" : resolveManifestResourceUrl(ctx, feedUrl, fullUrl);
@@ -498,10 +484,62 @@ public final class UpdateManager {
         return new ParsedManifest(false, shortSha, info);
     }
 
+    public static JSONObject selectPreferredDelta(JSONArray deltas, long installedVersionCode, String installedSha) {
+        if (deltas == null) return null;
+        JSONObject shaFallback = null;
+        for (int i = 0; i < deltas.length(); i++) {
+            JSONObject d = deltas.optJSONObject(i);
+            if (d == null) continue;
+            String format = UiChrome.jsonStr(d, "format").trim();
+            if (!format.isEmpty() && !"RBDELTA1".equalsIgnoreCase(format) && !"GBDELTA1".equalsIgnoreCase(format)) {
+                continue;
+            }
+            String dUrl = UiChrome.jsonStr(d, "url").trim();
+            String dSha = UiChrome.jsonStr(d, "sha256").trim().toLowerCase(Locale.US);
+            long dSize = d.optLong("size", -1L);
+            if (dUrl.isEmpty() || dSha.length() != 64 || dSize <= 0) continue;
+
+            long fromCode = d.optLong("fromVersionCode", -1L);
+            String fromSha = UiChrome.jsonStr(d, "fromApkSha256",
+                    UiChrome.jsonStr(d, "fromSha256", UiChrome.jsonStr(d, "baseSha256"))).trim().toLowerCase(Locale.US);
+            if (installedVersionCode > 0 && fromCode > 0) {
+                if (fromCode == installedVersionCode
+                        && (fromSha.isEmpty() || installedSha == null || fromSha.equalsIgnoreCase(installedSha))) {
+                    return d;
+                }
+                continue;
+            }
+            if (shaFallback == null && installedSha != null && !installedSha.isEmpty() && fromSha.equalsIgnoreCase(installedSha)) {
+                shaFallback = d;
+            }
+        }
+        return shaFallback;
+    }
+
+    public static boolean verifyExistingStagedApk(Context ctx, File apkFile, String expectedSha256, long expectedSize) {
+        if (ctx == null || apkFile == null || !apkFile.isFile()) return false;
+        if (expectedSha256 == null || expectedSha256.length() != 64) return false;
+        if (expectedSize > 0 && apkFile.length() != expectedSize) return false;
+        try {
+            if (!sha256Hex(apkFile).equalsIgnoreCase(expectedSha256)) {
+                apkFile.delete();
+                return false;
+            }
+            String installedCert = getInstalledCertSha256(ctx);
+            if (installedCert == null || installedCert.isEmpty()) return false;
+            verifyStagedApk(ctx, apkFile, installedCert);
+            return true;
+        } catch (Throwable ignored) {
+            apkFile.delete();
+            return false;
+        }
+    }
+
     private static void stageUpdateFromInfo(Context ctx, File baseApk, UpdateManifestInfo info, Callback cb) throws Exception {
         File updatesDir = new File(ctx.getFilesDir(), "updates");
         if (!updatesDir.exists()) updatesDir.mkdirs();
-        File readyApk = new File(updatesDir, "ready-" + info.targetSha256.substring(0, 12) + ".apk");
+        String targetPrefix = info.targetSha256.substring(0, 12);
+        File readyApk = new File(updatesDir, "ready-" + targetPrefix + ".apk");
 
         if (readyApk.isFile() && readyApk.length() == info.fullSize && sha256Hex(readyApk).equalsIgnoreCase(info.targetSha256)) {
             verifyStagedApk(ctx, readyApk, info.installedCertSha256);
@@ -509,43 +547,50 @@ public final class UpdateManager {
             return;
         }
 
-        File tmpApk = new File(updatesDir, "staging-" + info.targetSha256.substring(0, 12) + ".apk.tmp");
+        File tmpApk = new File(updatesDir, "staging-" + targetPrefix + ".apk.tmp");
         tmpApk.delete();
+        String deltaPrefix = info.deltaSha256 != null && info.deltaSha256.length() >= 12
+                ? info.deltaSha256.substring(0, 12) : "delta";
+        File partDelta = new File(updatesDir, "dl-delta-" + targetPrefix + "-" + deltaPrefix + ".rbdelta.part");
+        File partFull = new File(updatesDir, "dl-full-" + targetPrefix + ".apk.part");
 
         boolean usedDelta = false;
         long downloadedBytes = 0L;
 
         if (info.hasDelta && !info.deltaUrl.isEmpty()) {
-            File tmpDelta = new File(updatesDir, "patch-" + info.targetSha256.substring(0, 12) + ".rbdelta.tmp");
-            tmpDelta.delete();
+            boolean deltaSucceeded = false;
             try {
                 String sizeLabel = formatBytes(info.deltaSize) + " / " + formatBytes(info.fullSize);
                 cb.onStage(Localize.t(ctx, "正在下载增量补丁 (" + sizeLabel + ")…", "Downloading delta patch (" + sizeLabel + ")…"), 20);
-                downloadToFileWithHostFallback(ctx, info.deltaUrl, info.deltaSize, tmpDelta, (done, total) -> {
+                downloadToFileWithHostFallback(ctx, info.deltaUrl, info.deltaSize, partDelta, (done, total) -> {
                     int pct = 20 + (int) (total > 0 ? (done * 40L / total) : 0L);
                     cb.onStage(Localize.t(ctx, "正在下载增量补丁 (" + formatBytes(done) + " / " + formatBytes(info.deltaSize) + ")…",
                             "Downloading delta (" + formatBytes(done) + " / " + formatBytes(info.deltaSize) + ")…"), Math.min(60, pct));
                 });
-                String actualDeltaSha = sha256Hex(tmpDelta);
+                String actualDeltaSha = sha256Hex(partDelta);
                 if (!actualDeltaSha.equalsIgnoreCase(info.deltaSha256)) {
+                    partDelta.delete();
                     throw new IOException("Delta SHA-256 mismatch");
                 }
                 cb.onStage(Localize.t(ctx, "正在本地合并增量更新包…", "Applying incremental delta locally…"), 65);
-                DeltaPatcher.apply(baseApk, tmpDelta, tmpApk, (written, total) -> {
+                DeltaPatcher.apply(baseApk, partDelta, tmpApk, (written, total) -> {
                     int pct = 65 + (int) (total > 0 ? (written * 25L / total) : 0L);
                     cb.onStage(Localize.t(ctx, "正在合并增量包 (" + Math.min(100, (int) (written * 100L / Math.max(1L, total))) + "%)…",
                             "Applying delta (" + Math.min(100, (int) (written * 100L / Math.max(1L, total))) + "%)…"), Math.min(90, pct));
                 });
                 usedDelta = true;
                 downloadedBytes = info.deltaSize;
+                deltaSucceeded = true;
+                partDelta.delete();
             } catch (Throwable deltaErr) {
                 Log.w(TAG, "Delta update failed, falling back to full APK if available", deltaErr);
                 tmpApk.delete();
+                if (!deltaSucceeded && deltaErr instanceof IOException && String.valueOf(deltaErr.getMessage()).contains("mismatch")) {
+                    partDelta.delete();
+                }
                 if (info.fullUrl.isEmpty()) {
                     throw new IOException(Localize.t(ctx, "增量补丁应用失败：" + deltaErr.getMessage(), "Delta apply failed: " + deltaErr.getMessage()));
                 }
-            } finally {
-                tmpDelta.delete();
             }
         }
 
@@ -555,25 +600,43 @@ public final class UpdateManager {
             }
             cb.onStage(Localize.t(ctx, "正在下载完整安装包 (" + formatBytes(info.fullSize) + ")…",
                     "Downloading full APK (" + formatBytes(info.fullSize) + ")…"), 20);
-            downloadToFileWithHostFallback(ctx, info.fullUrl, info.fullSize, tmpApk, (done, total) -> {
+            downloadToFileWithHostFallback(ctx, info.fullUrl, info.fullSize, partFull, (done, total) -> {
                 int pct = 20 + (int) (total > 0 ? (done * 70L / total) : 0L);
                 cb.onStage(Localize.t(ctx, "正在下载完整包 (" + formatBytes(done) + " / " + formatBytes(info.fullSize) + ")…",
                         "Downloading full APK (" + formatBytes(done) + " / " + formatBytes(info.fullSize) + ")…"), Math.min(90, pct));
             });
+            if (!partFull.renameTo(tmpApk)) {
+                try (InputStream in = new BufferedInputStream(new FileInputStream(partFull));
+                     FileOutputStream out = new FileOutputStream(tmpApk)) {
+                    byte[] copyBuf = new byte[32768];
+                    int n;
+                    while ((n = in.read(copyBuf)) != -1) out.write(copyBuf, 0, n);
+                }
+                partFull.delete();
+            }
             downloadedBytes = info.fullSize;
         }
 
         cb.onStage(Localize.t(ctx, "正在校验安装包哈希与签名…", "Verifying APK checksum and signature…"), 93);
-        if (tmpApk.length() != info.fullSize || !sha256Hex(tmpApk).equalsIgnoreCase(info.targetSha256)) {
+        try {
+            if (tmpApk.length() != info.fullSize || !sha256Hex(tmpApk).equalsIgnoreCase(info.targetSha256)) {
+                throw new IOException(Localize.t(ctx, "合并后的 APK 校验失败（SHA-256 不一致）", "Reconstructed APK SHA-256 mismatch"));
+            }
+            verifyStagedApk(ctx, tmpApk, info.installedCertSha256);
+        } catch (Throwable verifyErr) {
             tmpApk.delete();
-            throw new IOException(Localize.t(ctx, "合并后的 APK 校验失败（SHA-256 不一致）", "Reconstructed APK SHA-256 mismatch"));
+            partDelta.delete();
+            partFull.delete();
+            throw verifyErr;
         }
-        verifyStagedApk(ctx, tmpApk, info.installedCertSha256);
 
+        partDelta.delete();
+        partFull.delete();
         File[] existing = updatesDir.listFiles();
         if (existing != null) {
             for (File f : existing) {
-                if (f.getName().startsWith("ready-") && !f.equals(readyApk)) {
+                String n = f.getName();
+                if ((n.startsWith("ready-") || n.startsWith("dl-")) && !f.equals(readyApk)) {
                     f.delete();
                 }
             }
@@ -997,36 +1060,77 @@ public final class UpdateManager {
     private static void downloadDirect(
             String urlStr, String bearerToken, long expectedSize, File outFile,
             DeltaPatcher.ProgressListener listener) throws IOException {
-        HttpURLConnection conn = openConnection(urlStr, bearerToken);
-        try {
-            int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) {
-                throw new HttpStatusException(code, "HTTP " + code + " downloading update");
+        final int maxAttempts = 3;
+        IOException lastErr = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            long resumeFrom = (outFile.isFile() && expectedSize > 0 && outFile.length() > 0 && outFile.length() < expectedSize)
+                    ? outFile.length()
+                    : 0L;
+            if (expectedSize > 0 && outFile.isFile() && outFile.length() == expectedSize) {
+                if (listener != null) listener.onProgress(expectedSize, expectedSize);
+                return;
             }
-            long total = conn.getContentLengthLong();
-            if (total <= 0) total = expectedSize;
-            byte[] buf = new byte[32768];
-            long done = 0L;
-            long lastReported = 0L;
-            try (InputStream is = new BufferedInputStream(conn.getInputStream());
-                 FileOutputStream fos = new FileOutputStream(outFile)) {
-                int n;
-                while ((n = is.read(buf)) != -1) {
-                    fos.write(buf, 0, n);
-                    done += n;
-                    if (done > MAX_APK_BYTES) {
-                        throw new IOException("Download exceeded size limit");
+            if (expectedSize > 0 && outFile.isFile() && outFile.length() > expectedSize) {
+                outFile.delete();
+                resumeFrom = 0L;
+            }
+            HttpURLConnection conn = openConnection(urlStr, bearerToken);
+            if (resumeFrom > 0L) {
+                conn.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
+            }
+            try {
+                int code = conn.getResponseCode();
+                if (code == 416) {
+                    if (expectedSize > 0 && outFile.isFile() && outFile.length() == expectedSize) {
+                        if (listener != null) listener.onProgress(expectedSize, expectedSize);
+                        return;
                     }
-                    if (listener != null && (done - lastReported >= 65536L || done == total)) {
-                        lastReported = done;
-                        listener.onProgress(done, total);
-                    }
+                    outFile.delete();
+                    throw new IOException("HTTP 416 restarting partial download");
                 }
-                fos.flush();
+                if (code < 200 || code >= 300) {
+                    throw new HttpStatusException(code, "HTTP " + code + " downloading update");
+                }
+                boolean append = (code == 206 && resumeFrom > 0L);
+                long done = append ? resumeFrom : 0L;
+                long contentLen = conn.getContentLengthLong();
+                long total = expectedSize > 0 ? expectedSize : (contentLen > 0 ? done + contentLen : -1L);
+                byte[] buf = new byte[32768];
+                long lastReported = done;
+                if (append && listener != null) {
+                    listener.onProgress(done, total);
+                }
+                try (InputStream is = new BufferedInputStream(conn.getInputStream());
+                     FileOutputStream fos = new FileOutputStream(outFile, append)) {
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                        done += n;
+                        if (done > MAX_APK_BYTES) {
+                            throw new IOException("Download exceeded size limit");
+                        }
+                        if (listener != null && (done - lastReported >= 65536L || done == total)) {
+                            lastReported = done;
+                            listener.onProgress(done, total);
+                        }
+                    }
+                    fos.flush();
+                }
+                if (expectedSize > 0 && outFile.length() < expectedSize) {
+                    throw new IOException("Incomplete download (" + outFile.length() + "/" + expectedSize + ")");
+                }
+                return;
+            } catch (IOException err) {
+                if (isTerminalHostStatus(err)) throw err;
+                lastErr = err;
+                if (attempt < maxAttempts) {
+                    try { Thread.sleep(300L * attempt); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); throw err; }
+                }
+            } finally {
+                conn.disconnect();
             }
-        } finally {
-            conn.disconnect();
         }
+        throw lastErr != null ? lastErr : new IOException("Download failed");
     }
 
     private static HttpURLConnection openConnection(String urlStr, String bearerToken) throws IOException {

@@ -341,6 +341,14 @@ public class NotificationService extends Service {
         if (!Storage.acceptNotification(context, deviceId, itemId, updateCursor)) {
             return;
         }
+        String type = UiChrome.jsonStr(item, "type");
+        if ("update".equalsIgnoreCase(type)) {
+            AppUpdater.onUpdatePushReceived(context, item);
+            if (!RokBotBootstrap.isForeground()) {
+                showNotification(context, item);
+            }
+            return;
+        }
         String agentId = item.optString("agentId", "");
         // A new reply of this Bot: its suggestions are out of date (only this Bot's generation moves).
         ComposerSuggestionsOverlay.onAgentReplied(agentId);
@@ -364,7 +372,9 @@ public class NotificationService extends Service {
             deepLink = defaultDeepLink;
         }
 
-        Intent tapIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(deepLink));
+        Intent tapIntent = "rokbot-local://updates/android".equals(deepLink)
+            ? new Intent(context, UpdateActivity.class)
+            : new Intent(Intent.ACTION_VIEW, Uri.parse(deepLink));
         tapIntent.setPackage(context.getPackageName());
         tapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
 

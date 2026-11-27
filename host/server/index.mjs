@@ -789,8 +789,32 @@ export async function createSelfHostServer(options = {}) {
       return sendJson(response, 200, await updates.setSettings(await jsonBody(request)));
     if (method === "POST" && path === "/admin/api/updates/upload")
       return sendJson(response, 201, await updates.handleUpload(request, url));
-    if (method === "POST" && path === "/admin/api/updates/publish")
-      return sendJson(response, 201, await updates.publish(await jsonBody(request), origin));
+    if (method === "POST" && path === "/admin/api/updates/publish") {
+      const published = await updates.publish(await jsonBody(request), origin);
+      if (published?.release?.platform === "android") {
+        const versionLabel = String(
+          published.release.versionName || published.release.version || "new version",
+        );
+        const releaseKey = String(
+          published.release.id || published.release.versionCode || Date.now(),
+        ).replace(/[^A-Za-z0-9_.:-]/g, "_");
+        const versionCode = Number.isInteger(published.release.versionCode)
+          ? published.release.versionCode
+          : undefined;
+        await notifications.publish({
+          id: `update-android-${releaseKey}`.slice(0, 160),
+          type: "update",
+          agentId: "system",
+          targetPlatform: "android",
+          version: versionLabel.slice(0, 64),
+          ...(versionCode && versionCode > 0 ? { versionCode } : {}),
+          title: "有新版本可用",
+          body: `RokBot ${versionLabel} 已发布，可在后台自动准备更新。`,
+          deepLink: "rokbot-local://updates/android",
+        }).catch(() => {});
+      }
+      return sendJson(response, 201, published);
+    }
     const deleteUpdate = /^\/admin\/api\/updates\/([^/]+)\/([A-Za-z0-9_-]{1,128})$/.exec(path);
     if (method === "DELETE" && deleteUpdate)
       return sendJson(response, 200, await updates.remove(decodeURIComponent(deleteUpdate[1]), decodeURIComponent(deleteUpdate[2])));

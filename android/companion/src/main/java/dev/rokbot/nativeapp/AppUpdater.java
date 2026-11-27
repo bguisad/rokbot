@@ -9,6 +9,8 @@ import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -102,9 +104,13 @@ public final class AppUpdater {
                     : new String[] { base + " · Up to date", name + " · Up to date", name + " · Latest" };
         }
         if (available) {
-            return chinese
-                    ? new String[] { base + " · 有新版本", name + " · 有新版本", name + " · 可更新" }
-                    : new String[] { base + " · Update available", name + " · Update available", name + " · Update" };
+            if (chinese) {
+                if (state == STATE_READY) {
+                    return new String[] { base + " · 已下载，重启即可更新", name + " · 已下载，重启即可更新", name + " · 重启更新" };
+                }
+                return new String[] { base + " · 有新版本", name + " · 有新版本", name + " · 可更新" };
+            }
+            return new String[] { base + " · Update available", name + " · Update available", name + " · Update" };
         }
         return new String[] { base };
     }
@@ -149,6 +155,7 @@ public final class AppUpdater {
         if (activity == null) return;
         final Context app = activity.getApplicationContext();
         cleanupAfterUpgrade(app);
+        restorePendingUpdate(app);
         if (!Storage.isPaired(app)) return;
         long now = System.currentTimeMillis();
         long lastOk = Storage.getLongPref(app, PREF_LAST_CHECK_OK_AT, 0L);
@@ -156,7 +163,7 @@ public final class AppUpdater {
             if (sState == STATE_IDLE && lastOk > 0) {
                 // New process inside the 6 h window: reuse the last answer for the settings version line.
                 if (Storage.getLongPref(app, PREF_LATEST_VERSION_CODE, 0L) > UpdateManager.getInstalledVersionCode(app)) {
-                    check(app, false); // the user chose "稍后": fetch the details again, but do not prompt
+                    check(app, true); // re-fetch manifest and auto-pre-download if enabled
                 } else {
                     sNoRelease = Storage.getLongPref(app, PREF_NO_RELEASE, 0L) == 1L;
                     publish(STATE_UP_TO_DATE, Localize.t(app, "已是最新版本", "You're up to date"), -1);
@@ -167,7 +174,98 @@ public final class AppUpdater {
         check(app, true);
     }
 
-    /** Manual or automatic check. Automatic checks prompt on the foreground Activity when a newer build exists. */
+    /** Called when Host pushes a lightweight "update" notification via SSE / UnifiedPush / FCM. */
+    public static void onUpdatePushReceived(Context context, JSONObject pushItem) {
+        if (context == null) return;
+        final Context app = context.getApplicationContext();
+        if (!Storage.isPaired(app)) return;
+        if (pushItem != null) {
+            String targetPlatform = UiChrome.jsonStr(pushItem, "targetPlatform");
+            if (!targetPlatform.isEmpty() && !"android".equalsIgnoreCase(targetPlatform)) {
+                return;
+            }
+        }
+        check(app, true);
+    }
+
+    /** Restores a previously verified pending-install APK across app restarts without re-downloading. */
+    public static boolean restorePendingUpdate(Context context) {
+        if (context == null) return false;
+        final Context app = context.getApplicationContext();
+        String raw = Storage.getStagedUpdateMeta(app);
+        if (raw == null || raw.isEmpty()) return false;
+        try {
+            JSONObject obj = new JSONObject(raw);
+            long verCode = obj.optLong("versionCode", -1L);
+            long installed = UpdateManager.getInstalledVersionCode(app);
+            if (!UpdateManager.isNewerVersionCode(installed, verCode)) {
+                Storage.clearStagedUpdateMeta(app);
+                return false;
+            }
+            String stagedPath = obj.optString("stagedPath", "");
+            String targetSha = obj.optString("targetSha256", "");
+            long fullSize = obj.optLong("fullSize", -1L);
+            if (stagedPath.isEmpty()) {
+                Storage.clearStagedUpdateMeta(app);
+                return false;
+            }
+            File stagedFile = new File(stagedPath);
+            if (!UpdateManager.verifyExistingStagedApk(app, stagedFile, targetSha, fullSize)) {
+                Storage.clearStagedUpdateMeta(app);
+                return false;
+            }
+            String versionName = obj.optString("versionName", "");
+            String versionLabel = obj.optString("versionLabel", formatVersion(versionName, verCode));
+            String notes = obj.optString("releaseNotes", "");
+            String certSha = UpdateManager.getInstalledCertSha256(app);
+            if (sInfo == null || !targetSha.equalsIgnoreCase(sInfo.targetSha256)) {
+                sInfo = new UpdateManager.UpdateManifestInfo(
+                        UpdateManager.getCurrentVersionLabel(app),
+                        installed,
+                        "",
+                        certSha != null ? certSha : "",
+                        versionName,
+                        verCode,
+                        versionLabel,
+                        notes,
+                        targetSha,
+                        "",
+                        fullSize,
+                        false,
+                        "",
+                        "",
+                        -1L,
+                        true,
+                        stagedFile,
+                        "",
+                        ""
+                );
+            }
+            sStagedApk = stagedFile;
+            publish(STATE_READY, Localize.t(app, "已下载，重启即可更新", "Downloaded, restart to update"), 100);
+            return true;
+        } catch (Throwable ignored) {
+            Storage.clearStagedUpdateMeta(app);
+            return false;
+        }
+    }
+
+    private static void persistStagedUpdate(Context app, UpdateManager.UpdateManifestInfo info, File stagedApk) {
+        if (app == null || info == null || stagedApk == null) return;
+        try {
+            JSONObject obj = new JSONObject()
+                    .put("stagedPath", stagedApk.getAbsolutePath())
+                    .put("versionName", info.availableVersionName)
+                    .put("versionCode", info.availableVersionCode)
+                    .put("versionLabel", info.versionLabel)
+                    .put("targetSha256", info.targetSha256)
+                    .put("fullSize", info.fullSize)
+                    .put("releaseNotes", info.releaseNotes != null ? info.releaseNotes : "");
+            Storage.saveStagedUpdateMeta(app, obj.toString());
+        } catch (Throwable ignored) {}
+    }
+
+    /** Manual or automatic check. Automatic checks trigger silent background download when enabled. */
     public static synchronized void check(Context context, final boolean automatic) {
         final Context app = context.getApplicationContext();
         int st = sState;
@@ -198,9 +296,11 @@ public final class AppUpdater {
                     return;
                 }
                 Log.w(TAG, "update check failed: " + message);
-                sInfo = null;
-                sStagedApk = null;
-                publish(STATE_ERROR, Localize.t(app, "检查更新失败：", "Update check failed: ") + message, -1);
+                if (!restorePendingUpdate(app)) {
+                    sInfo = null;
+                    sStagedApk = null;
+                    publish(STATE_ERROR, Localize.t(app, "检查更新失败：", "Update check failed: ") + message, -1);
+                }
             }
         });
     }
@@ -212,6 +312,7 @@ public final class AppUpdater {
         if (info == null || !UpdateManager.isNewerVersionCode(installed, info.availableVersionCode)) {
             sInfo = null;
             sStagedApk = null;
+            Storage.clearStagedUpdateMeta(app);
             Storage.setLongPref(app, PREF_LATEST_VERSION_CODE, Math.max(installed, 0L));
             publish(STATE_UP_TO_DATE, Localize.t(app, "已是最新版本", "You're up to date"), -1);
             return;
@@ -221,12 +322,47 @@ public final class AppUpdater {
         Storage.setStringPref(app, PREF_LATEST_VERSION_NAME, info.availableVersionName);
         if (info.alreadyStaged && info.stagedFile != null) {
             sStagedApk = info.stagedFile;
-            publish(STATE_READY, Localize.t(app, "新版本已下载并校验，可以安装", "Update downloaded and verified"), 100);
+            persistStagedUpdate(app, info, info.stagedFile);
+            publish(STATE_READY, Localize.t(app, "已下载，重启即可更新", "Downloaded, restart to update"), 100);
         } else {
             sStagedApk = null;
             publish(STATE_AVAILABLE, Localize.t(app, "发现新版本 ", "New version ") + availableVersionLabel(info), -1);
+            if (automatic && Storage.isAutoDownloadUpdatesEnabled(app)) {
+                maybeStartBackgroundDownload(app, info);
+            }
         }
         if (automatic) main().post(AppUpdater::promptOnForegroundActivity);
+    }
+
+    /** Starts silent background pre-download via ForegroundService when auto-download is enabled. */
+    public static synchronized void maybeStartBackgroundDownload(Context context, UpdateManager.UpdateManifestInfo info) {
+        if (context == null || info == null) return;
+        final Context app = context.getApplicationContext();
+        if (!Storage.isAutoDownloadUpdatesEnabled(app) || sState == STATE_DOWNLOADING || sState == STATE_READY) return;
+        sInfo = info;
+        publish(STATE_DOWNLOADING, Localize.t(app, "正在后台下载更新…", "Downloading update in background…"), 0);
+        UpdateDownloadService.enqueue(app, info);
+    }
+
+    static void onBackgroundProgress(String message, int progressPercent) {
+        publish(STATE_DOWNLOADING, message, Math.max(0, Math.min(100, progressPercent)));
+    }
+
+    static void onBackgroundReady(Context app, UpdateManager.UpdateManifestInfo info, File stagedApk) {
+        if (info != null) sInfo = info;
+        sStagedApk = stagedApk;
+        persistStagedUpdate(app, info != null ? info : sInfo, stagedApk);
+        publish(STATE_READY, Localize.t(app, "已下载，重启即可更新", "Downloaded, restart to update"), 100);
+        if (app != null && RokBotBootstrap.isForeground()) {
+            main().post(() -> Toast.makeText(app,
+                    Localize.t(app, "新版本已下载，重启即可更新", "Update downloaded; restart to update"),
+                    Toast.LENGTH_LONG).show());
+        }
+    }
+
+    static void onBackgroundError(Context app, String message) {
+        Log.w(TAG, "background update download failed: " + message);
+        publish(STATE_ERROR, Localize.t(app, "下载更新失败：", "Download failed: ") + message, -1);
     }
 
     /** Downloads (delta or full APK) and verifies the update; ends in STATE_READY or STATE_ERROR. */
@@ -249,7 +385,8 @@ public final class AppUpdater {
             @Override
             public void onReady(File stagedApk, String versionLabel, boolean usedDelta, long downloadBytes, long fullBytes, String notes) {
                 sStagedApk = stagedApk;
-                publish(STATE_READY, Localize.t(app, "下载完成，SHA-256 与签名证书校验通过", "Downloaded; SHA-256 and signing certificate verified"), 100);
+                persistStagedUpdate(app, info, stagedApk);
+                publish(STATE_READY, Localize.t(app, "已下载，重启即可更新", "Downloaded, restart to update"), 100);
             }
 
             @Override
@@ -267,6 +404,7 @@ public final class AppUpdater {
         Storage.setLongPref(app, PREF_LAST_CHECK_ATTEMPT_AT, 0L);
         Storage.setLongPref(app, PREF_LATEST_VERSION_CODE, 0L);
         Storage.setLongPref(app, PREF_NO_RELEASE, 0L);
+        Storage.clearStagedUpdateMeta(app);
         sInfo = null;
         sStagedApk = null;
         sNoRelease = false;
@@ -294,6 +432,7 @@ public final class AppUpdater {
         long latest = Storage.getLongPref(app, PREF_LATEST_VERSION_CODE, 0L);
         boolean upgraded = pending > 0 && installed >= pending;
         if (upgraded || latest <= installed) {
+            Storage.clearStagedUpdateMeta(app);
             File dir = new File(app.getFilesDir(), "updates");
             File[] files = dir.listFiles();
             if (files != null) {
@@ -316,7 +455,16 @@ public final class AppUpdater {
 
     /** Prompts on the RN main screen; anywhere else (pairing, native pages) it waits until RN resumes. */
     private static void promptOnForegroundActivity() {
+        // Silent background download runs without interrupting the user; only prompt manually when auto-download is off.
+        if (sState == STATE_DOWNLOADING || sState == STATE_READY) {
+            sPromptPending = false;
+            return;
+        }
         Activity a = RokBotBootstrap.getCurrentActivity();
+        if (a != null && Storage.isAutoDownloadUpdatesEnabled(a) && sState == STATE_AVAILABLE) {
+            sPromptPending = false;
+            return;
+        }
         if (a != null && !a.isFinishing() && !a.isDestroyed() && RokBotBootstrap.isForeground()
                 && RokBotBootstrap.isReactActivity(a)) {
             sPromptPending = false;
