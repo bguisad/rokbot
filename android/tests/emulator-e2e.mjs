@@ -862,15 +862,23 @@ async function run() {
     adb('shell', 'input', 'keyevent', '4');
     await waitForTopActivity(t => isCompanionActivity(t, 'PairingActivity'), 'PairingActivity after Computers');
 
-    // UsageActivity
+    // UsageActivity: the usage report (GET /local/usage/report over the demo ledger).
     await tapNodeWithScroll(n => n.text === 'Usage' || n.text === '用量', 'Usage button');
     await waitForTopActivity(t => isCompanionActivity(t, 'UsageActivity'), 'UsageActivity');
-    await waitForNode(
-      n => (n.text || '').includes('41,350') || (n.text || '').includes('41350'),
-      'UsageActivity live token count from GET /local/usage'
-    );
-    assert.ok(host.requestLogs.some(r => r.method === 'GET' && r.pathname === '/local/usage'), 'UsageActivity must query GET /local/usage');
+    await waitForNode(n => n['content-desc'] === 'usage_card_total', 'UsageActivity summary cards from GET /local/usage/report', 20000);
+    await waitForNode(n => n.text === '请求次数' || n.text === 'Requests', 'UsageActivity requests card');
+    const reportReq = host.requestLogs.find(r => r.method === 'GET' && r.pathname === '/local/usage/report');
+    assert.ok(reportReq, 'UsageActivity must query GET /local/usage/report');
+    assert.equal(reportReq.query.range, '7d', 'the page opens on the last 7 days');
+    assert.ok(reportReq.query.timeZone, 'device time zone is sent');
     capturePng('/tmp/emu_rn_usage.png');
+    // Switch to today: a new report request with range=today.
+    await tapNodeWithScroll(n => n['content-desc'] === 'usage_period_today', 'Usage range: today');
+    await waitForCondition(() => host.requestLogs.some(r => r.pathname === '/local/usage/report' && r.query.range === 'today'), 'range=today requested');
+    await waitForNode(n => n['content-desc'] === 'usage_card_total' || n['content-desc'] === 'usage_empty', 'UsageActivity today rendered', 20000);
+    // Request details: the pager label 「第 a–b 条，共 n 条」.
+    await waitForNode(n => n['content-desc'] === 'usage_page_label' || n['content-desc'] === 'usage_empty', 'Usage requests pager', 20000);
+    capturePng('/tmp/emu_rn_usage_requests.png');
     adb('shell', 'input', 'keyevent', '4');
     await waitForTopActivity(t => isCompanionActivity(t, 'PairingActivity'), 'PairingActivity after Usage');
 
