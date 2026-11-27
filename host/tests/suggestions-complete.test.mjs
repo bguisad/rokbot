@@ -154,7 +154,6 @@ test('SuggestionsService.complete times out silently', async t => {
 
 test('HTTP /local/suggestions/complete: device auth, setting, gating and model call', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'rokbot-complete-http-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
   let modelCalls = 0;
   const app = await createSelfHostServer({
     dataDir: dir,
@@ -163,7 +162,8 @@ test('HTTP /local/suggestions/complete: device auth, setting, gating and model c
     suggestionsFetch: async () => { modelCalls += 1; return sse('跑一下测试'); },
   });
   await app.start(0, '127.0.0.1');
-  t.after(() => app.close());
+  // Close first: the Host finishes its pending writes (canvas link origin, stores) on close.
+  t.after(async () => { await app.close(); await rm(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const post = (headers, body) => fetch(`${base}/local/suggestions/complete`, { method: 'POST', headers, body: JSON.stringify(body) });
 
@@ -214,10 +214,10 @@ test('HTTP /local/suggestions/complete: device auth, setting, gating and model c
 
 test('the Web client listener routes /local/suggestions* to the device API (401 without a session, not 404)', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'rokbot-complete-web-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
   const app = await createSelfHostServer({ dataDir: dir, hostUrl: 'http://127.0.0.1:19999', modelAutoSync: false });
   await app.start(0, '127.0.0.1');
-  t.after(() => app.close());
+  // Close first: the Host finishes its pending writes (canvas link origin, stores) on close.
+  t.after(async () => { await app.close(); await rm(dir, { recursive: true, force: true }); });
   const web = `http://127.0.0.1:${app.webServer.address().port}`;
   for (const [method, path] of [
     ['GET', '/local/suggestions/settings'], ['PUT', '/local/suggestions/settings'], ['POST', '/local/suggestions'],

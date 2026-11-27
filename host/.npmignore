@@ -1,0 +1,3 @@
+# Only affects `npm pack` of the root rokbot CLI package (package.json "files"): npm adds
+# README files of included directories automatically; this one is not needed by the CLI.
+README.md

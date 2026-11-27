@@ -294,7 +294,13 @@ export function specForTarget(target = 'windows') {
     edit(chunks.eagerApp, [
       { prepend: I18N },
       { replace: 'let f;e[5]===Symbol.for(`react.memo_cache_sentinel`)?(f=(0,Z.jsx)(bXr,{}),e[5]=f):f=e[5];',
-        text: 'let f=(0,Z.jsxs)(Z.Fragment,{children:[(0,Z.jsx)(bXr,{}),(0,Z.jsx)(RokNeedsModelBanner,{}),(0,Z.jsx)(RokModelConfigHost,{}),(0,Z.jsx)(RokBatchImageHost,{})]});' },
+        text: 'let f=(0,Z.jsxs)(Z.Fragment,{children:[(0,Z.jsx)(bXr,{}),(0,Z.jsx)(RokNeedsModelBanner,{}),(0,Z.jsx)(RokModelConfigHost,{}),(0,Z.jsx)(RokBatchImageHost,{}),(0,Z.jsx)(RokCanvasStageHost,{})]});' },
+      // Canvases (extensions/canvas.js): a RokBot canvas link (`/canvas/app/<id>`) is an ordinary
+      // link to the link classifier, and the link component draws it as a canvas card that opens
+      // the canvas inside the app; Bot details list the Bot's canvases after its routines.
+      { insertAfter: 'function H6n(e,t){', text: 'if(rokCanvasLinkId(e)!=null)return{kind:`external`};' },
+      { replace: 'function CZ(e){CZ.d=1477;', text: 'function CZ(e){return rokCanvasLinkId(e.href)!=null?(0,Z.jsx)(RokCanvasLinkCard,e):(0,Z.jsx)(CZ_orig,e)}function CZ_orig(e){CZ_orig.d=1477;' },
+      { replace: '(ge=(0,Z.jsxs)(`div`,{...ue,children:[de,fe,pe,me,he]})', text: '(ge=(0,Z.jsxs)(`div`,{...ue,children:[de,fe,pe,me,(0,Z.jsx)(RokBotCanvasSection,{agentId:n,headingId:`${y}-canvases`}),he]})' },
       // Multi-select batch image download: track resolved images per conversation and add Media Viewer batch button.
       { replace: 'resolveMedia:(n,r)=>e.desktop.resolveAttachmentMedia({...n,...t?{inRoom:t}:{},viewSlot:e.accountSlot},r)',
         text: 'resolveMedia:(n,r)=>rokTrackResolvedMedia(n,e.desktop.resolveAttachmentMedia({...n,...t?{inRoom:t}:{},viewSlot:e.accountSlot},r))' },
@@ -383,6 +389,7 @@ export function specForTarget(target = 'windows') {
       { append: extension('list-arrangement.js') },
       { append: extension('avatar-style.js') },
       { append: extension('batch-image-download.js') },
+      { append: extension('canvas.js') },
     ]),
 
     // The render-trace hook installs a React DevTools stub for the vendor's render sampling.

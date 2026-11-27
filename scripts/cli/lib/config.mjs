@@ -2,8 +2,9 @@
 // image deployments (rendered from host/release/.env.images.example), and the CLI state file.
 import { existsSync, readFileSync } from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
-import { CliError, REPO_ROOT, writePrivateFile } from './util.mjs';
+import { CliError, defaultHome, expandHome, REPO_ROOT, writePrivateFile } from './util.mjs';
 
 export const STATE_FILE = 'rokbot.json';
 export const STATE_SCHEMA = 'rokbot-cli/v1';
@@ -205,4 +206,30 @@ export function deployScript(state) {
 
 export function deployGlobalArgs(home, state) {
   return ['--home', home, '--project', state.project, ...(state.hostOnly ? ['--host-only'] : [])];
+}
+
+/**
+ * Full RokBot checkouts the CLI may borrow repository files from (patchers, pins), in order:
+ * --src, the CLI's own directory (a git checkout), the source directory recorded by
+ * `rokbot init --mode source`, <home>/src, and ~/.rokbot/cli (scripts/install-cli.sh).
+ * The npm package only ships what deploy/admin/doctor need, so `pack` resolves its patchers here.
+ */
+export function sourceCandidates({ home, src } = {}) {
+  if (src) return [{ root: path.resolve(expandHome(src)), from: '--src' }];
+  const instanceHome = home ? path.resolve(expandHome(home)) : defaultHome();
+  const list = [{ root: REPO_ROOT, from: 'cli' }];
+  try {
+    const state = readState(instanceHome);
+    if (state?.source) list.push({ root: path.resolve(state.source), from: 'instance' });
+  } catch { /* unreadable state: ignore, other candidates still apply */ }
+  list.push({ root: path.join(instanceHome, 'src'), from: 'instance' });
+  list.push({ root: path.join(os.homedir(), '.rokbot', 'cli'), from: 'install-cli' });
+  const seen = new Set();
+  return list.filter(item => !seen.has(item.root) && seen.add(item.root));
+}
+
+/** The first candidate that contains every `relative` path, or null. */
+export function findSourceRoot(relatives, options = {}) {
+  const wanted = [relatives].flat();
+  return sourceCandidates(options).find(({ root }) => wanted.every(relative => existsSync(path.join(root, relative)))) ?? null;
 }

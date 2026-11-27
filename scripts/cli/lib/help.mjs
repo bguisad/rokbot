@@ -156,6 +156,9 @@ Host 只保存 scrypt 哈希；密码不会作为命令行参数、不写日志�
   --dev-signing           android：显式允许临时开发签名（产物不能作为正式版发布）
   --allow-cross-platform  windows：在非 Windows 系统上生成
   --dry-run               只校验输入并显示将运行的命令
+  --src <目录>            使用指定的 RokBot 源码目录中的补丁脚本。默认依次查找：CLI 所在目录、
+                          rokbot init --mode source 记录的源码目录、<实例目录>/src、~/.rokbot/cli。
+                          npm 安装版不含补丁脚本，需要先用 rokbot init --mode source 获取源码
 
 示例
   rokbot pack android --input ~/Downloads/原版-1.26.0.xapk

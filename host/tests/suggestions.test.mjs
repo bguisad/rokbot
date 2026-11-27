@@ -264,7 +264,6 @@ test('SuggestionsService honors toggles, never falls back to static presets, opt
 
 test('HTTP endpoints /local/suggestions/settings, /local/suggestions/phrases, and /local/suggestions work end-to-end', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'rokbot-suggestions-http-v2-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
   let modelCalls = 0;
   const app = await createSelfHostServer({
     dataDir: dir,
@@ -276,7 +275,8 @@ test('HTTP endpoints /local/suggestions/settings, /local/suggestions/phrases, an
     },
   });
   await app.start(0, '127.0.0.1');
-  t.after(() => app.close());
+  // Close first: the Host finishes its pending writes (canvas link origin, stores) on close.
+  t.after(async () => { await app.close(); await rm(dir, { recursive: true, force: true }); });
 
   const { port } = app.server.address();
   const base = `http://127.0.0.1:${port}`;

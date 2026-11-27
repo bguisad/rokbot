@@ -221,3 +221,12 @@ test('Settings > General renders all 6 avatar style radio options and switches l
   radios[2].props.onClick();
   assert.equal(store.getStyle(), 'visor');
 });
+
+test('RokBot marks implement the 1.3.0 mark controller (gaze, setExpression, poke)', () => {
+  const ext = avatarSource;
+  // The Bot list calls setMarkGaze -> controller.gaze(vec); the computer preview calls setExpression.
+  // Without them the renderer threw "gaze is not a function" on opening a conversation.
+  assert.match(ext, /gaze\(vec\) \{ handle\.setGaze\(vec\); \},/);
+  assert.match(ext, /setExpression\(expression\) \{/);
+  assert.match(ext, /poke\(kind\) \{/);
+});

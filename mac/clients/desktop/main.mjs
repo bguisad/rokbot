@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, MessageChannelMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, MessageChannelMain, Menu, nativeImage, nativeTheme, Notification, protocol, safeStorage, screen, session, shell, Tray } from 'electron';
 import { spawn } from 'node:child_process';
 import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -20,7 +20,7 @@ import { createSounds } from './sounds.mjs';
 import { mintVoiceCredential, createVoiceAvailability } from './voice.mjs';
 import { externalHttpUrl } from './external-url.mjs';
 import { installExternalLinks } from './external-links.mjs';
-import { createCanvasWindows } from './canvas-window.mjs';
+import { CANVAS_SCHEME, canvasAppId, createCanvasBridge } from './canvas-bridge.mjs';
 import { auth, boot, theme, language, experiments, createLocalServices, desktopEdges, probeLocalMethod } from './local-services.mjs';
 import { createModelBridge } from './model-bridge.mjs';
 import { createDesktopUpdater, createTailcatUpdateFetch, resolveDesktopUpdateSource } from './updater.mjs';
@@ -116,7 +116,6 @@ function stopConnection() {
 }
 function disposeWorkspace() {
   stopConnection();
-  canvasWindows.closeAll();
   deepLinksReady = false; methodCall = null;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
   mainWindow = null;
@@ -140,11 +139,19 @@ async function openBrowser(value) {
   if (!target) throw new Error(localText('链接地址无效。', 'Invalid link address.'));
   await shell.openExternal(target);
 }
-const canvasWindows = createCanvasWindows({ BrowserWindow, nativeTheme, openExternal: openBrowser,
-  icon: windowIcon(clientRoot), text: localText, getServer: () => config?.server });
-// Local canvas links open in a RokBot window on the connected Host; everything else in the browser.
+// Canvases open inside the workspace (renderer extensions/canvas.js); canvas-bridge.mjs serves
+// their frames over sand-canvas:// with this device's credential and calls /local/canvases.
+const canvasBridge = createCanvasBridge({ getConfig: () => config, openExternal: openBrowser,
+  request: (...args) => { if (!gateway) throw new Error(localText('未连接 Host。', 'Not connected to a Host.')); return gateway.request(...args); } });
+// An in-app canvas link that reaches the browser opener (context menu, keyboard) opens in the
+// workspace's canvas view; everything else opens in the browser.
 async function openExternal(value) {
-  if (canvasWindows.open(value)) return;
+  const canvasId = canvasAppId(value);
+  if (canvasId && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('rokbot-local:open-canvas', canvasId);
+    mainWindow.show(); mainWindow.focus();
+    return;
+  }
   await openBrowser(value);
 }
 async function showConnection() {
@@ -385,6 +392,10 @@ ipcMain.handle('rokbot-local:model-get', event => {
   if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
   return modelBridge.getModelConfig();
 });
+ipcMain.handle('rokbot-local:canvas', (event, payload) => {
+  if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
+  return canvasBridge.handle(payload ?? {});
+});
 ipcMain.handle('rokbot-local:usage', (event, payload) => {
   if (!trusted(event, mainWindow)) throw new Error('Unexpected renderer');
   return modelBridge.getUsage(payload);
@@ -515,7 +526,11 @@ ipcMain.handle('sand:coordinator-port-request', event => {
   event.sender.postMessage('sand:coordinator-port', null, [port2]);
 });
 
+// Canvas frames load from sand-canvas:// (admitted by the renderer's frame-src); a standard,
+// secure scheme gives each frame a proper origin, which the frame's sandbox CSP then makes opaque.
+protocol.registerSchemesAsPrivileged([{ scheme: CANVAS_SCHEME, privileges: { standard: true, secure: true } }]);
 app.whenReady().then(async () => {
+protocol.handle(CANVAS_SCHEME, request => canvasBridge.frame(request.url));
 setLocaleSource(() => clientSettings.language === 'system' ? app.getLocale() : clientSettings.language);
 await mkdir(profile, { recursive: true, mode: 0o700 });
 const registerIntegration = await canRegisterDesktopIntegration({ isolatedProfile });
@@ -525,7 +540,7 @@ if (registerIntegration && (!isWindows || !app.getApplicationNameForProtocol('ro
 const restrict = target => target.webRequest.onBeforeRequest((details, callback) => {
   try {
     const url = new URL(details.url);
-    const isAsset = ['file:', 'data:', 'blob:', 'devtools:'].includes(url.protocol);
+    const isAsset = ['file:', 'data:', 'blob:', 'devtools:', `${CANVAS_SCHEME}:`].includes(url.protocol);
     const hostOrigin = ['ws:', 'wss:'].includes(url.protocol) ? url.origin.replace(/^ws/, 'http') : url.origin;
     callback({ cancel: !(isAsset || (config && hostOrigin === config.server)) });
   } catch { callback({ cancel: true }); }

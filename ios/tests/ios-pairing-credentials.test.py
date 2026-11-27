@@ -40,16 +40,16 @@ void RBDiagnosticsEvent(NSString *event, NSDictionary *values) {
   (void)event; (void)values;
 }
 
-void RBSuggestionsNoteOpenedAgent(NSString *agentId) {
-  (void)agentId;
-}
-
 // RBCanvas.m stand-in: in-app canvas links open the canvas view instead of the browser.
 static NSURL *RBCanvasOpened;
 BOOL RBOpenCanvasURL(NSURL *url) {
   if (![url.path hasPrefix:@"/canvas/app/"]) return NO;
   RBCanvasOpened = url;
   return YES;
+}
+
+void RBSuggestionsNoteOpenedAgent(NSString *agentId) {
+  (void)agentId;
 }
 
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #expr); exit(1); } } while (0)

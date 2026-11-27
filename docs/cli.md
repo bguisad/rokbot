@@ -6,7 +6,21 @@
 
 ## 安装
 
-本仓库是私有仓库，需要有访问权限。
+CLI 以 npm 包 `rokbot` 发布，只需要 Node.js 20+：
+
+```bash
+# 不安装，直接运行最新版
+npx rokbot --help
+npx rokbot doctor
+
+# 全局安装，之后直接用 rokbot 命令
+npm i -g rokbot
+rokbot --help
+```
+
+npm 包只含部署、管理员和环境检查需要的文件（CLI 本身，以及 `host/release` 里镜像部署用的 Compose 文件、`.env.images.example`、`install-images.sh`、`backup.py`，计算管理员密码哈希的 `host/server/security.mjs`，安卓签名检查脚本），不含各平台的补丁脚本。需要 `rokbot pack` 时先获取完整源码，见下文 [pack](#pack)。
+
+也可以从源码安装（本仓库是私有仓库，需要有访问权限）：
 
 ```bash
 # 已有源码：在仓库根目录运行，把 rokbot 链接到 ~/.local/bin
@@ -16,7 +30,7 @@ bash scripts/install-cli.sh
 git clone https://github.com/hongfaqiu/rokbot.git ~/.rokbot/cli && bash ~/.rokbot/cli/scripts/install-cli.sh
 ```
 
-不安装也能直接用：`node bin/rokbot.mjs --help`，或 `npx github:hongfaqiu/rokbot --help`。
+在源码目录里不安装也能直接用：`node bin/rokbot.mjs --help`。
 
 `install-cli.sh` 支持这些环境变量：`ROKBOT_BIN_DIR`（链接放在哪里，默认 `~/.local/bin`）、`ROKBOT_CLI_DIR`（不在仓库里运行时 clone 到哪里）、`ROKBOT_REPO_URL`、`ROKBOT_REF`。
 
@@ -122,6 +136,18 @@ rokbot pack <平台> --input <官方原版安装包路径> [--output <目录>] [
 | `web` | Windows x64 `Setup.exe` | Windows 固定摘要，且版本在 `web/patchers/supported.json` 中 | `web/patchers/patch.mjs` |
 | `ios` | 已解密的 `.ipa` | 由 `patch-ios.py` 按 Info.plist 与固定摘要校验 | `ios/release/patch-ios.py` |
 
+`pack` 需要完整的 RokBot 源码（补丁脚本和固定摘要），npm 安装版不带这些文件。CLI 按顺序查找源码目录：`--src <目录>`、CLI 自身所在目录（从源码运行时）、`rokbot init --mode source` 记录在 `rokbot.json` 里的源码目录、`<实例目录>/src`、`~/.rokbot/cli`。都找不到时会提示获取源码的办法，不会继续运行：
+
+```bash
+# 用 npm 安装的 rokbot 打包：先获取源码，之后 pack 自动使用实例记录的源码目录
+rokbot init --mode source
+npm install --prefix ~/rokbot/src/mac/patchers/desktop   # 桌面和网页版打包需要
+rokbot pack android --input ~/Downloads/原版-1.26.0.xapk
+
+# 或者指定已有的源码目录
+rokbot pack linux --input ~/Downloads/原版.deb --src ~/code/rokbot
+```
+
 安卓打包前会先做与 `doctor` 相同的签名检查，正式密钥不符时直接停止；`--keystore`、`--dev-signing` 原样传给 `patch-android.mjs`。`--dry-run` 只校验输入并显示将运行的命令。`--` 之后的参数原样交给补丁脚本，例如 `-- --app-version 1.3.1` 或 `-- --rokbot-build 2`。产物和一份 `rokbot-pack.json`（输入版本与摘要）写到 `<输出目录>/<平台>/`。
 
 生成的客户端只装在自己的设备上，或由 Host 管理员在管理页「客户端更新」发布，不要公开分发。各平台的细节见对应目录的 README 和 [客户端获取](clients.md)。
@@ -156,3 +182,5 @@ node --test scripts/cli/tests/*.test.mjs
 # 有官方安卓原包时，额外验证真实输入的识别
 ROKBOT_ANDROID_TEST_XAPK=/path/to/official.xapk node --test scripts/cli/tests/*.test.mjs
 ```
+
+`npm-package.test.mjs` 会在临时目录里 `npm pack` 并解开 tarball，从解开的目录运行 `--help`、`doctor`、`init --dry-run` 和 `pack`，确认 npm 安装版能正常工作，且包里没有密钥、签名证书、`.env`、`node_modules` 或安装包。发布前可以用 `npm pack --dry-run` 查看文件清单。

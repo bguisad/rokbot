@@ -244,10 +244,7 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
 
   const dataDir = await mkdtemp(path.join(tmpdir(), 'rokbot-web-m33-host-'));
   const stageDir = await mkdtemp(path.join(tmpdir(), 'rokbot-web-m33-stage-'));
-  t.after(async () => {
-    await rm(dataDir, { recursive: true, force: true });
-    await rm(stageDir, { recursive: true, force: true });
-  });
+  t.after(() => rm(stageDir, { recursive: true, force: true }));
 
   // Mock OpenAI upstream for /local/model/catalog and /local/model/test
   const upstream = http.createServer(async (req, res) => {
@@ -290,7 +287,8 @@ test('real bridge.js + services.js + boot-data.js + model-bridge.mjs against liv
   // Intercept /local/voice/status cleanly via core or hook? Host handles /local/voice/status directly;
   // check Host startup and install a valid 1.2.3 Web bundle.
   await host.start(0, '127.0.0.1');
-  t.after(() => host.close());
+  // Close first: the Host finishes its pending writes (canvas link origin, stores) on close.
+  t.after(async () => { await host.close(); await rm(dataDir, { recursive: true, force: true }); });
 
   const hostOrigin = `http://127.0.0.1:${host.server.address().port}`;
   const webOrigin = `http://127.0.0.1:${host.webServer.address().port}`;

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { compileCanvas } from '../server/canvas-compile.mjs';
-import { CanvasLinkOrigins, CanvasStore, resolveCanvasOrigin } from '../server/canvas-store.mjs';
+import { CanvasLinkOrigins, CanvasStore, canvasView, resolveCanvasOrigin } from '../server/canvas-store.mjs';
 import { CANVAS_FRAME_SANDBOX, routeCanvas } from '../server/canvas-http.mjs';
 import { applyCanvasEdits, createLocalCanvasTools, LOCAL_CANVAS_TOOL_NAMES } from '../runtime/local-canvas-tools.mjs';
 import { CANVAS_SDK_GUIDE } from '../server/canvas-sdk/guide.mjs';
@@ -118,7 +118,9 @@ test('CanvasStore creates, updates in place, keeps the token and never stores a 
   assert.equal(created.meta.title, '测试 画布');
   assert.match(created.meta.token, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(created.meta.version, 1);
-  assert.deepEqual(await store.byToken(created.meta.token), created.meta);
+  assert.equal(created.meta.visibility, 'private', 'a new canvas is private');
+  assert.equal(await store.byToken(created.meta.token), null, 'a private canvas has no public link');
+  assert.deepEqual(await store.byAnyToken(created.meta.token), created.meta);
 
   const updated = await store.write({ agentId: 'bot-a', canvasId: created.meta.id, source: SAMPLE_CANVAS.replace('区域订单看板', '订单看板 v2') });
   assert.equal(updated.ok, true);
@@ -127,13 +129,38 @@ test('CanvasStore creates, updates in place, keeps the token and never stores a 
   assert.equal(updated.meta.token, created.meta.token);
   assert.equal(updated.meta.title, '测试 画布');
   assert.equal(updated.meta.version, 2);
+  assert.equal(updated.meta.visibility, 'private');
   assert.match(await store.readSource(created.meta.id), /订单看板 v2/);
+
+  // Publish, unpublish, publish again (same link), then a new link (the old one is gone for good).
+  const published = await store.setVisibility(created.meta.id, 'public');
+  assert.equal(published.visibility, 'public');
+  assert.ok(published.publishedAtMs > 0);
+  assert.equal((await store.byToken(created.meta.token))?.id, created.meta.id);
+  const kept = await store.write({ agentId: 'bot-a', canvasId: created.meta.id, source: SAMPLE_CANVAS.replace('区域订单看板', '订单看板 v2') });
+  assert.equal(kept.meta.visibility, 'public', 'an update keeps the visibility');
+  assert.equal((await store.setVisibility(created.meta.id, 'private')).visibility, 'private');
+  assert.equal(await store.byToken(created.meta.token), null);
+  await store.setVisibility(created.meta.id, 'public');
+  assert.equal((await store.byToken(created.meta.token))?.id, created.meta.id);
+  const rotated = await store.regenerateToken(created.meta.id);
+  assert.notEqual(rotated.token, created.meta.token);
+  assert.equal(await store.byToken(created.meta.token), null);
+  assert.equal(await store.byAnyToken(created.meta.token), null);
+  assert.equal((await store.byToken(rotated.token))?.id, created.meta.id);
+  await assert.rejects(store.setVisibility(created.meta.id, 'team'), /Invalid canvas visibility/);
+  assert.equal(await store.setVisibility('00000000-0000-4000-8000-000000000000', 'public'), null);
+  await store.setVisibility(created.meta.id, 'private');
+  const view = canvasView(await store.readMeta(created.meta.id), 'https://h.example/');
+  assert.equal(view.publicUrl, null);
+  assert.equal(view.appUrl, `https://h.example/canvas/app/${created.meta.id}`);
+  assert.ok(!JSON.stringify(view).includes(rotated.token), 'a private canvas view never carries its token');
 
   const broken = await store.write({ agentId: 'bot-a', canvasId: created.meta.id, source: 'export default function A() { return <div>; }' });
   assert.equal(broken.ok, false);
   assert.equal(broken.reason, 'compile_failed');
   assert.match(await store.readSource(created.meta.id), /订单看板 v2/);
-  assert.equal((await store.readMeta(created.meta.id)).version, 2);
+  assert.equal((await store.readMeta(created.meta.id)).version, 3);
 
   const foreign = await store.write({ agentId: 'bot-b', canvasId: created.meta.id, source: SAMPLE_CANVAS });
   assert.equal(foreign.reason, 'not_found');
@@ -141,7 +168,7 @@ test('CanvasStore creates, updates in place, keeps the token and never stores a 
 
   // Concurrent creates never lose a token.
   const many = await Promise.all([1, 2, 3, 4].map((n) => store.write({ agentId: 'bot-a', title: `并发 ${n}`, source: SAMPLE_CANVAS })));
-  for (const result of many) assert.ok(await store.byToken(result.meta.token));
+  for (const result of many) assert.ok(await store.byAnyToken(result.meta.token));
   assert.equal((await store.list({ agentId: 'bot-a' })).length, 5);
   assert.equal(await store.byToken('A'.repeat(43)), null);
   assert.equal(await store.byToken('../../etc/passwd'), null);
@@ -179,8 +206,10 @@ test('local canvas tools: registration, create, update, edit, read and list thro
   assert.match(saved, /^Canvas saved: "订单看板"\./);
   const canvasId = /canvas_id: ([0-9a-f-]{36})/.exec(saved)[1];
   const url = /URL: (\S+)/.exec(saved)[1];
-  assert.match(url, /^https:\/\/rokbot\.example\/canvas\/[A-Za-z0-9_-]{43}$/);
+  assert.equal(url, `https://rokbot.example/canvas/app/${canvasId}`, 'the model gets the in-app link, not a public one');
   assert.ok(saved.includes(`[订单看板](${url})`));
+  assert.match(saved, /visibility: private/);
+  assert.match(saved, /The canvas is private/);
 
   const rewritten = await runTool(tools, 'WriteCanvas', { canvas_id: canvasId, contents: SAMPLE_CANVAS.replace('加一', '再来一次') });
   assert.match(rewritten, /Canvas updated: "订单看板"/);
@@ -209,7 +238,15 @@ test('local canvas tools: registration, create, update, edit, read and list thro
 
   const listed = await runTool(tools, 'ListCanvases', { query: '订单' });
   assert.ok(listed.includes(canvasId) && listed.includes(url));
+  assert.ok(listed.includes('visibility: private') && !listed.includes('public_url'));
   assert.ok(!listed.includes('别名'));
+
+  // Once the user publishes it, the model sees the public link too, and can read by it.
+  const store = new CanvasStore(dir, { compile: compileCanvas });
+  const shared = await store.setVisibility(canvasId, 'public');
+  const listedPublic = await runTool(tools, 'ListCanvases', { query: '订单' });
+  assert.ok(listedPublic.includes(`public_url: https://rokbot.example/canvas/${shared.token}`));
+  assert.equal(await runTool(tools, 'ReadCanvas', { url: `https://rokbot.example/canvas/${shared.token}` }), read);
 
   // Another bot can neither list nor edit this bot's canvases.
   const other = createLocalCanvasTools({ library: fakeProtoLibrary(), dataDir: dir, agentId: 'bot-b', env }).tools;
@@ -227,11 +264,34 @@ test('canvas HTTP route: token access, 404s, sandbox and CSP headers', async (t)
   const { meta } = await store.write({ agentId: 'bot-a', title: '<b>标题</b>', source: SAMPLE_CANVAS.replace('数据来源：示例数据', '{"</script><script>alert(1)</script>"}') });
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, 'http://localhost');
-    if (!(await routeCanvas(request, response, url.pathname, url, { store }))) { response.writeHead(418); response.end(); }
+    const authorize = () => request.headers.authorization === 'Bearer good';
+    if (!(await routeCanvas(request, response, url.pathname, url, { store, authorize }))) { response.writeHead(418); response.end(); }
   });
   const base = await listen(server);
   t.after(() => new Promise((done) => server.close(done)));
 
+  // Private (the default): the public link and the in-app link without a credential are the same 404.
+  const privatePage = await fetch(`${base}/canvas/${meta.token}`);
+  assert.equal(privatePage.status, 404);
+  const notFoundHtml = await privatePage.text();
+  assert.match(notFoundHtml, /画布不存在或未公开/);
+  assert.ok(!notFoundHtml.includes('标题'), 'a 404 never reveals the canvas');
+  assert.equal((await fetch(`${base}/canvas/${meta.token}/frame`)).status, 404);
+  assert.equal((await fetch(`${base}/canvas/app/${meta.id}`)).status, 404);
+  assert.equal((await fetch(`${base}/canvas/app/${meta.id}/frame`, { headers: { authorization: 'Bearer bad' } })).status, 404);
+  assert.equal(await (await fetch(`${base}/canvas/app/${meta.id}`)).text(), notFoundHtml, 'unknown, private and unauthorized look alike');
+  // Signed in: the in-app link opens the private canvas.
+  const appPage = await fetch(`${base}/canvas/app/${meta.id}?theme=dark`, { headers: { authorization: 'Bearer good' } });
+  assert.equal(appPage.status, 200);
+  const appHtml = await appPage.text();
+  assert.ok(appHtml.includes(`/canvas/app/${meta.id}/frame?theme=dark`) && appHtml.includes('私有'));
+  assert.ok(!appHtml.includes(meta.token), 'the in-app page never carries the public token');
+  const appFrame = await fetch(`${base}/canvas/app/${meta.id}/frame`, { headers: { authorization: 'Bearer good' } });
+  assert.equal(appFrame.status, 200);
+  assert.match(appFrame.headers.get('content-security-policy'), /^sandbox allow-scripts/);
+  assert.equal((await fetch(`${base}/canvas/app/00000000-0000-4000-8000-000000000000`, { headers: { authorization: 'Bearer good' } })).status, 404);
+
+  await store.setVisibility(meta.id, 'public');
   const page = await fetch(`${base}/canvas/${meta.token}`);
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type'), /text\/html/);
@@ -271,36 +331,131 @@ test('canvas HTTP route: token access, 404s, sandbox and CSP headers', async (t)
   for (const path of [`/canvas/${'A'.repeat(43)}`, '/canvas/short', `/canvas/${meta.token}/source.canvas.tsx`, '/canvas/', `/canvas/${meta.token}/../tokens.json`]) {
     const response = await fetch(`${base}${path}`);
     assert.equal(response.status, 404, path);
-    assert.equal(response.headers.get('content-security-policy'), "default-src 'none'");
+    assert.match(response.headers.get('content-security-policy'), /^default-src 'none'/);
   }
   assert.equal((await fetch(`${base}/canvas/${meta.token}`, { method: 'POST' })).status, 404);
   assert.equal((await fetch(`${base}/other`)).status, 418);
+  // Unpublished: the public link is 404 again at once.
+  await store.setVisibility(meta.id, 'private');
+  assert.equal((await fetch(`${base}/canvas/${meta.token}`)).status, 404);
+  assert.equal((await fetch(`${base}/canvas/${meta.token}/frame`)).status, 404);
 });
 
-test('selfhost service serves canvases on both listeners without device credentials and records client origins', async (t) => {
+test('selfhost service: private by default, signed-in devices only, public while shared, API needs a device', async (t) => {
   const { createSelfHostServer } = await import('../server/index.mjs');
-  const dir = await mkdtemp(join(tmpdir(), 'rokbot-canvas-service-'));
+  const dir = await mkdtemp(join(tmpdir(), 'rok0c0canvas-service-'));
   const core = http.createServer((request, response) => { response.writeHead(200, { 'content-type': 'application/json' }); response.end('null'); });
   const coreUrl = await listen(core);
   const host = await createSelfHostServer({ dataDir: dir, hostUrl: coreUrl, vncUrl: coreUrl, forkVncUrl: coreUrl, internalToken: 'a'.repeat(40) });
   await host.start(0, '127.0.0.1', 0);
   t.after(async () => { await host.close(); await new Promise((done) => core.close(done)); await rm(dir, { recursive: true, force: true }); });
   const origin = `http://127.0.0.1:${host.server.address().port}`, webOrigin = `http://127.0.0.1:${host.webServer.address().port}`;
+  await host.auth.setup(host.auth.setupKey, 'demo-admin-password');
+  // An app device (bearer on the main listener) and a web client session (cookie on the web listener).
+  const app = await host.auth.pair({ pairingKey: (await host.auth.createPairing()).pairingKey, deviceName: 'Demo Mac', platform: 'desktop' });
+  const browser = await host.auth.pair({ pairingKey: (await host.auth.createPairing()).pairingKey, deviceName: 'Web client · Demo' }, { web: true });
+  // The web listener accepts its cookie only while a web client bundle is installed and enabled;
+  // no renderer is needed for canvas routes, so the test stands in for an installed bundle.
+  Object.defineProperty(host.webClient, 'available', { get: () => true });
+  const bearer = { authorization: `Bearer ${app.token}` };
+  const cookie = { cookie: `rokbot_web=${browser.token}` };
+  const webApi = { ...cookie, 'x-rokbot-web': '1' };
 
   const store = new CanvasStore(dir, { compile: compileCanvas });
-  const { meta } = await store.write({ agentId: 'bot-a', title: '服务测试', source: SAMPLE_CANVAS });
+  const { meta } = await store.write({ agentId: 'a0a0-0001', title: '服务测试', source: SAMPLE_CANVAS });
+  await store.write({ agentId: 'b0b0-0002', title: '别的 Bot', source: SAMPLE_CANVAS });
+  const status = async (url, headers = {}, init = {}) => (await fetch(url, { headers, redirect: 'manual', ...init })).status;
+
+  // 1. Private, not signed in: every link is 404, on both listeners.
   for (const base of [origin, webOrigin]) {
-    const page = await fetch(`${base}/canvas/${meta.token}`);
-    assert.equal(page.status, 200, base);
-    assert.equal(page.headers.get('x-frame-options'), null, 'the page may be embedded by clients');
-    assert.ok((await page.text()).includes('服务测试'));
-    const frame = await fetch(`${base}/canvas/${meta.token}/frame`);
-    assert.match(frame.headers.get('content-security-policy'), /^sandbox allow-scripts/);
-    assert.equal((await fetch(`${base}/canvas/${'b'.repeat(43)}`)).status, 404);
+    assert.equal(await status(`${base}/canvas/${meta.token}`), 404, `${base} public link of a private canvas`);
+    assert.equal(await status(`${base}/canvas/${meta.token}/frame`), 404);
+    assert.equal(await status(`${base}/canvas/app/${meta.id}`), 404, `${base} in-app link without a credential`);
+    assert.equal(await status(`${base}/canvas/app/${meta.id}/frame`), 404);
   }
-  // The canvas store files are not reachable over HTTP.
-  assert.equal((await fetch(`${origin}/canvases/tokens.json`)).status, 404);
-  assert.equal((await fetch(`${origin}/canvas/tokens.json`)).status, 404);
+  // 2. Signed in: the app's bearer on the main listener, the browser's cookie on the web listener.
+  assert.equal(await status(`${origin}/canvas/app/${meta.id}/frame`, bearer), 200);
+  assert.equal(await status(`${origin}/canvas/app/${meta.id}`, bearer), 200);
+  assert.equal(await status(`${webOrigin}/canvas/app/${meta.id}/frame`, cookie), 200);
+  const webPage = await fetch(`${webOrigin}/canvas/app/${meta.id}`, { headers: cookie });
+  assert.equal(webPage.status, 200);
+  assert.ok((await webPage.text()).includes('服务测试'));
+  // Credentials stay on their own listener, and a wrong or revoked one is the same 404.
+  assert.equal(await status(`${webOrigin}/canvas/app/${meta.id}/frame`, bearer), 404, 'apps use the main listener');
+  assert.equal(await status(`${origin}/canvas/app/${meta.id}/frame`, cookie), 404, 'the main listener ignores the web cookie');
+  assert.equal(await status(`${origin}/canvas/app/${meta.id}/frame`, { authorization: `Bearer ${'x'.repeat(43)}` }), 404);
+  assert.equal(await status(`${origin}/canvas/${meta.token}`, bearer), 404, 'signing in does not open a private public link');
+
+  // 3. The API: a device is required; list per Bot; no token while private.
+  assert.equal(await status(`${origin}/local/canvases?agentId=a0a0-0001`), 401);
+  assert.equal(await status(`${origin}/local/canvases/${meta.id}`), 401);
+  assert.equal(await status(`${origin}/local/canvases/${meta.id}/visibility`, { 'content-type': 'application/json' }, { method: 'POST', body: '{"visibility":"public"}' }), 401);
+  assert.equal(await status(`${origin}/local/canvases/${meta.id}`, {}, { method: 'DELETE' }), 401);
+  assert.equal(await status(`${webOrigin}/local/canvases?agentId=a0a0-0001`, cookie), 403, 'the web API wants its header');
+  assert.equal(await status(`${origin}/local/canvases?agentId=../x`, bearer), 400);
+  const listedResponse = await fetch(`${origin}/local/canvases?agentId=a0a0-0001`, { headers: bearer });
+  const listed = await listedResponse.json();
+  assert.equal(listedResponse.status, 200, JSON.stringify(listed));
+  assert.deepEqual(listed.canvases.map((item) => item.title), ['服务测试']);
+  const [item] = listed.canvases;
+  assert.equal(item.visibility, 'private');
+  assert.equal(item.publicUrl, null);
+  assert.equal(item.appUrl, `${origin}/canvas/app/${meta.id}`);
+  assert.ok(!JSON.stringify(listed).includes(meta.token));
+  const webListed = await (await fetch(`${webOrigin}/local/canvases?agentId=a0a0-0001`, { headers: webApi })).json();
+  assert.equal(webListed.canvases[0].appUrl, `${webOrigin}/canvas/app/${meta.id}`, 'in-app links use the caller\'s own origin');
+  assert.equal((await (await fetch(`${origin}/local/canvases?agentId=0c0c`, { headers: bearer })).json()).canvases.length, 0);
+  assert.equal(await status(`${origin}/local/canvases/00000000-0000-4000-8000-000000000000`, bearer), 404);
+
+  // 4. Shared: anyone with the link, on both listeners; the in-app link still needs a device.
+  const post = (path, body, headers = bearer, base = origin) => fetch(`${base}${path}`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post(`/local/canvases/${meta.id}/visibility`, { visibility: 'team' })).status, 400);
+  const shared = (await (await post(`/local/canvases/${meta.id}/visibility`, { visibility: 'public' })).json()).canvas;
+  assert.equal(shared.visibility, 'public');
+  assert.equal(shared.publicUrl, `${origin}/canvas/${meta.token}`);
+  for (const base of [origin, webOrigin]) {
+    assert.equal(await status(`${base}/canvas/${meta.token}`), 200, `${base} public link while shared`);
+    assert.equal(await status(`${base}/canvas/${meta.token}/frame`), 200);
+    assert.equal(await status(`${base}/canvas/app/${meta.id}`), 404, 'the in-app link is never public');
+  }
+  // 5. Unshared: the public link is 404 at once; the in-app link keeps working for devices.
+  const unshared = (await (await post(`/local/canvases/${meta.id}/visibility`, { visibility: 'private' }, webApi, webOrigin)).json()).canvas;
+  assert.equal(unshared.visibility, 'private');
+  assert.equal(await status(`${origin}/canvas/${meta.token}`), 404);
+  assert.equal(await status(`${webOrigin}/canvas/${meta.token}/frame`), 404);
+  assert.equal(await status(`${origin}/canvas/app/${meta.id}/frame`, bearer), 200);
+  // 6. A new link: the old public link never comes back, even when shared again.
+  await post(`/local/canvases/${meta.id}/visibility`, { visibility: 'public' });
+  const rotated = (await (await post(`/local/canvases/${meta.id}/link`, {})).json()).canvas;
+  assert.notEqual(rotated.publicUrl, shared.publicUrl);
+  assert.equal(await status(shared.publicUrl), 404);
+  assert.equal(await status(rotated.publicUrl), 200);
+  // Forged tokens and ids, path tricks and other methods are 404.
+  for (const path of [`/canvas/${'b'.repeat(43)}`, `/canvas/${meta.token.slice(0, 42)}A`, '/canvas/app/not-a-canvas', `/canvas/app/${meta.id}/source.canvas.tsx`, '/canvases/tokens.json', '/canvas/tokens.json'])
+    assert.equal(await status(`${origin}${path}`, bearer), 404, path);
+  assert.equal(await status(rotated.publicUrl, {}, { method: 'POST' }), 404);
+  // 7. Delete: gone for the API, the in-app link and the public link.
+  assert.equal((await fetch(`${origin}/local/canvases/${meta.id}`, { method: 'DELETE', headers: bearer })).status, 200);
+  assert.equal(await status(rotated.publicUrl), 404);
+  assert.equal(await status(`${origin}/canvas/app/${meta.id}/frame`, bearer), 404);
+  assert.equal(await status(`${origin}/local/canvases/${meta.id}`, bearer), 404);
+  assert.deepEqual((await (await fetch(`${origin}/local/canvases?agentId=a0a0-0001`, { headers: bearer })).json()).canvases, []);
+});
+
+test('canvases written before visibility existed are private after the upgrade', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'rokbot-canvas-legacy-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = new CanvasStore(dir, { compile: compileCanvas });
+  const { meta } = await store.write({ agentId: 'bot-a', title: '旧画布', source: SAMPLE_CANVAS });
+  // The previous release wrote meta.json without `visibility`; its links were public.
+  const legacy = { ...meta };
+  delete legacy.visibility;
+  await writeFile(join(dir, 'canvases', meta.id, 'meta.json'), JSON.stringify(legacy));
+  assert.equal(await store.byToken(meta.token), null, 'an old public link is 404 until the user shares the canvas again');
+  assert.equal(canvasView(await store.readMeta(meta.id), 'http://h').visibility, 'private');
+  const shared = await store.setVisibility(meta.id, 'public');
+  assert.equal(shared.token, meta.token, 'sharing it again revives the same link');
+  assert.equal((await store.byToken(meta.token))?.id, meta.id);
 });
 
 const configuredSeed = process.env.ROKBOT_TEST_HOST_SEED;
@@ -318,5 +473,4 @@ if (configuredSeed || configuredArchive) {
   });
 }
 
-// Silence unused import lint in environments that strip the fixture test.
-void writeFile;
+
