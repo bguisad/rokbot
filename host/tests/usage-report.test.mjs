@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { anthropicUsage } from '../runtime/anthropic-messages.mjs';
-import { recordUsage } from '../runtime/usage-ledger.mjs';
+import { recordUsage, usageCounts } from '../runtime/usage-ledger.mjs';
 import { breakdown, csvCell, NONE, resolveRange, rowCost, usageChanges, usageCsv, usageExport, usageReport } from '../runtime/usage-report.mjs';
 
 const row = (id, at, extra = {}) => {
@@ -178,4 +178,13 @@ test('recordUsage keeps the bot, duration, status and a short error; failed requ
   assert.equal(report.totals.cacheWrite, 200);
   assert.equal(report.requests.items[0].cacheWrite, 200);
   assert.match(usageCsv(report.requests.items, 'UTC'), /,200,25,/);
+});
+
+test('rowCost bills Magpie cache write and cache read once each, never again as plain input', () => {
+  const prices = { m1: { input: 1, output: 0, cached: 0.1, cacheWrite: 1.25 } };
+  const write = usageCounts({ prompt_tokens: 11199, completion_tokens: 0, prompt_tokens_details: { cache_write_tokens: 11195, cached_tokens: 0 } });
+  const read = usageCounts({ prompt_tokens: 11199, completion_tokens: 0, prompt_tokens_details: { cache_write_tokens: 0, cached_tokens: 11195 } });
+  const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-12, `${actual} != ${expected}`);
+  close(rowCost({ model: 'm1', ...write }, prices), (4 * 1 + 11195 * 1.25) / 1e6);
+  close(rowCost({ model: 'm1', ...read }, prices), (4 * 1 + 11195 * 0.1) / 1e6);
 });

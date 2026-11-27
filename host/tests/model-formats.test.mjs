@@ -574,3 +574,19 @@ test('anthropic cache_ttl defaults to 5m, supports explicit 1h, rejects unverifi
     console.info = originalInfo;
   }
 });
+
+test('chat session reports Magpie prompt_tokens_details.cache_write_tokens as cache write tokens', async () => {
+  for (const [details, read, write] of [[{ cache_write_tokens: 11195, cached_tokens: 0 }, 0, 11195],
+    [{ cache_write_tokens: 0, cached_tokens: 11195 }, 11195, 0]]) {
+    const session = createModelSession({ apiFormat: 'openai', baseUrl: 'https://api.example.com/v1', apiKey: 'k', model: 'm',
+      fetchImpl: async () => sse([
+        { id: 'c1', choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] },
+        { id: 'c1', choices: [], usage: { prompt_tokens: 11199, completion_tokens: 2, total_tokens: 11201, prompt_tokens_details: details } },
+      ], { done: true }) });
+    const result = session.getExecutor([{ role: 'user', content: 'hi' }]).stream({}, 'inv', []);
+    for await (const _ of result.fullStream) void _;
+    const ext = await result.extendedUsage;
+    assert.deepEqual({ input: ext.inputTokens, read: ext.cacheReadTokens, write: ext.cacheWriteTokens }, { input: 11199, read, write });
+    assert.equal((await result.usage).promptTokens, 11199);
+  }
+});
