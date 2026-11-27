@@ -445,9 +445,9 @@
       '<div class="gen-sunset-canvas">' +
         '<div class="gen-sun"></div>' +
         '<svg class="gen-hills" viewBox="0 0 360 202" preserveAspectRatio="none" aria-hidden="true">' +
-          '<path d="M0 150 Q70 118 145 142 T300 132 L360 144 L360 202 L0 202 Z" fill="#312E81" opacity="0.82"/>' +
-          '<path d="M0 166 Q95 140 190 158 T360 152 L360 202 L0 202 Z" fill="#1E1B4B"/>' +
-          '<path d="M138 176 L222 176 L205 196 L155 196 Z" fill="rgba(253,230,138,0.28)"/>' +
+          '<path d="M0 150 Q70 118 145 142 T300 132 L360 144 L360 202 L0 202 Z" fill="#2C2C2E" opacity="0.82"/>' +
+          '<path d="M0 166 Q95 140 190 158 T360 152 L360 202 L0 202 Z" fill="#1C1C1E"/>' +
+          '<path d="M138 176 L222 176 L205 196 L155 196 Z" fill="rgba(255,255,255,0.18)"/>' +
         '</svg>' +
         '<span class="gen-badge">16:9 · 1536×1024</span>' +
       '</div>' +

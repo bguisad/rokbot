@@ -15,7 +15,7 @@
     root.dataset.theme = dark ? 'dark' : 'light';
     root.dataset.themePref = pref;
     var meta = document.querySelector('meta[name="theme-color"]:not([media])');
-    if (meta) meta.setAttribute('content', dark ? '#090B10' : '#F8FAFC');
+    if (meta) meta.setAttribute('content', dark ? '#0C0C0D' : '#F5F5F4');
     document.dispatchEvent(new CustomEvent('rokbot:theme', { detail: root.dataset.theme }));
   }
 
