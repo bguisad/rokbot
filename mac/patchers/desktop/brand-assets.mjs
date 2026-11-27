@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { cp, readFile, rm } from 'node:fs/promises';
+import { cp, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 export const BUNDLE_IDENTIFIER = 'dev.rokbot.local';
@@ -9,6 +9,7 @@ export const URL_SCHEME = 'rokbot-local';
 export const URL_SCHEME_NAME = 'RokBot Local';
 export const LOCAL_NETWORK_USAGE_DESCRIPTION = 'Connect to your RokBot Host on the local network.';
 export const PROFILE_DISPLAY_PATH = '~/Library/Application Support/RokBot Local';
+const RENDERER_APP_ICON_RE = /^app-icon-[^/]+\.png$/;
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -16,6 +17,7 @@ export function resolveRokBotLogoPaths(repoRoot) {
   return {
     icnsPath: path.join(repoRoot, 'assets/logo/rokbot.icns'),
     iconPngPath: path.join(repoRoot, 'assets/logo/rokbot-icon-512.png'),
+    rendererIconPngPath: path.join(repoRoot, 'assets/logo/rokbot-icon-256.png'),
   };
 }
 
@@ -23,8 +25,21 @@ export function resolveTailcatSource(macRoot) {
   return path.join(macRoot, 'dist/network/rokbot-tailcat');
 }
 
-export async function stageLocalClientIcon({ unpackedDir, iconPngPath }) {
+export async function replaceRendererAppIcons(unpackedDir, rendererIconPngPath) {
+  const assetsDir = path.join(unpackedDir, 'dist/renderer/assets');
+  if (!existsSync(assetsDir)) return [];
+  const replaced = [];
+  for (const name of (await readdir(assetsDir)).sort()) {
+    if (!RENDERER_APP_ICON_RE.test(name)) continue;
+    await cp(rendererIconPngPath, path.join(assetsDir, name));
+    replaced.push(`dist/renderer/assets/${name}`);
+  }
+  return replaced;
+}
+
+export async function stageLocalClientIcon({ unpackedDir, iconPngPath, rendererIconPngPath = iconPngPath }) {
   await cp(iconPngPath, path.join(unpackedDir, 'local-client/icon.png'));
+  return replaceRendererAppIcons(unpackedDir, rendererIconPngPath);
 }
 
 export async function installBundleIcon({ outResources, icnsPath }) {
@@ -66,14 +81,22 @@ export function applyRokBotHelperInfoPlist(helper, { originalBundleId, targetBun
   return changed;
 }
 
-export async function verifyRokBotIcons({ icnsPath, iconPngPath, outIconPath, outAsarPath, asarModule }) {
+export async function verifyRokBotIcons({
+  icnsPath,
+  iconPngPath,
+  rendererIconPngPath = iconPngPath,
+  outIconPath,
+  outAsarPath,
+  asarModule,
+}) {
   if (existsSync(path.join(path.dirname(outIconPath), 'Assets.car'))) {
     throw new Error('RokBot 图标替换校验失败（Assets.car 未移除）。');
   }
-  const [expectedIcnsSha256, iconSha256, expectedPngSha256] = await Promise.all([
+  const [expectedIcnsSha256, iconSha256, expectedPngSha256, expectedRendererPngSha256] = await Promise.all([
     readFile(icnsPath).then(sha),
     readFile(outIconPath).then(sha),
     readFile(iconPngPath).then(sha),
+    readFile(rendererIconPngPath).then(sha),
   ]);
   if (iconSha256 !== expectedIcnsSha256) {
     throw new Error('RokBot 图标替换校验失败（icon.icns）。');
@@ -82,5 +105,13 @@ export async function verifyRokBotIcons({ icnsPath, iconPngPath, outIconPath, ou
   if (localIconSha256 !== expectedPngSha256) {
     throw new Error('RokBot 图标替换校验失败（local-client/icon.png）。');
   }
-  return { rokbotIconApplied: true, iconSha256, localIconSha256 };
+  const rendererAppIcons = asarModule.listPackage(outAsarPath)
+    .map(name => name.replaceAll('\\', '/').replace(/^\//, ''))
+    .filter(name => /^dist\/renderer\/assets\/app-icon-[^/]+\.png$/.test(name));
+  for (const rel of rendererAppIcons) {
+    if (sha(asarModule.extractFile(outAsarPath, rel)) !== expectedRendererPngSha256) {
+      throw new Error(`RokBot 图标替换校验失败（${rel}）。`);
+    }
+  }
+  return { rokbotIconApplied: true, iconSha256, localIconSha256, rendererAppIcons };
 }

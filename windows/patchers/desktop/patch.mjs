@@ -124,8 +124,8 @@ async function build() {
     filter: filename => path.basename(filename) !== 'notification-policy.mjs' });
   await writeFile(path.join(unpacked, 'local-client/notification-policy.mjs'), notificationPolicy);
   await cp(path.join(clients, 'shared'), path.join(unpacked, 'shared'), { recursive: true });
-  const { icoPath, iconPngPath } = resolveRokBotWindowsLogoPaths(repo);
-  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath });
+  const { icoPath, iconPngPath, rendererIconPngPath } = resolveRokBotWindowsLogoPaths(repo);
+  await stageLocalClientWindowsIcons({ unpackedDir: unpacked, icoPath, iconPngPath, rendererIconPngPath });
 
   const outAsar = path.join(stagedApp, 'resources/app.asar');
   await rm(outAsar);
@@ -137,7 +137,7 @@ async function build() {
   const missing = [...originalUnpacked].filter(name => !patchedUnpacked.has(name));
   const extra = [...patchedUnpacked].filter(name => !originalUnpacked.has(name));
   if (missing.length || extra.length) throw new Error(`解包文件与原版不一致：${[...missing, ...extra].slice(0, 5).join(', ')}`);
-  const iconVerification = await verifyRokBotWindowsIcons({ icoPath, iconPngPath, outAsarPath: outAsar, asarModule: asar });
+  const iconVerification = await verifyRokBotWindowsIcons({ icoPath, iconPngPath, rendererIconPngPath, outAsarPath: outAsar, asarModule: asar });
   const headerSha256 = sha(asar.getRawHeader(outAsar).headerString);
 
   // The executable embeds the expected ASAR header hash; its Authenticode signature

@@ -38,13 +38,22 @@ export function resolveLinuxTailcatBinary(repoRoot, arch) {
 }
 
 export async function applyRokBotLinuxAsarIcons(unpackedDir, repoRoot) {
-  const { icon512Path } = resolveRokBotLinuxLogoPaths(repoRoot);
-  const pngBytes = await readFile(icon512Path);
+  const { sized, icon512Path } = resolveRokBotLinuxLogoPaths(repoRoot);
+  const [pngBytes, png256Bytes] = await Promise.all([readFile(icon512Path), readFile(sized[256])]);
   assertValidPng(pngBytes, icon512Path);
+  assertValidPng(png256Bytes, sized[256]);
   const dest = path.join(unpackedDir, 'local-client/icon.png');
   await mkdir(path.dirname(dest), { recursive: true });
   await writeFile(dest, pngBytes);
-  return { icon512Sha256: sha(pngBytes) };
+  const assetsDir = path.join(unpackedDir, 'dist/renderer/assets');
+  const rendererAppIcons = [];
+  const entries = await readdir(assetsDir).catch(() => []);
+  for (const name of entries.sort()) {
+    if (!/^app-icon-[^/]+\.png$/.test(name)) continue;
+    await writeFile(path.join(assetsDir, name), png256Bytes);
+    rendererAppIcons.push(`dist/renderer/assets/${name}`);
+  }
+  return { icon512Sha256: sha(pngBytes), rendererAppIcons };
 }
 
 export async function installRokBotLinuxSystemIcons(dataDir, appResourcesDir, repoRoot) {

@@ -129,6 +129,12 @@ export function ensureStartMenuShortcut({ app, shell, execPath = process.execPat
   }
 }
 
+/** Window icon path for platforms where Electron BrowserWindow does not inherit a bundle/PE icon. */
+export function windowIcon(clientRoot, platform = process.platform) {
+  if (platform === 'linux') return path.join(clientRoot, 'icon.png');
+  return undefined;
+}
+
 export function createTray({ Tray, Menu, nativeImage, clientRoot, show, quit, text, platform = process.platform }) {
   const iconFile = platform === 'win32' ? 'icon.ico' : 'icon.png';
   const tray = new Tray(nativeImage.createFromPath(path.join(clientRoot, iconFile)));

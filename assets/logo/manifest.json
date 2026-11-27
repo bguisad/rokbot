@@ -1,6 +1,7 @@
 {
   "schema": "rokbot-logo-manifest/v1",
   "masterSvg": "assets/logo/rokbot-logo.svg",
+  "masterSvgSha256": "ea2ab20b07755baa7637cd305bf161b804eedf7e52604e7e31b8de48327118ee",
   "generator": "assets/logo/generate_icons.py",
   "tile": {
     "radius": 308.0,
