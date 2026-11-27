@@ -443,7 +443,7 @@ BOOL RBShowRequiredPairing(void) {
     [stack addArrangedSubview:suggestionsButton];
     UIButton *migrateButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIButtonConfiguration *migrateConfig = UIButtonConfiguration.tintedButtonConfiguration;
-    migrateConfig.title = RBL(@"从 Grok Bot 迁移", @"Migrate from Grok Bot");
+    migrateConfig.title = RBL(@"数据迁移", @"Data Migration");
     migrateConfig.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
     migrateConfig.baseForegroundColor = UIColor.labelColor;
     migrateConfig.baseBackgroundColor = UIColor.secondarySystemGroupedBackgroundColor;

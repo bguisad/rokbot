@@ -6,15 +6,37 @@ NS_ASSUME_NONNULL_BEGIN
 
 // ---- Pure Foundation helpers (unit-tested on macOS) ----
 
-// Normalized Host settings: {enabled, aiEnabled, completionEnabled, quickPhrases: [{id, text}], hasPhrases}.
-// Missing keys keep the defaults (enabled / aiEnabled / completionEnabled true, no phrases).
+// Normalized Host settings: {enabled, aiEnabled, completionEnabled, learningEnabled,
+// localCompletionEnabled, quickPhrases: [{id, text}], hasPhrases}.
+// Missing keys keep the defaults (all booleans true, no phrases).
 FOUNDATION_EXPORT NSDictionary *RBSuggestionsParseSettings(id _Nullable response);
+// Extracts trimmed non-empty strings from a JSON array (up to max; skips "null" and non-strings).
+FOUNDATION_EXPORT NSArray<NSString *> *RBSuggestionsStringList(id _Nullable array, NSUInteger max);
 // AI suggestions from POST /local/suggestions; only accepted when source == "model" (max 3).
 FOUNDATION_EXPORT NSArray<NSString *> *RBSuggestionsAIFromResponse(id _Nullable response);
+// Quick phrases, then model AI items, then the user's own frequent messages up to maxAI non-phrase items.
+// Trimmed, case-insensitive de-duplicated. Items are {type: "phrase" | "ai" | "frequent", text}.
+FOUNDATION_EXPORT NSArray<NSDictionary *> *RBSuggestionsMergeItemsWithFrequent(NSArray *_Nullable phrases,
+                                                                               NSArray *_Nullable ai,
+                                                                               NSArray *_Nullable frequent,
+                                                                               NSUInteger maxAI);
 // Quick phrases first, then AI suggestions; trimmed, case-insensitive de-duplicated.
 // Items are {type: "phrase" | "ai", text}.
 FOUNDATION_EXPORT NSArray<NSDictionary *> *RBSuggestionsMergeItems(NSArray *_Nullable phrases,
                                                                    NSArray *_Nullable ai);
+// Body for POST /local/suggestions/feedback (action "tap" or "dismiss", text clipped 400, shown max 8
+// from ai/frequent items only). Returns nil when invalid or when dismissing with no shown items.
+FOUNDATION_EXPORT NSDictionary *_Nullable RBSuggestionsFeedbackBody(NSString *_Nullable agentId,
+                                                                    NSString *_Nullable action,
+                                                                    NSString *_Nullable text,
+                                                                    NSArray<NSDictionary *> *_Nullable shownItems);
+// Local (on-device, no network) completion helpers ported from Android SuggestionHabitMatcher.
+FOUNDATION_EXPORT NSString *RBSuggestionsNormalize(NSString *_Nullable text);
+FOUNDATION_EXPORT NSArray<NSString *> *RBSuggestionsHabitPool(NSArray *_Nullable phrases,
+                                                              NSArray *_Nullable candidates);
+FOUNDATION_EXPORT NSArray<NSString *> *RBSuggestionsHabitMatch(NSString *_Nullable draft,
+                                                               NSArray<NSString *> *_Nullable pool,
+                                                               NSUInteger max);
 // Rejects inputs that are clearly not the chat composer (search / name fields).
 FOUNDATION_EXPORT BOOL RBSuggestionsPlaceholderAllowed(NSString *_Nullable placeholder);
 // Body for POST /api/sendPrompt when a suggestion is tapped (click-to-send).
@@ -85,6 +107,7 @@ typedef NS_ENUM(NSInteger, RBSuggestionLoadPhase) {
 
 FOUNDATION_EXPORT const NSTimeInterval RBSuggestionsPlaceholderDelay;
 FOUNDATION_EXPORT const NSTimeInterval RBSuggestionsFadeOutDuration;
+FOUNDATION_EXPORT const NSTimeInterval RBSuggestionsBarFadeDuration;
 FOUNDATION_EXPORT const NSUInteger RBSuggestionsPlaceholderCount;
 
 // Loading state machine for AI suggestions: IDLE -> LOADING -> READY / FAILED -> IDLE.

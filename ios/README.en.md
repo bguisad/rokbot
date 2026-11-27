@@ -52,9 +52,10 @@ The patch keeps the Widgets, Share and NotificationService extensions by default
 
 ## Input suggestions (`RBSuggestions`)
 
-- When the chat composer is focused and empty, a bar above it shows your quick phrases first, then up to 4 suggestions the model generated from the conversation. Tapping one sends it right away through `POST /api/sendPrompt`; if sending fails, the text goes into the composer instead.
-- Empty chats, or chats where the Host returns no model suggestions, only show quick phrases. There are no preset texts, and failures are not cached.
-- Input Suggestions on the connection page turns suggestions and AI suggestions on or off and adds, edits, deletes and reorders quick phrases. Settings live on the Host (`/local/suggestions/settings`, `/local/suggestions/phrases`) and sync with desktop, web and Android.
+- When the chat composer is focused and empty, a bar above it fades in with a 3pt rise (and fades out with a 3pt drop on hide, respecting Reduce Motion): it shows your quick phrases first, then model-generated suggestions, and—when "Learn From My Habits" is enabled—your frequent messages for this Bot to fill up to 3 non-phrase slots. Tapping one sends it right away through `POST /api/sendPrompt` and reports tap/dismiss feedback (`POST /local/suggestions/feedback`) for non-phrase items; if sending fails, the text goes into the composer instead.
+- Empty chats, or chats where the Host returns no model suggestions, never show preset filler, and failures are not cached.
+- While typing a draft without an active ghost-text suffix, "Local Completion" matches your quick phrases and this Bot's frequent messages locally (prefix, substring, and in-order characters; up to 3 items, no network); tapping a match replaces the composer text without sending.
+- Input Suggestions on the connection page toggles suggestions, AI suggestions, inline completion, and under Personalization provides "Learn From My Habits", "Local Completion", and "Clear Learned Habits" (`DELETE /local/suggestions/habits`), plus quick-phrase CRUD and reordering. The first-level connection page also exposes the "Data Migration" entry. Settings live on the Host (`/local/suggestions/settings`, `/local/suggestions/phrases`) and sync with desktop, web and Android.
 
 ## New group chat (`RBGroupCreate`)
 
