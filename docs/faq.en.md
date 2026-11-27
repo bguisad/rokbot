@@ -31,6 +31,14 @@ Data lives in three volumes: `host-data` (mounted at `/data`), `box-home` and `b
 ## Distribution & compliance
 
 - This project does not distribute binaries of third-party clients. The repository contains only what this project wrote itself: the Host source, image build scripts, patch tools, build scripts and documentation. Users obtain the original installers themselves.
+- RokBot is licensed under the [ProkBot Noncommercial License 1.0](../LICENSE). It permits personal use, self-hosting, study, modification and noncommercial redistribution. All commercial use is prohibited, including:
+  - selling or licensing it for payment;
+  - paid hosting or paid services;
+  - incorporating it into commercial products;
+  - a business's internal operations;
+  - monetizing it through advertising or similar means.
+
+  The [LICENSE](../LICENSE) file is authoritative. See [NOTICE](../NOTICE) for derivation and third-party components.
 - The patch tools are provided for personal study and self-hosting only. The noncommercial redistribution permitted by the [LICENSE](../LICENSE) covers only this project's own code, not any part of the original programs.
 - When you use the original clients and the patches, comply with the original client's license terms and the applicable terms of service.
 - Do not distribute publicly the clients, web client bundles or images with a built-in bundle that you generate with the patch tools; use them only with your own Host. When installers are distributed through a Host, the administrator of that Host is responsible for the channel and for who receives them.
