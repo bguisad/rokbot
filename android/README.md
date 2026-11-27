@@ -71,7 +71,7 @@ node android/release/patch-android.mjs \
   --force
 ```
 
-官方安装包需要自备，本仓库不提供原版或补丁后的 APK。生成的 APK 只给自己的设备用，或由 Host 管理员在管理页「客户端更新」发布，已安装的客户端会通过 Host 的 Android 更新通道收到更新，见首页的[获取客户端](../README.md#获取客户端)。
+官方安装包需要自备，本仓库不提供原版或补丁后的 APK。生成的 APK 只给自己的设备用，或由 Host 管理员在管理页「客户端更新」发布，已安装的客户端会通过 Host 的 Android 更新通道收到更新，见[获取客户端](../docs/clients.md#获取客户端)。
 
 常用 CLI 参数：
 

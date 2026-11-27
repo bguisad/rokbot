@@ -22,7 +22,7 @@ python3 release/patch-ios.py \
   --bundle-id dev.rokbot.local
 ```
 
-`--output` 必须是不存在的新目录，其中包含未签名的 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib`、`patch-report.json`，保留扩展时还有 `extension-signing.json`。本仓库不提供签名好的 IPA；生成的 IPA 只给自己的设备用，或由 Host 管理员在管理页「客户端更新」发布，见首页的[获取客户端](../README.md#获取客户端)。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码（或切换为**管理员密码**配对）。
+`--output` 必须是不存在的新目录，其中包含未签名的 `RokBot-Local-resignable.ipa`、`RokBotLocal.dylib`、`patch-report.json`，保留扩展时还有 `extension-signing.json`。本仓库不提供签名好的 IPA；生成的 IPA 只给自己的设备用，或由 Host 管理员在管理页「客户端更新」发布，见[获取客户端](../docs/clients.md#获取客户端)。按下一节用自己的工具签名并安装，然后填写 Host 地址和六位配对码（或切换为**管理员密码**配对）。
 
 推送用 APNs 或 Bark，在 Host 管理页配置。实时通话在 App 设置中开启。
 

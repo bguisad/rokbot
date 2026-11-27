@@ -20,11 +20,11 @@ node patchers/desktop/patch.mjs --source "/path/to/Grok_Bot_1.2.3.dmg"
 
 补丁只接受未经修改的 1.2.3 Apple Silicon 原版，固定摘要见 [`patchers/desktop/supported.json`](patchers/desktop/supported.json)。`--source` 也可以指向已有的 `Grok Bot.app`。
 
-`--verify-only` 在临时目录回放固定版本的补丁，不生成客户端。手动指定的 DMG 也检查完整 SHA-256；Mac 上还会验证输入 App 的原签名。本项目没有在 macOS 上实测安装、启动、配对或聊天。可接受的原包见[首页的支持平台](../README.md#支持平台)。
+`--verify-only` 在临时目录回放固定版本的补丁，不生成客户端。手动指定的 DMG 也检查完整 SHA-256；Mac 上还会验证输入 App 的原签名。本项目没有在 macOS 上实测安装、启动、配对或聊天。可接受的原包见[支持平台](../docs/clients.md#支持平台)。
 
 默认使用 ad-hoc 签名。需要控制本机图形界面时，在命令中增加 `--identity auto`，使用钥匙串里已有的 Developer ID Application 或 Apple Development 证书。
 
-本仓库不提供原版或生成后的客户端。生成的 App 只给自己的设备用，或由 Host 管理员在管理页「客户端更新」发布，见首页的[获取客户端](../README.md#获取客户端)。
+本仓库不提供原版或生成后的客户端。生成的 App 只给自己的设备用，或由 Host 管理员在管理页「客户端更新」发布，见[获取客户端](../docs/clients.md#获取客户端)。
 
 项目仓库：<https://github.com/hongfaqiu/rokbot>
 
