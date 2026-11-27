@@ -21,6 +21,19 @@ async function ledger(t, files) {
 test('usageCounts keeps the cache write tokens that the Anthropic and Responses adapters report', () => {
   assert.deepEqual(usageCounts(anthropicUsage({ input_tokens: 10, cache_read_input_tokens: 900, cache_creation_input_tokens: 90, output_tokens: 5 })),
     { input: 1000, output: 5, total: 1005, cached: 900, cacheWrite: 90, reasoning: 0 });
+  assert.deepEqual(usageCounts(anthropicUsage({
+    input_tokens: 12,
+    cache_read_input_tokens: 400,
+    cache_creation_input_tokens: 0,
+    cache_creation: { ephemeral_5m_input_tokens: 180, ephemeral_1h_input_tokens: 20 },
+    output_tokens: 8,
+  })), { input: 612, output: 8, total: 620, cached: 400, cacheWrite: 200, reasoning: 0 });
+  assert.deepEqual(usageCounts({
+    input_tokens: 15,
+    cache_read_input_tokens: 300,
+    cache_creation: { ephemeral_5m_input_tokens: 75, ephemeral_1h_input_tokens: 25 },
+    output_tokens: 5,
+  }), { input: 415, output: 5, total: 420, cached: 300, cacheWrite: 100, reasoning: 0 });
   assert.deepEqual(usageCounts({ prompt_tokens: 7, completion_tokens: 3 }), { input: 7, output: 3, total: 10, cached: 0, cacheWrite: 0, reasoning: 0 });
 });
 
@@ -129,6 +142,20 @@ test('usageSummary reads appended rows, skips missing days and names rows withou
   assert.equal(later.requests, 2);
   const lines = (await readFile(join(directory, '2026-11-25.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(lines[0].cacheWrite, 0);
+  await recordUsage(directory, {
+    raw: anthropicUsage({
+      input_tokens: 20,
+      cache_read_input_tokens: 1000,
+      cache_creation_input_tokens: 0,
+      cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 50 },
+      output_tokens: 15,
+    }),
+    model: 'claude-opus-5-5',
+    at: new Date('2026-11-25T07:45:00Z'),
+  });
+  const withWrite = await usageSummary(directory, 'UTC', now);
+  assert.equal(withWrite.cacheWrite, 350);
+  assert.equal(withWrite.models.find(item => item.model === 'claude-opus-5-5').cacheWrite, 350);
 });
 
 // The routes run the whole Host service, which needs its dependencies: npm ci --prefix host/server.

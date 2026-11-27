@@ -174,20 +174,73 @@ public final class UpdateManager {
         }
     }
 
-    public static String resolveDefaultFeedUrl(Context context) {
-        String saved = Storage.getUpdateFeedUrl(context);
-        if (saved != null && !saved.isEmpty()) return saved;
+    private static String readBundledUpdateConfigUrl(Context context) {
+        if (context == null) return "";
         try (InputStream is = context.getAssets().open("recipes/update-config.json")) {
             byte[] raw = readAllBytes(is, 64 * 1024);
             JSONObject obj = new JSONObject(new String(raw, StandardCharsets.UTF_8));
             String url = UiChrome.jsonStr(obj, "updateFeedUrl").trim();
-            if (!url.isEmpty()) return url;
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                return url;
+            }
         } catch (Throwable ignored) {}
-        if (Storage.isPaired(context)) {
+        return "";
+    }
+
+    private static boolean isLoopbackHttpUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.trim().isEmpty()) return false;
+        try {
+            URI u = URI.create(rawUrl.trim());
+            return GatewayEndpointRouter.isLoopbackHost(u.getHost());
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static String resolveExternalFallbackFeedUrl(Context context) {
+        if (context == null) return "";
+        String saved = Storage.getUpdateFeedUrl(context);
+        if (saved != null) {
+            String trimmed = saved.trim();
+            if ((trimmed.startsWith("http://") || trimmed.startsWith("https://")) && !isLoopbackHttpUrl(trimmed)) {
+                return trimmed;
+            }
+        }
+        String bundled = readBundledUpdateConfigUrl(context);
+        if (!bundled.isEmpty()) return bundled;
+        if (!Storage.isTailcatEnabled(context)) {
+            String gw = Storage.getGatewayUrl(context);
+            if (gw != null) {
+                String trimmed = gw.trim();
+                if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                    while (trimmed.endsWith("/")) trimmed = trimmed.substring(0, trimmed.length() - 1);
+                    return trimmed + "/local/updates/android.json";
+                }
+            }
+        }
+        String reported = Storage.getReportedGatewayUrl(context);
+        if (reported != null) {
+            String trimmed = reported.trim();
+            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                while (trimmed.endsWith("/")) trimmed = trimmed.substring(0, trimmed.length() - 1);
+                return trimmed + "/local/updates/android.json";
+            }
+        }
+        return "";
+    }
+
+    public static String resolveDefaultFeedUrl(Context context) {
+        if (context != null && Storage.isPaired(context)) {
             String base = resolvePairedHostBase(context);
             if (!base.isEmpty()) {
                 return base + "/local/updates/android.json";
             }
+        }
+        String external = resolveExternalFallbackFeedUrl(context);
+        if (!external.isEmpty()) return external;
+        if (context != null) {
+            String saved = Storage.getUpdateFeedUrl(context);
+            if (saved != null && !saved.trim().isEmpty()) return saved.trim();
         }
         return "";
     }
@@ -202,6 +255,17 @@ public final class UpdateManager {
             if (!base.isEmpty()) {
                 return base + trimmed;
             }
+            String fallback = resolveExternalFallbackFeedUrl(context);
+            if (!fallback.isEmpty()) {
+                return resolveRelativeUrl(fallback, trimmed);
+            }
+            return trimmed;
+        }
+        if (context != null && Storage.isPaired(context) && isPairedHostUrl(context, trimmed)) {
+            String base = resolvePairedHostBase(context);
+            if (!base.isEmpty()) {
+                return rewriteUrlToBase(trimmed, base);
+            }
         }
         return trimmed;
     }
@@ -212,7 +276,7 @@ public final class UpdateManager {
         try {
             base = HostApiClient.resolveServer(context);
         } catch (Throwable ignored) {}
-        if (base == null || base.isEmpty()) {
+        if ((base == null || base.isEmpty()) && !Storage.isTailcatEnabled(context)) {
             base = Storage.getGatewayUrl(context);
         }
         if (base == null) return "";
@@ -388,28 +452,14 @@ public final class UpdateManager {
         String deltaUrl = "";
         String deltaSha = "";
         long deltaSize = -1L;
-        if (deltas != null) {
-            for (int i = 0; i < deltas.length(); i++) {
-                JSONObject d = deltas.optJSONObject(i);
-                if (d == null) continue;
-                String fromSha = UiChrome.jsonStr(d, "fromApkSha256", UiChrome.jsonStr(d, "fromSha256")).trim().toLowerCase(Locale.US);
-                String format = UiChrome.jsonStr(d, "format").trim();
-                if (!format.isEmpty() && !"RBDELTA1".equalsIgnoreCase(format) && !"GBDELTA1".equalsIgnoreCase(format)) {
-                    continue;
-                }
-                String dUrl = UiChrome.jsonStr(d, "url").trim();
-                String dSha = UiChrome.jsonStr(d, "sha256").trim().toLowerCase(Locale.US);
-                long dSize = d.optLong("size", -1L);
-                if (fromSha.equalsIgnoreCase(installedSha) && !dUrl.isEmpty() && dSha.length() == 64 && dSize > 0) {
-                    deltaUrl = resolveRelativeUrl(feedUrl, dUrl);
-                    deltaSha = dSha;
-                    deltaSize = dSize;
-                    break;
-                }
-            }
+        JSONObject preferredDelta = selectPreferredDelta(deltas, installedVersionCode, installedSha);
+        if (preferredDelta != null) {
+            deltaUrl = resolveManifestResourceUrl(ctx, feedUrl, UiChrome.jsonStr(preferredDelta, "url").trim());
+            deltaSha = UiChrome.jsonStr(preferredDelta, "sha256").trim().toLowerCase(Locale.US);
+            deltaSize = preferredDelta.optLong("size", -1L);
         }
 
-        String resolvedFull = fullUrl.isEmpty() ? "" : resolveRelativeUrl(feedUrl, fullUrl);
+        String resolvedFull = fullUrl.isEmpty() ? "" : resolveManifestResourceUrl(ctx, feedUrl, fullUrl);
         UpdateManifestInfo info = new UpdateManifestInfo(
                 getCurrentVersionLabel(ctx),
                 installedVersionCode,
@@ -434,10 +484,62 @@ public final class UpdateManager {
         return new ParsedManifest(false, shortSha, info);
     }
 
+    public static JSONObject selectPreferredDelta(JSONArray deltas, long installedVersionCode, String installedSha) {
+        if (deltas == null) return null;
+        JSONObject shaFallback = null;
+        for (int i = 0; i < deltas.length(); i++) {
+            JSONObject d = deltas.optJSONObject(i);
+            if (d == null) continue;
+            String format = UiChrome.jsonStr(d, "format").trim();
+            if (!format.isEmpty() && !"RBDELTA1".equalsIgnoreCase(format) && !"GBDELTA1".equalsIgnoreCase(format)) {
+                continue;
+            }
+            String dUrl = UiChrome.jsonStr(d, "url").trim();
+            String dSha = UiChrome.jsonStr(d, "sha256").trim().toLowerCase(Locale.US);
+            long dSize = d.optLong("size", -1L);
+            if (dUrl.isEmpty() || dSha.length() != 64 || dSize <= 0) continue;
+
+            long fromCode = d.optLong("fromVersionCode", -1L);
+            String fromSha = UiChrome.jsonStr(d, "fromApkSha256",
+                    UiChrome.jsonStr(d, "fromSha256", UiChrome.jsonStr(d, "baseSha256"))).trim().toLowerCase(Locale.US);
+            if (installedVersionCode > 0 && fromCode > 0) {
+                if (fromCode == installedVersionCode
+                        && (fromSha.isEmpty() || installedSha == null || fromSha.equalsIgnoreCase(installedSha))) {
+                    return d;
+                }
+                continue;
+            }
+            if (shaFallback == null && installedSha != null && !installedSha.isEmpty() && fromSha.equalsIgnoreCase(installedSha)) {
+                shaFallback = d;
+            }
+        }
+        return shaFallback;
+    }
+
+    public static boolean verifyExistingStagedApk(Context ctx, File apkFile, String expectedSha256, long expectedSize) {
+        if (ctx == null || apkFile == null || !apkFile.isFile()) return false;
+        if (expectedSha256 == null || expectedSha256.length() != 64) return false;
+        if (expectedSize > 0 && apkFile.length() != expectedSize) return false;
+        try {
+            if (!sha256Hex(apkFile).equalsIgnoreCase(expectedSha256)) {
+                apkFile.delete();
+                return false;
+            }
+            String installedCert = getInstalledCertSha256(ctx);
+            if (installedCert == null || installedCert.isEmpty()) return false;
+            verifyStagedApk(ctx, apkFile, installedCert);
+            return true;
+        } catch (Throwable ignored) {
+            apkFile.delete();
+            return false;
+        }
+    }
+
     private static void stageUpdateFromInfo(Context ctx, File baseApk, UpdateManifestInfo info, Callback cb) throws Exception {
         File updatesDir = new File(ctx.getFilesDir(), "updates");
         if (!updatesDir.exists()) updatesDir.mkdirs();
-        File readyApk = new File(updatesDir, "ready-" + info.targetSha256.substring(0, 12) + ".apk");
+        String targetPrefix = info.targetSha256.substring(0, 12);
+        File readyApk = new File(updatesDir, "ready-" + targetPrefix + ".apk");
 
         if (readyApk.isFile() && readyApk.length() == info.fullSize && sha256Hex(readyApk).equalsIgnoreCase(info.targetSha256)) {
             verifyStagedApk(ctx, readyApk, info.installedCertSha256);
@@ -445,43 +547,50 @@ public final class UpdateManager {
             return;
         }
 
-        File tmpApk = new File(updatesDir, "staging-" + info.targetSha256.substring(0, 12) + ".apk.tmp");
+        File tmpApk = new File(updatesDir, "staging-" + targetPrefix + ".apk.tmp");
         tmpApk.delete();
+        String deltaPrefix = info.deltaSha256 != null && info.deltaSha256.length() >= 12
+                ? info.deltaSha256.substring(0, 12) : "delta";
+        File partDelta = new File(updatesDir, "dl-delta-" + targetPrefix + "-" + deltaPrefix + ".rbdelta.part");
+        File partFull = new File(updatesDir, "dl-full-" + targetPrefix + ".apk.part");
 
         boolean usedDelta = false;
         long downloadedBytes = 0L;
 
         if (info.hasDelta && !info.deltaUrl.isEmpty()) {
-            File tmpDelta = new File(updatesDir, "patch-" + info.targetSha256.substring(0, 12) + ".rbdelta.tmp");
-            tmpDelta.delete();
+            boolean deltaSucceeded = false;
             try {
                 String sizeLabel = formatBytes(info.deltaSize) + " / " + formatBytes(info.fullSize);
                 cb.onStage(Localize.t(ctx, "正在下载增量补丁 (" + sizeLabel + ")…", "Downloading delta patch (" + sizeLabel + ")…"), 20);
-                downloadToFileWithHostFallback(ctx, info.deltaUrl, info.deltaSize, tmpDelta, (done, total) -> {
+                downloadToFileWithHostFallback(ctx, info.deltaUrl, info.deltaSize, partDelta, (done, total) -> {
                     int pct = 20 + (int) (total > 0 ? (done * 40L / total) : 0L);
                     cb.onStage(Localize.t(ctx, "正在下载增量补丁 (" + formatBytes(done) + " / " + formatBytes(info.deltaSize) + ")…",
                             "Downloading delta (" + formatBytes(done) + " / " + formatBytes(info.deltaSize) + ")…"), Math.min(60, pct));
                 });
-                String actualDeltaSha = sha256Hex(tmpDelta);
+                String actualDeltaSha = sha256Hex(partDelta);
                 if (!actualDeltaSha.equalsIgnoreCase(info.deltaSha256)) {
+                    partDelta.delete();
                     throw new IOException("Delta SHA-256 mismatch");
                 }
                 cb.onStage(Localize.t(ctx, "正在本地合并增量更新包…", "Applying incremental delta locally…"), 65);
-                DeltaPatcher.apply(baseApk, tmpDelta, tmpApk, (written, total) -> {
+                DeltaPatcher.apply(baseApk, partDelta, tmpApk, (written, total) -> {
                     int pct = 65 + (int) (total > 0 ? (written * 25L / total) : 0L);
                     cb.onStage(Localize.t(ctx, "正在合并增量包 (" + Math.min(100, (int) (written * 100L / Math.max(1L, total))) + "%)…",
                             "Applying delta (" + Math.min(100, (int) (written * 100L / Math.max(1L, total))) + "%)…"), Math.min(90, pct));
                 });
                 usedDelta = true;
                 downloadedBytes = info.deltaSize;
+                deltaSucceeded = true;
+                partDelta.delete();
             } catch (Throwable deltaErr) {
                 Log.w(TAG, "Delta update failed, falling back to full APK if available", deltaErr);
                 tmpApk.delete();
+                if (!deltaSucceeded && deltaErr instanceof IOException && String.valueOf(deltaErr.getMessage()).contains("mismatch")) {
+                    partDelta.delete();
+                }
                 if (info.fullUrl.isEmpty()) {
                     throw new IOException(Localize.t(ctx, "增量补丁应用失败：" + deltaErr.getMessage(), "Delta apply failed: " + deltaErr.getMessage()));
                 }
-            } finally {
-                tmpDelta.delete();
             }
         }
 
@@ -491,25 +600,43 @@ public final class UpdateManager {
             }
             cb.onStage(Localize.t(ctx, "正在下载完整安装包 (" + formatBytes(info.fullSize) + ")…",
                     "Downloading full APK (" + formatBytes(info.fullSize) + ")…"), 20);
-            downloadToFileWithHostFallback(ctx, info.fullUrl, info.fullSize, tmpApk, (done, total) -> {
+            downloadToFileWithHostFallback(ctx, info.fullUrl, info.fullSize, partFull, (done, total) -> {
                 int pct = 20 + (int) (total > 0 ? (done * 70L / total) : 0L);
                 cb.onStage(Localize.t(ctx, "正在下载完整包 (" + formatBytes(done) + " / " + formatBytes(info.fullSize) + ")…",
                         "Downloading full APK (" + formatBytes(done) + " / " + formatBytes(info.fullSize) + ")…"), Math.min(90, pct));
             });
+            if (!partFull.renameTo(tmpApk)) {
+                try (InputStream in = new BufferedInputStream(new FileInputStream(partFull));
+                     FileOutputStream out = new FileOutputStream(tmpApk)) {
+                    byte[] copyBuf = new byte[32768];
+                    int n;
+                    while ((n = in.read(copyBuf)) != -1) out.write(copyBuf, 0, n);
+                }
+                partFull.delete();
+            }
             downloadedBytes = info.fullSize;
         }
 
         cb.onStage(Localize.t(ctx, "正在校验安装包哈希与签名…", "Verifying APK checksum and signature…"), 93);
-        if (tmpApk.length() != info.fullSize || !sha256Hex(tmpApk).equalsIgnoreCase(info.targetSha256)) {
+        try {
+            if (tmpApk.length() != info.fullSize || !sha256Hex(tmpApk).equalsIgnoreCase(info.targetSha256)) {
+                throw new IOException(Localize.t(ctx, "合并后的 APK 校验失败（SHA-256 不一致）", "Reconstructed APK SHA-256 mismatch"));
+            }
+            verifyStagedApk(ctx, tmpApk, info.installedCertSha256);
+        } catch (Throwable verifyErr) {
             tmpApk.delete();
-            throw new IOException(Localize.t(ctx, "合并后的 APK 校验失败（SHA-256 不一致）", "Reconstructed APK SHA-256 mismatch"));
+            partDelta.delete();
+            partFull.delete();
+            throw verifyErr;
         }
-        verifyStagedApk(ctx, tmpApk, info.installedCertSha256);
 
+        partDelta.delete();
+        partFull.delete();
         File[] existing = updatesDir.listFiles();
         if (existing != null) {
             for (File f : existing) {
-                if (f.getName().startsWith("ready-") && !f.equals(readyApk)) {
+                String n = f.getName();
+                if ((n.startsWith("ready-") || n.startsWith("dl-")) && !f.equals(readyApk)) {
                     f.delete();
                 }
             }
@@ -662,6 +789,39 @@ public final class UpdateManager {
         }
     }
 
+    private static boolean isLocalUpdatesPath(String urlStr) {
+        if (urlStr == null || urlStr.isEmpty()) return false;
+        try {
+            String path = URI.create(urlStr.trim()).getRawPath();
+            return path != null && (path.equals("/local/updates") || path.startsWith("/local/updates/"));
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    static String resolveManifestResourceUrl(Context ctx, String feedUrl, String rawResourceUrl) {
+        String resolved = resolveRelativeUrl(feedUrl, rawResourceUrl);
+        if (ctx != null && Storage.isPaired(ctx)) {
+            String activeBase = resolvePairedHostBase(ctx);
+            if (!activeBase.isEmpty() && (isPairedHostUrl(ctx, resolved)
+                    || (isPairedHostUrl(ctx, feedUrl) && isLocalUpdatesPath(resolved)))) {
+                return rewriteUrlToBase(resolved, activeBase);
+            }
+        }
+        return resolved;
+    }
+
+    private static boolean isReportedGatewayUrl(Context ctx, String targetUrl) {
+        if (ctx == null || targetUrl == null || targetUrl.isEmpty()) return false;
+        try {
+            String reported = Storage.getReportedGatewayUrl(ctx);
+            if (reported != null && (reported.startsWith("http://") || reported.startsWith("https://"))) {
+                return sameOrigin(URI.create(targetUrl.trim()), URI.create(reported.trim()));
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     public static boolean isPairedHostUrl(Context ctx, String targetUrl) {
         if (ctx == null || targetUrl == null || targetUrl.isEmpty() || !Storage.isPaired(ctx)) {
             return false;
@@ -679,6 +839,20 @@ public final class UpdateManager {
             }
             String reported = Storage.getReportedGatewayUrl(ctx);
             if (reported != null && (reported.startsWith("http://") || reported.startsWith("https://")) && sameOrigin(target, URI.create(reported))) {
+                return true;
+            }
+            String bundled = readBundledUpdateConfigUrl(ctx);
+            if (!bundled.isEmpty() && sameOrigin(target, URI.create(bundled)) && isLocalUpdatesPath(targetUrl)) {
+                return true;
+            }
+            String saved = Storage.getUpdateFeedUrl(ctx);
+            if (saved != null && !saved.isEmpty() && !isLoopbackHttpUrl(saved)
+                    && (saved.startsWith("http://") || saved.startsWith("https://"))
+                    && sameOrigin(target, URI.create(saved)) && isLocalUpdatesPath(targetUrl)) {
+                return true;
+            }
+            int port = TailcatManager.extractLoopbackPort(targetUrl);
+            if (port > 0 && TailcatManager.get().isKnownTailcatPort(port) && isLocalUpdatesPath(targetUrl)) {
                 return true;
             }
             if (target.getScheme() == null && target.getHost() == null
@@ -701,28 +875,78 @@ public final class UpdateManager {
         return pa == pb;
     }
 
-    private static String rewriteUrlToResolvedHost(Context ctx, String targetUrl) {
-        String resolved = resolvePairedHostBase(ctx);
-        if (resolved.isEmpty()) return targetUrl;
+    private static String rewriteUrlToBase(String targetUrl, String baseOrigin) {
+        if (baseOrigin == null || baseOrigin.isEmpty()) return targetUrl;
+        String cleanBase = baseOrigin.trim();
+        while (cleanBase.endsWith("/")) cleanBase = cleanBase.substring(0, cleanBase.length() - 1);
         try {
+            URI baseUri = URI.create(cleanBase);
+            String origin = baseUri.getScheme() + "://" + baseUri.getHost()
+                    + (baseUri.getPort() != -1 ? (":" + baseUri.getPort()) : "");
             URI target = URI.create(targetUrl.trim());
             String path = target.getRawPath();
             if (path == null || path.isEmpty()) path = "/";
             String query = target.getRawQuery();
-            return resolved + path + (query != null && !query.isEmpty() ? ("?" + query) : "");
+            return origin + path + (query != null && !query.isEmpty() ? ("?" + query) : "");
         } catch (Throwable ignored) {
             return targetUrl;
         }
     }
 
+    private static String rewriteUrlToResolvedHost(Context ctx, String targetUrl) {
+        String resolved = resolvePairedHostBase(ctx);
+        return rewriteUrlToBase(targetUrl, resolved);
+    }
+
+    private static String resolveExternalFallbackUrlForTarget(Context ctx, String targetUrl, String activeBase) {
+        String externalFeed = resolveExternalFallbackFeedUrl(ctx);
+        if (externalFeed.isEmpty()) return "";
+        try {
+            URI extUri = URI.create(externalFeed);
+            if (!activeBase.isEmpty() && sameOrigin(extUri, URI.create(activeBase))) {
+                return "";
+            }
+            if (isLocalUpdatesPath(targetUrl)) {
+                return rewriteUrlToBase(targetUrl, externalFeed);
+            }
+        } catch (Throwable ignored) {}
+        return "";
+    }
+
+    private static boolean isTerminalHostStatus(IOException err) {
+        if (!(err instanceof HttpStatusException)) return false;
+        int status = ((HttpStatusException) err).status;
+        return status == 401 || status == 403 || status == 404;
+    }
+
     private static byte[] fetchBytesWithHostFallback(Context ctx, String targetUrl, int maxBytes) throws IOException {
         if (isPairedHostUrl(ctx, targetUrl)) {
+            String token = Storage.getToken(ctx);
             String resolved = resolvePairedHostBase(ctx);
-            if (resolved.isEmpty()) {
-                throw new IOException("Paired Host unavailable");
+            if (!resolved.isEmpty()) {
+                String directHostUrl = rewriteUrlToBase(targetUrl, resolved);
+                try {
+                    return fetchBytesDirect(directHostUrl, token, maxBytes);
+                } catch (IOException hostErr) {
+                    if (isTerminalHostStatus(hostErr)) throw hostErr;
+                    String extUrl = resolveExternalFallbackUrlForTarget(ctx, targetUrl, resolved);
+                    if (!extUrl.isEmpty()) {
+                        try {
+                            return fetchBytesDirect(extUrl, token, maxBytes);
+                        } catch (IOException ignored) {}
+                    }
+                    throw hostErr;
+                }
             }
-            String directHostUrl = rewriteUrlToResolvedHost(ctx, targetUrl);
-            return fetchBytesDirect(directHostUrl, Storage.getToken(ctx), maxBytes);
+            boolean tailcatBlockedReported = Storage.isTailcatEnabled(ctx)
+                    && isReportedGatewayUrl(ctx, targetUrl)
+                    && readBundledUpdateConfigUrl(ctx).isEmpty()
+                    && (Storage.getUpdateFeedUrl(ctx) == null || Storage.getUpdateFeedUrl(ctx).trim().isEmpty());
+            String extUrl = tailcatBlockedReported ? "" : resolveExternalFallbackUrlForTarget(ctx, targetUrl, "");
+            if (!extUrl.isEmpty()) {
+                return fetchBytesDirect(extUrl, token, maxBytes);
+            }
+            throw new IOException("Paired Host unavailable");
         }
         IOException lastErr = null;
         if (Storage.isPaired(ctx) && Storage.isTailcatEnabled(ctx)) {
@@ -733,7 +957,7 @@ public final class UpdateManager {
             }
         }
         try {
-            return fetchBytesDirect(targetUrl, null, maxBytes);
+            return fetchBytesDirect(targetUrl, isPairedHostUrl(ctx, targetUrl) ? Storage.getToken(ctx) : null, maxBytes);
         } catch (IOException directErr) {
             if (Storage.isPaired(ctx) && !Storage.isTailcatEnabled(ctx)) {
                 try {
@@ -748,13 +972,35 @@ public final class UpdateManager {
             Context ctx, String targetUrl, long expectedSize, File outFile,
             DeltaPatcher.ProgressListener listener) throws IOException {
         if (isPairedHostUrl(ctx, targetUrl)) {
+            String token = Storage.getToken(ctx);
             String resolved = resolvePairedHostBase(ctx);
-            if (resolved.isEmpty()) {
-                throw new IOException("Paired Host unavailable");
+            if (!resolved.isEmpty()) {
+                String directHostUrl = rewriteUrlToBase(targetUrl, resolved);
+                try {
+                    downloadDirect(directHostUrl, token, expectedSize, outFile, listener);
+                    return;
+                } catch (IOException hostErr) {
+                    if (isTerminalHostStatus(hostErr)) throw hostErr;
+                    String extUrl = resolveExternalFallbackUrlForTarget(ctx, targetUrl, resolved);
+                    if (!extUrl.isEmpty()) {
+                        try {
+                            downloadDirect(extUrl, token, expectedSize, outFile, listener);
+                            return;
+                        } catch (IOException ignored) {}
+                    }
+                    throw hostErr;
+                }
             }
-            String directHostUrl = rewriteUrlToResolvedHost(ctx, targetUrl);
-            downloadDirect(directHostUrl, Storage.getToken(ctx), expectedSize, outFile, listener);
-            return;
+            boolean tailcatBlockedReported = Storage.isTailcatEnabled(ctx)
+                    && isReportedGatewayUrl(ctx, targetUrl)
+                    && readBundledUpdateConfigUrl(ctx).isEmpty()
+                    && (Storage.getUpdateFeedUrl(ctx) == null || Storage.getUpdateFeedUrl(ctx).trim().isEmpty());
+            String extUrl = tailcatBlockedReported ? "" : resolveExternalFallbackUrlForTarget(ctx, targetUrl, "");
+            if (!extUrl.isEmpty()) {
+                downloadDirect(extUrl, token, expectedSize, outFile, listener);
+                return;
+            }
+            throw new IOException("Paired Host unavailable");
         }
         IOException lastErr = null;
         if (Storage.isPaired(ctx) && Storage.isTailcatEnabled(ctx)) {
@@ -766,7 +1012,7 @@ public final class UpdateManager {
             }
         }
         try {
-            downloadDirect(targetUrl, null, expectedSize, outFile, listener);
+            downloadDirect(targetUrl, isPairedHostUrl(ctx, targetUrl) ? Storage.getToken(ctx) : null, expectedSize, outFile, listener);
         } catch (IOException directErr) {
             if (Storage.isPaired(ctx) && !Storage.isTailcatEnabled(ctx)) {
                 try {
@@ -814,36 +1060,77 @@ public final class UpdateManager {
     private static void downloadDirect(
             String urlStr, String bearerToken, long expectedSize, File outFile,
             DeltaPatcher.ProgressListener listener) throws IOException {
-        HttpURLConnection conn = openConnection(urlStr, bearerToken);
-        try {
-            int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) {
-                throw new HttpStatusException(code, "HTTP " + code + " downloading update");
+        final int maxAttempts = 3;
+        IOException lastErr = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            long resumeFrom = (outFile.isFile() && expectedSize > 0 && outFile.length() > 0 && outFile.length() < expectedSize)
+                    ? outFile.length()
+                    : 0L;
+            if (expectedSize > 0 && outFile.isFile() && outFile.length() == expectedSize) {
+                if (listener != null) listener.onProgress(expectedSize, expectedSize);
+                return;
             }
-            long total = conn.getContentLengthLong();
-            if (total <= 0) total = expectedSize;
-            byte[] buf = new byte[32768];
-            long done = 0L;
-            long lastReported = 0L;
-            try (InputStream is = new BufferedInputStream(conn.getInputStream());
-                 FileOutputStream fos = new FileOutputStream(outFile)) {
-                int n;
-                while ((n = is.read(buf)) != -1) {
-                    fos.write(buf, 0, n);
-                    done += n;
-                    if (done > MAX_APK_BYTES) {
-                        throw new IOException("Download exceeded size limit");
+            if (expectedSize > 0 && outFile.isFile() && outFile.length() > expectedSize) {
+                outFile.delete();
+                resumeFrom = 0L;
+            }
+            HttpURLConnection conn = openConnection(urlStr, bearerToken);
+            if (resumeFrom > 0L) {
+                conn.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
+            }
+            try {
+                int code = conn.getResponseCode();
+                if (code == 416) {
+                    if (expectedSize > 0 && outFile.isFile() && outFile.length() == expectedSize) {
+                        if (listener != null) listener.onProgress(expectedSize, expectedSize);
+                        return;
                     }
-                    if (listener != null && (done - lastReported >= 65536L || done == total)) {
-                        lastReported = done;
-                        listener.onProgress(done, total);
-                    }
+                    outFile.delete();
+                    throw new IOException("HTTP 416 restarting partial download");
                 }
-                fos.flush();
+                if (code < 200 || code >= 300) {
+                    throw new HttpStatusException(code, "HTTP " + code + " downloading update");
+                }
+                boolean append = (code == 206 && resumeFrom > 0L);
+                long done = append ? resumeFrom : 0L;
+                long contentLen = conn.getContentLengthLong();
+                long total = expectedSize > 0 ? expectedSize : (contentLen > 0 ? done + contentLen : -1L);
+                byte[] buf = new byte[32768];
+                long lastReported = done;
+                if (append && listener != null) {
+                    listener.onProgress(done, total);
+                }
+                try (InputStream is = new BufferedInputStream(conn.getInputStream());
+                     FileOutputStream fos = new FileOutputStream(outFile, append)) {
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                        done += n;
+                        if (done > MAX_APK_BYTES) {
+                            throw new IOException("Download exceeded size limit");
+                        }
+                        if (listener != null && (done - lastReported >= 65536L || done == total)) {
+                            lastReported = done;
+                            listener.onProgress(done, total);
+                        }
+                    }
+                    fos.flush();
+                }
+                if (expectedSize > 0 && outFile.length() < expectedSize) {
+                    throw new IOException("Incomplete download (" + outFile.length() + "/" + expectedSize + ")");
+                }
+                return;
+            } catch (IOException err) {
+                if (isTerminalHostStatus(err)) throw err;
+                lastErr = err;
+                if (attempt < maxAttempts) {
+                    try { Thread.sleep(300L * attempt); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); throw err; }
+                }
+            } finally {
+                conn.disconnect();
             }
-        } finally {
-            conn.disconnect();
         }
+        throw lastErr != null ? lastErr : new IOException("Download failed");
     }
 
     private static HttpURLConnection openConnection(String urlStr, String bearerToken) throws IOException {

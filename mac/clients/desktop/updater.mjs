@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify } from 'node:crypto';
-import { constants, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { constants, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { access, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -11,6 +11,12 @@ import {
 
 export const DESKTOP_UPDATE_SCHEMA = 'rokbot-desktop-update/v1';
 const SUPPORTED_DESKTOP_UPDATE_SCHEMAS = new Set([DESKTOP_UPDATE_SCHEMA, 'grokbot-desktop-update/v1']);
+
+export function buildWindowsDelayedInstallCommand(installerPath, pid = process.pid) {
+  const escaped = String(installerPath).replace(/'/g, "''");
+  const script = `try { Wait-Process -Id ${Number(pid)} -Timeout 30 -ErrorAction SilentlyContinue } catch {}; Start-Process -FilePath '${escaped}' -ArgumentList '/S','/LAUNCH' -WindowStyle Hidden`;
+  return ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', script];
+}
 
 export function createTailcatUpdateFetch({
   isTunneled = () => false,
@@ -270,6 +276,15 @@ export async function resolveDesktopUpdateSource({
   };
 }
 
+function sha256FileSync(filePath) {
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+function parseContentRangeStart(header) {
+  const m = /^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i.exec(String(header || '').trim());
+  return m ? Number(m[1]) : null;
+}
+
 async function downloadVerifiedFile({
   fetchImpl,
   url,
@@ -278,50 +293,128 @@ async function downloadVerifiedFile({
   tmpFile,
   isCurrentGen,
   onProgress,
+  maxRetries = 3,
+  retryDelayMs = 300,
 }) {
-  const dl = await fetchImpl(url, { cache: 'no-store', signal: AbortSignal.timeout(300000) });
-  if (!dl.ok || !dl.body) throw Object.assign(new Error(`Download HTTP ${dl.status}`), { kind: 'update_failed' });
-  const total = Number(dl.headers.get('content-length')) || expectedSize;
-  await rm(tmpFile, { force: true });
-  const handle = await open(tmpFile, 'w');
-  const hash = createHash('sha256');
-  let received = 0;
-  let lastReport = 0;
-  try {
-    for await (const chunk of dl.body) {
-      if (!isCurrentGen()) throw new Error('Track changed');
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      received += buf.length;
-      if (received > MAX_INSTALLER_BYTES) throw new Error('Artifact too large');
-      hash.update(buf);
-      let off = 0;
-      while (off < buf.length) {
-        const { bytesWritten } = await handle.write(buf, off, buf.length - off);
-        if (bytesWritten <= 0) throw new Error('Short write downloading update');
-        off += bytesWritten;
+  const expectedLower = String(expectedSha256 || '').toLowerCase();
+  let lastErr = null;
+  for (let attempt = 1; attempt <= Math.max(1, maxRetries); attempt++) {
+    if (!isCurrentGen()) {
+      await rm(tmpFile, { force: true }).catch(() => {});
+      return false;
+    }
+    let resumeFrom = 0;
+    try {
+      const existing = await stat(tmpFile);
+      if (existing.isFile()) {
+        if (existing.size === expectedSize) {
+          const existingSha = await sha256File(tmpFile);
+          if (existingSha === expectedLower) {
+            onProgress(1);
+            return true;
+          }
+          await rm(tmpFile, { force: true }).catch(() => {});
+        } else if (existing.size > 0 && existing.size < expectedSize) {
+          resumeFrom = existing.size;
+        } else {
+          await rm(tmpFile, { force: true }).catch(() => {});
+        }
       }
-      const now = Date.now();
-      if (now - lastReport >= 250) {
-        lastReport = now;
-        onProgress(Math.min(1, received / total));
+    } catch {}
+
+    let handle = null;
+    try {
+      const dl = await fetchImpl(url, {
+        cache: 'no-store',
+        ...(resumeFrom > 0 ? { headers: { Range: `bytes=${resumeFrom}-` } } : {}),
+        signal: AbortSignal.timeout(300000),
+      });
+      if (dl.status === 416) {
+        await dl.body?.cancel?.().catch(() => {});
+        const st = await stat(tmpFile).catch(() => null);
+        if (st?.isFile() && st.size === expectedSize) {
+          const actualSha = await sha256File(tmpFile);
+          if (actualSha === expectedLower) {
+            onProgress(1);
+            return true;
+          }
+        }
+        await rm(tmpFile, { force: true }).catch(() => {});
+        throw Object.assign(new Error('HTTP 416 restarting partial download'), { kind: 'update_failed', retryable: true });
+      }
+      if (!dl.ok || !dl.body) {
+        await dl.body?.cancel?.().catch(() => {});
+        const terminal = [401, 403, 404].includes(dl.status);
+        throw Object.assign(new Error(`Download HTTP ${dl.status}`), {
+          kind: 'update_failed',
+          retryable: !terminal,
+        });
+      }
+
+      const rangeStart = dl.status === 206 ? parseContentRangeStart(dl.headers?.get?.('content-range')) : null;
+      const appending = Boolean(resumeFrom > 0 && dl.status === 206 && (rangeStart === null || rangeStart === resumeFrom));
+      let received = appending ? resumeFrom : 0;
+      const contentLen = Number(dl.headers?.get?.('content-length')) || 0;
+      const total = expectedSize || (contentLen > 0 ? received + contentLen : expectedSize);
+      handle = await open(tmpFile, appending ? 'a' : 'w');
+      let lastReport = 0;
+      if (appending && total > 0) onProgress(Math.min(1, received / total));
+
+      for await (const chunk of dl.body) {
+        if (!isCurrentGen()) throw Object.assign(new Error('Track changed'), { retryable: false });
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        received += buf.length;
+        if (received > MAX_INSTALLER_BYTES) {
+          throw Object.assign(new Error('Artifact too large'), { kind: 'update_failed', retryable: false });
+        }
+        let off = 0;
+        while (off < buf.length) {
+          const { bytesWritten } = await handle.write(buf, off, buf.length - off);
+          if (bytesWritten <= 0) throw new Error('Short write downloading update');
+          off += bytesWritten;
+        }
+        const now = Date.now();
+        if (now - lastReport >= 250 && total > 0) {
+          lastReport = now;
+          onProgress(Math.min(1, received / total));
+        }
+      }
+      await handle.close();
+      handle = null;
+
+      if (!isCurrentGen()) {
+        await rm(tmpFile, { force: true }).catch(() => {});
+        return false;
+      }
+
+      const stAfter = await stat(tmpFile);
+      const actualSha = await sha256File(tmpFile);
+      if (stAfter.size !== expectedSize || actualSha !== expectedLower) {
+        await rm(tmpFile, { force: true }).catch(() => {});
+        throw Object.assign(new Error('Downloaded update checksum mismatch'), {
+          kind: 'installer_signature_invalid',
+          retryable: false,
+        });
+      }
+      return true;
+    } catch (err) {
+      if (handle) await handle.close().catch(() => {});
+      if (!isCurrentGen()) {
+        await rm(tmpFile, { force: true }).catch(() => {});
+        return false;
+      }
+      const retryable = err.retryable !== false && err.kind !== 'installer_signature_invalid';
+      if (!retryable) {
+        await rm(tmpFile, { force: true }).catch(() => {});
+        throw Object.assign(err, { kind: err.kind ?? 'update_failed' });
+      }
+      lastErr = Object.assign(err, { kind: err.kind ?? 'update_failed' });
+      if (attempt < maxRetries && retryDelayMs > 0) {
+        await new Promise(r => setTimeout(r, retryDelayMs * attempt));
       }
     }
-    await handle.close();
-  } catch (err) {
-    await handle.close().catch(() => {});
-    await rm(tmpFile, { force: true }).catch(() => {});
-    throw Object.assign(err, { kind: err.kind ?? 'update_failed' });
   }
-  if (!isCurrentGen()) {
-    await rm(tmpFile, { force: true }).catch(() => {});
-    return false;
-  }
-  const actualSha = hash.digest('hex');
-  if (received !== expectedSize || actualSha !== expectedSha256.toLowerCase()) {
-    await rm(tmpFile, { force: true });
-    throw Object.assign(new Error('Downloaded update checksum mismatch'), { kind: 'installer_signature_invalid' });
-  }
-  return true;
+  throw lastErr ?? Object.assign(new Error('Download failed'), { kind: 'update_failed' });
 }
 
 async function findMatchingBaseInstaller(updatesDir, deltas) {
@@ -386,6 +479,7 @@ export function createDesktopUpdater({
   onInstallAsar = null,
   canUseAsarUpdate = null,
   fetchImpl = fetch,
+  retryDelayMs = 300,
 } = {}) {
   const enabled = Boolean(
     config?.updateUrl &&
@@ -397,13 +491,18 @@ export function createDesktopUpdater({
     try { savedPrefs = JSON.parse(readFileSync(prefsFile, 'utf8')) ?? {}; } catch {}
   }
   let track = ['stable', 'nightly', 'dogfood'].includes(savedPrefs.track) ? savedPrefs.track : 'stable';
-  let autoUpdateWhenIdle = Boolean(savedPrefs.autoUpdateWhenIdle);
+  // Default background auto-download ON unless explicitly disabled in Settings.
+  let autoUpdateWhenIdle = savedPrefs.autoUpdateWhenIdle !== false;
   let state = enabled ? { type: 'idle' } : { type: 'disabled', reason: 'disabled-by-env' };
   let stagedFile = null;
   let stagedAsarInfo = null;
   let stagedVersion = null;
+  let stagedMeta = null;
   let checking = null;
   let checkGeneration = 0;
+
+  const pendingMetaPath = targetTrack =>
+    profileDir ? path.join(profileDir, 'updates', `pending-${targetTrack}.json`) : null;
 
   const savePrefs = () => {
     if (!prefsFile) return;
@@ -462,6 +561,98 @@ export function createDesktopUpdater({
     throw new Error('No trusted update public key');
   };
 
+  const clearPendingPersistence = targetTrack => {
+    const metaPath = pendingMetaPath(targetTrack);
+    if (metaPath) {
+      try { rmSync(metaPath, { force: true }); } catch {}
+    }
+  };
+
+  const savePendingPersistence = (targetTrack, payload) => {
+    const metaPath = pendingMetaPath(targetTrack);
+    if (!metaPath) return;
+    try {
+      mkdirSync(path.dirname(metaPath), { recursive: true });
+      const tmp = `${metaPath}.tmp-${process.pid}`;
+      writeFileSync(tmp, JSON.stringify(payload, null, 2));
+      renameSync(tmp, metaPath);
+    } catch {}
+  };
+
+  const restorePendingForTrack = targetTrack => {
+    if (!enabled) return false;
+    const metaPath = pendingMetaPath(targetTrack);
+    if (!metaPath) return false;
+    let saved;
+    try {
+      saved = JSON.parse(readFileSync(metaPath, 'utf8'));
+    } catch {
+      return false;
+    }
+    if (!saved || typeof saved.version !== 'string') {
+      clearPendingPersistence(targetTrack);
+      return false;
+    }
+    if (compareVersions(saved.version, appVersion) <= 0) {
+      // Upgraded or superseded: drop stale pending metadata and staged files.
+      if (saved.kind === 'asar' && saved.asarInfo?.asarFile) {
+        try { rmSync(saved.asarInfo.asarFile, { force: true }); } catch {}
+      }
+      if (saved.file) {
+        try { rmSync(saved.file, { force: true }); } catch {}
+      }
+      clearPendingPersistence(targetTrack);
+      return false;
+    }
+    try {
+      if (saved.rawManifest) {
+        const key = resolveVerificationKey(saved.rawManifest, saved.feedUrl || config.updateUrl);
+        verifyDesktopManifest(saved.rawManifest, key);
+      }
+      if (saved.kind === 'asar' && saved.asarInfo?.asarFile) {
+        const st = statSync(saved.asarInfo.asarFile);
+        if (!st.isFile() || st.size !== saved.asarInfo.size) throw new Error('Staged ASAR size mismatch');
+        if (sha256FileSync(saved.asarInfo.asarFile) !== String(saved.asarInfo.sha256 || '').toLowerCase()) {
+          throw new Error('Staged ASAR checksum mismatch');
+        }
+        stagedAsarInfo = saved.asarInfo;
+        stagedFile = null;
+        stagedVersion = saved.version;
+        stagedMeta = saved;
+      } else if (saved.file) {
+        const st = statSync(saved.file);
+        if (!st.isFile() || st.size !== saved.size) throw new Error('Staged installer size mismatch');
+        if (sha256FileSync(saved.file) !== String(saved.sha256 || '').toLowerCase()) {
+          throw new Error('Staged installer checksum mismatch');
+        }
+        stagedAsarInfo = null;
+        stagedFile = saved.file;
+        stagedVersion = saved.version;
+        stagedMeta = saved;
+      } else {
+        throw new Error('Incomplete pending metadata');
+      }
+      state = {
+        type: 'ready',
+        version: saved.version,
+        readyMessage: '已下载，重启即可更新',
+        pendingRestart: true,
+      };
+      return true;
+    } catch {
+      if (saved.kind === 'asar' && saved.asarInfo?.asarFile) {
+        try { rmSync(saved.asarInfo.asarFile, { force: true }); } catch {}
+      }
+      if (saved.file) {
+        try { rmSync(saved.file, { force: true }); } catch {}
+      }
+      clearPendingPersistence(targetTrack);
+      return false;
+    }
+  };
+
+  restorePendingForTrack(track);
+
   async function tryStageAsarDelta({ manifest, rawManifest, verifyKey, feedUrl, updatesDir, activeTrack, isCurrentGen }) {
     if (!resourcesDir || typeof onInstallAsar !== 'function' || !Array.isArray(manifest.asarDeltas) || manifest.asarDeltas.length === 0) {
       return null;
@@ -503,7 +694,7 @@ export function createDesktopUpdater({
 
     if (!isCurrentGen()) return null;
     emit({ type: 'available', version: manifest.version });
-    const tmpDelta = path.join(updatesDir, `asar-${activeTrack}-${manifest.version}.rbdelta.tmp-${process.pid}`);
+    const tmpDelta = path.join(updatesDir, `asar-${activeTrack}-${manifest.version}.rbdelta.part`);
     const ok = await downloadVerifiedFile({
       fetchImpl,
       url: matching.url,
@@ -511,6 +702,7 @@ export function createDesktopUpdater({
       expectedSha256: matching.sha256,
       tmpFile: tmpDelta,
       isCurrentGen,
+      retryDelayMs,
       onProgress: progress => emit({ type: 'downloading', version: manifest.version, progress }),
     });
     if (!ok) return null;
@@ -557,7 +749,7 @@ export function createDesktopUpdater({
     verifyDesktopDeltasManifest(rawManifest, verifyKey, { feedUrl, allowOrigin: config.allowOrigin });
     if (!isCurrentGen()) return false;
     emit({ type: 'available', version: manifest.version });
-    const tmpDelta = `${target}.rbdelta.tmp-${process.pid}`;
+    const tmpDelta = `${target}.rbdelta.part`;
     const ok = await downloadVerifiedFile({
       fetchImpl,
       url: found.delta.url,
@@ -565,6 +757,7 @@ export function createDesktopUpdater({
       expectedSha256: found.delta.sha256,
       tmpFile: tmpDelta,
       isCurrentGen,
+      retryDelayMs,
       onProgress: progress => emit({ type: 'downloading', version: manifest.version, progress }),
     });
     if (!ok) return false;
@@ -583,12 +776,13 @@ export function createDesktopUpdater({
     }
   }
 
-  async function check() {
+  async function check({ download = false } = {}) {
     if (!enabled) return status();
     if (checking) return checking;
     const myGen = ++checkGeneration;
     const activeTrack = track;
     const isCurrentGen = () => myGen === checkGeneration;
+    const shouldDownload = download === true || autoUpdateWhenIdle;
 
     const promise = (async () => {
       emit({ type: 'checking' });
@@ -668,7 +862,22 @@ export function createDesktopUpdater({
           stagedAsarInfo = null;
           stagedFile = target;
           stagedVersion = manifest.version;
-          return emit({ type: 'ready', version: manifest.version });
+          stagedMeta = {
+            kind: 'file',
+            version: manifest.version,
+            file: target,
+            sha256: manifest.sha256.toLowerCase(),
+            size: manifest.size,
+            feedUrl,
+            rawManifest,
+          };
+          savePendingPersistence(activeTrack, stagedMeta);
+          return emit({ type: 'ready', version: manifest.version, readyMessage: '已下载，重启即可更新', pendingRestart: true });
+        }
+
+        if (!shouldDownload) {
+          if (!isCurrentGen()) return status();
+          return emit({ type: 'available', version: manifest.version });
         }
 
         // 2. Try lightweight ASAR incremental update when eligible (falls back cleanly if unavailable or failed).
@@ -678,7 +887,15 @@ export function createDesktopUpdater({
             stagedFile = null;
             stagedAsarInfo = asarStaged;
             stagedVersion = manifest.version;
-            return emit({ type: 'ready', version: manifest.version });
+            stagedMeta = {
+              kind: 'asar',
+              version: manifest.version,
+              asarInfo: asarStaged,
+              feedUrl,
+              rawManifest,
+            };
+            savePendingPersistence(activeTrack, stagedMeta);
+            return emit({ type: 'ready', version: manifest.version, readyMessage: '已下载，重启即可更新', pendingRestart: true });
           }
         } catch {}
         if (!isCurrentGen()) return status();
@@ -695,7 +912,7 @@ export function createDesktopUpdater({
         // 4. Fallback to full installer download when no verified incremental path applies.
         if (!stagedByDelta) {
           emit({ type: 'available', version: manifest.version });
-          const tmpFile = `${target}.tmp-${process.pid}`;
+          const tmpFile = `${target}.part`;
           const ok = await downloadVerifiedFile({
             fetchImpl,
             url: manifest.url,
@@ -703,6 +920,7 @@ export function createDesktopUpdater({
             expectedSha256: manifest.sha256,
             tmpFile,
             isCurrentGen,
+            retryDelayMs,
             onProgress: progress => emit({ type: 'downloading', version: manifest.version, progress }),
           });
           if (!ok) return status();
@@ -715,7 +933,17 @@ export function createDesktopUpdater({
         stagedAsarInfo = null;
         stagedFile = target;
         stagedVersion = manifest.version;
-        return emit({ type: 'ready', version: manifest.version });
+        stagedMeta = {
+          kind: 'file',
+          version: manifest.version,
+          file: target,
+          sha256: manifest.sha256.toLowerCase(),
+          size: manifest.size,
+          feedUrl,
+          rawManifest,
+        };
+        savePendingPersistence(activeTrack, stagedMeta);
+        return emit({ type: 'ready', version: manifest.version, readyMessage: '已下载，重启即可更新', pendingRestart: true });
       } catch (err) {
         if (!isCurrentGen()) return status();
         const failure = err.kind === 'feed_http_status'
@@ -742,6 +970,9 @@ export function createDesktopUpdater({
   return {
     status,
     check,
+    download() {
+      return check({ download: true });
+    },
     setTrack({ track: next } = {}) {
       if (!['stable', 'nightly', 'dogfood'].includes(next)) throw new Error('Invalid track');
       checkGeneration += 1;
@@ -750,12 +981,19 @@ export function createDesktopUpdater({
       stagedFile = null;
       stagedAsarInfo = null;
       stagedVersion = null;
+      stagedMeta = null;
       savePrefs();
+      if (enabled && restorePendingForTrack(next)) {
+        return emit(state);
+      }
       return enabled ? emit({ type: 'idle' }) : status();
     },
     setAutoUpdateWhenIdle({ enabled: val } = {}) {
       autoUpdateWhenIdle = Boolean(val);
       savePrefs();
+      if (autoUpdateWhenIdle && state.type === 'available') {
+        void check({ download: true });
+      }
       return emit(state);
     },
     async quitAndInstall({ expectedVersion } = {}) {
@@ -764,8 +1002,29 @@ export function createDesktopUpdater({
         return { status: 'superseded' };
       }
       if (stagedAsarInfo) {
+        const actualSha = await sha256File(stagedAsarInfo.asarFile).catch(() => '');
+        if (actualSha !== String(stagedAsarInfo.sha256 || '').toLowerCase()) {
+          await rm(stagedAsarInfo.asarFile, { force: true }).catch(() => {});
+          clearPendingPersistence(track);
+          stagedAsarInfo = null;
+          stagedVersion = null;
+          emit({ type: 'idle', lastCheck: { at: Date.now(), result: 'error', failure: { kind: 'installer_signature_invalid' }, errorMessage: 'Staged ASAR checksum mismatch' } });
+          throw Object.assign(new Error('Staged ASAR checksum mismatch'), { kind: 'installer_signature_invalid' });
+        }
         await onInstallAsar(stagedAsarInfo);
       } else {
+        const expectedFileSha = stagedMeta?.sha256;
+        if (expectedFileSha) {
+          const actualSha = await sha256File(stagedFile).catch(() => '');
+          if (actualSha !== expectedFileSha.toLowerCase()) {
+            await rm(stagedFile, { force: true }).catch(() => {});
+            clearPendingPersistence(track);
+            stagedFile = null;
+            stagedVersion = null;
+            emit({ type: 'idle', lastCheck: { at: Date.now(), result: 'error', failure: { kind: 'installer_signature_invalid' }, errorMessage: 'Staged installer checksum mismatch' } });
+            throw Object.assign(new Error('Staged installer checksum mismatch'), { kind: 'installer_signature_invalid' });
+          }
+        }
         await onInstallFile(stagedFile, stagedVersion);
       }
       return { status: 'requested' };

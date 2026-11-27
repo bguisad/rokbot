@@ -4,12 +4,20 @@ import { randomUUID } from 'node:crypto';
 
 export function usageCounts(raw = {}) {
   const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
-  const input = count(raw.prompt_tokens ?? raw.input_tokens);
+  const cached = count(raw.prompt_cache_hit_tokens ?? raw.prompt_tokens_details?.cached_tokens ?? raw.cache_read_input_tokens);
+  const cacheCreationBreakdown = count(raw.cache_creation?.ephemeral_5m_input_tokens)
+    + count(raw.cache_creation?.ephemeral_1h_input_tokens);
+  const cacheWrite = Math.max(
+    count(raw.cache_creation_input_tokens ?? raw.prompt_tokens_details?.cache_creation_tokens ?? raw.input_tokens_details?.cache_write_tokens),
+    cacheCreationBreakdown,
+  );
+  const rawAnthropicInput = raw.prompt_tokens === undefined && raw.input_tokens !== undefined
+    && (raw.cache_read_input_tokens !== undefined || raw.cache_creation_input_tokens !== undefined || raw.cache_creation !== undefined);
+  const input = rawAnthropicInput ? count(raw.input_tokens) + cached + cacheWrite : count(raw.prompt_tokens ?? raw.input_tokens);
   const output = count(raw.completion_tokens ?? raw.output_tokens);
   return { input, output, total: count(raw.total_tokens ?? input + output),
-    cached: count(raw.prompt_cache_hit_tokens ?? raw.prompt_tokens_details?.cached_tokens),
-    cacheWrite: count(raw.cache_creation_input_tokens),
-    reasoning: count(raw.completion_tokens_details?.reasoning_tokens) };
+    cached, cacheWrite,
+    reasoning: count(raw.completion_tokens_details?.reasoning_tokens ?? raw.output_tokens_details?.thinking_tokens) };
 }
 // Optional request details (every field may be missing in older rows, shown as "not recorded"):
 // agentId (the bot), durationMs (request start to the end of the response), status ("ok",

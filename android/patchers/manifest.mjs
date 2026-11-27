@@ -1054,6 +1054,12 @@ export function patchManifest(axmlBuffer, options = {}) {
     makeAttrHex('foregroundServiceType', 0x00000080),
   ]);
 
+  upsertAppChild('service', 'dev.rokbot.nativeapp.UpdateDownloadService', [
+    makeAttrStr('name', 'dev.rokbot.nativeapp.UpdateDownloadService'),
+    makeAttrBool('exported', false),
+    makeAttrHex('foregroundServiceType', 0x00000001),
+  ]);
+
   // 6. Inject BootReceiver & UnifiedPushReceiver
   upsertAppChild(
     'receiver',

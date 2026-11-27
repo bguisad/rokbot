@@ -318,6 +318,10 @@ export class PushService {
     const ids = [];
     await this.store.mutate(state => {
       for (const device of authDevices) {
+        if (item.type === 'update' && item.targetPlatform === 'android') {
+          const targetKind = this.publicDevice(device).kind;
+          if (targetKind !== 'android' && device.platform !== 'android') continue;
+        }
         const target = state.devices[device.id];
         if (this.unavailable(target)) continue;
         if (!onlyDeviceId && Date.parse(device.createdAt) > Date.parse(item.createdAt)) continue;

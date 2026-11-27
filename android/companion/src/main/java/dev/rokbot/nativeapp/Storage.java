@@ -536,6 +536,32 @@ public class Storage {
         ed.commit();
     }
 
+    public static boolean isAutoDownloadUpdatesEnabled(Context context) {
+        return context == null || prefs(context).getBoolean("autoDownloadUpdates", true);
+    }
+
+    public static void setAutoDownloadUpdatesEnabled(Context context, boolean enabled) {
+        if (context == null) return;
+        prefs(context).edit().putBoolean("autoDownloadUpdates", enabled).commit();
+    }
+
+    public static String getStagedUpdateMeta(Context context) {
+        return context != null ? prefs(context).getString("stagedUpdateMeta", "") : "";
+    }
+
+    public static void saveStagedUpdateMeta(Context context, String metaJson) {
+        if (context == null) return;
+        SharedPreferences.Editor ed = prefs(context).edit();
+        if (metaJson == null || metaJson.trim().isEmpty()) ed.remove("stagedUpdateMeta");
+        else ed.putString("stagedUpdateMeta", metaJson.trim());
+        ed.commit();
+    }
+
+    public static void clearStagedUpdateMeta(Context context) {
+        if (context == null) return;
+        prefs(context).edit().remove("stagedUpdateMeta").commit();
+    }
+
     public static String getPreconfiguredHost(Context context) {
         JSONObject cfg = readPreconfigAsset(context);
         return cfg != null ? cfg.optString("host", "") : "";

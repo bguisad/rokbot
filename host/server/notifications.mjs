@@ -27,7 +27,7 @@ export class Notifications {
   }
   async publish(input) {
     check(
-      ["message", "completed", "attention", "failed", "test"].includes(input.type),
+      ["message", "completed", "attention", "failed", "test", "update"].includes(input.type),
       400,
       "不支持的通知类型",
     );
@@ -55,6 +55,10 @@ export class Notifications {
       400,
       "通知 ID 无效",
     );
+    const deepLink =
+      typeof input.deepLink === "string" && input.deepLink.length > 0 && input.deepLink.length <= 256
+        ? input.deepLink
+        : `rokbot-local://agent/${input.agentId}`;
     const item = {
       id,
       type: input.type,
@@ -62,7 +66,16 @@ export class Notifications {
       title: input.title.trim(),
       body: input.body,
       createdAt: new Date().toISOString(),
-      deepLink: `rokbot-local://agent/${input.agentId}`,
+      deepLink,
+      ...(typeof input.targetPlatform === "string" && input.targetPlatform.length > 0 && input.targetPlatform.length <= 32
+        ? { targetPlatform: input.targetPlatform }
+        : {}),
+      ...(typeof input.version === "string" && input.version.length > 0 && input.version.length <= 64
+        ? { version: input.version }
+        : {}),
+      ...(Number.isInteger(input.versionCode) && input.versionCode > 0
+        ? { versionCode: input.versionCode }
+        : {}),
     };
     const result = await this.store.mutate((state) => {
       const existing = state.items.find((value) => value.id === id);

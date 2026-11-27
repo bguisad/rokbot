@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { anthropicUsage } from '../runtime/anthropic-messages.mjs';
 import { recordUsage } from '../runtime/usage-ledger.mjs';
 import { breakdown, csvCell, NONE, resolveRange, rowCost, usageChanges, usageCsv, usageExport, usageReport } from '../runtime/usage-report.mjs';
 
@@ -154,9 +155,27 @@ test('recordUsage keeps the bot, duration, status and a short error; failed requ
   await recordUsage(directory, { raw: {}, model: 'm1', status: 'error', error: 'HTTP 503', durationMs: 20, at });
   await recordUsage(directory, { raw: {}, model: 'm1', status: 'ok', at }); // nothing to count
   await recordUsage(directory, { raw: undefined, model: 'm1', status: 'bogus', at });
+  await recordUsage(directory, {
+    raw: anthropicUsage({
+      input_tokens: 10,
+      cache_read_input_tokens: 400,
+      cache_creation: { ephemeral_5m_input_tokens: 150, ephemeral_1h_input_tokens: 50 },
+      output_tokens: 25,
+    }),
+    model: 'claude-opus-5-5',
+    agentId: 'bot-1',
+    status: 'ok',
+    at,
+  });
   const rows = (await readFile(join(directory, '2026-11-25.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   assert.deepEqual({ agentId: rows[0].agentId, durationMs: rows[0].durationMs, status: rows[0].status, error: rows[0].error, total: rows[0].total },
     { agentId: 'bot-1', durationMs: 1235, status: 'ok', error: undefined, total: 6 });
   assert.deepEqual({ status: rows[1].status, error: rows[1].error, total: rows[1].total }, { status: 'error', error: 'HTTP 503', total: 0 });
+  assert.deepEqual({ input: rows[2].input, cached: rows[2].cached, cacheWrite: rows[2].cacheWrite, output: rows[2].output },
+    { input: 610, cached: 400, cacheWrite: 200, output: 25 });
+  const report = await usageReport(directory, { timeZone: 'UTC', now: at, range: 'today' });
+  assert.equal(report.totals.cacheWrite, 200);
+  assert.equal(report.requests.items[0].cacheWrite, 200);
+  assert.match(usageCsv(report.requests.items, 'UTC'), /,200,25,/);
 });
