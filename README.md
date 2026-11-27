@@ -132,4 +132,4 @@ RokBot 是在官方 Grok Bot 基础上打造的个人自托管重制版，衍生
 
 RokBot 使用 [ProkBot Noncommercial License 1.0](LICENSE)（允许个人使用、自托管、学习、修改与非商业分发，禁止任何商业用途；衍生关系与第三方声明见 [NOTICE](NOTICE)，合规说明见 [docs/faq.md](docs/faq.md#分发与合规说明)）。本项目基于 [ProkBot](https://gitee.com/ahaduoduoduo/ProkBot) 和 [ferretgeek/prokbot-plus](https://github.com/ferretgeek/prokbot-plus) 开发，并受到 `rakazo` 在自托管部署方面工作的启发，在此致谢；友情链接：[LINUX DO](https://linux.do)。
 
-RokBot 是独立的开源项目，与 xAI、官方 Grok Bot 及 Cursor / Anysphere 没有任何关联，也未获得其认可；相关名称和标志归各自权利人所有。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
+RokBot 是独立的开源项目，与 xAI、官方 Grok Bot 及 Cursor / Anysphere 没有任何关联，也未获得其认可；Grok、Grok Bot 及相关名称和标志归各自的权利人所有。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
