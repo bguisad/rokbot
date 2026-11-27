@@ -24,7 +24,7 @@ export const RENDERER_PATCHES = {
     {
       file: 'assets/index.eager-app-B8R_eIgV.js',
       input: 'windows-recipe',
-      sha256: '0101f90e923be76f6f85f1c3a70927928a6f4ff79ec6354899c6e10a89763440',
+      sha256: 'd478d0a10523995997bebfbd37242ab1e29fd0c2d99ec27a846be0ef8976218c',
       edits: [
         ['function jE(e){return e.windowWidth>=zlt(e.sidebar,280)}', 'function jE(e){return!0}'],
         ['function Blt(e){return Math.max(0,zlt(e.sidebar,280)-e.windowWidth)}', 'function Blt(e){return 0}'],

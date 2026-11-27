@@ -36,7 +36,7 @@
 
 - The Images & video page of the admin console connects providers: OpenAI-compatible image and video APIs, WaveSpeed, or a custom HTTP JSON endpoint.
 - Image generation, video generation, video understanding and video review each have their own default model. Results come back to the conversation as attachments.
-- Batch image download: select multiple images in a conversation or the media viewer and download them at once — save to a folder or ZIP on Desktop (macOS, Windows, Linux), download as ZIP on Web, or save directly to the gallery (`Pictures/RokBot`) on Android.
+- Batch image download: select multiple images in a conversation or the media viewer and download them at once — save to a folder or ZIP on Desktop (macOS, Windows, Linux), download as ZIP on Web, or save directly to the gallery (`Pictures/RokBot`) on Android. On Desktop and Web the entry sits in the chat header and media viewer and only appears when the conversation has 2+ images (no always-on floating button).
 - You need to supply an API key for each provider.
 
 ## Voice

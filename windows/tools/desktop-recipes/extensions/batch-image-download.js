@@ -1,52 +1,8 @@
 // RokBot Multi-Select Batch Image Download (Desktop + Web).
 // Tracks image attachments resolved in the active conversation and integrates into the Media Viewer
-// so users can select multiple images and download them to a folder (Desktop) or as a ZIP (Desktop/Web).
+// so users can select multiple images (chat header button or Media Viewer) and download them to a folder (Desktop) or as a ZIP (Desktop/Web).
 
 const ROK_BATCH_IMG_CSS = `
-.rok-batch-fab {
-  position: fixed;
-  right: 20px;
-  bottom: 92px;
-  z-index: 950;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(128, 128, 128, 0.28);
-  background: rgba(255, 255, 255, 0.92);
-  color: #18181b;
-  font-size: 12.5px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(10px);
-  transition: transform 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
-}
-.rok-batch-fab:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
-}
-.cursor-dark .rok-batch-fab,
-[data-theme="dark"] .rok-batch-fab {
-  background: rgba(34, 34, 38, 0.92);
-  color: #f4f4f5;
-  border-color: rgba(255, 255, 255, 0.16);
-}
-.rok-batch-fab__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: #2563eb;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 600;
-}
 .rok-batch-mv-btn {
   display: inline-flex;
   align-items: center;
@@ -723,8 +679,6 @@ function RokBatchImageModal({ items, onClose }) {
 }
 
 function RokBatchImageHost() {
-  const store = rokBatchImageStore();
-  const snap = X.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [modalItems, setModalItems] = X.useState(null);
 
   X.useEffect(() => {
@@ -742,32 +696,32 @@ function RokBatchImageHost() {
     return () => globalThis.window?.removeEventListener?.('rokbot-local:batch-images-open', onOpen);
   }, []);
 
-  const showFab = !modalItems && snap.items.length >= 2;
-  const fab = showFab ? Z.jsxs(Z.Fragment, {
-    children: [
-      Z.jsx('style', { children: ROK_BATCH_IMG_CSS }),
-      Z.jsxs('button', {
-        type: 'button',
-        className: 'rok-batch-fab',
-        'data-rokbot-batch-download': 'conversation',
-        'aria-label': grokText('批量下载图片', 'Batch download images'),
-        onClick: () => setModalItems(snap.items),
-        children: [
-          Z.jsx(RokBatchIconImages, { size: 15 }),
-          Z.jsx('span', { children: grokText('批量下载图片', 'Batch images') }),
-          Z.jsx('span', { className: 'rok-batch-fab__count', children: String(snap.items.length) }),
-        ],
-      }),
-    ],
-  }) : null;
+  return modalItems ? Z.jsx(RokBatchImageModal, { items: modalItems, onClose: () => setModalItems(null) }) : null;
+}
 
-  const container = (typeof Yt === 'function' ? Yt() : null) ?? globalThis.document?.body ?? null;
-  const renderedFab = fab && container && typeof BS?.createPortal === 'function' ? BS.createPortal(fab, container) : fab;
+// Chat header entry (next to the official header controls): shown only while the open
+// conversation has at least two images, instead of an always-visible floating button.
+function rokBatchHeaderItems(snap, agentId) {
+  if (!snap || !Array.isArray(snap.items)) return [];
+  const active = snap.activeAgentId;
+  if (typeof agentId === 'string' && agentId && active && active !== '__default__' && active !== agentId) return [];
+  return snap.items;
+}
 
-  return Z.jsxs(Z.Fragment, {
-    children: [
-      renderedFab,
-      modalItems ? Z.jsx(RokBatchImageModal, { items: modalItems, onClose: () => setModalItems(null) }) : null,
-    ],
+function RokChatHeaderBatchButton({ agentId }) {
+  const store = rokBatchImageStore();
+  const snap = X.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const items = rokBatchHeaderItems(snap, agentId);
+  if (items.length < 2) return null;
+  const label = grokText(`批量下载图片（${items.length}）`, `Batch download images (${items.length})`);
+  const button = Z.jsx(IC, {
+    'aria-label': label,
+    'data-rokbot-batch-download': 'chat-header',
+    glyph: Z.jsx(RokBatchIconImages, { size: 16 }),
+    iconSize: 'md',
+    shape: 'circle',
+    type: 'button',
+    onClick: () => rokOpenBatchImageModal(items),
   });
+  return Z.jsx(le, { content: label, children: button });
 }

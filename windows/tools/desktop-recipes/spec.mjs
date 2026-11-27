@@ -301,7 +301,8 @@ export function specForTarget(target = 'windows') {
       { insertAfter: 'function H6n(e,t){', text: 'if(rokCanvasLinkId(e)!=null)return{kind:`external`};' },
       { replace: 'function CZ(e){CZ.d=1477;', text: 'function CZ(e){return rokCanvasLinkId(e.href)!=null?(0,Z.jsx)(RokCanvasLinkCard,e):(0,Z.jsx)(CZ_orig,e)}function CZ_orig(e){CZ_orig.d=1477;' },
       { replace: '(ge=(0,Z.jsxs)(`div`,{...ue,children:[de,fe,pe,me,he]})', text: '(ge=(0,Z.jsxs)(`div`,{...ue,children:[de,fe,pe,me,(0,Z.jsx)(RokBotCanvasSection,{agentId:n,headingId:`${y}-canvases`}),he]})' },
-      // Multi-select batch image download: track resolved images per conversation and add Media Viewer batch button.
+      // Multi-select batch image download: track resolved images per conversation; the entry sits in the
+      // chat header (only while the conversation has images) and in the Media Viewer.
       { replace: 'resolveMedia:(n,r)=>e.desktop.resolveAttachmentMedia({...n,...t?{inRoom:t}:{},viewSlot:e.accountSlot},r)',
         text: 'resolveMedia:(n,r)=>rokTrackResolvedMedia(n,e.desktop.resolveAttachmentMedia({...n,...t?{inRoom:t}:{},viewSlot:e.accountSlot},r))' },
       { replace: 'await e.desktop.setViewingAgent({agentId:r,',
@@ -310,6 +311,8 @@ export function specForTarget(target = 'windows') {
         text: '(0,BS.createPortal)((0,Z.jsxs)(Z.Fragment,{children:[Ht,(0,Z.jsx)(RokMediaViewerBatchButton,{sources:n,captions:r,embedded:!0}),Bt]}),g.actionsSlot)' },
       { replace: 'children:[Bt,(0,Z.jsx)(IC,{"aria-label":p({id:`bpMYYF`}),className:`sand-media-viewer__close`',
         text: 'children:[(0,Z.jsx)(RokMediaViewerBatchButton,{sources:n,captions:r,embedded:!1}),Bt,(0,Z.jsx)(IC,{"aria-label":p({id:`bpMYYF`}),className:`sand-media-viewer__close`' },
+      { replace: 'children:[m==null?null:(0,Z.jsx)(l3n,{...m}),(0,Z.jsx)(G2,{agentId:n.id}),',
+        text: 'children:[m==null?null:(0,Z.jsx)(l3n,{...m}),(0,Z.jsx)(G2,{agentId:n.id}),(0,Z.jsx)(RokChatHeaderBatchButton,{agentId:n.id}),' },
       { replace: 'VU={FEATURED:{id:`FkMol5`},', text: 'VU={HOST:{id:`Host`,message:`Host`},FEATURED:{id:`FkMol5`},' },
       // Account menu: connection settings instead of adding a cloud account; no mobile app offer.
       { replace: '(et=(0,Z.jsxs)(Rw.Section,{children:[Ye,Xe,$e]}),', text: '(et=(0,Z.jsxs)(Rw.Section,{children:[Xe,$e]}),' },
