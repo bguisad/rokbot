@@ -52,3 +52,6 @@ ios/.runtime/
 
 # Web client bundle a local Host image build may place here (never commit it)
 host/web-bundle/
+
+# rokbot pack output
+/dist/

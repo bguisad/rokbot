@@ -1,0 +1,13 @@
+{
+  "name": "rokbot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RokBot self-hosting CLI: deploy the Host, bootstrap the admin, check the environment and pack clients locally",
+  "bin": {
+    "rokbot": "bin/rokbot.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}
