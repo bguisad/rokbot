@@ -117,12 +117,107 @@ function anthropicReasoning(part, providerId) {
   return !origin.model || /claude/i.test(origin.model);
 }
 
+const MAX_CACHE_BREAKPOINTS = 4;
+const EARLY_USER_BLOCK_ANCHOR = 4;
+const MILESTONE_BLOCK_STRIDE = 16;
+
+function canonicalizeJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (!value || typeof value !== 'object') return value;
+  const sorted = {};
+  for (const key of Object.keys(value).sort()) {
+    if (value[key] !== undefined) sorted[key] = canonicalizeJson(value[key]);
+  }
+  return sorted;
+}
+
+/**
+ * Resolve Anthropic prompt cache_control from explicit option or env.
+ * Defaults to 5-minute ephemeral (`{ type: 'ephemeral' }`); only `'1h'` is
+ * additionally supported (default off). Unverified shorter TTLs are not enabled.
+ */
+export function anthropicCacheControl({ cacheTtl, env = process.env } = {}) {
+  const raw = cacheTtl ?? env?.ROKBOT_ANTHROPIC_CACHE_TTL ?? env?.GROKBOT_ANTHROPIC_CACHE_TTL
+    ?? env?.ROKBOT_CACHE_TTL ?? env?.GROKBOT_CACHE_TTL ?? '';
+  const normalized = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (normalized === '1h') return { type: 'ephemeral', ttl: '1h' };
+  return { type: 'ephemeral' };
+}
+
+function isEligibleCacheBlock(block) {
+  return Boolean(block && (block.type === 'text' || block.type === 'tool_result'));
+}
+
+function isInjectedSystemBlock(block) {
+  return block?.type === 'text' && typeof block.text === 'string' && /^\s*<system-message>/i.test(block.text);
+}
+
+function placeMessageBreakpoints(output, cacheControl, budget) {
+  if (budget <= 0 || !output.length) return 0;
+  const flat = [];
+  for (const message of output) {
+    for (const block of message.content) {
+      flat.push({
+        role: message.role,
+        block,
+        eligible: isEligibleCacheBlock(block),
+        injectedSystem: isInjectedSystemBlock(block),
+      });
+    }
+  }
+  let tailIdx = -1;
+  for (let i = flat.length - 1; i >= 0; i--) {
+    if (flat[i].eligible && !flat[i].injectedSystem) { tailIdx = i; break; }
+  }
+  if (tailIdx === -1) {
+    for (let i = flat.length - 1; i >= 0; i--) {
+      if (flat[i].eligible) { tailIdx = i; break; }
+    }
+  }
+  if (tailIdx === -1) return 0;
+
+  const chosen = new Set([tailIdx]);
+  if (budget >= 2) {
+    let userBlocks = 0, fourthUserIdx = -1;
+    for (let i = 0; i < flat.length; i++) {
+      if (flat[i].role === 'user' && !flat[i].injectedSystem && ++userBlocks === EARLY_USER_BLOCK_ANCHOR) {
+        fourthUserIdx = i;
+        break;
+      }
+    }
+    let anchorIdx = -1;
+    if (fourthUserIdx !== -1) {
+      for (let i = fourthUserIdx; i <= tailIdx; i++) {
+        if (flat[i].eligible && !flat[i].injectedSystem) { anchorIdx = i; break; }
+      }
+    }
+    if (anchorIdx !== -1) {
+      chosen.add(anchorIdx);
+      let cursor = anchorIdx + MILESTONE_BLOCK_STRIDE;
+      while (chosen.size < budget && cursor < tailIdx) {
+        let milestoneIdx = -1;
+        for (let i = cursor; i < tailIdx; i++) {
+          if (flat[i].eligible && !flat[i].injectedSystem) { milestoneIdx = i; break; }
+        }
+        if (milestoneIdx === -1 || chosen.has(milestoneIdx)) break;
+        chosen.add(milestoneIdx);
+        cursor = milestoneIdx + MILESTONE_BLOCK_STRIDE;
+      }
+    }
+  }
+
+  for (const idx of chosen) flat[idx].block.cache_control = { ...cacheControl };
+  return chosen.size;
+}
+
 /**
  * Convert CoreMessages. Signed thinking is replayed only when every Anthropic reasoning
  * part still carries its signature; otherwise all thinking is stripped, which the API
  * accepts, instead of sending a history with blocks missing from the middle.
  */
-export function convertAnthropicMessages(messages, { model, providerId, stripThinking = false } = {}) {
+export function convertAnthropicMessages(messages, { model, providerId, stripThinking = false,
+  hasTools = false, cacheControl, cacheTtl, env } = {}) {
+  const resolvedCacheControl = cacheControl ?? anthropicCacheControl({ cacheTtl, env });
   const reasoningParts = messages.filter(message => message.role === 'assistant' && Array.isArray(message.content))
     .flatMap(message => message.content.filter(part => (part.type === 'reasoning' || part.type === 'redacted-reasoning') && anthropicReasoning(part, providerId)));
   const replayThinking = !stripThinking && reasoningParts.every(part =>
@@ -157,8 +252,10 @@ export function convertAnthropicMessages(messages, { model, providerId, stripThi
           if (!replayThinking || !anthropicReasoning(part, providerId)) return null;
           return reasoningOrigin(part).emptyThinking ? { type: 'thinking', thinking: '', signature: part.data } : { type: 'redacted_thinking', data: part.data };
         }
-        if (part.type === 'tool-call') return { type: 'tool_use', id: part.toolCallId, name: part.toolName,
-          input: typeof part.args === 'string' ? JSON.parse(part.args || '{}') : part.args ?? {} };
+        if (part.type === 'tool-call') {
+          const parsedInput = typeof part.args === 'string' ? JSON.parse(part.args || '{}') : part.args ?? {};
+          return { type: 'tool_use', id: part.toolCallId, name: part.toolName, input: canonicalizeJson(parsedInput) };
+        }
         return null;
       }));
     } else if (message.role === 'tool') {
@@ -181,28 +278,39 @@ export function convertAnthropicMessages(messages, { model, providerId, stripThi
     if (message.role === 'user') message.content.sort((a, b) => (a.type === 'tool_result' ? 0 : 1) - (b.type === 'tool_result' ? 0 : 1));
   }
   if (output[0]?.role === 'assistant') output.unshift({ role: 'user', content: [{ type: 'text', text: '(conversation start)' }] });
-  // Two cache breakpoints: tools + system, and the whole history for the next turn.
-  if (system.length) system.at(-1).cache_control = { type: 'ephemeral' };
-  const lastBlock = output.at(-1)?.content.at(-1);
-  if (lastBlock && ['text', 'image', 'document', 'tool_result'].includes(lastBlock.type)) lastBlock.cache_control = { type: 'ephemeral' };
-  return { system, messages: output, replayedThinking: replayThinking && reasoningParts.length > 0 };
+  let messageBreakpoints = 0;
+  if (resolvedCacheControl) {
+    if (system.length) system.at(-1).cache_control = { ...resolvedCacheControl };
+    const remainingBudget = MAX_CACHE_BREAKPOINTS - (hasTools ? 1 : 0) - (system.length ? 1 : 0);
+    messageBreakpoints = placeMessageBreakpoints(output, resolvedCacheControl, remainingBudget);
+  }
+  return { system, messages: output, replayedThinking: replayThinking && reasoningParts.length > 0, messageBreakpoints };
 }
 
-export function convertAnthropicTools(tools = []) {
-  return tools.map(tool => {
+export function convertAnthropicTools(tools = [], { cacheControl, cacheTtl, env } = {}) {
+  const resolvedCacheControl = cacheControl === null ? null : (cacheControl ?? anthropicCacheControl({ cacheTtl, env }));
+  const converted = tools.map(tool => {
     const { name, description, parameters } = toolSchema(tool);
-    return { name, description, input_schema: parameters };
-  });
+    return { name, description, input_schema: canonicalizeJson(parameters) };
+  }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  if (converted.length && resolvedCacheControl) converted.at(-1).cache_control = { ...resolvedCacheControl };
+  return converted;
 }
 
 /** Normalize Anthropic usage to the OpenAI-style fields the usage ledger records. */
 export function anthropicUsage(raw = {}) {
   const count = value => Number.isFinite(value) && value >= 0 ? value : 0;
-  const uncached = count(raw.input_tokens), cacheRead = count(raw.cache_read_input_tokens),
-    cacheWrite = count(raw.cache_creation_input_tokens), output = count(raw.output_tokens);
+  const uncached = count(raw.input_tokens), cacheRead = count(raw.cache_read_input_tokens);
+  const creation5m = count(raw.cache_creation?.ephemeral_5m_input_tokens);
+  const creation1h = count(raw.cache_creation?.ephemeral_1h_input_tokens);
+  const cacheWrite = Math.max(count(raw.cache_creation_input_tokens), creation5m + creation1h);
+  const output = count(raw.output_tokens);
   const input = uncached + cacheRead + cacheWrite;
   return { prompt_tokens: input, completion_tokens: output, total_tokens: input + output,
     prompt_tokens_details: { cached_tokens: cacheRead }, cache_creation_input_tokens: cacheWrite,
+    ...(raw.cache_creation && typeof raw.cache_creation === 'object'
+      ? { cache_creation: { ephemeral_5m_input_tokens: creation5m, ephemeral_1h_input_tokens: creation1h } }
+      : {}),
     completion_tokens_details: { reasoning_tokens: count(raw.output_tokens_details?.thinking_tokens) } };
 }
 
@@ -213,12 +321,27 @@ export function isThinkingReplayError(status, message) {
 
 const OPTIONAL = ['fallbacks', 'thinking.display', 'output_config'];
 
+function mergeUsageObjects(target, source) {
+  for (const [key, value] of Object.entries(source)) {
+    if (value === null || value === undefined) continue;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const prev = target[key] && typeof target[key] === 'object' && !Array.isArray(target[key]) ? { ...target[key] } : {};
+      mergeUsageObjects(prev, value);
+      target[key] = prev;
+      continue;
+    }
+    target[key] = typeof value === 'number' && typeof target[key] === 'number' ? Math.max(target[key], value) : value;
+  }
+}
+
 /** One streamed Messages API turn; yields Harness stream parts and returns the assembled message. */
 export async function* anthropicTurn(context) {
   const { fetchImpl, endpoint, apiKey, headers, model, messages, tools, effort, maxTokens, signal, waitForIO, state,
-    providerId, notifyRequest, onModel, onId, onUsage } = context;
-  const anthropicTools = convertAnthropicTools(tools);
-  let replayed = false;
+    providerId, notifyRequest, onModel, onId, onUsage, requestOptions, cacheTtl, env,
+    log = message => console.info(message) } = context;
+  const cacheControl = anthropicCacheControl({ cacheTtl: cacheTtl ?? requestOptions?.cache_ttl ?? requestOptions?.cacheTtl, env });
+  const anthropicTools = convertAnthropicTools(tools, { cacheControl });
+  let replayed = false, loggedCache = false;
   const { http } = await postWithFallback({ fetchImpl, url: endpoint, apiKey, signal, waitForIO, state, optional: OPTIONAL,
     headers: body => {
       const value = anthropicHeaders(apiKey, { stream: true, body });
@@ -228,8 +351,14 @@ export async function* anthropicTurn(context) {
     // Signed thinking from an edited or summarized history: retry without it.
     fallbacks: [{ name: 'retry without replayed thinking', applies: error => replayed && replayRejected(error), apply: () => { state.stripReasoning = true; } }],
     build: () => {
-      const converted = convertAnthropicMessages(messages, { model, providerId, stripThinking: state.stripReasoning });
+      const converted = convertAnthropicMessages(messages, { model, providerId, stripThinking: state.stripReasoning,
+        hasTools: anthropicTools.length > 0, cacheControl });
       replayed = converted.replayedThinking;
+      if (!loggedCache) {
+        loggedCache = true;
+        const breakpoints = (anthropicTools.length ? 1 : 0) + (converted.system.length ? 1 : 0) + converted.messageBreakpoints;
+        log(`[anthropic-messages] cache_control ttl=${cacheControl.ttl ?? '5m'} breakpoints=${breakpoints}`);
+      }
       return { model, ...anthropicOptions(model, { effort, maxTokens }), stream: true,
         ...(converted.system.length ? { system: converted.system } : {}), messages: converted.messages,
         ...(anthropicTools.length ? { tools: anthropicTools } : {}) };
@@ -240,8 +369,8 @@ export async function* anthropicTurn(context) {
   const reasoningOptions = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, providerId }) });
   const emptyOptions = () => ({ providerOptions: reasoningProviderOptions({ format: FORMAT, model: responseModel, providerId, emptyThinking: true }) });
   const mergeUsage = usage => {
-    if (!usage) return;
-    for (const [key, value] of Object.entries(usage)) if (value !== null && value !== undefined) rawUsage[key] = value;
+    if (!usage || typeof usage !== 'object') return;
+    mergeUsageObjects(rawUsage, usage);
     onUsage(anthropicUsage(rawUsage));
   };
   for await (const data of readSse(http.body, { waitForIO })) {

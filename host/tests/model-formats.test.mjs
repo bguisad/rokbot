@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createModelSession } from '../runtime/model-session.mjs';
 import { rejectedOption, deletePath, reasoningOrigin, reasoningProviderOptions } from '../runtime/model-common.mjs';
-import { anthropicEndpoint, anthropicOptions, convertAnthropicMessages } from '../runtime/anthropic-messages.mjs';
+import { anthropicCacheControl, anthropicEndpoint, anthropicOptions, anthropicUsage, convertAnthropicMessages, convertAnthropicTools } from '../runtime/anthropic-messages.mjs';
 import { convertResponsesInput, responsesOptions } from '../runtime/openai-responses.mjs';
 import { convertChatMessages, maxTokensParameter } from '../runtime/openai-chat.mjs';
 import { effortLevels, MAX_CATALOG_MODELS, MAX_POLICY_MODELS, validatePolicy } from '../runtime/model-policy.mjs';
@@ -407,4 +407,170 @@ test('reasoningOrigin prefers providerOptions.rokbot and falls back to legacy pr
     format: 'openai-responses', model: 'legacy-m', providerId: undefined, itemId: undefined,
     summarized: false, phase: 'commentary', emptyThinking: false,
   });
+});
+
+test('anthropic cache breakpoints skip thinking and injected system-message blocks and place a fixed early anchor', () => {
+  const buildTurn = (n, extra = []) => {
+    const msgs = [{ role: 'system', content: 'System prompt.' }];
+    for (let i = 0; i < n; i++) {
+      msgs.push({ role: 'user', content: `user-${i}` });
+      if (i < n - 1) {
+        msgs.push({ role: 'assistant', content: [
+          { type: 'reasoning', text: `think-${i}`, signature: `sig-${i}`, ...anthropicTag('claude-opus-5-5') },
+          { type: 'text', text: `reply-${i}` },
+          { type: 'tool-call', toolCallId: `tc-${i}`, toolName: 'get_weather', args: { city: 'Paris' } },
+        ] });
+        msgs.push({ role: 'tool', content: [{ type: 'tool-result', toolCallId: `tc-${i}`, toolName: 'get_weather', result: `res-${i}` }] });
+      }
+    }
+    return [...msgs, ...extra];
+  };
+
+  // Turn 3 with trailing thinking/redacted_thinking + tool_use: never places cache_control on thinking/redacted_thinking/tool_use.
+  const trailingThinking = convertAnthropicMessages([
+    { role: 'system', content: 'System prompt.' },
+    { role: 'user', content: 'u0' },
+    { role: 'assistant', content: [
+      { type: 'reasoning', text: 'plan', signature: 'sig-0', ...anthropicTag('claude-opus-5-5') },
+      { type: 'redacted-reasoning', data: 'red-0', ...anthropicTag('claude-opus-5-5') },
+    ] },
+  ], { hasTools: true });
+  assert.deepEqual(trailingThinking.messages[1].content.map(b => b.cache_control), [undefined, undefined]);
+  assert.deepEqual(trailingThinking.messages[0].content[0].cache_control, { type: 'ephemeral' });
+
+  // Trailing injected <system-message> is skipped in favor of the preceding tool_result / text block.
+  const withInjected = convertAnthropicMessages([
+    ...buildTurn(4),
+    { role: 'system', content: 'volatile reminder' },
+  ], { hasTools: true });
+  const lastMsgBlocks = withInjected.messages.at(-1).content;
+  assert.equal(lastMsgBlocks.at(-1).text, '<system-message>\nvolatile reminder\n</system-message>');
+  assert.equal(lastMsgBlocks.at(-1).cache_control, undefined);
+  assert.deepEqual(lastMsgBlocks.at(-2).cache_control, { type: 'ephemeral' });
+
+  // Across turns 4, 5, 6, the early anchor stays at the 4th user block and only the tail advances on new content.
+  const countBreakpoints = res => [
+    ...res.system,
+    ...res.messages.flatMap(m => m.content),
+  ].filter(b => b.cache_control).length;
+
+  const anchorPositions = [];
+  const tailPositions = [];
+  for (const turns of [3, 4, 5]) {
+    const res = convertAnthropicMessages(buildTurn(turns), { hasTools: true });
+    const flat = res.messages.flatMap((m, mi) => m.content.map((b, bi) => ({ mi, bi, b })));
+    const marked = flat.filter(x => x.b.cache_control);
+    // All message breakpoints must be strictly on text or tool_result.
+    for (const item of marked) assert.ok(['text', 'tool_result'].includes(item.b.type));
+    assert.ok(countBreakpoints(res) + 1 <= 4, 'tools(1) + system(1) + messages <= 4');
+    anchorPositions.push(marked[0] ? `${marked[0].mi}:${marked[0].bi}:${marked[0].b.text}` : null);
+    tailPositions.push(marked.at(-1) ? `${marked.at(-1).mi}:${marked.at(-1).bi}:${marked.at(-1).b.text}` : null);
+  }
+  assert.equal(anchorPositions[0], anchorPositions[1]);
+  assert.equal(anchorPositions[1], anchorPositions[2]);
+  assert.notEqual(tailPositions[0], tailPositions[1]);
+  assert.notEqual(tailPositions[1], tailPositions[2]);
+  // At turn 5, tools(1) + system(1) + anchor(1) + tail(1) = 4 total breakpoints used.
+  const turn5 = convertAnthropicMessages(buildTurn(5), { hasTools: true });
+  assert.equal(countBreakpoints(turn5) + 1, 4);
+});
+
+test('anthropic request serialization is byte-identical across tool and schema key reorderings', async () => {
+  const toolA = { name: 'alpha', description: 'A', parameters: { type: 'object', required: ['x'], properties: { x: { type: 'string' }, y: { type: 'number' } } } };
+  const toolB = { name: 'zeta', description: 'Z', parameters: { properties: { b: { type: 'boolean' }, a: { type: 'string' } }, type: 'object' } };
+  const toolBReordered = { name: 'zeta', description: 'Z', parameters: { type: 'object', properties: { a: { type: 'string' }, b: { type: 'boolean' } } } };
+  const toolAReordered = { name: 'alpha', description: 'A', parameters: { properties: { y: { type: 'number' }, x: { type: 'string' } }, type: 'object', required: ['x'] } };
+
+  const msgs1 = [
+    { role: 'system', content: 'Sys' },
+    { role: 'user', content: 'u1' },
+    { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'c1', toolName: 'alpha', args: { y: 2, x: 'hi' } }] },
+    { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'c1', toolName: 'alpha', result: 'ok' }] },
+  ];
+  const msgs2 = [
+    { role: 'system', content: 'Sys' },
+    { role: 'user', content: 'u1' },
+    { role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'c1', toolName: 'alpha', args: { x: 'hi', y: 2 } }] },
+    { role: 'tool', content: [{ type: 'tool-result', toolCallId: 'c1', toolName: 'alpha', result: 'ok' }] },
+  ];
+
+  const okSse = () => sse([
+    { type: 'message_start', message: { id: 'm1', model: 'claude-opus-5-5', usage: { input_tokens: 1, output_tokens: 1 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } },
+    { type: 'message_stop' },
+  ]);
+
+  const rawBodies = [];
+  for (const [tools, messages] of [[[toolA, toolB], msgs1], [[toolBReordered, toolAReordered], msgs2]]) {
+    const session = createModelSession({
+      apiFormat: 'anthropic',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'k',
+      model: 'claude-opus-5-5',
+      fetchImpl: async (_url, options) => { rawBodies.push(options.body); return okSse(); },
+    });
+    const res = session.getExecutor(messages).stream({}, 'inv', tools);
+    for await (const _ of res.fullStream) void _;
+  }
+  assert.equal(rawBodies[0], rawBodies[1]);
+  const parsed = JSON.parse(rawBodies[0]);
+  assert.deepEqual(parsed.tools.map(t => t.name), ['alpha', 'zeta']);
+  assert.deepEqual(parsed.tools[1].cache_control, { type: 'ephemeral' });
+});
+
+test('anthropic cache_ttl defaults to 5m, supports explicit 1h, rejects unverified 1m, and logs ttl', async () => {
+  assert.deepEqual(anthropicCacheControl(), { type: 'ephemeral' });
+  assert.deepEqual(anthropicCacheControl({ env: { ROKBOT_ANTHROPIC_CACHE_TTL: '1h' } }), { type: 'ephemeral', ttl: '1h' });
+  assert.deepEqual(anthropicCacheControl({ env: { ROKBOT_ANTHROPIC_CACHE_TTL: '1m' } }), { type: 'ephemeral' });
+  assert.deepEqual(convertAnthropicTools(weatherTool, { cacheTtl: '1h' })[0].cache_control, { type: 'ephemeral', ttl: '1h' });
+
+  const logs = [];
+  const originalInfo = console.info;
+  console.info = (...args) => logs.push(args.join(' '));
+  try {
+    const reply = () => sse([
+      { type: 'message_start', message: { id: 'm1', model: 'claude-opus-5-5', usage: {
+        input_tokens: 10,
+        cache_read_input_tokens: 500,
+        cache_creation_input_tokens: 200,
+        cache_creation: { ephemeral_5m_input_tokens: 200, ephemeral_1h_input_tokens: 0 },
+        output_tokens: 1,
+      } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } },
+      // Simulate proxy emitting 0s in message_delta while keeping output_tokens
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {
+        input_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 },
+        output_tokens: 9,
+      } },
+      { type: 'message_stop' },
+    ]);
+
+    const requests = [];
+    let recordedUsage;
+    const session = createModelSession({
+      apiFormat: 'anthropic',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'k',
+      model: 'claude-opus-5-5',
+      fetchImpl: async (_url, options) => { requests.push(JSON.parse(options.body)); return reply(); },
+      selectRequest: async () => ({ model: 'claude-opus-5-5', requestOptions: { cache_ttl: '1h' } }),
+      onUsage: async u => { recordedUsage = u; },
+    });
+    const result = session.getExecutor([{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }]).stream({}, 'inv', weatherTool);
+    for await (const _ of result.fullStream) void _;
+    const ext = await result.extendedUsage;
+    assert.deepEqual(requests[0].tools[0].cache_control, { type: 'ephemeral', ttl: '1h' });
+    assert.deepEqual(requests[0].system[0].cache_control, { type: 'ephemeral', ttl: '1h' });
+    assert.deepEqual(requests[0].messages[0].content[0].cache_control, { type: 'ephemeral', ttl: '1h' });
+    assert.ok(logs.some(line => line.includes('[anthropic-messages]') && line.includes('ttl=1h') && line.includes('breakpoints=3')));
+    assert.equal(ext.cacheWriteTokens, 200);
+    assert.equal(ext.cacheReadTokens, 500);
+    assert.equal(recordedUsage.raw.cache_creation_input_tokens, 200);
+  } finally {
+    console.info = originalInfo;
+  }
 });

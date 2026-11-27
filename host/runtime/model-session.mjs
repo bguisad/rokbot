@@ -237,12 +237,18 @@ function compactionCapabilities({ contextWindowTokens, summaryThresholdTokens })
 function usageValues(raw = {}, contextWindowTokens = 0) {
   const count = value => Number.isFinite(value) && value >= 0 ? value : 0;
   const inputTokens = count(raw.prompt_tokens), outputTokens = count(raw.completion_tokens);
+  const cacheCreationBreakdown = count(raw.cache_creation?.ephemeral_5m_input_tokens)
+    + count(raw.cache_creation?.ephemeral_1h_input_tokens);
+  const cacheWriteTokens = Math.max(
+    count(raw.cache_creation_input_tokens ?? raw.prompt_tokens_details?.cache_creation_tokens ?? raw.input_tokens_details?.cache_write_tokens),
+    cacheCreationBreakdown,
+  );
   return {
     usage: { promptTokens: inputTokens, completionTokens: outputTokens,
       totalTokens: count(raw.total_tokens ?? inputTokens + outputTokens) },
     extendedUsage: { inputTokens, outputTokens,
       cacheReadTokens: count(raw.prompt_cache_hit_tokens ?? raw.prompt_tokens_details?.cached_tokens),
-      cacheWriteTokens: count(raw.cache_creation_input_tokens), maxTokens: count(contextWindowTokens) },
+      cacheWriteTokens, maxTokens: count(contextWindowTokens) },
   };
 }
 
