@@ -17,6 +17,7 @@ export const insertSuggestionText = (...args) => assist().insertSuggestionText(.
 export const appendComposerText = (...args) => assist().appendComposerText(...args);
 export const sendSuggestionText = (...args) => assist().sendSuggestionText(...args);
 export const mergeSuggestionItems = (...args) => assist().mergeSuggestionItems(...args);
+export const matchCompletions = (...args) => assist().matchCompletions(...args);
 export const createLoadingMachine = (...args) => assist().createLoadingMachine(...args);
 export const createCompletionController = (...args) => assist().createCompletionController(...args);
 export const installSuggestionsSettingsPage = (...args) => assist().installSuggestionsSettingsPage(...args);

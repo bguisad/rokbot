@@ -89,5 +89,23 @@ test('desktop loader installs the shared composer assist with an IPC-backed requ
   assert.equal(sent[0][0], 'rokbot-local:suggestions-cancel');
   assert.equal(sent[0][1], invoked.at(-1)[1].requestId);
 
+  // Habit learning goes through its own channels.
+  await request('/local/suggestions/feedback', { agentId: 'bot', action: 'tap', text: '先修 upload', shown: ['先修 upload'] }, undefined, 'POST');
+  assert.deepEqual(invoked.at(-1), ['rokbot-local:suggestions-feedback', { agentId: 'bot', action: 'tap', text: '先修 upload', shown: ['先修 upload'] }]);
+  await request('/local/suggestions/habits', null, undefined, 'DELETE');
+  assert.equal(invoked.at(-1)[0], 'rokbot-local:suggestions-habits-clear');
+
   await assert.rejects(() => request('/local/other', {}, undefined, 'POST'), /Unsupported suggestions request/);
+});
+
+test('desktop main process exposes the habit channels to the trusted renderer only', async () => {
+  const fs = await import('node:fs');
+  const main = fs.readFileSync(path.join(DESKTOP, 'main.mjs'), 'utf8');
+  for (const channel of ['rokbot-local:suggestions-feedback', 'rokbot-local:suggestions-habits-clear']) {
+    const at = main.indexOf(`ipcMain.handle('${channel}'`);
+    assert.ok(at > 0, channel);
+    assert.ok(main.slice(at, at + 400).includes('trusted(event, mainWindow)'), `${channel} checks the renderer`);
+  }
+  assert.ok(main.includes("gateway.request('/local/suggestions/feedback', body, AbortSignal.timeout(8000), 'POST')"));
+  assert.ok(main.includes("gateway.request('/local/suggestions/habits', null, AbortSignal.timeout(10000), 'DELETE')"));
 });

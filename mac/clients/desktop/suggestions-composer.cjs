@@ -23,6 +23,8 @@
     }
     if (path === '/local/suggestions/phrases' && method === 'POST') return ipcRenderer.invoke('rokbot-local:suggestions-phrase-add', { text: body?.text ?? '' });
     if (path === '/local/suggestions/phrases/reorder') return ipcRenderer.invoke('rokbot-local:suggestions-phrase-reorder', { ids: body?.ids ?? [] });
+    if (path === '/local/suggestions/feedback') return ipcRenderer.invoke('rokbot-local:suggestions-feedback', body ?? {});
+    if (path === '/local/suggestions/habits' && method === 'DELETE') return ipcRenderer.invoke('rokbot-local:suggestions-habits-clear');
     const phrase = PHRASE_RE.exec(path);
     if (phrase && method === 'DELETE') return ipcRenderer.invoke('rokbot-local:suggestions-phrase-delete', { id: decodeURIComponent(phrase[1]) });
     if (phrase) return ipcRenderer.invoke('rokbot-local:suggestions-phrase-update', { id: decodeURIComponent(phrase[1]), text: body?.text ?? '' });

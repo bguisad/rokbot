@@ -471,6 +471,21 @@ ipcMain.handle('rokbot-local:suggestions-phrase-reorder', (event, payload) => {
   if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
   return gateway.request('/local/suggestions/phrases/reorder', { ids: Array.isArray(payload?.ids) ? payload.ids : [] }, AbortSignal.timeout(10000), 'PUT');
 });
+// Habit learning: a tapped suggestion / dismissed strip, and 清空学习记录.
+ipcMain.handle('rokbot-local:suggestions-feedback', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const body = {
+    agentId: String(payload?.agentId ?? '').slice(0, 128),
+    action: payload?.action === 'tap' || payload?.action === 'dismiss' ? payload.action : '',
+    text: String(payload?.text ?? '').slice(0, 400),
+    shown: Array.isArray(payload?.shown) ? payload.shown.slice(0, 8).map(item => String(item ?? '').slice(0, 400)) : [],
+  };
+  return gateway.request('/local/suggestions/feedback', body, AbortSignal.timeout(8000), 'POST');
+});
+ipcMain.handle('rokbot-local:suggestions-habits-clear', event => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  return gateway.request('/local/suggestions/habits', null, AbortSignal.timeout(10000), 'DELETE');
+});
 // Composer suggestions and inline completion. Each call carries a renderer request id so a newer
 // keystroke (rokbot-local:suggestions-cancel) aborts the Host request it replaces.
 const suggestionCalls = new Map();
