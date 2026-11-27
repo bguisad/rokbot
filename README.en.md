@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: ProkBot Noncommercial License 1.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Noncommercial%201.0-f59e0b?style=flat-square" alt="License: RokBot Noncommercial License 1.0" /></a>
   <a href="docs/clients.en.md"><img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20iOS%20%7C%20Android%20%7C%20Web-111827?style=flat-square" alt="Platforms: macOS, Windows, Linux, iOS, Android, Web" /></a>
   <a href="#quick-start"><img src="https://img.shields.io/badge/Deploy-Docker%20Compose-0ea5e9?style=flat-square" alt="Deploy: Docker Compose" /></a>
 </p>
@@ -194,7 +194,7 @@ For options, offline installs, source builds and AI-assisted deployment, see [De
 
 ## License
 
-<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot is licensed under the [ProkBot Noncommercial License 1.0](LICENSE): personal use, self-hosting, study, modification and noncommercial redistribution are permitted, and all commercial use is prohibited. See [NOTICE](NOTICE) for derivation and third-party notices, and [docs/faq.en.md](docs/faq.en.md#distribution--compliance) for compliance notes.
+<img src="docs/images/icons/scale.svg" width="22" height="22" alt="" /> RokBot is licensed under the [RokBot Noncommercial License 1.0](LICENSE): personal use, self-hosting, study, modification and noncommercial redistribution are permitted, and all commercial use is prohibited. Portions derived from ProkBot also remain under the [ProkBot Noncommercial License 1.0](LICENSES/ProkBot-Noncommercial-1.0.txt). See [NOTICE](NOTICE) for derivation and third-party notices, and [docs/faq.en.md](docs/faq.en.md#distribution--compliance) for compliance notes.
 
 ## Acknowledgements
 

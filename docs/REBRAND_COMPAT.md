@@ -13,7 +13,7 @@ This document is the authoritative registry for RokBot's `grokbot` / `prokbot` â
 | **Category A (Project-Owned)** | RokBot repository URLs, container/image names, Compose project names, `ROKBOT_*` env vars, `x-rokbot-*` HTTP headers, `rokbot_*` cookies, output bundle/package IDs, URL schemes, delta schemas, local directories, UI copy, and docs | **100% rebranded** to `rokbot` / `RokBot` / `hongfaqiu/rokbot` |
 | **Category B (Upstream-Constrained)** | Official binary filenames inside vendor archives, bundle/package IDs checked prior to patching, compiled Hermes/Electron/Swift RPC & IPC channel names, protobuf enum literals, official cloud/CDN/store URLs, and official `sand-host` / `SAND_*` runtime hooks | **Preserved as-is** in validators, byte-patch anchors, and protocol interceptors |
 | **Migration & Staged Bridges** | Explicitly bounded fallback logic for upgrading existing `.env` deployments, legacy delta headers, binary JNI ABI compatibility layers, or staged M1.3.2 / M1.4 transitions | **Strictly scoped & documented** here so audits do not confuse them with unaddressed leaks |
-| **Historical Attribution** | Required upstream license provenance (`ProkBot Noncommercial License 1.0`), upstream credits, and trademark disclaimers | **Preserved** in `NOTICE` and `README*.md` Credits |
+| **Historical Attribution** | Project license (`RokBot Noncommercial License 1.0`), retained upstream license (`ProkBot Noncommercial License 1.0` in `LICENSES/`), upstream credits, and trademark disclaimers | **Preserved** in `NOTICE` and `README*.md` Credits |
 
 ### Category A Summary Mapping
 
@@ -128,7 +128,7 @@ The following items reflect (a) permanent binary ABI / vendored library compatib
 <a id="historical-attribution"></a>
 ## 4. Historical Attribution & License Exemptions
 
-In accordance with **ProkBot Noncommercial License 1.0** (see [`LICENSE`](../LICENSE)), the following references are intentionally preserved and exempt from Category-A replacement:
+RokBot is licensed under the **RokBot Noncommercial License 1.0** (see [`LICENSE`](../LICENSE)). In accordance with the upstream **ProkBot Noncommercial License 1.0** (kept unchanged in [`LICENSES/ProkBot-Noncommercial-1.0.txt`](../LICENSES/ProkBot-Noncommercial-1.0.txt)), the following references are intentionally preserved and exempt from Category-A replacement:
 
 1. **`ProkBot`**: `https://gitee.com/ahaduoduoduo/ProkBot` (`release v2026.11.05, commit 3e9fe8c`, `Copyright (c) 2026 ProkBot contributors`) in [`NOTICE`](../NOTICE), [`README.md`](../README.md), and [`README.en.md`](../README.en.md).
 2. **`ProkBot Plus`**: `https://github.com/ferretgeek/prokbot-plus` (`referenced through 1.5.1`, `Copyright (c) 2026 ProkBot Plus contributors`) in [`NOTICE`](../NOTICE), [`README.md`](../README.md), and [`README.en.md`](../README.en.md).
