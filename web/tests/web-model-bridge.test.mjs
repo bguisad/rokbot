@@ -112,6 +112,32 @@ test('compat.js polyfills ES5 AbortSignal.timeout for Chromium 89-102 without ov
   assert.equal(sandbox2.AbortSignal.timeout, nativeFn);
 });
 
+test('gateway.js search uses the Host search methods and answers in the interface container shape', async t => {
+  const { clientStage } = await stageClientDir(t);
+  const { createGateway } = await import(pathToFileURL(path.join(clientStage, 'gateway.js')).href);
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const requests = [];
+  let answer = [{ agentId: 'a', entryId: 'e' }];
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ path: String(url), body: JSON.parse(init.body ?? '{}') });
+    return new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const gw = createGateway({});
+  t.after(() => gw.close());
+  // An official interface checks { matches: [...], coverage: { kind } } before reading the reply;
+  // the Host's bare match array must still arrive wrapped, never as a malformed-array reply.
+  for (const method of ['searchMessages', 'searchFiles']) {
+    assert.deepEqual(await gw.command(method, { query: 'ip' }),
+      { matches: [{ agentId: 'a', entryId: 'e' }], coverage: { kind: 'complete' } });
+  }
+  assert.deepEqual(requests, [{ path: '/api/searchAgents', body: { query: 'ip' } }, { path: '/api/searchMedia', body: { query: 'ip' } }]);
+  answer = { matches: [{ agentId: 'b', entryId: 'f' }], coverage: { kind: 'recent' } };
+  assert.deepEqual(await gw.command('searchMessages', { query: 'ip' }), answer);
+  answer = { unexpected: true };
+  assert.deepEqual(await gw.command('searchMessages', { query: 'ip' }), { matches: [], coverage: { kind: 'complete' } });
+});
+
 test('gateway.js forwards sanitized extraHeaders and deduplicates concurrent 401 /connect/status storms', async t => {
   const { clientStage } = await stageClientDir(t);
   const { createGateway, subscribe } = await import(pathToFileURL(path.join(clientStage, 'gateway.js')).href);

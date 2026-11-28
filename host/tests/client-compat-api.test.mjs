@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   clientCompatMethods,
   handleClientCompatRpc,
+  searchAnswer,
 } from '../server/client-compat-api.mjs';
 import { HttpError } from '../server/security.mjs';
 
@@ -30,7 +31,9 @@ test('client-compat-api only registers Host-forwarded RPCs and handles automatio
       'rerunAutomationFromCard',
       'resolveSkillPublishTargets',
       'runAutomationWebhook',
+      'searchAgents',
       'searchConversation',
+      'searchMedia',
     ],
   );
   for (const localMethod of [
@@ -237,4 +240,28 @@ test('searchConversation traverses 1000 official-shape entries to find match at 
     ),
     err => err instanceof HttpError && err.status === 503,
   );
+});
+
+test('searchAgents and searchMedia answer in the interface container shape', async () => {
+  const calls = [];
+  const fakeHost = async (method, args) => {
+    calls.push({ method, args });
+    if (method === 'searchAgents') return [{ agentId: 'a', entryId: 'e1', snippet: 'ip' }];
+    if (method === 'searchMedia') return { matches: [{ agentId: 'a', fileName: 'x.png' }], coverage: { kind: 'recent' } };
+    throw new Error(`unexpected ${method}`);
+  };
+  assert.deepEqual(await handleClientCompatRpc('searchAgents', { query: ' ip ' }, fakeHost),
+    { matches: [{ agentId: 'a', entryId: 'e1', snippet: 'ip' }], coverage: { kind: 'complete' } });
+  assert.deepEqual(await handleClientCompatRpc('searchMedia', { query: 'ip' }, fakeHost),
+    { matches: [{ agentId: 'a', fileName: 'x.png' }], coverage: { kind: 'recent' } });
+  assert.deepEqual(await handleClientCompatRpc('searchAgents', { query: '   ' }, fakeHost),
+    { matches: [], coverage: { kind: 'complete' } });
+  assert.deepEqual(await handleClientCompatRpc('searchMedia', { query: 'ip', limit: 5 }, fakeHost),
+    { matches: [{ agentId: 'a', fileName: 'x.png' }], coverage: { kind: 'recent' } });
+  assert.deepEqual(calls, [
+    { method: 'searchAgents', args: { query: 'ip' } },
+    { method: 'searchMedia', args: { query: 'ip' } },
+    { method: 'searchMedia', args: { query: 'ip', limit: 5 } },
+  ]);
+  assert.deepEqual(searchAnswer('nonsense'), { matches: [], coverage: { kind: 'complete' } });
 });

@@ -154,6 +154,15 @@ export async function subscribe(endpoint, consume, signal, options = {}) {
   }
 }
 
+/** The Host's one-page search answers with the match list; any other unreadable reply is no match. */
+export function searchAnswer(answer) {
+  const matches = Array.isArray(answer) ? answer
+    : Array.isArray(answer?.matches) ? answer.matches
+    : [];
+  const coverage = answer?.coverage?.kind;
+  return { matches, coverage: coverage === 'recent' || coverage === 'resumable' ? answer.coverage : { kind: 'complete' } };
+}
+
 export function createGateway({ onUnauthorized, onConnected, onStateChanged, streamIdleTimeoutMs = 45000 } = {}) {
   const lifetime = new AbortController();
   const streams = new Set();
@@ -252,9 +261,19 @@ export function createGateway({ onUnauthorized, onConnected, onStateChanged, str
     if (method === 'restoreTemporalAgentRouting' || method === 'noteMountedAgent') return null;
     if (method === 'createAgent') { const { creationRoute, ...rest } = args ?? {}; args = rest; }
     // Desktop 1.1.0 renamed global search and pages older results; the Host answers in one page.
+    // The official interface (1.2.3+ provider) checks the reply container before it reads it: it
+    // needs { matches: [...] } and a coverage of kind complete / recent / resumable, and a bare
+    // array is rejected as malformed. A slow or failing Host also keeps the scanner in 'loading'
+    // until it settles, so surface the failure instead of leaving the page on the spinner.
     if (method === 'searchMessages' || method === 'searchFiles') {
-      const matches = await request(`/api/${method === 'searchMessages' ? 'searchAgents' : 'searchMedia'}`, { query: args?.query }, signal);
-      return { matches, coverage: { kind: 'complete' } };
+      let answer;
+      try {
+        answer = await request(`/api/${method === 'searchMessages' ? 'searchAgents' : 'searchMedia'}`, { query: args?.query }, signal);
+      } catch (error) {
+        if (error?.httpStatus != null || error?.transportKind != null || signal?.aborted) throw error;
+        return { matches: [], coverage: { kind: 'complete' } };
+      }
+      return searchAnswer(answer);
     }
     // The Host keeps no read receipts for transcripts and has no pending lessons to offer.
     if (method === 'noteTranscriptOpened') return null;
