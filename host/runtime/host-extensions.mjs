@@ -21,6 +21,7 @@ import { reasoningOptions } from './model-policy.mjs';
 import { contextCacheFilePath } from './model-context-cache.mjs';
 import { createLocalExecBridge } from './local-exec-bridge.mjs';
 import { decorateHostExtensionsFor2bb5e41 } from './local-harness-bridge.mjs';
+import { startLocalContentSearch } from './content-search.mjs';
 
 const unsubscribe = () => () => {};
 export function unavailable(capability) {
@@ -197,6 +198,7 @@ export function createExtensionStarter(library, modelConfig) {
     }),
     'managed-setup': startLocalManagedSkills,
     'bot-template-share': () => localTemplates(),
+    'content-search': context => startLocalContentSearch(context, library),
     'remote-agent-messaging': context => startLocalFederation(context, { extensions: id => apis.get(id) }),
     inference: () => createInference(modelConfig, library, services),
     mcp: context => startLocalHostMcp(context, library, { nativeEnabled: () => capabilities.get().macComputer,

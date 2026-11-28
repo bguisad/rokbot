@@ -124,10 +124,15 @@ try {
   };
   // Session list fields (last message time, pending cards) for every client.
   const listArrangement = createListArrangement({ readTail: transcriptTailReader(host) });
+  const getHostHealth = () => {
+    const base = host.getHealth();
+    const searchIndex = host.hostExtensions?.api('content-search')?.getHealth?.();
+    return searchIndex ? { ...base, searchIndex } : base;
+  };
   gateway = await library.startGatewayServer({
     api: decorateLocalMigrationApi({ api: decorateLocalSharingApi({ api: { ...withListArrangement(preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), listArrangement), localApplicationRpc }, host }), host }),
     subscribe: subscribeWithListArrangement(listener => host.subscribe(listener), listArrangement, rosterRefresher(host)),
-    getHealth: () => host.getHealth(), startedAt: host.startedAt,
+    getHealth: getHostHealth, startedAt: host.startedAt,
     host: process.env.ROKBOT_HOST_BIND ?? process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.ROKBOT_HOST_PORT ?? process.env.GROKBOT_HOST_PORT ?? 1340),
     ...(internalToken ? { authToken: internalToken } : {}),
     onDesktopContact: () => host.noteDesktopContact(),
@@ -147,9 +152,11 @@ try {
     onCommandError: report => host.reportGatewayCommandError(report),
     onCommandComplete: report => host.reportGatewayCommandSuccess(report),
   });
+  const searchIndex = host.hostExtensions?.api('content-search')?.getHealth?.();
   const status = { ready: true, revision, model: model.model, pid: process.pid,
     port: gateway.port, dataRoot: process.env.SAND_DATA_ROOT, identity: 'local-workspace',
-    officialAccount: false, officialBackend: false, telemetry: false, updates: false, core };
+    officialAccount: false, officialBackend: false, telemetry: false, updates: false, core,
+    ...(searchIndex ? { searchIndex } : {}) };
   await saveHostStatus(status);
   await writePrivate(join(dataDir, 'execution-active.json'), JSON.stringify({
     revision: executionNode?.revision ?? '', pid: process.pid,
