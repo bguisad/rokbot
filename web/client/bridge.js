@@ -15,6 +15,8 @@ import { installWebviewFrames } from './webview.js';
 import { installLayoutFixes, computerStageOpen, phoneBack, showConversation } from './layout.js';
 import './desktop/composer-assist.js';
 import './desktop/group-create.js';
+import './desktop/settings-nav.js';
+import './desktop/bot-profile.js';
 import { installComposerSuggestions } from './suggestions.js';
 import { installAnchorFallback } from './anchor-fallback.js';
 import { rokText } from './desktop/i18n.mjs';
@@ -349,6 +351,27 @@ globalThis.__rokbotProfile = Object.freeze({
 });
 installLayoutFixes();
 installComposerSuggestions({ request: gateway.request, locale, getViewingAgentId: () => viewingAgentId });
+// The grouped settings navigation (same code as the desktop preload's settings-nav-loader.cjs).
+const settingsNavUi = globalThis.RokBotSettingsNav?.installSettingsNav?.({ document, locale });
+if (settingsNavUi && typeof MutationObserver === 'function') {
+  const navObserver = new MutationObserver(mutations => {
+    if (mutations.every(m => m.target instanceof Element
+      && (m.target.closest('.rokbot-settings-nav-host') || m.target.closest('[data-rokbot-settings-pane]')))) return;
+    settingsNavUi.sync();
+  });
+  navObserver.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-current', 'data-active', 'class'] });
+  settingsNavUi.sync();
+}
+// Data for the desktop Bot details page (mac/clients/desktop/bot-profile.cjs).
+globalThis.RokBotBotProfile?.installBotProfile?.({
+  document,
+  window,
+  locale,
+  getViewingAgentId: () => viewingAgentId,
+  usage: () => modelBridge.getUsage({}),
+  modelConfig: () => modelBridge.getModelConfig(),
+  connection: () => window.localBot.connectionStatus(),
+});
 globalThis.RokBotGroupCreate?.installGroupCreate?.({
   document,
   window,

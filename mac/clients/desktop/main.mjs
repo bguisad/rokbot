@@ -537,6 +537,24 @@ ipcMain.on('rokbot-local:open-agent', (event, id) => {
   if (!trimmed || trimmed.length > 128) return;
   openAgent(trimmed);
 });
+ipcMain.handle('rokbot-local:bot-profile-get', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const id = typeof payload?.id === 'string' ? payload.id.trim() : '';
+  if (!id || id.length > 128) throw new Error('Invalid Bot id');
+  return gateway.command('getAgent', { id }, AbortSignal.timeout(15000));
+});
+ipcMain.handle('rokbot-local:bot-automations-get', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const id = typeof payload?.id === 'string' ? payload.id.trim() : '';
+  if (!id || id.length > 128) throw new Error('Invalid Bot id');
+  return gateway.command('getAgentAutomations', { id }, AbortSignal.timeout(15000));
+});
+ipcMain.handle('rokbot-local:bot-notify-set', (event, payload) => {
+  if (!trusted(event, mainWindow) || !gateway) throw new Error('Unexpected renderer');
+  const id = typeof payload?.id === 'string' ? payload.id.trim() : '';
+  if (!id || id.length > 128) throw new Error('Invalid Bot id');
+  return gateway.command('setAgentNotifyOnUpdates', { id, isEnabled: Boolean(payload?.isEnabled) }, AbortSignal.timeout(15000));
+});
 ipcMain.handle('rokbot-local:download-attachments-zip', async (event, payload) => {
   if (!trusted(event, mainWindow) || !methodCall) throw new Error('Unexpected renderer');
   return methodCall('downloadAttachmentsZip', payload);

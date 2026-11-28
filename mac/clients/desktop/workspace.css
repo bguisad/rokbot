@@ -258,17 +258,40 @@ html.rokbot-phone .rokbot-ghost__key {
 }
 
 /* ---- First-level "Input suggestions" settings page ------------------------------------------- */
+.sand-settings-panel.rokbot-sug-page-open {
+  /* Give the page a bounded height inside the settings dialog so its body can scroll. */
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
 .sand-settings-panel.rokbot-sug-page-open > :not(.rokbot-sug-page):not(:first-child) {
   display: none !important;
 }
 .rokbot-sug-page {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+.rokbot-sug-page__header {
+  flex: none !important;
 }
 .rokbot-sug-page__body {
-  overflow-y: auto;
+  /* Override official .sand-b3r6kr overflow:hidden copied from .sand-settings-panel__body. */
+  display: block !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.rokbot-sug-page__body:focus-visible {
+  outline: none;
 }
 .rokbot-sug-nav__icon {
   display: inline-flex;
@@ -277,6 +300,8 @@ html.rokbot-phone .rokbot-ghost__key {
   display: grid;
   align-content: start;
   gap: 22px;
+  height: auto !important;
+  overflow: visible !important;
 }
 /* Inside the official card the row dividers and padding come from our rows only. */
 .rokbot-sug-settings__card--official {
