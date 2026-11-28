@@ -239,7 +239,7 @@ test('M3-Pipeline: strips legacy v1 META-INF, keeps resources.arsc uncompressed,
     });
 
     assert.equal(report.actualPackageName, 'ai.x.grok.bot');
-    assert.equal(report.actualVersionName, '1.26.0');
+    assert.equal(report.actualVersionName, '1.27.0');
     assert.equal(report.mode, 'rn-official-apk-patch');
     assert.equal(report.bundlePatched, false);
     assert.equal(report.bundlePatchMode, 'companion-runtime-fallback');
@@ -1235,11 +1235,20 @@ test('R2-MockHost: supports createAgent, updateAgent, deleteAgents, getHostSetti
 });
 
 test('R2-Bytepatch: verifies pinned .gbp.gz recipes and executes bytepatch-unpaired + bytepatch-hbc-synthesized when SHA-256 matches', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(NATIVE_ROOT, 'recipes/manifest.json'), 'utf8'));
   const realMeta = loadGatewayTemplateMetadata();
+  assert.equal(realMeta.originalSha256, manifest.hbcSha256);
+  for (const res of manifest.resources) {
+    const recipe = loadBytepatchRecipe(path.join(NATIVE_ROOT, 'recipes', res.patch));
+    assert.equal(recipe.schema, 'rokbot-bytepatch/v1');
+    assert.equal(recipe.sourceSha256, realMeta.originalSha256);
+    assert.ok(Array.isArray(recipe.ops) && recipe.ops.length > 0);
+  }
+  const legacyMeta = loadGatewayTemplateMetadata(path.join(NATIVE_ROOT, 'recipes/gateway-template.json'));
   for (const name of ['unpaired.hbc.gbp.gz', 'gateway-template.hbc.gbp.gz', 'gateway-template.json.gbp.gz']) {
     const recipe = loadBytepatchRecipe(path.join(NATIVE_ROOT, 'recipes', name));
     assert.equal(recipe.schema, 'rokbot-bytepatch/v1');
-    assert.equal(recipe.sourceSha256, realMeta.originalSha256);
+    assert.equal(recipe.sourceSha256, legacyMeta.originalSha256);
     assert.ok(Array.isArray(recipe.ops) && recipe.ops.length > 0);
   }
 
@@ -2933,7 +2942,10 @@ test(
       'Official grok-bot-1.26.0.xapk not found; set ROKBOT_ANDROID_TEST_XAPK or place in inputs/android/',
   },
   () => {
-  const realMeta = loadGatewayTemplateMetadata();
+  // Track A is a pinned 1.26.0 (3212) HBC regression: every byte offset, function id and string
+  // id below is specific to the 1.26.0 bundle it patches, so load that bundle's recipe explicitly
+  // rather than the version-default, which now resolves to 1.27.0 (3283) via manifest.build.
+  const realMeta = loadGatewayTemplateMetadata(path.join(NATIVE_ROOT, 'recipes/gateway-template.json'));
   assert.equal(realMeta.bodyOffset, 38303476);
   assert.equal(realMeta.bodyCapacity, 24600);
   assert.equal(realMeta.bodyLengthOffset, 38328844);
