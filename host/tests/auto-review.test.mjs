@@ -7,9 +7,12 @@ import { AUTO_REVIEW_MODES_ENFORCE, AUTO_REVIEW_MODES_OFF, autoReviewModesFor, c
   createAutoReviewController, createLocalClassifier, rokbotCardText, startLocalAutoReview } from '../runtime/host-auto-review.mjs';
 import { localAutoReviewOptions } from '../runtime/local-harness-bridge.mjs';
 
+// Mirrors the shipped schema: action_description is required, and the model is told to answer an
+// ALLOW with an empty string and a BLOCK with one sentence.
 const tool = { type: 'function', function: { name: 'classify', description: 'Classify the action',
-  parameters: { type: 'object', required: ['decision', 'reason', 'blocked_effect'], properties: {
+  parameters: { type: 'object', required: ['decision', 'reason', 'blocked_effect', 'action_description'], properties: {
     decision: { type: 'string', enum: ['ALLOW', 'BLOCK'] }, reason: { type: 'string' },
+    action_description: { type: 'string' },
     blocked_effect: { type: 'string', enum: ['none', 'destructive_local_change', 'outbound_or_binding_external_effect'] } } } } };
 const library = { CLASSIFY_SAND_AUTO_REVIEW_ACTION_TOOL: tool, SAND_AUTO_REVIEW_CLASSIFIER_SYSTEM_PROMPT: 'Review.',
   SmartModeClassifierResult: class { constructor(value) { Object.assign(this, value); } } };
@@ -17,7 +20,9 @@ const reply = content => new Response(JSON.stringify({ id: 'msg_1', model: 'm', 
   usage: { input_tokens: 1, output_tokens: 1 }, content }), { status: 200, headers: { 'content-type': 'application/json' } });
 const textOnly = () => reply([{ type: 'text', text: 'Looks fine to me.' }]);
 const valid = () => reply([{ type: 'tool_use', id: 't1', name: 'classify',
-  input: { decision: 'ALLOW', reason: 'Read-only command', blocked_effect: 'none' } }]);
+  input: { decision: 'ALLOW', reason: 'Read-only command', blocked_effect: 'none', action_description: '' } }]);
+const blockReply = () => reply([{ type: 'tool_use', id: 't1', name: 'classify',
+  input: { decision: 'BLOCK', reason: 'Deletes files', blocked_effect: 'destructive_local_change', action_description: '' } }]);
 
 async function classifier(t, replies) {
   const usageDirectory = await mkdtemp(join(tmpdir(), 'review-test-'));
@@ -47,7 +52,8 @@ test('a second malformed classification fails and is logged', async t => {
 
 test('the configured Host model is asked and a BLOCK carries its reason and proposed rule', async t => {
   const block = () => reply([{ type: 'tool_use', id: 't1', name: 'classify', input: { decision: 'BLOCK',
-    reason: 'Recursively deletes a directory', blocked_effect: 'destructive_local_change', proposed_allow_rule: 'Allow rm -rf in /tmp' } }]);
+    reason: 'Recursively deletes a directory', blocked_effect: 'destructive_local_change', proposed_allow_rule: 'Allow rm -rf in /tmp',
+    action_description: 'Deletes the /tmp/x directory and everything in it' } }]);
   const { instance, logs, requests } = await classifier(t, [block]);
   const result = await instance.execute(undefined, { ...args, target: { action: 'run', arguments: { command: 'rm -rf /tmp/x' } } });
   assert.equal(requests[0], 'https://api.example.com/v1/messages');
@@ -278,4 +284,17 @@ test('without an auto-review extension the runner gets no classifier or controll
   assert.equal(options.autoReviewClassifierExecutor, undefined);
   assert.equal(options.autoReviewController, undefined);
   assert.deepEqual(options.getAutoReviewModes(), AUTO_REVIEW_MODES_OFF);
+});
+
+test('an ALLOW may carry an empty action_description, a BLOCK may not', async t => {
+  // The model follows the shipped schema: an ALLOW comes back with action_description "".
+  const allow = await classifier(t, [valid]);
+  const result = await allow.instance.execute(undefined, args);
+  assert.equal(result.result.value.decision, 1);
+  assert.ok(!allow.logs.some(line => /Invalid auto-review classification field/.test(line)), allow.logs.join('\n'));
+
+  // A BLOCK still has to say what it would do.
+  const block = await classifier(t, [blockReply, blockReply]);
+  await assert.rejects(() => block.instance.execute(undefined, args), /Invalid auto-review classification field: action_description/);
+  assert.ok(block.logs.some(line => /retrying after: Invalid auto-review classification field: action_description/.test(line)));
 });

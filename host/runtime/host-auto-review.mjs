@@ -100,7 +100,10 @@ const CLASSIFIERS = { openai: classifyWithChat, 'openai-responses': classifyWith
 function validate(decision, schema) {
   if (!decision || typeof decision !== 'object' || Array.isArray(decision)) throw new ReviewOutputError('Invalid auto-review classification');
   for (const name of schema.required) {
-    if (typeof decision[name] !== 'string' || !decision[name].trim() ||
+    // The shipped schema tells the model to answer an ALLOW with an empty action_description,
+    // so that one field may be empty for ALLOW; every BLOCK still needs its sentence.
+    const mayBeEmpty = name === 'action_description' && decision.decision === 'ALLOW';
+    if (typeof decision[name] !== 'string' || (!mayBeEmpty && !decision[name].trim()) ||
       (schema.properties[name].enum && !schema.properties[name].enum.includes(decision[name])))
       throw new ReviewOutputError(`Invalid auto-review classification field: ${name}`);
   }
