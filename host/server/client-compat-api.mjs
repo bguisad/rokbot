@@ -3,6 +3,7 @@
 // pinned stable sand-host bundle (d0a4baa).
 import { check } from './security.mjs';
 import { validateAgentId } from './library.mjs';
+import { searchAnswer } from '../runtime/search-answer.mjs';
 
 export const clientCompatMethods = new Set([
   'searchConversation',
@@ -64,14 +65,7 @@ function entryRole(entry) {
   return 'assistant';
 }
 
-/** Keep the Host's coverage when it pages, and answer every other readable reply as one complete page. */
-export function searchAnswer(reply) {
-  const matches = Array.isArray(reply) ? reply
-    : Array.isArray(reply?.matches) ? reply.matches
-    : [];
-  const coverage = reply?.coverage?.kind;
-  return { matches, coverage: coverage === 'recent' || coverage === 'resumable' ? reply.coverage : { kind: 'complete' } };
-}
+export { searchAnswer };
 
 function automationListFrom(result) {
   if (Array.isArray(result)) return result;

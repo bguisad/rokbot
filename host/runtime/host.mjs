@@ -18,6 +18,7 @@ import { summarizeAgent } from './host-summarize.mjs';
 import { installModelRejectionGuard } from './model-rejection-guard.mjs';
 import { preserveGatewayReplyFields } from './local-harness-bridge.mjs';
 import { createListArrangement, withListArrangement, subscribeWithListArrangement, transcriptTailReader, rosterRefresher } from './list-arrangement.mjs';
+import { withSearchAnswer } from './search-answer.mjs';
 
 const stateDir = process.env.ROKBOT_STATE_DIR ?? process.env.GROKBOT_STATE_DIR ?? '/research/state';
 const originalDir = process.env.ROKBOT_ORIGINAL_HOST ?? process.env.GROKBOT_ORIGINAL_HOST ?? '/research/original-host';
@@ -130,7 +131,7 @@ try {
     return searchIndex ? { ...base, searchIndex } : base;
   };
   gateway = await library.startGatewayServer({
-    api: decorateLocalMigrationApi({ api: decorateLocalSharingApi({ api: { ...withListArrangement(preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), listArrangement), localApplicationRpc }, host }), host }),
+    api: decorateLocalMigrationApi({ api: decorateLocalSharingApi({ api: withSearchAnswer({ ...withListArrangement(preserveGatewayReplyFields(withLibraryCleanup(host.getApi(), host, library)), listArrangement), localApplicationRpc }), host }), host }),
     subscribe: subscribeWithListArrangement(listener => host.subscribe(listener), listArrangement, rosterRefresher(host)),
     getHealth: getHostHealth, startedAt: host.startedAt,
     host: process.env.ROKBOT_HOST_BIND ?? process.env.GROKBOT_HOST_BIND ?? '0.0.0.0', port: Number(process.env.ROKBOT_HOST_PORT ?? process.env.GROKBOT_HOST_PORT ?? 1340),
