@@ -84,9 +84,13 @@ export function createGateway(config, onUnauthorized, onConnected, onStateChange
     if (method === 'restoreTemporalAgentRouting' || method === 'noteMountedAgent') return null;
     if (method === 'createAgent') { const { creationRoute, ...rest } = args; args = rest; }
     // Desktop 1.1.0 renamed global search and pages older results; the Host answers in one page.
+    // A newer interface checks the reply container, needs { matches: [...] } plus a coverage kind,
+    // and rejects a bare array as malformed (see web/client/gateway.js searchAnswer).
     if (method === 'searchMessages' || method === 'searchFiles') {
-      const matches = await request(`/api/${method === 'searchMessages' ? 'searchAgents' : 'searchMedia'}`, { query: args.query }, signal);
-      return { matches, coverage: { kind: 'complete' } };
+      const answer = await request(`/api/${method === 'searchMessages' ? 'searchAgents' : 'searchMedia'}`, { query: args.query }, signal);
+      const matches = Array.isArray(answer) ? answer : Array.isArray(answer?.matches) ? answer.matches : [];
+      const coverage = answer?.coverage?.kind;
+      return { matches, coverage: coverage === 'recent' || coverage === 'resumable' ? answer.coverage : { kind: 'complete' } };
     }
     // The Host keeps no read receipts for transcripts and has no pending lessons to offer.
     if (method === 'noteTranscriptOpened') return null;
