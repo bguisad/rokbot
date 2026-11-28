@@ -6,6 +6,8 @@ import { validateAgentId } from './library.mjs';
 
 export const clientCompatMethods = new Set([
   'searchConversation',
+  'searchAgents',
+  'searchMedia',
   'rerunAutomationFromCard',
   'runAutomationWebhook',
   'resolveSkillPublishTargets',
@@ -62,6 +64,15 @@ function entryRole(entry) {
   return 'assistant';
 }
 
+/** Keep the Host's coverage when it pages, and answer every other readable reply as one complete page. */
+export function searchAnswer(reply) {
+  const matches = Array.isArray(reply) ? reply
+    : Array.isArray(reply?.matches) ? reply.matches
+    : [];
+  const coverage = reply?.coverage?.kind;
+  return { matches, coverage: coverage === 'recent' || coverage === 'resumable' ? reply.coverage : { kind: 'complete' } };
+}
+
 function automationListFrom(result) {
   if (Array.isArray(result)) return result;
   if (Array.isArray(result?.automations)) return result.automations;
@@ -70,6 +81,15 @@ function automationListFrom(result) {
 
 export async function handleClientCompatRpc(method, input, callHost) {
   if (method === 'resolveSkillPublishTargets') return { targets: [] };
+
+  // The interface reads every search reply as { matches, coverage }; a bare match array is
+  // rejected as source/malformed-reply, which showed as an unavailable search on Android.
+  if (method === 'searchAgents' || method === 'searchMedia') {
+    const query = typeof input?.query === 'string' ? input.query.trim() : '';
+    if (!query) return { matches: [], coverage: { kind: 'complete' } };
+    const reply = await callHost(method, { ...input, query });
+    return searchAnswer(reply);
+  }
 
   if (method === 'rerunAutomationFromCard') {
     const id = validateAgentId(input?.id);
