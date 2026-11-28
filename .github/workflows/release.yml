@@ -8,6 +8,14 @@
 # 推送到 main（只在补丁器 / 发布脚本 / 更新说明变动时）或手动 workflow_dispatch 时，跑同样的打补丁与
 # 发布流程做校验，但 Release 步骤只以 --dry-run 演练最近的 v20* 标签，不创建、不修改任何 Release 或附件。
 #
+# 标签触发的 Release 以「标签里的更新说明」为准（带「第N版」的说明在该标签的提交里）。
+# 如需人工整理正文或补齐附件后再发布，可设置仓库变量 ROKBOT_CI_RELEASE=0：CI 仍会校验各平台 patch.json，
+# 但不再创建或修改 Release，由本地 scripts/release/gh-release.mjs 负责发布。CI 用 --app-version（默认
+# ROKBOT_DESKTOP_APP_VERSION）重打补丁生成的清单版本号与该标签实际发布的版本号不一致，直接上传会覆盖
+# 真实清单，所以默认关闭上传。
+#
+# 可选仓库变量 ROKBOT_CI_RELEASE：设为 0 时标签触发的 CI 不碰 Release（默认 1）。
+#
 # 可选仓库变量 ROKBOT_DESKTOP_APP_VERSION：桌面端对外版本号（传给各补丁器的 --app-version）。
 name: Release
 
@@ -117,7 +125,7 @@ jobs:
           path: ${{ runner.temp }}/manifests
           merge-multiple: true
       - name: 创建或更新 Release
-        if: ${{ github.ref_type == 'tag' }}
+        if: ${{ github.ref_type == 'tag' && vars.ROKBOT_CI_RELEASE != '0' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -126,7 +134,7 @@ jobs:
           node scripts/release/gh-release.mjs "$GITHUB_REF_NAME" "$RUNNER_TEMP/manifests" \
             --manifests-only --repo "$GITHUB_REPOSITORY" --out "$RUNNER_TEMP/release"
       - name: 演练最近一次 Release（不上传）
-        if: ${{ github.ref_type != 'tag' }}
+        if: ${{ github.ref_type != 'tag' || vars.ROKBOT_CI_RELEASE == '0' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/manifests"

@@ -310,3 +310,11 @@ test('release 工作流：v20* 标签触发，只上传 patch.json 并调用发�
   assert.deepEqual(uploads, ['${{ runner.temp }}/manifests/*.patch.json']);
   assert.doesNotMatch(yml, /gh release upload|softprops|action-gh-release/);
 });
+
+test('release 工作流：标签轮次可用 ROKBOT_CI_RELEASE=0 交回本地发布（CI 清单版本号与真实版本不一致）', () => {
+  const yml = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8');
+  assert.match(yml, /if: \$\{\{ github\.ref_type == 'tag' && vars\.ROKBOT_CI_RELEASE != '0' \}\}/,
+    '只有显式开启时，标签轮次才创建 / 更新 Release');
+  assert.match(yml, /if: \$\{\{ github\.ref_type != 'tag' \|\| vars\.ROKBOT_CI_RELEASE == '0' \}\}/,
+    '关闭上传时，标签轮次改为演练，保证清单校验照跑');
+});
